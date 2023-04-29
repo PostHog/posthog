@@ -176,53 +176,64 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
         @snapshot_clickhouse_queries
         def test_funnel_events_with_person_on_events_v2(self):
-
             # KLUDGE: We need to do this to ensure create_person_id_override_by_distinct_id
             # works correctly. Worth considering other approaches as we generally like to
             # avoid truncating tables in tests for speed.
             sync_execute("TRUNCATE TABLE sharded_events")
+            with freeze_time("2012-01-01T03:21:34.000Z"):
+                funnel = self._basic_funnel()
 
-            funnel = self._basic_funnel()
+            with freeze_time("2012-01-01T03:21:35.000Z"):
+                # events
+                stopped_after_signup_person_id = uuid.uuid4()
+                person_factory(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
+                self._signup_event(distinct_id="stopped_after_signup", person_id=stopped_after_signup_person_id)
 
-            # events
-            stopped_after_signup_person_id = uuid.uuid4()
-            person_factory(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
-            self._signup_event(distinct_id="stopped_after_signup", person_id=stopped_after_signup_person_id)
+            with freeze_time("2012-01-01T03:21:36.000Z"):
+                stopped_after_pay_person_id = uuid.uuid4()
+                person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
+                self._signup_event(distinct_id="stopped_after_pay", person_id=stopped_after_pay_person_id)
+            with freeze_time("2012-01-01T03:21:37.000Z"):
+                self._pay_event(distinct_id="stopped_after_pay", person_id=stopped_after_pay_person_id)
 
-            stopped_after_pay_person_id = uuid.uuid4()
-            person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
-            self._signup_event(distinct_id="stopped_after_pay", person_id=stopped_after_pay_person_id)
-            self._pay_event(distinct_id="stopped_after_pay", person_id=stopped_after_pay_person_id)
+            with freeze_time("2012-01-01T03:21:38.000Z"):
+                had_anonymous_id_person_id = uuid.uuid4()
+                person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
+                self._signup_event(distinct_id="had_anonymous_id", person_id=had_anonymous_id_person_id)
+            with freeze_time("2012-01-01T03:21:39.000Z"):
+                self._pay_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
+            with freeze_time("2012-01-01T03:21:40.000Z"):
+                self._movie_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
 
-            had_anonymous_id_person_id = uuid.uuid4()
-            person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
-            self._signup_event(distinct_id="had_anonymous_id", person_id=had_anonymous_id_person_id)
-            self._pay_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
-            self._movie_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
+            with freeze_time("2012-01-01T03:21:41.000Z"):
+                just_did_movie_person_id = uuid.uuid4()
+                person_factory(distinct_ids=["just_did_movie"], team_id=self.team.pk)
+                self._movie_event(distinct_id="just_did_movie", person_id=just_did_movie_person_id)
 
-            just_did_movie_person_id = uuid.uuid4()
-            person_factory(distinct_ids=["just_did_movie"], team_id=self.team.pk)
-            self._movie_event(distinct_id="just_did_movie", person_id=just_did_movie_person_id)
+            with freeze_time("2012-01-01T03:21:42.000Z"):
+                wrong_order_person_id = uuid.uuid4()
+                person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
+                self._pay_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
+            with freeze_time("2012-01-01T03:21:43.000Z"):
+                self._signup_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
+            with freeze_time("2012-01-01T03:21:44.000Z"):
+                self._movie_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
 
-            wrong_order_person_id = uuid.uuid4()
-            person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
-            self._pay_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
-            self._signup_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
-            self._movie_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
+            with freeze_time("2012-01-01T03:21:45.000Z"):
+                create_person_id_override_by_distinct_id("stopped_after_signup", "stopped_after_pay", self.team.pk)
 
-            create_person_id_override_by_distinct_id("stopped_after_signup", "stopped_after_pay", self.team.pk)
+            with freeze_time("2012-01-01T03:21:46.000Z"):
+                result = funnel.run()
+                self.assertEqual(result[0]["name"], "user signed up")
 
-            result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
+                # key difference between this test and test_funnel_events.
+                # we merged two people and thus the count here is 3 and not 4
+                self.assertEqual(result[0]["count"], 3)
 
-            # key difference between this test and test_funnel_events.
-            # we merged two people and thus the count here is 3 and not 4
-            self.assertEqual(result[0]["count"], 3)
-
-            self.assertEqual(result[1]["name"], "paid")
-            self.assertEqual(result[1]["count"], 2)
-            self.assertEqual(result[2]["name"], "watched movie")
-            self.assertEqual(result[2]["count"], 1)
+                self.assertEqual(result[1]["name"], "paid")
+                self.assertEqual(result[1]["count"], 2)
+                self.assertEqual(result[2]["name"], "watched movie")
+                self.assertEqual(result[2]["count"], 1)
 
         def test_funnel_with_messed_up_order(self):
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")

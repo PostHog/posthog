@@ -109,16 +109,18 @@ $colors: (
     // PostHog 3000
     'text-3000-light': #111,
     'muted-3000-light': rgba(#111, 0.5),
+    'trace-3000-light': rgba(#111, 0.25),
     'primary-3000-light': #393939,
     'secondary-3000-light': #e4e6dc,
     'accent-3000-light': #eeefe9,
     'bg-3000-light': #f3f4ef,
-    'border-3000-light': #d0d1c9,
+    'border-3000-light': #dadbd2,
     'glass-bg-3000-light': #e4e5deb3,
     'glass-border-3000-light': #e4e5de,
 
     'text-3000-dark': #fff,
     'muted-3000-dark': rgba(#fff, 0.5),
+    'trace-3000-dark': rgba(#fff, 0.25),
     'primary-3000-dark': var(--primary),
     'secondary-3000-dark': #3b4159,
     'accent-3000-dark': #1d1f27,
@@ -167,6 +169,12 @@ $_lifecycle_dormant: #f86234;
     --opacity-disabled: 0.6;
     --font-medium: 500;
     --font-semibold: 600;
+
+    // Colors of the PostHog logo
+    --brand-blue: #1d4aff;
+    --brand-red: #f54e00;
+    --brand-yellow: #f9bd2b;
+    --brand-key: #000; // This is going to be white in dark mode
 
     // LEGACY data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --blue: #597dce;
@@ -253,6 +261,7 @@ $_lifecycle_dormant: #f86234;
     --z-definition-popover-overlay: 1062;
     --z-popover: 1061;
     --z-modal: 1060;
+    --z-hedgehog-buddy: 1059;
     --z-ant-modal-wrap: 1060;
     --z-ant-modal-mask: 1050;
     --z-plugins-popconfirm: 1001;
@@ -275,6 +284,7 @@ $_lifecycle_dormant: #f86234;
     // Update and override from react-toastify
     // which attaches these variables to :root
     // which means they aren't available in the toolbar
+    --toastify-color-dark: var(--accent-3000-dark);
     --toastify-color-light: var(--bg-light);
     --toastify-color-info: var(--primary);
     --toastify-color-success: var(--success);

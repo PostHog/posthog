@@ -65,41 +65,35 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                        prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                       prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
-                        prop
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
+                                                       prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target,
-                                                            prop
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target,
-                                                                               prop
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target,
+                                                                                           prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                              prop
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -343,41 +337,35 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                        prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                       prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
-                        prop
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
+                                                       prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target,
-                                                            prop
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target,
-                                                                               prop
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target,
+                                                                                           prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                              prop
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -482,41 +470,35 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                        prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                       prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
-                        prop
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
+                                                       prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target,
-                                                            prop
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target,
-                                                                               prop
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target,
+                                                                                           prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                              prop
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -625,41 +607,35 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                        prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                       prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
-                        prop
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
+                                                       prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target,
-                                                            prop
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target,
-                                                                               prop
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target,
+                                                                                           prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                              prop
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -768,41 +744,35 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                        prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                       prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
-                        prop
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
+                                                       prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target,
-                                                            prop
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target,
-                                                                               prop
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target,
+                                                                                           prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                              prop
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -911,41 +881,35 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                        prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                       prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
-                        prop
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
+                                                       prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target,
-                                                            prop
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target,
-                                                                               prop
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target,
+                                                                                           prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                              prop
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -1063,41 +1027,35 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                        prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                       prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
-                        prop
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
+                                                       prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target,
-                                                            prop
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target,
-                                                                               prop
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target,
+                                                                                           prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                              prop
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -1341,41 +1299,35 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                        prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                       prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
-                        prop
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
+                                                       prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target,
-                                                            prop
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target,
-                                                                               prop
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target,
+                                                                                           prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                              prop
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -1479,19 +1431,17 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -1596,19 +1546,17 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -1713,19 +1661,17 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -1830,19 +1776,17 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -1957,41 +1901,35 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                        prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                       prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
-                        prop
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
+                                                       prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target,
-                                                            prop
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target,
-                                                                               prop
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target,
+                                                                                           prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                              prop
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -2235,41 +2173,35 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                        prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                       prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
-                        prop
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2 ,
+                                                       prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target,
-                                                            prop
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target,
-                                                                               prop
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target,
+                                                                                           prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                              prop
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -2421,19 +2353,17 @@
                   if(isNotNull(conversion_times[3])
                      AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2482,19 +2412,17 @@
                             if(isNotNull(conversion_times[3])
                                AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2543,19 +2471,17 @@
                             if(isNotNull(conversion_times[3])
                                AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2711,19 +2637,17 @@
                   if(isNotNull(conversion_times[3])
                      AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2772,19 +2696,17 @@
                             if(isNotNull(conversion_times[3])
                                AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2833,19 +2755,17 @@
                             if(isNotNull(conversion_times[3])
                                AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3001,19 +2921,17 @@
                   if(isNotNull(conversion_times[3])
                      AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3062,19 +2980,17 @@
                             if(isNotNull(conversion_times[3])
                                AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3123,19 +3039,17 @@
                             if(isNotNull(conversion_times[3])
                                AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3291,19 +3205,17 @@
                   if(isNotNull(conversion_times[3])
                      AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3352,19 +3264,17 @@
                             if(isNotNull(conversion_times[3])
                                AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3413,19 +3323,17 @@
                             if(isNotNull(conversion_times[3])
                                AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                        step_2,
-                                        min(latest_2) over (PARTITION by aggregation_target,
-                                                                         prop
-                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target,
+                                                                                                        prop
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop

@@ -6,6 +6,7 @@ import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/Project
 import {
     IconApps,
     IconBarChart,
+    IconBugShield,
     IconCoffee,
     IconCohort,
     IconComment,
@@ -19,6 +20,7 @@ import {
     IconPinOutline,
     IconPlus,
     IconRecording,
+    IconRocketLaunch,
     IconSettings,
     IconTools,
     IconUnverifiedEvent,
@@ -50,6 +52,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
 import { NotebookSideBar } from '~/scenes/notebooks/Notebook/NotebookSideBar'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -166,6 +169,14 @@ function Pages(): JSX.Element {
                         to={urls.sessionRecordings()}
                     />
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
+                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
+                        <PageButton
+                            icon={<IconRocketLaunch />}
+                            identifier={Scene.EarlyAccessFeatures}
+                            title={'Early Access Management'}
+                            to={urls.earlyAccessFeatures()}
+                        />
+                    )}
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
@@ -215,6 +226,9 @@ function Pages(): JSX.Element {
                     {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
                     )}
+                    {featureFlags[FEATURE_FLAGS.ARUBUG] && (
+                        <PageButton icon={<IconBugShield />} identifier={Scene.Issues} to={urls.issues()} />
+                    )}
                     <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
@@ -259,7 +273,9 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
             {children}
             <ActivationSidebar />
-            <NotebookSideBar />
+            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+                <NotebookSideBar />
+            </FlaggedFeature>
         </div>
     )
 }

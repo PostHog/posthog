@@ -49,13 +49,13 @@ export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { 
     return (
         <LemonIconBase {...props}>
             {/* top-right */}
-            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : '#1D4AFF'} fillOpacity={1} />
+            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : 'var(--brand-blue)'} fillOpacity={1} />
             {/* top-left */}
             <circle
                 cx="7"
                 cy="7.574"
                 r="3"
-                fill={monocolor ? 'currentColor' : '#F9BD2B'}
+                fill={monocolor ? 'currentColor' : 'var(--brand-yellow)'}
                 fillOpacity={monocolor ? 0.75 : 1}
             />
 
@@ -64,7 +64,7 @@ export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { 
                 cx="7"
                 cy="17.574"
                 r="3"
-                fill={monocolor ? 'currentColor' : '#F54E00'}
+                fill={monocolor ? 'currentColor' : 'var(--brand-red)'}
                 fillOpacity={monocolor ? 0.5 : 1}
             />
             {/* bottom-right */}
@@ -72,7 +72,7 @@ export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { 
                 cx="17"
                 cy="17.574"
                 r="3"
-                fill={monocolor ? 'currentColor' : '#000000'}
+                fill={monocolor ? 'currentColor' : 'var(--brand-key)'}
                 fillOpacity={monocolor ? 0.25 : 1}
             />
         </LemonIconBase>
@@ -614,6 +614,30 @@ export function IconFlag(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Material Design Rocket Launch icon. */
+export function IconRocketLaunch(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M6,15c-0.83,0-1.58,0.34-2.12,0.88C2.7,17.06,2,22,2,22s4.94-0.7,6.12-1.88C8.66,19.58,9,18.83,9,18C9,16.34,7.66,15,6,15 z M6.71,18.71c-0.28,0.28-2.17,0.76-2.17,0.76s0.47-1.88,0.76-2.17C5.47,17.11,5.72,17,6,17c0.55,0,1,0.45,1,1 C7,18.28,6.89,18.53,6.71,18.71z M17.42,13.65L17.42,13.65c6.36-6.36,4.24-11.31,4.24-11.31s-4.95-2.12-11.31,4.24l-2.49-0.5 C7.21,5.95,6.53,6.16,6.05,6.63L2,10.69l5,2.14L11.17,17l2.14,5l4.05-4.05c0.47-0.47,0.68-1.15,0.55-1.81L17.42,13.65z M7.41,10.83L5.5,10.01l1.97-1.97l1.44,0.29C8.34,9.16,7.83,10.03,7.41,10.83z M13.99,18.5l-0.82-1.91 c0.8-0.42,1.67-0.93,2.49-1.5l0.29,1.44L13.99,18.5z M16,12.24c-1.32,1.32-3.38,2.4-4.04,2.73l-2.93-2.93 c0.32-0.65,1.4-2.71,2.73-4.04c4.68-4.68,8.23-3.99,8.23-3.99S20.68,7.56,16,12.24z M15,11c1.1,0,2-0.9,2-2s-0.9-2-2-2s-2,0.9-2,2 S13.9,11,15,11z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design New Releases icon. */
+export function IconNewReleases(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="m23 12-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12zm-4.51 2.11.26 2.79-2.74.62-1.43 2.41L12 18.82l-2.58 1.11-1.43-2.41-2.74-.62.26-2.8L3.66 12l1.85-2.12-.26-2.78 2.74-.61 1.43-2.41L12 5.18l2.58-1.11 1.43 2.41 2.74.62-.26 2.79L20.34 12l-1.85 2.11zM11 15h2v2h-2zm0-8h2v6h-2z"
+                fill="currentColor"
+            />{' '}
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Show Chart icon. */
 export function IconShowChart(props: LemonIconProps): JSX.Element {
     return (
@@ -1108,6 +1132,24 @@ export function IconSchedule(props: LemonIconProps): JSX.Element {
                 d="m11.992 4c-4.416 0-7.992 3.584-7.992 8s3.576 8 7.992 8c4.424 0 8.008-3.584 8.008-8s-3.584-8-8.008-8zm.008 14.4c-3.536 0-6.4-2.864-6.4-6.4s2.864-6.4 6.4-6.4 6.4 2.864 6.4 6.4-2.864 6.4-6.4 6.4zm.4-10.4h-1.2v4.8l4.2 2.52.6-.984-3.6-2.136z"
                 fill="currentColor"
             />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design Data Object `{}` icon. */
+export function IconDataObject(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <g>
+                <path
+                    d="M4,7v2c0,0.55-0.45,1-1,1H2v4h1c0.55,0,1,0.45,1,1v2c0,1.65,1.35,3,3,3h3v-2H7c-0.55,0-1-0.45-1-1v-2 c0-1.3-0.84-2.42-2-2.83v-0.34C5.16,11.42,6,10.3,6,9V7c0-0.55,0.45-1,1-1h3V4H7C5.35,4,4,5.35,4,7z"
+                    fill="currentColor"
+                />
+                <path
+                    d="M21,10c-0.55,0-1-0.45-1-1V7c0-1.65-1.35-3-3-3h-3v2h3c0.55,0,1,0.45,1,1v2c0,1.3,0.84,2.42,2,2.83v0.34 c-1.16,0.41-2,1.52-2,2.83v2c0,0.55-0.45,1-1,1h-3v2h3c1.65,0,3-1.35,3-3v-2c0-0.55,0.45-1,1-1h1v-4H21z"
+                    fill="currentColor"
+                />
+            </g>
         </LemonIconBase>
     )
 }
@@ -2315,6 +2357,18 @@ export function IconDragHandle(props: LemonIconProps): JSX.Element {
         <LemonIconBase {...props}>
             <path
                 d="m11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** https://pictogrammers.com/library/mdi/icon/shield-bug-outline/ */
+export function IconBugShield(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M9.9 6.6L9.1 7.4L10.3 8.6C9.8 8.9 9.4 9.4 9.2 10H7V11H9V12H7V13H9V14H7V15H9.2C9.6 16.2 10.7 17 12 17S14.4 16.2 14.8 15H17V14H15V13H17V12H15V11H17V10H14.8C14.6 9.4 14.2 8.9 13.7 8.5L14.9 7.3L14.2 6.6L12.8 8H12C11.8 8 11.5 8 11.3 8.1L9.9 6.6M11 11H13V12H11V11M11 13H13V14H11V13M21 11C21 16.5 17.2 21.7 12 23C6.8 21.7 3 16.5 3 11V5L12 1L21 5V11M12 21C15.8 20 19 15.5 19 11.2V6.3L12 3.2L5 6.3V11.2C5 15.5 8.2 20 12 21Z"
                 fill="currentColor"
             />
         </LemonIconBase>

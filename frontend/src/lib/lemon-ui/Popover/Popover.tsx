@@ -1,14 +1,5 @@
 import './Popover.scss'
-import React, {
-    MouseEventHandler,
-    MutableRefObject,
-    ReactElement,
-    useContext,
-    useEffect,
-    useLayoutEffect,
-    useMemo,
-    useRef,
-} from 'react'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef } from 'react'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import clsx from 'clsx'
 import {
@@ -22,16 +13,19 @@ import {
     size,
     arrow,
     FloatingPortal,
+    UseFloatingReturn,
+    useMergeRefs,
 } from '@floating-ui/react'
 import { CSSTransition } from 'react-transition-group'
+import { useEventListener } from 'lib/hooks/useEventListener'
 
 export interface PopoverProps {
     ref?: React.MutableRefObject<HTMLDivElement | null> | React.Ref<HTMLDivElement> | null
-    visible?: boolean
+    visible: boolean
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
     /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
-    children?: React.ReactChild | ((props: { ref: MutableRefObject<HTMLElement | null> }) => JSX.Element)
+    children?: React.ReactChild
     /** External reference element not passed as a direct child */
     referenceElement?: HTMLElement
     /** Content of the overlay. */
@@ -51,18 +45,17 @@ export interface PopoverProps {
      * Works also with strings, matching classnames or ids, for antd legacy components that don't support refs
      * **/
     additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
+    referenceRef?: UseFloatingReturn['refs']['reference']
     style?: React.CSSProperties
-    /** Whether the parent popover should be closed as well on click. Useful for menus  */
+    /** Whether the parent popover should be closed as well on click. Useful for menus. */
     closeParentPopoverOnClickInside?: boolean
     getPopupContainer?: () => HTMLElement
     /** Whether to show an arrow pointing to a reference element */
     showArrow?: boolean
 }
 
-/** 0 means no parent. */
-export const PopoverContext = React.createContext<number>(0)
-
-let uniqueMemoizedIndex = 1
+export const PopoverLevelContext = React.createContext<number>(0)
+export const PopoverVisibilityContext = React.createContext<[boolean, Placement] | null>(null)
 
 let nestedPopoverReceivedClick = false
 
@@ -87,14 +80,14 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         maxContentWidth = false,
         additionalRefs = [],
         closeParentPopoverOnClickInside = false,
+        referenceRef: extraReferenceRef,
         style,
         getPopupContainer,
         showArrow = false,
     },
     contentRef
 ): JSX.Element {
-    const popoverId = useMemo(() => uniqueMemoizedIndex++, [])
-    const parentPopoverId = useContext(PopoverContext)
+    const popoverLevel = useContext(PopoverLevelContext)
 
     const arrowRef = useRef<HTMLDivElement>(null)
     const {
@@ -118,17 +111,16 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             size({
                 padding: 4,
                 apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
-                    Object.assign(floating.style, {
-                        maxHeight: `${availableHeight}px`,
-                        maxWidth: `${availableWidth}px`,
-                        width: sameWidth ? rects.reference.width : undefined,
-                    })
+                    floating.style.maxHeight = `${availableHeight}px`
+                    floating.style.maxWidth = `${availableWidth}px`
+                    floating.style.width = sameWidth ? `${rects.reference.width}px` : 'initial'
                 },
             }),
             arrow({ element: arrowRef, padding: 8 }),
             ...(middleware ?? []),
         ],
     })
+    const mergedReferenceRef = useMergeRefs([referenceRef, extraReferenceRef || null]) as React.RefCallback<HTMLElement>
 
     const arrowStaticSide = {
         top: 'bottom',
@@ -151,6 +143,16 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
     }, [referenceElement])
 
+    useEventListener(
+        'keydown',
+        (event) => {
+            if (event.key === 'Escape') {
+                onClickOutside?.(event as Event)
+            }
+        },
+        referenceElement
+    )
+
     useOutsideClickHandler(
         [floatingRef, referenceRef, ...additionalRefs],
         (event) => {
@@ -171,20 +173,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
     }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
 
-    const clonedChildren = children
-        ? typeof children === 'function'
-            ? children({ ref: referenceRef as React.MutableRefObject<HTMLElement | null> })
-            : React.cloneElement(children as ReactElement, { ref: referenceRef })
-        : null
-
-    const isAttached = clonedChildren || referenceElement
-    const top = isAttached ? y ?? 0 : undefined
-    const left = isAttached ? x ?? 0 : undefined
-
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
         onClickInside?.(e)
         // If we are not the top level popover, set a flag so that other popovers know that.
-        if (parentPopoverId !== 0 && !closeParentPopoverOnClickInside) {
+        if (popoverLevel > 0 && !closeParentPopoverOnClickInside) {
             nestedPopoverReceivedClick = true
             setTimeout(() => {
                 nestedPopoverReceivedClick = false
@@ -192,12 +184,20 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
     }
 
+    const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
+
+    const isAttached = clonedChildren || referenceElement
+    const top = isAttached ? y ?? 0 : undefined
+    const left = isAttached ? x ?? 0 : undefined
+
     return (
         <>
-            {clonedChildren}
+            <PopoverVisibilityContext.Provider value={[visible, effectivePlacement]}>
+                {clonedChildren}
+            </PopoverVisibilityContext.Provider>
             <FloatingPortal root={getPopupContainer?.()}>
                 <CSSTransition in={visible} timeout={100} classNames="Popover-" appear mountOnEnter unmountOnExit>
-                    <PopoverContext.Provider value={popoverId}>
+                    <PopoverLevelContext.Provider value={popoverLevel + 1}>
                         <div
                             className={clsx(
                                 'Popover',
@@ -211,6 +211,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ position: strategy, top, left, ...style }}
                             onClick={_onClickInside}
+                            aria-level={popoverLevel + 1}
                         >
                             <div className="Popover__box">
                                 {showArrow && isAttached && (
@@ -231,7 +232,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                 </div>
                             </div>
                         </div>
-                    </PopoverContext.Provider>
+                    </PopoverLevelContext.Provider>
                 </CSSTransition>
             </FloatingPortal>
         </>

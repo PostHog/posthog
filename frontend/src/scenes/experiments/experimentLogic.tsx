@@ -19,7 +19,6 @@ import {
     FunnelStep,
     SecondaryExperimentMetric,
     SignificanceCode,
-    SecondaryMetricAPIResult,
 } from '~/types'
 import type { experimentLogicType } from './experimentLogicType'
 import { router, urlToAction } from 'kea-router'
@@ -36,6 +35,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -62,7 +62,7 @@ export interface ExperimentLogicProps {
 
 interface SecondaryMetricResult {
     insightType: InsightType
-    result: number
+    result?: number
 }
 
 export interface TabularSecondaryMetricResults {
@@ -369,7 +369,10 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         updateExperimentGoal: async ({ filters }) => {
-            actions.updateExperiment({ filters })
+            // We never want to update global properties in the experiment
+            const filtersToUpdate = { ...filters }
+            delete filtersToUpdate.properties
+            actions.updateExperiment({ filters: filtersToUpdate })
             actions.closeExperimentGoalModal()
         },
         updateExperimentSecondaryMetrics: async ({ metrics }) => {
@@ -383,6 +386,9 @@ export const experimentLogic = kea<experimentLogicType>([
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null })
             values.experiment && actions.reportExperimentReset(values.experiment)
+
+            actions.loadExperimentResultsSuccess(null)
+            actions.loadSecondaryMetricResultsSuccess([])
         },
         updateExperimentSuccess: async ({ experiment }) => {
             actions.updateExperiments(experiment)
@@ -534,7 +540,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricResults: [
-            null as SecondaryMetricAPIResult[] | null,
+            null as Record<string, number>[] | null,
             {
                 loadSecondaryMetricResults: async () => {
                     return await Promise.all(
@@ -840,11 +846,7 @@ export const experimentLogic = kea<experimentLogicType>([
             defaults: { ...NEW_EXPERIMENT } as Experiment,
             errors: ({ name, feature_flag_key, parameters }) => ({
                 name: !name && 'You have to enter a name.',
-                feature_flag_key: !feature_flag_key
-                    ? 'You have to enter a feature flag key.'
-                    : !feature_flag_key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-                    : undefined,
+                feature_flag_key: validateFeatureFlagKey(feature_flag_key),
                 parameters: {
                     feature_flag_variants: parameters.feature_flag_variants?.map(({ key }) => ({
                         key: !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)

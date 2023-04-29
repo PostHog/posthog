@@ -1,3 +1,7 @@
+from typing import cast
+
+import math
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.test.base import BaseTest
@@ -11,6 +15,14 @@ class TestParser(BaseTest):
         self.assertEqual(parse_expr("-1.1"), ast.Constant(value=-1.1))
         self.assertEqual(parse_expr("0"), ast.Constant(value=0))
         self.assertEqual(parse_expr("0.0"), ast.Constant(value=0))
+        self.assertEqual(parse_expr("-inf"), ast.Constant(value=float("-inf")))
+        self.assertEqual(parse_expr("inf"), ast.Constant(value=float("inf")))
+        # nan-s don't like to be compared
+        parsed_nan = parse_expr("nan")
+        self.assertTrue(isinstance(parsed_nan, ast.Constant))
+        self.assertTrue(math.isnan(cast(ast.Constant, parsed_nan).value))
+        self.assertEqual(parse_expr("1e-18"), ast.Constant(value=1e-18))
+        self.assertEqual(parse_expr("2.34e+20"), ast.Constant(value=2.34e20))
 
     def test_booleans(self):
         self.assertEqual(parse_expr("true"), ast.Constant(value=True))
@@ -19,6 +31,99 @@ class TestParser(BaseTest):
 
     def test_null(self):
         self.assertEqual(parse_expr("null"), ast.Constant(value=None))
+
+    def test_conditional(self):
+        self.assertEqual(
+            parse_expr("1 > 2 ? 1 : 2"),
+            ast.Call(
+                name="if",
+                args=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                    ),
+                    ast.Constant(value=1),
+                    ast.Constant(value=2),
+                ],
+            ),
+        )
+
+    def test_arrays(self):
+        self.assertEqual(parse_expr("[]"), ast.Array(exprs=[]))
+        self.assertEqual(parse_expr("[1]"), ast.Array(exprs=[ast.Constant(value=1)]))
+        self.assertEqual(
+            parse_expr("[1, avg()]"), ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+        )
+        self.assertEqual(parse_expr("properties['value']"), ast.Field(chain=["properties", "value"]))
+        self.assertEqual(
+            parse_expr("properties[(select 'value')]"),
+            ast.ArrayAccess(
+                array=ast.Field(chain=["properties"]), property=ast.SelectQuery(select=[ast.Constant(value="value")])
+            ),
+        )
+        self.assertEqual(
+            parse_expr("[1,2,3][1]"),
+            ast.ArrayAccess(
+                array=ast.Array(
+                    exprs=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                        ast.Constant(value=3),
+                    ]
+                ),
+                property=ast.Constant(value=1),
+            ),
+        )
+
+    def test_tuples(self):
+        self.assertEqual(
+            parse_expr("(1, avg())"), ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+        )
+        # needs at least two values to be a tuple
+        self.assertEqual(parse_expr("(1)"), ast.Constant(value=1))
+
+    def test_lambdas(self):
+        self.assertEqual(
+            parse_expr("arrayMap(x -> x * 2)"),
+            ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x"],
+                        expr=ast.BinaryOperation(
+                            op=ast.BinaryOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        ),
+                    )
+                ],
+            ),
+        )
+        self.assertEqual(
+            parse_expr("arrayMap((x) -> x * 2)"),
+            ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x"],
+                        expr=ast.BinaryOperation(
+                            op=ast.BinaryOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        ),
+                    )
+                ],
+            ),
+        )
+        self.assertEqual(
+            parse_expr("arrayMap((x, y) -> x * y)"),
+            ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x", "y"],
+                        expr=ast.BinaryOperation(
+                            op=ast.BinaryOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
+                        ),
+                    )
+                ],
+            ),
+        )
 
     def test_strings(self):
         self.assertEqual(parse_expr("'null'"), ast.Constant(value="null"))
@@ -31,58 +136,46 @@ class TestParser(BaseTest):
     def test_binary_operations(self):
         self.assertEqual(
             parse_expr("1 + 2"),
-            ast.BinaryOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Add
-            ),
+            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Add),
         )
         self.assertEqual(
             parse_expr("1 + -2"),
-            ast.BinaryOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=-2), op=ast.BinaryOperationType.Add
-            ),
+            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=-2), op=ast.BinaryOperationOp.Add),
         )
         self.assertEqual(
             parse_expr("1 - 2"),
-            ast.BinaryOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Sub
-            ),
+            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Sub),
         )
         self.assertEqual(
             parse_expr("1 * 2"),
-            ast.BinaryOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Mult
-            ),
+            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Mult),
         )
         self.assertEqual(
             parse_expr("1 / 2"),
-            ast.BinaryOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Div
-            ),
+            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Div),
         )
         self.assertEqual(
             parse_expr("1 % 2"),
-            ast.BinaryOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Mod
-            ),
+            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Mod),
         )
         self.assertEqual(
             parse_expr("1 + 2 + 2"),
             ast.BinaryOperation(
                 left=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Add
+                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Add
                 ),
                 right=ast.Constant(value=2),
-                op=ast.BinaryOperationType.Add,
+                op=ast.BinaryOperationOp.Add,
             ),
         )
         self.assertEqual(
             parse_expr("1 * 1 * 2"),
             ast.BinaryOperation(
                 left=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Mult
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Mult
                 ),
                 right=ast.Constant(value=2),
-                op=ast.BinaryOperationType.Mult,
+                op=ast.BinaryOperationOp.Mult,
             ),
         )
         self.assertEqual(
@@ -90,63 +183,55 @@ class TestParser(BaseTest):
             ast.BinaryOperation(
                 left=ast.Constant(value=1),
                 right=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Mult
+                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Mult
                 ),
-                op=ast.BinaryOperationType.Add,
+                op=ast.BinaryOperationOp.Add,
             ),
         )
         self.assertEqual(
             parse_expr("1 * 1 + 2"),
             ast.BinaryOperation(
                 left=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Mult
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Mult
                 ),
                 right=ast.Constant(value=2),
-                op=ast.BinaryOperationType.Add,
+                op=ast.BinaryOperationOp.Add,
             ),
         )
 
     def test_math_comparison_operations(self):
         self.assertEqual(
             parse_expr("1 = 2"),
-            ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.Eq
-            ),
+            ast.CompareOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Eq),
         )
         self.assertEqual(
             parse_expr("1 == 2"),
-            ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.Eq
-            ),
+            ast.CompareOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Eq),
         )
         self.assertEqual(
             parse_expr("1 != 2"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.NotEq
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.NotEq
             ),
         )
         self.assertEqual(
             parse_expr("1 < 2"),
-            ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.Lt
-            ),
+            ast.CompareOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Lt),
         )
         self.assertEqual(
             parse_expr("1 <= 2"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.LtE
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.LtE
             ),
         )
         self.assertEqual(
             parse_expr("1 > 2"),
-            ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.Gt
-            ),
+            ast.CompareOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Gt),
         )
         self.assertEqual(
             parse_expr("1 >= 2"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.GtE
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.GtE
             ),
         )
 
@@ -154,13 +239,13 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("1 is null"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationType.Eq
+                left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationOp.Eq
             ),
         )
         self.assertEqual(
             parse_expr("1 is not null"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationType.NotEq
+                left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationOp.NotEq
             ),
         )
 
@@ -168,25 +253,25 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("1 like 'a%sd'"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.Like
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.Like
             ),
         )
         self.assertEqual(
             parse_expr("1 not like 'a%sd'"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.NotLike
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.NotLike
             ),
         )
         self.assertEqual(
             parse_expr("1 ilike 'a%sd'"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.ILike
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.ILike
             ),
         )
         self.assertEqual(
             parse_expr("1 not ilike 'a%sd'"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.NotILike
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.NotILike
             ),
         )
 
@@ -242,18 +327,16 @@ class TestParser(BaseTest):
         )
         self.assertEqual(
             parse_expr("(1 + 1)"),
-            ast.BinaryOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Add
-            ),
+            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Add),
         )
         self.assertEqual(
             parse_expr("1 + (1 + 1)"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1),
                 right=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Add
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Add
                 ),
-                op=ast.BinaryOperationType.Add,
+                op=ast.BinaryOperationOp.Add,
             ),
         )
 
@@ -265,7 +348,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("event like '$%'"),
             ast.CompareOperation(
-                left=ast.Field(chain=["event"]), right=ast.Constant(value="$%"), op=ast.CompareOperationType.Like
+                left=ast.Field(chain=["event"]), right=ast.Constant(value="$%"), op=ast.CompareOperationOp.Like
             ),
         )
 
@@ -275,7 +358,7 @@ class TestParser(BaseTest):
             ast.CompareOperation(
                 left=ast.Field(chain=["properties", "something"]),
                 right=ast.Constant(value=1),
-                op=ast.CompareOperationType.Eq,
+                op=ast.CompareOperationOp.Eq,
             ),
         )
         self.assertEqual(
@@ -349,7 +432,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=123)}),
             ast.CompareOperation(
-                op=ast.CompareOperationType.Lt,
+                op=ast.CompareOperationOp.Lt,
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=123),
             ),
@@ -363,7 +446,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("now() - interval 1 week"),
             ast.BinaryOperation(
-                op=ast.BinaryOperationType.Sub,
+                op=ast.BinaryOperationOp.Sub,
                 left=ast.Call(name="now", args=[]),
                 right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
             ),
@@ -395,7 +478,7 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 where=ast.CompareOperation(
-                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                    op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
             ),
         )
@@ -410,7 +493,7 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 prewhere=ast.CompareOperation(
-                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                    op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
             ),
         )
@@ -425,7 +508,7 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 having=ast.CompareOperation(
-                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                    op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
             ),
         )
@@ -436,13 +519,13 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 where=ast.CompareOperation(
-                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                    op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
                 prewhere=ast.CompareOperation(
-                    op=ast.CompareOperationType.NotEq, left=ast.Constant(value=2), right=ast.Constant(value=3)
+                    op=ast.CompareOperationOp.NotEq, left=ast.Constant(value=2), right=ast.Constant(value=3)
                 ),
                 having=ast.CompareOperation(
-                    op=ast.CompareOperationType.Like, left=ast.Constant(value="string"), right=ast.Constant(value="%a%")
+                    op=ast.CompareOperationOp.Like, left=ast.Constant(value="string"), right=ast.Constant(value="%a%")
                 ),
             ),
         )
@@ -592,7 +675,7 @@ class TestParser(BaseTest):
                         table=ast.Field(chain=["person_distinct_id"]),
                         alias="pdi",
                         constraint=ast.CompareOperation(
-                            op=ast.CompareOperationType.Eq,
+                            op=ast.CompareOperationOp.Eq,
                             left=ast.Field(chain=["pdi", "distinct_id"]),
                             right=ast.Field(chain=["e", "distinct_id"]),
                         ),
@@ -601,7 +684,7 @@ class TestParser(BaseTest):
                             table=ast.Field(chain=["persons"]),
                             alias="p",
                             constraint=ast.CompareOperation(
-                                op=ast.CompareOperationType.Eq,
+                                op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["p", "id"]),
                                 right=ast.Field(chain=["pdi", "person_id"]),
                             ),
@@ -694,7 +777,7 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 where=ast.CompareOperation(
-                    op=ast.CompareOperationType.Eq,
+                    op=ast.CompareOperationOp.Eq,
                     left=ast.Constant(value=1),
                     right=ast.Placeholder(field="hogql_val_1"),
                 ),
@@ -705,7 +788,7 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 where=ast.CompareOperation(
-                    op=ast.CompareOperationType.Eq,
+                    op=ast.CompareOperationOp.Eq,
                     left=ast.Constant(value=1),
                     right=ast.Constant(value="bar"),
                 ),
@@ -790,7 +873,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("with event as boo select boo from events"),
             ast.SelectQuery(
-                macros={"boo": ast.Macro(name="boo", expr=ast.Field(chain=["event"]), type="column")},
+                macros={"boo": ast.Macro(name="boo", expr=ast.Field(chain=["event"]), macro_format="column")},
                 select=[ast.Field(chain=["boo"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             ),
@@ -798,7 +881,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("with count() as kokku select kokku from events"),
             ast.SelectQuery(
-                macros={"kokku": ast.Macro(name="kokku", expr=ast.Call(name="count", args=[]), type="column")},
+                macros={"kokku": ast.Macro(name="kokku", expr=ast.Call(name="count", args=[]), macro_format="column")},
                 select=[ast.Field(chain=["kokku"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             ),
@@ -815,7 +898,7 @@ class TestParser(BaseTest):
                             select=[ast.Constant(value="yes")],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        type="subquery",
+                        macro_format="subquery",
                     )
                 },
                 select=[ast.Field(chain=["*"])],
@@ -834,9 +917,9 @@ class TestParser(BaseTest):
                             select=[ast.Constant(value="yes")],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        type="subquery",
+                        macro_format="subquery",
                     ),
-                    "sad": ast.Macro(name="sad", expr=ast.Constant(value=":("), type="column"),
+                    "sad": ast.Macro(name="sad", expr=ast.Constant(value=":("), macro_format="column"),
                 },
                 select=[ast.Field(chain=["sad"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),
@@ -858,7 +941,7 @@ class TestParser(BaseTest):
                             ],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        type="subquery",
+                        macro_format="subquery",
                     ),
                     "final": ast.Macro(
                         name="final",
@@ -866,7 +949,7 @@ class TestParser(BaseTest):
                             select=[ast.Field(chain=["tt"])],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["users"])),
                         ),
-                        type="subquery",
+                        macro_format="subquery",
                     ),
                 },
                 select=[ast.Field(chain=["*"])],

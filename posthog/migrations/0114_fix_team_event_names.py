@@ -26,5 +26,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(fix_team_event_names, backwards),
+        migrations.RunPython(fix_team_event_names, backwards, elidable=True),
     ]

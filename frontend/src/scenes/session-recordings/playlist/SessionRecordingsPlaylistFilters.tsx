@@ -7,7 +7,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { eventUsageLogic, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
-import { RecordingDurationFilter } from '~/types'
+import { AvailableFeature, RecordingDurationFilter, SessionRecordingsTabs } from '~/types'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { useActions, useValues } from 'kea'
@@ -16,6 +16,8 @@ import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/s
 import { SessionRecordingsPlaylistProps } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import clsx from 'clsx'
 import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 export function SessionRecordingsPlaylistFilters({
     playlistShortId,
@@ -35,6 +37,9 @@ export function SessionRecordingsPlaylistFilters({
     const { setFilters, reportRecordingsListFilterAdded, setShowFilters } = useActions(logic)
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { guardAvailableFeature } = useActions(sceneLogic)
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: SessionRecordingsTabs.Recent })
+    const { playlists } = useValues(playlistsLogic)
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({ filters }, true)
         reportRecordingPlaylistCreated('filters')
@@ -57,6 +62,7 @@ export function SessionRecordingsPlaylistFilters({
                 { key: 'Last 7 days', values: ['-7d'] },
                 { key: 'Last 21 days', values: ['-21d'] },
             ]}
+            dropdownPlacement="bottom-end"
         />
     )
 
@@ -116,7 +122,16 @@ export function SessionRecordingsPlaylistFilters({
                         <LemonButton
                             type="secondary"
                             size="small"
-                            onClick={newPlaylistHandler.onEvent}
+                            onClick={(e) =>
+                                guardAvailableFeature(
+                                    AvailableFeature.RECORDINGS_PLAYLISTS,
+                                    'recording playlists',
+                                    "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
+                                    () => newPlaylistHandler.onEvent?.(e),
+                                    undefined,
+                                    playlists.count
+                                )
+                            }
                             loading={newPlaylistHandler.loading}
                             data-attr="save-recordings-playlist-button"
                         >

@@ -14,7 +14,6 @@ import {
     IntegrationType,
     OrganizationType,
     PersonListParams,
-    PersonProperty,
     PersonType,
     PluginLogEntry,
     PropertyDefinition,
@@ -38,6 +37,8 @@ import {
     RecentPerformancePageView,
     DashboardTemplateType,
     DashboardTemplateEditorType,
+    EarlyAccsesFeatureType,
+    NewEarlyAccessFeatureType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -51,6 +52,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
+import { CommunicationResponse } from 'scenes/events/CommunicationDetailsLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -168,6 +170,10 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
+    public personCommunications(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('person_communications')
+    }
+
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insights')
@@ -249,6 +255,10 @@ class ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('property_definitions')
             .addPathComponent(propertyDefinitionId)
+    }
+
+    public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
 
     // # Cohorts
@@ -379,6 +389,15 @@ class ApiRequest {
             return this.featureFlag(id, teamId).addPathComponent('activity')
         }
         return this.featureFlags(teamId).addPathComponent('activity')
+    }
+
+    // # Features
+    public earlyAccessFeatures(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('early_access_feature')
+    }
+
+    public earlyAccessFeature(id: EarlyAccsesFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.earlyAccessFeatures(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -536,6 +555,17 @@ const api = {
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
                     return new ApiRequest().pluginsActivity()
+                },
+                [ActivityScope.DATA_MANAGEMENT]: () => {
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.EVENT_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ event definitions?
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.PROPERTY_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ property definitions?
+                    return new ApiRequest().dataManagementActivity()
                 },
             }
 
@@ -878,10 +908,6 @@ const api = {
     },
 
     persons: {
-        async getProperties(): Promise<PersonProperty[]> {
-            return new ApiRequest().persons().withAction('properties').get()
-        },
-
         async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
             return new ApiRequest().person(id).update({ data: person })
         },
@@ -1077,6 +1103,24 @@ const api = {
         },
     },
 
+    earlyAccessFeatures: {
+        async get(featureId: EarlyAccsesFeatureType['id']): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeature(featureId).get()
+        },
+        async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeatures().create({ data })
+        },
+        async update(
+            featureId: EarlyAccsesFeatureType['id'],
+            data: Pick<EarlyAccsesFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+        ): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
+        },
+        async list(): Promise<PaginatedResponse<EarlyAccsesFeatureType>> {
+            return await new ApiRequest().earlyAccessFeatures().get()
+        },
+    },
+
     subscriptions: {
         async get(subscriptionId: SubscriptionType['id']): Promise<SubscriptionType> {
             return await new ApiRequest().subscription(subscriptionId).get()
@@ -1145,6 +1189,12 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
+        },
+    },
+
+    personCommunications: {
+        async list(params: any, teamId: TeamType['id'] = getCurrentTeamId()): Promise<CommunicationResponse> {
+            return new ApiRequest().personCommunications(teamId).withQueryString(toParams(params)).get()
         },
     },
 

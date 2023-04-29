@@ -1,19 +1,18 @@
-import { kea, path, actions, connect, reducers, afterMount, selectors, listeners } from 'kea'
+import { kea, path, actions, connect, afterMount, selectors, listeners, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { BillingProductV2Type, BillingV2Type, BillingVersion } from '~/types'
-import { router } from 'kea-router'
+import { BillingProductV2Type, BillingV2Type } from '~/types'
+import { router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { urlToAction } from 'kea-router'
-import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
-import { projectUsage } from './billing-utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import type { billingLogicType } from './billingLogicType'
+import { forms } from 'kea-forms'
+import { urls } from 'scenes/urls'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -32,10 +31,6 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
             current_period_end: dayjs(data.billing_period.current_period_end),
             interval: data.billing_period.interval,
         }
-
-        data.products?.forEach((x) => {
-            x.projected_usage = projectUsage(x.current_usage, data.billing_period)
-        })
     }
 
     data.free_trial_until = data.free_trial_until ? dayjs(data.free_trial_until) : undefined
@@ -44,12 +39,14 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
 }
 
 export const billingLogic = kea<billingLogicType>([
-    path(['scenes', 'billing', 'v2', 'billingLogic']),
+    path(['scenes', 'billing', 'billingLogic']),
     actions({
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingV2Shown: true,
         registerInstrumentationProps: true,
+        setRedirectPath: true,
+        setIsOnboarding: true,
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -60,6 +57,20 @@ export const billingLogic = kea<billingLogicType>([
             false,
             {
                 setShowLicenseDirectInput: (_, { show }) => show,
+            },
+        ],
+        redirectPath: [
+            '' as string,
+            {
+                setRedirectPath: () => {
+                    return window.location.pathname.includes('/ingestion') ? urls.ingestion() + '/billing' : ''
+                },
+            },
+        ],
+        isOnboarding: [
+            false,
+            {
+                setIsOnboarding: () => window.location.pathname.includes('/ingestion'),
             },
         ],
     }),
@@ -79,6 +90,12 @@ export const billingLogic = kea<billingLogicType>([
                     lemonToast.success('Billing limits updated')
                     return parseBillingResponse(response)
                 },
+
+                deactivateProduct: async (key: string) => {
+                    const response = await api.get('api/billing-v2/deactivate?products=' + key)
+                    lemonToast.success('Product unsubscribed')
+                    return parseBillingResponse(response)
+                },
             },
         ],
         products: [
@@ -92,18 +109,7 @@ export const billingLogic = kea<billingLogicType>([
         ],
     })),
     selectors({
-        upgradeLink: [
-            (s) => [s.preflight],
-            (preflight): string =>
-                preflight?.cloud
-                    ? '/organization/billing'
-                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
-        ],
-        billingVersion: [
-            (s) => [s.billing, s.billingLoading],
-            (billing, billingLoading): BillingVersion | undefined =>
-                !billingLoading || billing ? (billing ? 'v2' : 'v1') : undefined,
-        ],
+        upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
         billingAlert: [
             (s) => [s.billing, s.preflight],
             (billing, preflight): BillingAlertConfig | undefined => {
@@ -159,7 +165,7 @@ export const billingLogic = kea<billingLogicType>([
                         title: 'You will soon hit your usage limit',
                         message: `You have currently used ${parseFloat(
                             (productApproachingLimit.percentage_usage * 100).toFixed(2)
-                        )}% of your ${productApproachingLimit.type.toLowerCase()} allocation.`,
+                        )}% of your ${productApproachingLimit.usage_key.toLowerCase()} allocation.`,
                     }
                 }
             },
@@ -192,7 +198,6 @@ export const billingLogic = kea<billingLogicType>([
             },
         },
     })),
-
     listeners(({ actions, values }) => ({
         reportBillingV2Shown: () => {
             posthog.capture('billing v2 shown')
@@ -243,9 +248,6 @@ export const billingLogic = kea<billingLogicType>([
                     payload['billing_period_start'] = values.billing.billing_period.current_period_start
                     payload['billing_period_end'] = values.billing.billing_period.current_period_end
                 }
-                if (values.billing.license) {
-                    payload['license_plan'] = values.billing.license.plan
-                }
                 posthog.register(payload)
             }
         },
@@ -254,7 +256,6 @@ export const billingLogic = kea<billingLogicType>([
     afterMount(({ actions }) => {
         actions.loadBilling()
     }),
-
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/organization/billing': (_params, _search, hash) => {
@@ -263,6 +264,12 @@ export const billingLogic = kea<billingLogicType>([
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
             }
+            actions.setRedirectPath()
+            actions.setIsOnboarding()
+        },
+        '*': () => {
+            actions.setRedirectPath()
+            actions.setIsOnboarding()
         },
     })),
 ])

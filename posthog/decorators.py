@@ -41,7 +41,14 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
             return f(self, request)
 
         filter = get_filter(request=request, team=team)
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
+        cache_key = f"{filter.toJSON()}_{team.pk}"
+        if request.data.get("cache_invalidation_key"):
+            cache_key += f"_{request.data['cache_invalidation_key']}"
+
+        if request.GET.get("cache_invalidation_key"):
+            cache_key += f"_{request.GET['cache_invalidation_key']}"
+
+        cache_key = generate_cache_key(cache_key)
 
         tag_queries(cache_key=cache_key)
 

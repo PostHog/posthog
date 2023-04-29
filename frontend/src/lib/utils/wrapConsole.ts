@@ -1,4 +1,4 @@
-export function wrapConsole(level: 'log' | 'warn' | 'error', fn: (args: Array<unknown>) => void): () => void {
+export function wrapConsole(level: 'log' | 'warn' | 'error', fn: (args: Array<unknown>) => boolean): () => void {
     // Flag the handler to prevent max call stack errors (any code in this execution might retrigger the log)
     const wrappedFn = console[level]
     let inWrap = false
@@ -11,8 +11,9 @@ export function wrapConsole(level: 'log' | 'warn' | 'error', fn: (args: Array<un
             }
             inWrap = true
 
-            fn(args)
-            wrappedFn(...args)
+            if (fn(args)) {
+                wrappedFn(...args)
+            }
         } finally {
             inWrap = false
         }

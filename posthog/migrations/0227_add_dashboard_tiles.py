@@ -81,5 +81,5 @@ class Migration(migrations.Migration):
                 blank=True, related_name="dashboards", through="posthog.DashboardTile", to="posthog.Insight"
             ),
         ),
-        migrations.RunPython(migrate_dashboard_insight_relations, reverse),
+        migrations.RunPython(migrate_dashboard_insight_relations, reverse, elidable=True),
     ]

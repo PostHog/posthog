@@ -384,7 +384,7 @@ export function formatPropertyLabel(
                     } `)
 }
 
-// Format a label that gets returned from the /insights api
+/** Format a label that gets returned from the /insights api */
 export function formatLabel(label: string, action: ActionFilter): string {
     if (action.math === 'dau') {
         label += ` (Unique users) `
@@ -406,6 +406,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
     return label.trim()
 }
 
+/** Check objects for deep equality, including "ordering" of properties */
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
@@ -696,7 +697,7 @@ export function truncate(str: string, maxLength: number): string {
 }
 
 export function eventToDescription(
-    event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     shortForm: boolean = false
 ): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
@@ -1307,7 +1308,7 @@ export function humanTzOffset(timezone?: string): string {
 }
 
 /** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
-export function humanList(arr: string[]): string {
+export function humanList(arr: readonly string[]): string {
     return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.slice(-1) : arr.join(' and ')
 }
 
@@ -1620,7 +1621,7 @@ export function downloadFile(file: File): void {
     }, 0)
 }
 
-export function insightUrlForEvent(event: EventType): string | undefined {
+export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
     let insightParams: Partial<TrendsFilterType> | undefined
     if (event.event === '$pageview') {
         insightParams = {
@@ -1667,4 +1668,10 @@ export function insightUrlForEvent(event: EventType): string | undefined {
 
 export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
+}
+
+export function shouldCancelQuery(error: any): boolean {
+    // We cancel queries "manually" when the request times out or is aborted since in these cases
+    // the query will continue running in ClickHouse
+    return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
 }

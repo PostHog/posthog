@@ -30,12 +30,15 @@ export function ToolbarButton(): JSX.Element {
         side,
         closeDistance,
         closeRotation,
+        hedgehogModeDistance,
+        hedgehogModeRotation,
         inspectExtensionPercentage,
         heatmapExtensionPercentage,
         actionsExtensionPercentage,
         actionsInfoVisible,
         featureFlagsExtensionPercentage,
         flagsVisible,
+        hedgehogMode,
     } = useValues(toolbarButtonLogic)
     const {
         setExtensionPercentage,
@@ -45,6 +48,7 @@ export function ToolbarButton(): JSX.Element {
         hideActionsInfo,
         showFlags,
         hideFlags,
+        setHedgehogMode,
     } = useActions(toolbarButtonLogic)
     const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
@@ -111,10 +115,16 @@ export function ToolbarButton(): JSX.Element {
             rootNode
             width={62}
             className="floating-toolbar-button"
-            content={<HogLogo style={{ width: 45, cursor: 'pointer' }} />}
+            content={!hedgehogMode ? <HogLogo style={{ width: 45, cursor: 'pointer' }} /> : <></>}
             {...clickEvents}
             onMouseOver={isAuthenticated ? undefined : () => setExtensionPercentage(1)}
-            style={{ borderRadius: 10, height: 46, marginTop: -23 }}
+            style={{
+                borderRadius: 10,
+                height: 46,
+                marginTop: -23,
+                pointerEvents: hedgehogMode ? 'none' : undefined,
+                display: hedgehogMode ? 'none' : 'flex',
+            }}
             zIndex={3}
         >
             <Circle
@@ -128,6 +138,23 @@ export function ToolbarButton(): JSX.Element {
                 style={{
                     cursor: 'pointer',
                     background: '#393939',
+                    borderRadius: 6,
+                    color: 'white',
+                    transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
+                }}
+            />
+
+            <Circle
+                width={26}
+                extensionPercentage={extensionPercentage}
+                distance={hedgehogModeDistance}
+                rotation={hedgehogModeRotation}
+                content={<span style={{ width: 14, height: 14 }}>🦔</span>}
+                zIndex={extensionPercentage > 0.95 ? 5 : 2}
+                onClick={() => setHedgehogMode(!hedgehogMode)}
+                style={{
+                    cursor: 'pointer',
+                    background: '#FFF',
                     borderRadius: 6,
                     color: 'white',
                     transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
@@ -153,6 +180,7 @@ export function ToolbarButton(): JSX.Element {
                             transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
                         }}
                     />
+
                     <Circle
                         width={buttonWidth}
                         x={side === 'left' ? 80 : -80}

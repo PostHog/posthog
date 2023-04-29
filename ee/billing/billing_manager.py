@@ -53,6 +53,7 @@ class BillingManager:
 
     def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> Dict[str, Any]:
         # Get the specified plans from "plan_keys" query param, otherwise get the defaults
+
         plans = self._get_plans(plan_keys)
         if organization and self.license and self.license.is_v2_license:
             billing_service_response = self._get_billing(organization)
@@ -73,31 +74,30 @@ class BillingManager:
             if not billing_service_response["customer"].get("products"):
                 products = self.get_default_products(organization)
                 response["products"] = products["products"]
-                response["products_enterprise"] = products["products_enterprise"]
 
             response["available_plans"] = plans["plans"]
+            stripe_portal_url = self._get_stripe_portal_url(organization)
+            response["stripe_portal_url"] = stripe_portal_url
         else:
             products = self.get_default_products(organization)
             response = {
                 "available_features": [],
                 "available_plans": plans["plans"],
                 "products": products["products"],
-                "products_enterprise": products["products_enterprise"],
             }
 
         # Extend the products with accurate usage_limit info
 
         for product in response["products"]:
-            usage = response.get("usage_summary", {}).get(product["type"], {})
+            usage_key = product.get("usage_key", None)
+            if not usage_key:
+                continue
+            usage = response.get("usage_summary", {}).get(usage_key, {})
             usage_limit = usage.get("limit")
             current_usage = usage.get("usage") or 0
 
-            if (
-                organization
-                and organization.usage
-                and organization.usage.get(product["type"], {}).get("todays_usage", None)
-            ):
-                todays_usage = organization.usage[product["type"]]["todays_usage"]
+            if organization and organization.usage and organization.usage.get(usage_key, {}).get("todays_usage", None):
+                todays_usage = organization.usage[usage_key]["todays_usage"]
                 current_usage = current_usage + todays_usage
 
             product["current_usage"] = current_usage
@@ -114,12 +114,19 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
+    def deactivate_products(self, organization: Organization, products: str) -> None:
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing/deactivate?products={products}",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
     def get_default_products(self, organization: Optional[Organization]):
         response = {}
         # If we don't have products from the billing service then get the default ones with our local usage calculation
         products = self._get_products(organization)
         response["products"] = products["standard"]
-        response["products_enterprise"] = products["enterprise"]
 
         return response
 
@@ -162,6 +169,21 @@ class BillingManager:
         data = res.json()
 
         return data
+
+    def _get_stripe_portal_url(self, organization: Organization) -> BillingStatus:
+        """
+        Retrieves stripe protal url
+        """
+        if not self.license:  # mypy
+            raise Exception("No license found")
+
+        res = requests.get(f"{BILLING_SERVICE_URL}/api/billing/portal", headers=self.get_auth_headers(organization))
+
+        handle_billing_service_error(res)
+
+        data = res.json()
+
+        return data["url"]
 
     def _get_plans(self, plan_keys: Optional[str]):
         res = requests.get(
@@ -219,6 +241,11 @@ class BillingManager:
         available_features = data.get("available_features", None)
         if available_features and available_features != organization.available_features:
             organization.available_features = data["available_features"]
+            org_modified = True
+
+        available_product_features = data.get("available_product_features", None)
+        if available_product_features and available_product_features != organization.available_product_features:
+            organization.available_product_features = data["available_product_features"]
             org_modified = True
 
         if org_modified:

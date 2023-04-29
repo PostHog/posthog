@@ -90,12 +90,15 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
-class DatabaseSchemaQuery(BaseModel):
+class DatabaseSchemaQueryResponseField(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    kind: str = Field("DatabaseSchemaQuery", const=True)
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+    chain: Optional[List[str]] = None
+    fields: Optional[List[str]] = None
+    key: str
+    table: Optional[str] = None
+    type: str
 
 
 class DateRange(BaseModel):
@@ -157,7 +160,6 @@ class EventType(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    colonTimestamp: Optional[str] = Field(None, description="Used in session recording events list")
     distinct_id: str
     elements: List[ElementType]
     elements_chain: Optional[str] = None
@@ -166,6 +168,7 @@ class EventType(BaseModel):
     person: Optional[Person] = None
     properties: Dict[str, Any]
     timestamp: str
+    uuid: Optional[str] = None
 
 
 class MathGroupTypeIndex1(float, Enum):
@@ -617,6 +620,16 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
 
 
+class DatabaseSchemaQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("DatabaseSchemaQuery", const=True)
+    response: Optional[Dict[str, List[DatabaseSchemaQueryResponseField]]] = Field(
+        None, description="Cached query response"
+    )
+
+
 class EventsNode(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -969,6 +982,7 @@ class RetentionQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     retentionFilter: Optional[RetentionFilter] = Field(None, description="Properties specific to the retention insight")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
 
 
 class StickinessQuery(BaseModel):
@@ -1003,6 +1017,7 @@ class StickinessQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
         ..., description="Events and actions to include"
     )
@@ -1044,6 +1059,7 @@ class TrendsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
         ..., description="Events and actions to include"
     )
@@ -1493,6 +1509,7 @@ class FunnelsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
         ..., description="Events and actions to include"
     )
@@ -1547,6 +1564,7 @@ class LifecycleQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
         ..., description="Events and actions to include"
     )
@@ -1582,6 +1600,7 @@ class PathsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
 
 
 class InsightVizNode(BaseModel):

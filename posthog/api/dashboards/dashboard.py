@@ -26,7 +26,7 @@ from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
-from posthog.models.team.team import get_available_features_for_team
+from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -110,11 +110,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
 
     def validate_description(self, value: str) -> str:
-        available_features = get_available_features_for_team(self.context["team_id"])
-
-        if value and AvailableFeature.DASHBOARD_COLLABORATION not in (available_features or []):
+        if value and not check_is_feature_available_for_team(
+            self.context["team_id"], AvailableFeature.DASHBOARD_COLLABORATION
+        ):
             raise PermissionDenied("You must have paid for dashboard collaboration to set the dashboard description")
-
         return value
 
     def validate_filters(self, value) -> Dict:
