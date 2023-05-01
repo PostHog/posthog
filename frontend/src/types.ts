@@ -621,9 +621,6 @@ export interface SessionPlayerMetaData {
     end: Dayjs
     pinnedCount: number
     person: PersonType | null
-
-    // TODO: Remove these
-    segments: RecordingSegment[]
 }
 
 export interface SessionPlayerData {

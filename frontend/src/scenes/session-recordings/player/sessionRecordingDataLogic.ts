@@ -31,31 +31,30 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
 export const parseMetadataResponse = (recording: SessionRecordingType): SessionPlayerMetaData => {
-    const segments: RecordingSegment[] =
-        recording.segments?.map((segment): RecordingSegment => {
-            const segmentStartTime = dayjs(segment.start_time)
-            const segmentEndTime = dayjs(segment.end_time)
-            const durationMs = segmentEndTime.valueOf() - segmentStartTime.valueOf()
-
-            return {
-                kind: 'window',
-                durationMs,
-                startTimestamp: segmentStartTime.valueOf(),
-                endTimestamp: segmentEndTime.valueOf(),
-                windowId: segment.window_id,
-                isActive: segment.is_active,
-            }
-        }) || []
-
     return {
         pinnedCount: recording.pinned_count ?? 0,
         start: dayjs(recording.start_time),
         end: dayjs(recording.end_time),
         person: recording.person ?? null,
-
-        // TODO: Build these ourselves later
-        segments,
     }
+}
+
+// Until we change the API to return a simple list of snapshots, we need to convert this ourselves
+const convertSnapshotsResponse = (
+    snapshotsByWindowId: { [key: string]: eventWithTime[] },
+    existingSnapshots?: RecordingSnapshot[]
+): RecordingSnapshot[] => {
+    const snapshots: RecordingSnapshot[] = Object.entries(snapshotsByWindowId)
+        .flatMap(([windowId, snapshots]) => {
+            return snapshots.map((snapshot) => ({
+                ...snapshot,
+                windowId,
+            }))
+        })
+        .concat(existingSnapshots ? existingSnapshots ?? [] : [])
+        .sort((a, b) => a.timestamp - b.timestamp)
+
+    return snapshots
 }
 
 const generateRecordingReportDurations = (
@@ -219,7 +218,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             )
         },
     })),
-    loaders(({ values, props, cache }) => ({
+    loaders(({ values, props, cache, actions }) => ({
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 cache.metaStartTime = performance.now()
@@ -236,11 +235,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 breakpoint()
 
                 if (response.snapshot_data_by_window_id) {
+                    const snapshots = convertSnapshotsResponse(response.snapshot_data_by_window_id)
                     // When loaded from S3 the snapshots are already present
-                    // TODO: THIS
-                    // actions.loadRecordingSnapshotsSuccess({
-                    //     snapshotsByWindowId: response.snapshot_data_by_window_id,
-                    // })
+                    actions.loadRecordingSnapshotsSuccess({
+                        snapshots,
+                    })
                 }
 
                 return metadata
@@ -279,20 +278,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     // NOTE: This might seem backwards as we translate the snapshotsByWindowId to an array and then derive it again later but
                     // this is for future support of the API that will return them as a simple array
 
-                    const incomingSnapshotByWindowId: {
-                        [key: string]: eventWithTime[]
-                    } = response.snapshot_data_by_window_id
-
-                    const snapshots: RecordingSnapshot[] = Object.entries(incomingSnapshotByWindowId)
-                        .flatMap(([windowId, snapshots]) => {
-                            return snapshots.map((snapshot) => ({
-                                ...snapshot,
-                                windowId,
-                            }))
-                        })
-                        .concat(nextUrl ? values.sessionPlayerSnapshotData?.snapshots ?? [] : [])
-                        .sort((a, b) => a.timestamp - b.timestamp)
-
+                    const snapshots = convertSnapshotsResponse(
+                        response.snapshot_data_by_window_id,
+                        nextUrl ? values.sessionPlayerSnapshotData?.snapshots ?? [] : []
+                    )
                     return {
                         snapshots,
                         next: response.next,
@@ -527,7 +516,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 const lastSegment = segments[segments.length - 1]
 
                 if (lastSegment.kind === 'buffer') {
-                    // TODO: Check if this shouldn't be - 1
                     return lastSegment.startTimestamp - startTime
                 }
 

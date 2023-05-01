@@ -52,22 +52,6 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicP
     nextSessionRecording?: Partial<SessionRecordingType>
 }
 
-const segmentForTimestamp = (segments: RecordingSegment[], timestamp?: number): RecordingSegment | null => {
-    if (timestamp === undefined) {
-        return null
-    }
-    for (const segment of segments) {
-        if (segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp) {
-            return segment
-        }
-    }
-    return null
-}
-
-// BW: Rewrite plan:
-// 1. Change everything to be based off of timestamps instead of player positions
-// 2. This means an absolute time is set for the player and from that we can derive the relative time and the window time for replayer.
-
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -286,6 +270,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             },
         ],
+        segmentForTimestamp: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData) => {
+                return (timestamp?: number): RecordingSegment | null => {
+                    if (timestamp === undefined) {
+                        return null
+                    }
+                    for (const segment of sessionPlayerData.segments) {
+                        if (segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp) {
+                            return segment
+                        }
+                    }
+                    return null
+                }
+            },
+        ],
     }),
     listeners(({ props, values, actions, cache }) => ({
         setRootFrame: () => {
@@ -293,7 +293,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         tryInitReplayer: () => {
             // Tries to initialize a new player
-            const windowId = segmentForTimestamp(values.sessionPlayerData.segments, values.currentTimestamp)?.windowId
+            const windowId = values.segmentForTimestamp(values.currentTimestamp)?.windowId
 
             actions.setPlayer(null)
 
@@ -365,8 +365,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentTimestamp === undefined) {
                 return
             }
-            const isBuffering =
-                segmentForTimestamp(values.sessionPlayerData.segments, values.currentTimestamp)?.kind === 'buffer'
+            const isBuffering = values.segmentForTimestamp(values.currentTimestamp)?.kind === 'buffer'
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
                 actions.endBuffer()
@@ -485,7 +484,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setCurrentTimestamp(timestamp)
 
             // Check if we're seeking to a new segment
-            const segment = segmentForTimestamp(values.sessionPlayerData.segments, timestamp)
+            const segment = values.segmentForTimestamp(timestamp)
 
             if (segment && segment !== values.currentSegment) {
                 actions.setCurrentSegment(segment)
@@ -576,7 +575,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // If we are beyond the current segment then move to the next one
             if (newTimestamp && values.currentSegment && newTimestamp > values.currentSegment.endTimestamp) {
-                const nextSegment = segmentForTimestamp(values.sessionPlayerData.segments, newTimestamp)
+                const nextSegment = values.segmentForTimestamp(newTimestamp)
 
                 if (nextSegment) {
                     actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))

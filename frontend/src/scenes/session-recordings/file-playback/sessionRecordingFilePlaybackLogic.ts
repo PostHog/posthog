@@ -133,20 +133,10 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 return
             }
 
-            console.log(values.sessionRecording)
             const snapshots = values.sessionRecording.snapshots
 
             dataLogic.actions.loadRecordingSnapshotsSuccess({
                 snapshots,
-            })
-
-            console.log({
-                person: values.sessionRecording.person,
-                start: dayjs(snapshots[0].timestamp),
-                end: dayjs(snapshots[snapshots.length - 1].timestamp),
-                pinnedCount: 0,
-                // TODO: Remove this once we are sold on new segments logic
-                segments: [],
             })
 
             dataLogic.actions.loadRecordingMetaSuccess({
@@ -154,8 +144,6 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 start: dayjs(snapshots[0].timestamp),
                 end: dayjs(snapshots[snapshots.length - 1].timestamp),
                 pinnedCount: 0,
-                // TODO: Remove this once we are sold on new segments logic
-                segments: [],
             })
         },
     })),
