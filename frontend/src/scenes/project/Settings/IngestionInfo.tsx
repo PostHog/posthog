@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -55,7 +55,7 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
                 click it. This will enable our tracking, on the currently loaded page only. The data will show up in
                 this project.
             </p>
-            <div>{currentTeam && <JSBookmarklet team={currentTeam} />}</div>
+            <div>{isAuthenticatedTeam(currentTeam) && <JSBookmarklet team={currentTeam} />}</div>
             <LemonDivider className="my-6" />
             <h2 id="custom-events" className="subtitle">
                 Send custom events

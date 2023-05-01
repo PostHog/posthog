@@ -330,6 +330,10 @@ export interface TeamType extends TeamBasicType {
     groups_on_events_querying_enabled: boolean
 }
 
+// This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
+// scenes, so not worth the refactor to use the `isAuthenticatedTeam()` check
+export type TeamPublicType = Partial<TeamType> & Pick<TeamType, 'id' | 'uuid' | 'name' | 'timezone'>
+
 export interface ActionType {
     count?: number
     created_at: string
@@ -1092,6 +1096,7 @@ export interface BillingProductV2Type {
     unit_amount_usd: string | null
     plans: BillingV2PlanType[]
     contact_support: boolean
+    inclusion_only: any
     feature_groups: {
         // deprecated, remove after removing the billing plans table
         group: string
@@ -1099,8 +1104,9 @@ export interface BillingProductV2Type {
         features: BillingV2FeatureType[]
     }[]
     addons: BillingProductV2AddonType[]
-    // sometimes addons are included with the base product, but they aren't subscribed individually
-    included?: boolean
+
+    // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
+    included_with_main_product?: boolean
 }
 
 export interface BillingProductV2AddonType {
@@ -1114,7 +1120,7 @@ export interface BillingProductV2AddonType {
     tiered: boolean
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
-    included?: boolean
+    included_with_main_product?: boolean
     contact_support?: boolean
     unit: string | null
     unit_amount_usd: string | null
@@ -1164,6 +1170,7 @@ export interface BillingV2PlanType {
     plan_key?: string
     current_plan?: any
     tiers?: BillingV2TierType[]
+    included_if?: 'no_active_subscription' | 'has_subscription' | null
 }
 
 export interface PlanInterface {
@@ -2378,7 +2385,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
-    current_team: TeamType | null
+    current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]

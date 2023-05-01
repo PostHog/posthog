@@ -41,9 +41,9 @@ class InsightCachingState(UUIDModel):
 def sync_sharing_configuration(sender, instance: SharingConfiguration, **kwargs):
     from posthog.celery import sync_insight_caching_state
 
-    if instance.insight_id is not None:
+    if instance.insight is not None and not instance.insight.deleted:
         sync_insight_caching_state.delay(instance.team_id, insight_id=instance.insight_id)
-    elif instance.dashboard is not None:
+    elif instance.dashboard is not None and not instance.dashboard.deleted:
         for tile in instance.dashboard.tiles.all():
             sync_insight_caching_state.delay(instance.team_id, dashboard_tile_id=tile.pk)
 

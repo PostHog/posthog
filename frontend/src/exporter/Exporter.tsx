@@ -9,11 +9,14 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
+import { useValues } from 'kea'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function Exporter(props: ExportedData): JSX.Element {
-    const { type, dashboard, insight, team, ...exportOptions } = props
+    const { type, dashboard, insight, accessToken, ...exportOptions } = props
     const { whitelabel } = exportOptions
 
+    const { currentTeam } = useValues(teamLogic)
     const { ref: elementRef, height, width } = useResizeObserver()
 
     useEffect(() => {
@@ -45,7 +48,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                             </h1>
                             <span>{dashboard.description}</span>
                         </div>
-                        <span className="SharedDashboard-header-team">{team?.name}</span>
+                        <span className="SharedDashboard-header-team">{currentTeam?.name}</span>
                     </div>
                 ) : type === ExportType.Embed ? (
                     <Link to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard" target="_blank">
@@ -65,6 +68,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     id={String(dashboard.id)}
                     dashboard={dashboard}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
+                    sharingAccessToken={accessToken}
                 />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>

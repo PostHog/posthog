@@ -15,7 +15,9 @@ from rest_framework.request import Request
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from django.contrib.auth.models import AnonymousUser
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
@@ -158,6 +160,19 @@ class JwtAuthentication(authentication.BaseAuthentication):
     @classmethod
     def authenticate_header(cls, request) -> str:
         return cls.keyword
+
+
+class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
+    """For shared dashboard/insight refreshing."""
+
+    def authenticate(self, request: Request) -> Optional[Tuple[Any, Any]]:
+        if sharing_access_token := request.GET.get("sharing_access_token"):
+            try:
+                SharingConfiguration.objects.get(access_token=sharing_access_token, enabled=True)
+                return (AnonymousUser(), None)
+            except SharingConfiguration.DoesNotExist:
+                raise AuthenticationFailed(detail="Sharing access token is invalid.")
+        return None
 
 
 def authenticate_secondarily(endpoint):
