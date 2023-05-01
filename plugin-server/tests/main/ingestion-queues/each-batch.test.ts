@@ -19,6 +19,9 @@ const event: PostIngestionEvent = {
     event: '$pageview',
     properties: {},
     elementsList: [],
+    person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
+    person_created_at: '2020-02-20T02:15:00.000Z' as ISOTimestamp,
+    person_properties: {},
 }
 
 const clickhouseEvent: RawClickHouseEvent = {
@@ -32,6 +35,9 @@ const clickhouseEvent: RawClickHouseEvent = {
     team_id: 2,
     distinct_id: 'my_id',
     created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
+    person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
+    person_created_at: '2020-02-20 02:15:00.00' as ClickHouseTimestamp,
+    person_properties: '{}',
 }
 
 const captureEndpointEvent = {
