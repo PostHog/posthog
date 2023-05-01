@@ -11,7 +11,6 @@ import {
     RecordingSegment,
     RecordingSnapshot,
     SessionPlayerData,
-    SessionPlayerMetaData,
     SessionPlayerSnapshotData,
     SessionRecordingId,
     SessionRecordingType,
@@ -25,22 +24,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
-import { createSegments } from './utils/segmenter'
+import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
-export const parseMetadataResponse = (recording: SessionRecordingType): SessionPlayerMetaData => {
-    return {
-        pinnedCount: recording.pinned_count ?? 0,
-        start: dayjs(recording.start_time),
-        end: dayjs(recording.end_time),
-        person: recording.person ?? null,
-    }
-}
-
 // Until we change the API to return a simple list of snapshots, we need to convert this ourselves
-const convertSnapshotsResponse = (
+export const convertSnapshotsResponse = (
     snapshotsByWindowId: { [key: string]: eventWithTime[] },
     existingSnapshots?: RecordingSnapshot[]
 ): RecordingSnapshot[] => {
@@ -97,7 +87,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
     }),
     defaults({
-        sessionPlayerMetaData: null as SessionPlayerMetaData | null,
+        sessionPlayerMetaData: null as SessionRecordingType | null,
     }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
@@ -230,8 +220,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     recording_start_time: props.recordingStartTime,
                 })
                 const response = await api.recordings.get(props.sessionRecordingId, params)
-
-                const metadata = parseMetadataResponse(response)
                 breakpoint()
 
                 if (response.snapshot_data_by_window_id) {
@@ -242,7 +230,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     })
                 }
 
-                return metadata
+                return response
             },
             addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
                 if (!values.sessionPlayerMetaData) {
@@ -251,7 +239,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 return {
                     ...values.sessionPlayerMetaData,
-                    pinnedCount: Math.max(values.sessionPlayerMetaData.pinnedCount + diffCount, 0),
+                    pinned_count: Math.max(values.sessionPlayerMetaData.pinned_count ?? 0 + diffCount, 0),
                 }
             },
         },
@@ -443,7 +431,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 s.durationMs,
             ],
             (meta, snapshotsByWindowId, segments, bufferedToTime, start, end, durationMs): SessionPlayerData => ({
-                pinnedCount: meta?.pinnedCount ?? 0,
+                pinnedCount: meta?.pinned_count ?? 0,
                 person: meta?.person ?? null,
                 start,
                 end,
@@ -457,7 +445,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         start: [
             (s) => [s.sessionPlayerMetaData],
             (meta): Dayjs | undefined => {
-                return meta?.start
+                return meta?.start_time ? dayjs(meta.start_time) : undefined
             },
         ],
 
@@ -466,11 +454,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (meta, sessionPlayerSnapshotData): Dayjs | undefined => {
                 // NOTE: We might end up with more snapshots than we knew about when we started the recording so we
                 // either use the metadata end point or the last snapshot, whichever is later.
+                const end = meta?.end_time ? dayjs(meta.end_time) : undefined
                 const lastEvent = sessionPlayerSnapshotData?.snapshots?.slice(-1)[0]
 
-                return lastEvent?.timestamp && lastEvent.timestamp > +(meta?.end ?? 0)
-                    ? dayjs(lastEvent.timestamp)
-                    : meta?.end
+                return lastEvent?.timestamp && lastEvent.timestamp > +(end ?? 0) ? dayjs(lastEvent.timestamp) : end
             },
         ],
 
@@ -482,32 +469,22 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         segments: [
-            (s) => [s.sessionPlayerSnapshotData, s.snapshotsByWindowId, s.start, s.end],
-            (sessionPlayerSnapshotData, snapshotsByWindowId, start, end): RecordingSegment[] => {
-                // return sessionPlayerMetaData.segments
-                return createSegments(sessionPlayerSnapshotData, snapshotsByWindowId, start, end)
+            (s) => [s.sessionPlayerSnapshotData, s.start, s.end],
+            (sessionPlayerSnapshotData, start, end): RecordingSegment[] => {
+                return createSegments(sessionPlayerSnapshotData?.snapshots || [], start, end)
             },
         ],
 
         snapshotsByWindowId: [
             (s) => [s.sessionPlayerSnapshotData],
             (sessionPlayerSnapshotData): Record<string, eventWithTime[]> => {
-                const snapshots: Record<string, eventWithTime[]> = {}
-                sessionPlayerSnapshotData?.snapshots.forEach((snapshot) => {
-                    if (!snapshots[snapshot.windowId]) {
-                        snapshots[snapshot.windowId] = []
-                    }
-                    snapshots[snapshot.windowId].push(snapshot)
-                })
-
-                return snapshots
+                return mapSnapshotsToWindowId(sessionPlayerSnapshotData?.snapshots || [])
             },
         ],
 
         bufferedToTime: [
             (s) => [s.segments],
             (segments): number | null => {
-                // This is us building the snapshots live from the loaded snapshotData, instead of via the API
                 if (!segments.length) {
                     return null
                 }

@@ -616,13 +616,6 @@ export interface SessionPlayerSnapshotData {
     next?: string
 }
 
-export interface SessionPlayerMetaData {
-    start: Dayjs
-    end: Dayjs
-    pinnedCount: number
-    person: PersonType | null
-}
-
 export interface SessionPlayerData {
     pinnedCount: number
     person: PersonType | null

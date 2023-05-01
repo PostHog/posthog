@@ -1,6 +1,6 @@
 import { EventType, IncrementalSource, eventWithTime } from '@rrweb/types'
 import { Dayjs } from 'lib/dayjs'
-import { RecordingSegment, SessionPlayerSnapshotData } from '~/types'
+import { RecordingSegment, RecordingSnapshot } from '~/types'
 
 const activeSources = [
     IncrementalSource.MouseMove,
@@ -19,17 +19,26 @@ const isActiveEvent = (event: eventWithTime): boolean => {
     return event.type === EventType.IncrementalSnapshot && activeSources.includes(event.data?.source)
 }
 
-export const createSegments = (
-    sessionPlayerSnapshotData: SessionPlayerSnapshotData | null,
-    snapshotsByWindowId: Record<string, eventWithTime[]>,
-    start?: Dayjs,
-    end?: Dayjs
-): RecordingSegment[] => {
+export const mapSnapshotsToWindowId = (snapshots: RecordingSnapshot[]): Record<string, eventWithTime[]> => {
+    const snapshotsByWindowId: Record<string, eventWithTime[]> = {}
+    snapshots.forEach((snapshot) => {
+        if (!snapshotsByWindowId[snapshot.windowId]) {
+            snapshotsByWindowId[snapshot.windowId] = []
+        }
+        snapshotsByWindowId[snapshot.windowId].push(snapshot)
+    })
+
+    return snapshotsByWindowId
+}
+
+export const createSegments = (snapshots: RecordingSnapshot[], start?: Dayjs, end?: Dayjs): RecordingSegment[] => {
     let segments: RecordingSegment[] = []
     let activeSegment!: Partial<RecordingSegment>
     let lastActiveEventTimestamp = 0
 
-    sessionPlayerSnapshotData?.snapshots.forEach((snapshot) => {
+    const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
+
+    snapshots.forEach((snapshot) => {
         const eventIsActive = isActiveEvent(snapshot)
         lastActiveEventTimestamp = eventIsActive ? snapshot.timestamp : lastActiveEventTimestamp
 
@@ -95,10 +104,9 @@ export const createSegments = (
 
     segments = segments.reduce((acc, segment, index) => {
         const previousSegment = segments[index - 1]
-        const nextSegment = segments[index + 1]
         const list = [...acc]
 
-        if (previousSegment && nextSegment && segment.startTimestamp - previousSegment.endTimestamp > 1) {
+        if (previousSegment && segment.startTimestamp - previousSegment.endTimestamp > 1) {
             const startTimestamp = previousSegment.endTimestamp + 1
             const endTimestamp = segment.startTimestamp - 1
             const windowId = findWindowIdForTimestamp(startTimestamp, previousSegment.windowId)
@@ -128,7 +136,6 @@ export const createSegments = (
                 kind: 'buffer',
                 startTimestamp: latestTimestamp ? latestTimestamp + 1 : start.valueOf(),
                 endTimestamp: endTimestamp,
-                windowId: 'buffer',
                 isActive: false,
             } as RecordingSegment)
         }

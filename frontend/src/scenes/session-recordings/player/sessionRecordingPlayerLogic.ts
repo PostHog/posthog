@@ -14,7 +14,7 @@ import {
 } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { deleteRecording } from './playerUtils'
+import { deleteRecording } from './utils/playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import equal from 'fast-deep-equal'
 import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
@@ -297,6 +297,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             actions.setPlayer(null)
 
+            if (values.rootFrame) {
+                values.rootFrame.innerHTML = '' // Clear the previously drawn frames
+            }
+
             if (
                 !values.rootFrame ||
                 windowId === undefined ||
@@ -305,10 +309,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ) {
                 actions.setPlayer(null)
                 return
-            }
-
-            if (values.rootFrame) {
-                values.rootFrame.innerHTML = '' // Clear the previously drawn frames
             }
 
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
