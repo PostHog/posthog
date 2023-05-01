@@ -7,7 +7,7 @@ import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
 import { clickHouseTimestampToDateTime, clickHouseTimestampToISO } from './utils'
 
-export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent { 
+export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
         distinct_id: event.distinctId,
         ip: event.ip,
@@ -57,7 +57,7 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
     }
 }
 
-export function convertToIngestionEvent(event: RawClickHouseEvent): PostIngestionEvent {  
+export function convertToIngestionEvent(event: RawClickHouseEvent): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     return {
         eventUuid: event.uuid,
