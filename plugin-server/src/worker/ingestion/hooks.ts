@@ -29,9 +29,6 @@ export function determineWebhookType(url: string): WebhookType {
 }
 
 export function getUserDetails(event: PostIngestionEvent, siteUrl: string, webhookType: WebhookType): [string, string] {
-    if (!event.person_properties) {
-        return ['undefined', 'undefined']
-    }
     const userName = stringify(
         event.person_properties?.email ||
             event.person_properties?.name ||
@@ -244,23 +241,18 @@ export class HookCommander {
 
     public async postRestHook(hook: Hook, event: PostIngestionEvent): Promise<void> {
         let sendablePerson: Record<string, any> = {}
-        if (event.person_id) {
-            const uuid = event.person_id
-            const properties = event.person_properties
-            const team_id = event.teamId
-            const createdAt = event.person_created_at
-
+        const { person_id, person_created_at, person_properties, ...data } = event
+        if (person_id) {
             sendablePerson = {
-                uuid,
-                properties,
-                team_id,
-                created_at: createdAt,
+                uuid: person_id,
+                properties: person_properties,
+                created_at: person_created_at,
             }
         }
 
         const payload = {
             hook: { id: hook.id, event: hook.event, target: hook.target },
-            data: { ...event, person: sendablePerson },
+            data: { ...data, person: sendablePerson },
         }
 
         const request = await fetch(hook.target, {
