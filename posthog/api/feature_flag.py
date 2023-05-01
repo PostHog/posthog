@@ -211,7 +211,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                 "Invalid variant definitions: Variant rollout percentages must sum to 100."
             )
 
-        FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
+        FeatureFlag.objects.filter(key=validated_data["key"], team_id=self.context["team_id"], deleted=True).delete()
         instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)
