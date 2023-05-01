@@ -66,15 +66,13 @@ export function SupportModal(): JSX.Element {
                     : 'Leave a message with PostHog'
             }
             footer={
-                <div className="flex-1 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <LemonButton form="support-modal-form" type="secondary" onClick={closeSupportForm}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton form="support-modal-form" htmlType="submit" type="primary" data-attr="submit">
-                            Submit
-                        </LemonButton>
-                    </div>
+                <div className="flex items-center gap-2">
+                    <LemonButton form="support-modal-form" type="secondary" onClick={closeSupportForm}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton form="support-modal-form" htmlType="submit" type="primary" data-attr="submit">
+                        Submit
+                    </LemonButton>
                 </div>
             }
         >
