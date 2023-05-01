@@ -49,8 +49,8 @@ export const createSegments = (
             isNewSegment = true
         }
 
-        // 4. If the new event is active but the windowId has changed
-        if (eventIsActive && activeSegment?.windowId !== snapshot.windowId) {
+        // 4. If windowId changes we create a new segment
+        if (activeSegment?.windowId !== snapshot.windowId) {
             isNewSegment = true
         }
 
@@ -75,16 +75,35 @@ export const createSegments = (
     // To account for this we build up a new segment list filling in gaps with the whatever window is available (preferably the previous one)
     // Or a "null" window if there is nothing (like if they navigated away to a different site)
 
+    const findWindowIdForTimestamp = (timestamp: number, preferredWindowId?: string): string | undefined => {
+        // Check all the snapshotsByWindowId to see if the timestamp is within its range
+        // prefer the preferredWindowId if it is within its range
+        let windowIds = Object.keys(snapshotsByWindowId)
+
+        if (preferredWindowId) {
+            windowIds = [preferredWindowId, ...windowIds.filter((id) => id !== preferredWindowId)]
+        }
+
+        for (const windowId of windowIds) {
+            const snapshots = snapshotsByWindowId[windowId]
+            if (snapshots[0].timestamp <= timestamp && snapshots[snapshots.length - 1].timestamp >= timestamp) {
+                return windowId
+            }
+        }
+    }
+
     segments = segments.reduce((acc, segment, index) => {
         const previousSegment = segments[index - 1]
         const nextSegment = segments[index + 1]
         const list = [...acc]
 
         if (previousSegment && nextSegment && segment.startTimeEpochMs - previousSegment.endTimeEpochMs > 1) {
+            const startTimeEpochMs = previousSegment.endTimeEpochMs + 1
+            const endTimeEpochMs = segment.startTimeEpochMs - 1
             const gapSegment: Partial<RecordingSegment> = {
-                startTimeEpochMs: previousSegment.endTimeEpochMs + 1,
-                endTimeEpochMs: segment.startTimeEpochMs - 1,
-                windowId: previousSegment.windowId, // TODO: Need to check that there is definitely a window here...
+                startTimeEpochMs,
+                endTimeEpochMs,
+                windowId: findWindowIdForTimestamp(startTimeEpochMs, previousSegment.windowId),
                 isActive: false,
             }
 
@@ -110,7 +129,7 @@ export const createSegments = (
     }
 
     segments = segments.map((segment) => {
-        const windowStartTimestamp = snapshotsByWindowId[segment.windowId]?.[0]?.timestamp
+        const windowStartTimestamp = snapshotsByWindowId[segment.windowId]?.[0]?.timestamp ?? segment.startTimeEpochMs
 
         // These can all be done in a loop at the end...
         segment.durationMs = segment.endTimeEpochMs - segment.startTimeEpochMs

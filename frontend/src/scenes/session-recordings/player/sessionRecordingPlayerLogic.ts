@@ -247,6 +247,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [s.matching],
             (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
         ],
+
+        playerSpeed: [
+            (s) => [s.speed, s.isSkippingInactivity, s.currentSegment, s.currentPlayerPosition],
+            (speed, isSkippingInactivity, currentSegment, currentPlayerPosition) => {
+                if (isSkippingInactivity) {
+                    // Sets speed to skip section in max 1 second
+                    const secondsToSkip =
+                        ((currentSegment?.endPlayerPosition?.time ?? 0) - (currentPlayerPosition?.time ?? 0)) / 1000
+                    const skipSpeed = Math.max(50, secondsToSkip)
+                    return skipSpeed
+                } else {
+                    return speed
+                }
+            },
+        ],
     }),
     listeners(({ props, values, actions, cache }) => ({
         setRootFrame: () => {
@@ -297,6 +312,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.player?.replayer?.pause()
                 actions.tryInitReplayer()
             }
+            console.log('seeking current segment')
             actions.seek(values.currentPlayerPosition)
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -311,17 +327,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.syncPlayerSpeed()
         },
         syncPlayerSpeed: () => {
-            if (values.isSkippingInactivity) {
-                // Sets speed to skip section in max 1 second
-                const secondsToSkip =
-                    ((values.currentSegment?.endPlayerPosition?.time ?? 0) -
-                        (values.currentPlayerPosition?.time ?? 0)) /
-                    1000
-                const skipSpeed = Math.max(50, secondsToSkip)
-                values.player?.replayer?.setConfig({ speed: skipSpeed })
-            } else {
-                values.player?.replayer?.setConfig({ speed: values.speed })
-            }
+            values.player?.replayer?.setConfig({ speed: values.playerSpeed })
         },
         checkBufferingCompleted: () => {
             // If buffering has completed, resume last playing state
@@ -569,7 +575,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         updateAnimation: () => {
             // The main loop of the player. Called on each frame
-            const playerTime = values.player?.replayer?.getCurrentTime()
+            let playerTime = values.player?.replayer?.getCurrentTime()
+
+            if (playerTime === undefined && values.currentSegment?.windowId === undefined) {
+                // We are likely in a "gap" situation where there is nothing to play. In this case we are responsible for moving the time forward.
+                playerTime = (values.currentPlayerTime ?? 0) + values.playerSpeed
+            }
+
             let nextPlayerPosition: PlayerPosition | null = null
             if (playerTime !== undefined && values.currentSegment) {
                 nextPlayerPosition = {
