@@ -12,7 +12,7 @@ export function useOutsideClickHandler(
 
     useEffect(() => {
         function handleClick(event: Event): void {
-            if (exceptions.some((exception) => (event.target as Element).matches(exception))) {
+            if (exceptions.some((exception) => (event.target as Element)?.matches(exception))) {
                 return
             }
             if (
