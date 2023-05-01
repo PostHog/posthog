@@ -8,6 +8,7 @@ import { forms } from 'kea-forms'
 import { UserType } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { captureException } from '@sentry/react'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -165,12 +166,13 @@ export const supportLogic = kea<supportLogicType>([
                     }
                     posthog.capture('support_ticket', properties)
                     lemonToast.success(
-                        'Got it! The relevant team will check it out and aim to respond via email if necessary.'
+                        "Got the message! If we have follow-up information for you, we'll reply via email."
                     )
                 })
                 .catch((err) => {
+                    captureException(err)
                     console.log(err)
-                    lemonToast.error('Failed to submit form.')
+                    lemonToast.error(`There was an error sending the message.`)
                 })
         },
     })),
