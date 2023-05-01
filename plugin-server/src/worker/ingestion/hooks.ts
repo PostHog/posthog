@@ -251,7 +251,6 @@ export class HookCommander {
             const createdAt = event.person_created_at
 
             sendablePerson = {
-                // TODO: can we drop the id from here?
                 uuid,
                 properties,
                 team_id,
