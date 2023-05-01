@@ -13,7 +13,6 @@ import {
     Element,
     ElementPropertyFilter,
     EventPropertyFilter,
-    IngestionPersonData,
     PersonPropertyFilter,
     PostIngestionEvent,
     PropertyFilter,
@@ -119,11 +118,7 @@ export class ActionMatcher {
     }
 
     /** Get all actions matched to the event. */
-    public async match(
-        event: PostIngestionEvent,
-        person?: IngestionPersonData,
-        elements?: Element[]
-    ): Promise<Action[]> {
+    public async match(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
         const matchingStart = new Date()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
         if (!elements) {
@@ -131,7 +126,7 @@ export class ActionMatcher {
             elements = rawElements ? extractElements(rawElements) : []
         }
         const teamActionsMatching: boolean[] = await Promise.all(
-            teamActions.map((action) => this.checkAction(event, elements, person, action))
+            teamActions.map((action) => this.checkAction(event, elements, action))
         )
         const matches: Action[] = []
         for (let i = 0; i < teamActionsMatching.length; i++) {
@@ -153,18 +148,17 @@ export class ActionMatcher {
     public async checkAction(
         event: PostIngestionEvent,
         elements: Element[] | undefined,
-        person: IngestionPersonData | undefined,
         action: Action
     ): Promise<boolean> {
         for (const step of action.steps) {
             try {
-                if (await this.checkStep(event, elements, person, step)) {
+                if (await this.checkStep(event, elements, step)) {
                     return true
                 }
             } catch (error) {
                 captureException(error, {
                     tags: { team_id: action.team_id },
-                    extra: { event, elements, person, action, step },
+                    extra: { event, elements, action, step },
                 })
             }
         }
@@ -180,7 +174,6 @@ export class ActionMatcher {
     private async checkStep(
         event: PostIngestionEvent,
         elements: Element[] | undefined,
-        person: IngestionPersonData | undefined,
         step: ActionStep
     ): Promise<boolean> {
         if (!elements) {
@@ -190,7 +183,7 @@ export class ActionMatcher {
             this.checkStepElement(elements, step) &&
             this.checkStepUrl(event, step) &&
             this.checkStepEvent(event, step) &&
-            (await this.checkStepFilters(event, elements, person, step))
+            (await this.checkStepFilters(event, elements, step))
         )
     }
 
@@ -288,17 +281,12 @@ export class ActionMatcher {
      * Return whether the event is a match for the step's fiter constraints.
      * Step property: `properties`.
      */
-    private async checkStepFilters(
-        event: PostIngestionEvent,
-        elements: Element[],
-        person: IngestionPersonData | undefined,
-        step: ActionStep
-    ): Promise<boolean> {
+    private async checkStepFilters(event: PostIngestionEvent, elements: Element[], step: ActionStep): Promise<boolean> {
         // CHECK CONDITIONS, OTHERWISE SKIPPED, OTHERWISE SKIPPED
         if (step.properties && step.properties.length) {
             // EVERY FILTER MUST BE A MATCH
             for (const filter of step.properties) {
-                if (!(await this.checkEventAgainstFilter(event, elements, person, filter))) {
+                if (!(await this.checkEventAgainstFilter(event, elements, filter))) {
                     return false
                 }
             }
@@ -312,18 +300,17 @@ export class ActionMatcher {
     private async checkEventAgainstFilter(
         event: PostIngestionEvent,
         elements: Element[],
-        person: IngestionPersonData | undefined,
         filter: PropertyFilter
     ): Promise<boolean> {
         switch (filter.type) {
             case 'event':
                 return this.checkEventAgainstEventFilter(event, filter)
             case 'person':
-                return this.checkEventAgainstPersonFilter(person, filter)
+                return this.checkEventAgainstPersonFilter(event.person_properties, filter)
             case 'element':
                 return this.checkEventAgainstElementFilter(elements, filter)
             case 'cohort':
-                return await this.checkEventAgainstCohortFilter(person, filter)
+                return await this.checkEventAgainstCohortFilter(event.person_id, event.teamId, filter)
             default:
                 return false
         }
@@ -340,13 +327,13 @@ export class ActionMatcher {
      * Sublevel 4 of action matching.
      */
     private checkEventAgainstPersonFilter(
-        person: IngestionPersonData | undefined,
+        personProperties: Properties | undefined,
         filter: PersonPropertyFilter
     ): boolean {
-        if (!person?.properties) {
+        if (personProperties) {
             return !!(filter.operator && emptyMatchingOperator[filter.operator]) // NO PERSON OR PROPERTIES TO MATCH AGAINST FILTER
         }
-        return this.checkPropertiesAgainstFilter(person.properties, filter)
+        return this.checkPropertiesAgainstFilter(personProperties, filter)
     }
 
     /**
@@ -367,7 +354,8 @@ export class ActionMatcher {
      * Sublevel 4 of action matching.
      */
     private async checkEventAgainstCohortFilter(
-        person: IngestionPersonData | undefined,
+        personUuid: string | undefined,
+        teamId: number,
         filter: CohortPropertyFilter
     ): Promise<boolean> {
         let cohortId = filter.value
@@ -375,7 +363,7 @@ export class ActionMatcher {
             // The "All users" cohort matches anyone
             return true
         }
-        if (!person) {
+        if (!personUuid) {
             return false // NO PERSON TO MATCH AGAINST COHORT
         }
         if (typeof cohortId !== 'number') {
@@ -384,7 +372,7 @@ export class ActionMatcher {
         if (isNaN(cohortId)) {
             throw new Error(`Can't match against invalid cohort ID value "${filter.value}!"`)
         }
-        return await this.db.doesPersonBelongToCohort(Number(filter.value), person)
+        return await this.db.doesPersonBelongToCohort(Number(filter.value), personUuid, teamId)
     }
 
     /**

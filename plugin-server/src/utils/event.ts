@@ -58,6 +58,7 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
 }
 
 export function convertToIngestionEvent(event: RawClickHouseEvent): PostIngestionEvent {
+    // TODO: this one needs to keep person properties
     const properties = event.properties ? JSON.parse(event.properties) : {}
     return {
         eventUuid: event.uuid,
@@ -68,6 +69,9 @@ export function convertToIngestionEvent(event: RawClickHouseEvent): PostIngestio
         properties,
         timestamp: clickHouseTimestampToISO(event.timestamp),
         elementsList: event.elements_chain ? chainToElements(event.elements_chain) : [],
+        person_id: event.person_id,
+        person_created_at: event.person_created_at ? clickHouseTimestampToISO(event.person_created_at) : undefined,
+        person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
     }
 }
 

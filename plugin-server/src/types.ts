@@ -614,7 +614,13 @@ interface BaseIngestionEvent {
 export type PreIngestionEvent = BaseIngestionEvent
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export type PostIngestionEvent = BaseIngestionEvent
+export interface PostIngestionEvent extends BaseIngestionEvent {
+    // TODO: this needs to have the person info too
+    // These are not optional, fix the typing
+    person_id?: string
+    person_created_at?: ISOTimestamp
+    person_properties?: Properties
+}
 
 export interface DeadLetterQueueEvent {
     id: string
