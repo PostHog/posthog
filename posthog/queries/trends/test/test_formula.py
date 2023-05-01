@@ -103,7 +103,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                         ],
                         "formula": "A + B",
                         **extra,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -312,6 +313,20 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["label"], "all users")
         self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
         self.assertEqual(response[1]["label"], "cohort1")
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_hogql(self):
+        response = self._run(
+            {"breakdown": "concat(person.properties.$some_prop, ' : ', properties.location)", "breakdown_type": "hogql"}
+        )
+        self.assertEqual([series["label"] for series in response], ["some_val : London", "some_val : Paris"])
+        self.assertEqual(
+            [
+                [0.0, 0.0, 0.0, 0.0, 0.0, 800.0, 1350.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0, 0.0, 750.0, 0.0, 0.0],
+            ],
+            [series["data"] for series in response],
+        )
 
     def test_breakdown_mismatching_sizes(self):
         response = self._run(
