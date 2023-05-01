@@ -30,7 +30,6 @@ from . import (
     property_definition,
     query,
     sharing,
-    site_app,
     tagged_item,
     team,
     uploaded_media,

@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { communicationDetailsLogicType } from './CommunicationDetailsLogicType'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import PostHog from 'posthog-js-lite'
 import { userLogic } from 'scenes/userLogic'
 import { loaders } from 'kea-loaders'
@@ -82,7 +82,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
         posthogSDK: [
             (s) => [s.currentTeam],
             (currentTeam) => {
-                if (!currentTeam) {
+                if (!isAuthenticatedTeam(currentTeam)) {
                     return null
                 }
                 return new PostHog(currentTeam.api_token, {
