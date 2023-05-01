@@ -3,27 +3,26 @@ import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
 import type { helpButtonLogicType } from './HelpButtonType'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
     IconArrowDropDown,
     IconArticle,
     IconHelpOutline,
-    IconMail,
     IconQuestionAnswer,
     IconMessages,
     IconFlare,
-    IconTrendingUp,
     IconLive,
+    IconSupport,
+    IconFeedback,
+    IconBugReport,
 } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react'
 import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { supportLogic } from '../Support/supportLogic'
-import SupportForm from '../Support/SupportForm'
+import { SupportModal } from '../Support/SupportModal'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -88,111 +87,103 @@ export function HelpButton({
     const { isPromptVisible } = useValues(inAppPromptLogic)
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
-    const { toggleActivationSideBar } = useActions(navigationLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     return (
         <>
-            <Popover
-                overlay={
-                    <>
-                        {!contactOnly && (
-                            <LemonButton
-                                icon={<IconLive />}
-                                status="stealth"
-                                fullWidth
-                                onClick={() => {
+            <LemonMenu
+                items={[
+                    !contactOnly && {
+                        items: [
+                            {
+                                icon: <IconLive />,
+                                label: "What's new?",
+                                onClick: () => {
                                     reportHelpButtonUsed(HelpType.Updates)
                                     hideHelp()
-                                }}
-                                to={`https://posthog.com/blog/categories/posthog-news`}
-                                targetBlank
-                            >
-                                What's new?
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            icon={<IconMail />}
-                            status="stealth"
-                            fullWidth
-                            onClick={() => {
-                                reportHelpButtonUsed(HelpType.SupportForm)
-                                openSupportForm()
-                                hideHelp()
-                            }}
-                        >
-                            Report bug / get support
-                        </LemonButton>
-                        {!contactOnly && (
-                            <LemonButton
-                                icon={<IconArticle />}
-                                status="stealth"
-                                fullWidth
-                                onClick={() => {
+                                },
+                                to: 'https://posthog.com/blog/categories/posthog-news',
+                                targetBlank: true,
+                            },
+                        ],
+                    },
+                    {
+                        items: [
+                            {
+                                label: 'Ask on the forum',
+                                icon: <IconQuestionAnswer />,
+                                onClick: () => {
+                                    reportHelpButtonUsed(HelpType.Slack)
+                                    hideHelp()
+                                },
+                                to: `https://posthog.com/questions${HELP_UTM_TAGS}`,
+                                targetBlank: true,
+                            },
+                            {
+                                label: 'Report a bug',
+                                icon: <IconBugReport />,
+                                onClick: () => {
+                                    reportHelpButtonUsed(HelpType.SupportForm)
+                                    openSupportForm('bug')
+                                    hideHelp()
+                                },
+                            },
+                            {
+                                label: 'Give feedback',
+                                icon: <IconFeedback />,
+                                onClick: () => {
+                                    reportHelpButtonUsed(HelpType.SupportForm)
+                                    openSupportForm('feedback')
+                                    hideHelp()
+                                },
+                            },
+                            {
+                                label: 'Get support',
+                                icon: <IconSupport />,
+                                onClick: () => {
+                                    reportHelpButtonUsed(HelpType.SupportForm)
+                                    openSupportForm('support')
+                                    hideHelp()
+                                },
+                            },
+                        ],
+                    },
+                    !contactOnly && {
+                        items: [
+                            {
+                                label: 'Read the docs',
+                                icon: <IconArticle />,
+                                onClick: () => {
                                     reportHelpButtonUsed(HelpType.Docs)
                                     hideHelp()
-                                }}
-                                to={`https://posthog.com/docs${HELP_UTM_TAGS}`}
-                                targetBlank
-                            >
-                                Read the docs
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            icon={<IconQuestionAnswer />}
-                            status="stealth"
-                            fullWidth
-                            onClick={() => {
-                                reportHelpButtonUsed(HelpType.Slack)
-                                hideHelp()
-                            }}
-                            to={`https://posthog.com/questions${HELP_UTM_TAGS}`}
-                            targetBlank
-                        >
-                            Ask a question on our forum
-                        </LemonButton>
-                        <LemonButton
-                            icon={<IconTrendingUp />}
-                            status="stealth"
-                            fullWidth
-                            onClick={() => {
-                                toggleActivationSideBar()
-                                hideHelp()
-                            }}
-                        >
-                            Open Quick Start
-                        </LemonButton>
-                        {validProductTourSequences.length > 0 && (
-                            <LemonButton
-                                icon={<IconMessages />}
-                                status="stealth"
-                                fullWidth
-                                onClick={() => {
+                                },
+                                to: `https://posthog.com/docs${HELP_UTM_TAGS}`,
+                                targetBlank: true,
+                            },
+                            validProductTourSequences.length > 0 && {
+                                label: isPromptVisible ? 'Stop tutorial' : 'Explain this page',
+                                icon: <IconMessages />,
+                                onClick: () => {
                                     if (isPromptVisible) {
                                         promptAction(DefaultAction.SKIP)
                                     } else {
                                         runFirstValidSequence({ runDismissedOrCompleted: true })
                                     }
                                     hideHelp()
-                                }}
-                            >
-                                {isPromptVisible ? 'Stop tutorial' : 'Explain this page'}
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            icon={<IconFlare />}
-                            status="stealth"
-                            fullWidth
-                            onClick={() => {
-                                setHedgehogModeEnabled(!hedgehogModeEnabled)
-                                hideHelp()
-                            }}
-                        >
-                            {hedgehogModeEnabled ? 'Disable' : 'Enable'} Hedgehog Mode
-                        </LemonButton>
-                    </>
-                }
-                onClickOutside={hideHelp}
+                                },
+                            },
+                            {
+                                label: `${hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode`,
+                                icon: <IconFlare />,
+                                onClick: () => {
+                                    setHedgehogModeEnabled(!hedgehogModeEnabled)
+                                    hideHelp()
+                                },
+                            },
+                        ],
+                    },
+                ]}
+                onVisibilityChange={(visible) => !visible && hideHelp()}
                 visible={isHelpVisible}
                 placement={placement}
                 actionable
@@ -205,9 +196,9 @@ export function HelpButton({
                         </>
                     )}
                 </div>
-            </Popover>
+            </LemonMenu>
             <HedgehogBuddyWithLogic />
-            <SupportForm />
+            <SupportModal />
         </>
     )
 }
