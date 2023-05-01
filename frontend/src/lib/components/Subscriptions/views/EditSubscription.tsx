@@ -13,7 +13,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
-    frequencyOptions,
+    frequencyOptionsSingular,
+    frequencyOptionsPlural,
     getSlackChannelOptions,
     intervalOptions,
     monthlyWeekdayOptions,
@@ -347,7 +348,13 @@ export function EditSubscription({
                                     <LemonSelect options={intervalOptions} />
                                 </Field>
                                 <Field name={'frequency'}>
-                                    <LemonSelect options={frequencyOptions} />
+                                    <LemonSelect
+                                        options={
+                                            subscription.interval === 1
+                                                ? frequencyOptionsSingular
+                                                : frequencyOptionsPlural
+                                        }
+                                    />
                                 </Field>
 
                                 {subscription.frequency === 'weekly' && (
@@ -387,7 +394,7 @@ export function EditSubscription({
                                                     // "day" is a special case where it is a list of all available days
                                                     value={value ? (value.length === 1 ? value[0] : 'day') : null}
                                                     onChange={(val) =>
-                                                        onChange(val === 'day' ? Object.keys(weekdayOptions) : [val])
+                                                        onChange(val === 'day' ? Object.values(weekdayOptions) : [val])
                                                     }
                                                 />
                                             )}

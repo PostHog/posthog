@@ -31,7 +31,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
 import { canViewPlugins } from '~/scenes/plugins/access'
 import { Scene } from '~/scenes/sceneTypes'
-import { teamLogic } from '~/scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import { AvailableFeature } from '~/types'
 import './SideBar.scss'
@@ -74,7 +74,7 @@ function Pages(): JSX.Element {
             <div className="SideBar__heading">Project</div>
             <PageButton
                 title={
-                    currentTeam?.name ? (
+                    isAuthenticatedTeam(currentTeam) ? (
                         <>
                             <span>
                                 <ProjectName team={currentTeam} />

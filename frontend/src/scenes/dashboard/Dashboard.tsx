@@ -21,24 +21,28 @@ import { groupsModel } from '../../models/groupsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-interface Props {
+interface DashboardProps {
     id?: string
     dashboard?: DashboardType
     placement?: DashboardPlacement
+    sharingAccessToken?: string
 }
 
 export const scene: SceneExport = {
     component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }: { params: Props }): DashboardLogicProps => ({
+    paramsToProps: ({ params: { id, placement } }: { params: DashboardProps }): DashboardLogicProps => ({
         id: id ? parseInt(id) : undefined,
         placement,
     }),
 }
 
-export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement, sharingAccessToken }: DashboardProps = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
+        <BindLogic
+            logic={dashboardLogic}
+            props={{ id: id ? parseInt(id) : undefined, placement, dashboard, sharingAccessToken }}
+        >
             <DashboardScene />
         </BindLogic>
     )

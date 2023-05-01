@@ -45,7 +45,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
             <>
                 <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>
                     {(!canEditDashboard || !canRestrictDashboard) && (
-                        <LemonBanner type="info">
+                        <LemonBanner type="info" className="mb-4">
                             {canEditDashboard
                                 ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
                                 : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}

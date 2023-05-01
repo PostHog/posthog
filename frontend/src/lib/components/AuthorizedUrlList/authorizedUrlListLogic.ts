@@ -14,7 +14,7 @@ import {
 import api from 'lib/api'
 import { isDomain, isURL, toParams } from 'lib/utils'
 import { ToolbarParams, TrendResult } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
 import { encodeParams, urlToAction } from 'kea-router'
@@ -261,7 +261,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         removeUrl: sharedListeners.saveUrls,
         updateUrl: sharedListeners.saveUrls,
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: async ({ currentTeam }) => {
-            if (currentTeam) {
+            if (isAuthenticatedTeam(currentTeam)) {
                 actions.setAuthorizedUrls(
                     props.type === AuthorizedUrlListType.RECORDING_DOMAINS
                         ? currentTeam.recording_domains
