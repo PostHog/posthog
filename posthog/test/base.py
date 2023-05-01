@@ -777,7 +777,9 @@ def _create_insight(
 # for a person with a given distinct ID `distinct_id_from` to a given distinct ID
 # `distinct_id_to` such that with person_on_events_mode set to V2_ENABLED these
 # persons will both count as 1
-def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_to: str, team_id: int):
+def create_person_id_override_by_distinct_id(
+    distinct_id_from: str, distinct_id_to: str, team_id: int, version: int = 0
+):
     person_ids_result = sync_execute(
         f"""
         SELECT distinct_id, person_id
@@ -792,7 +794,7 @@ def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_
 
     sync_execute(
         f"""
-        INSERT INTO person_overrides (team_id, old_person_id, override_person_id)
-        VALUES ({team_id}, '{person_id_from}', '{person_id_to}')
+        INSERT INTO person_overrides (team_id, old_person_id, override_person_id, version)
+        VALUES ({team_id}, '{person_id_from}', '{person_id_to}', {version})
     """
     )

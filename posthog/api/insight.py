@@ -321,7 +321,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         dashboards_before_change: List[Union[str, Dict]] = []
         try:
-            before_update = Insight.objects.prefetch_related("tagged_items__tag", "dashboards").get(pk=instance.id)
+            # since it is possible to be undeleting a soft deleted insight
+            # the state captured before the update has to include soft deleted insights
+            # or we can't capture undeletes to the activity log
+            before_update = Insight.objects_including_soft_deleted.prefetch_related(
+                "tagged_items__tag", "dashboards"
+            ).get(pk=instance.id)
             dashboards_before_change = [describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()]
         except Insight.DoesNotExist:
             before_update = None
@@ -482,10 +487,11 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
         target = insight if dashboard is None else dashboard_tile
 
-        refresh_insight_now, refresh_frequency = should_refresh_insight(insight, dashboard_tile)
-        if insight.filters and refresh_requested_by_client(self.context["request"]):
-            if refresh_insight_now:
-                return synchronously_update_cache(insight, dashboard, refresh_frequency)
+        refresh_insight_now, refresh_frequency = should_refresh_insight(
+            insight, dashboard_tile, request=self.context["request"], is_shared=self.context.get("is_shared")
+        )
+        if refresh_insight_now:
+            return synchronously_update_cache(insight, dashboard, refresh_frequency)
 
         # :TODO: Clear up if tile can be null or not
         return fetch_cached_insight_result(target or insight, refresh_frequency)
