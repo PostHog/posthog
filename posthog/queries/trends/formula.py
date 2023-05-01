@@ -21,6 +21,7 @@ class TrendsFormula:
         params: Dict[str, Any] = {}
         for idx, entity in enumerate(filter.entities):
             _, sql, entity_params, _ = self._get_sql_for_entity(filter, team, entity)  # type: ignore
+            entity_params.update(filter.hogql_context.values)
             sql = sql.replace("%(", f"%({idx}_")
             entity_params = {f"{idx}_{key}": value for key, value in entity_params.items()}
             queries.append(sql)
@@ -77,11 +78,10 @@ class TrendsFormula:
         with push_scope() as scope:
             scope.set_context("filter", filter.to_dict())
             scope.set_tag("team", team)
-            query_params = {**params, **filter.hogql_context.values}
-            scope.set_context("query", {"sql": sql, "params": query_params})
+            scope.set_context("query", {"sql": sql, "params": params})
             result = insight_sync_execute(
                 sql,
-                query_params,
+                params,
                 query_type="trends_formula",
                 filter=filter,
             )
