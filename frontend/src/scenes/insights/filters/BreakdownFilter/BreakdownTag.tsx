@@ -39,7 +39,6 @@ export function BreakdownTag({
             className="taxonomic-breakdown-filter tag-pill"
             closable={!!setFilters && !isHistogramable && !isURLNormalizeable}
             onClose={onClose}
-            style={{ textTransform: 'capitalize' }}
             popover={{
                 overlay: isURLNormalizeable ? (
                     <>
