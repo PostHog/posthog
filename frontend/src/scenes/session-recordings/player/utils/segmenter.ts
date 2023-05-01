@@ -13,7 +13,7 @@ const activeSources = [
     IncrementalSource.Drag,
 ]
 
-const ACTIVITY_THRESHOLD_MS = 5_000
+const ACTIVITY_THRESHOLD_MS = 5000
 
 const isActiveEvent = (event: eventWithTime): boolean => {
     return event.type === EventType.IncrementalSnapshot && activeSources.includes(event.data?.source)
