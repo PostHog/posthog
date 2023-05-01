@@ -330,7 +330,7 @@ export class ActionMatcher {
         personProperties: Properties | undefined,
         filter: PersonPropertyFilter
     ): boolean {
-        if (personProperties) {
+        if (!personProperties) {
             return !!(filter.operator && emptyMatchingOperator[filter.operator]) // NO PERSON OR PROPERTIES TO MATCH AGAINST FILTER
         }
         return this.checkPropertiesAgainstFilter(personProperties, filter)
