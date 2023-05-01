@@ -394,7 +394,7 @@ export function EditSubscription({
                                                     // "day" is a special case where it is a list of all available days
                                                     value={value ? (value.length === 1 ? value[0] : 'day') : null}
                                                     onChange={(val) =>
-                                                        onChange(val === 'day' ? Object.keys(weekdayOptions) : [val])
+                                                        onChange(val === 'day' ? Object.values(weekdayOptions) : [val])
                                                     }
                                                 />
                                             )}
