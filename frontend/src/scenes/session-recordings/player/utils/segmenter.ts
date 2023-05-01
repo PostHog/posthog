@@ -140,17 +140,5 @@ export const createSegments = (
         return segment
     })
 
-    console.log({ segments })
-
-    // segments.forEach((segment) => {
-    //     console.log('segment', {
-    //         start: segment.startTimeEpochMs - segments[0].startTimeEpochMs,
-    //         end: segment.endTimeEpochMs - segments[0].startTimeEpochMs,
-    //         active: segment.isActive,
-    //         windowId: segment.windowId,
-    //         startTimestamp: segment.startTimeEpochMs,
-    //     })
-    // })
-
     return segments
 }

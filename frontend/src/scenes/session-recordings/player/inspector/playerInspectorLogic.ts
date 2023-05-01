@@ -20,6 +20,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 const NETWORK_PLUGIN_NAME = 'posthog/network@1'
+const MAX_SEEKBAR_ITEMS = 100
 
 export const IMAGE_WEB_EXTENSIONS = [
     'png',
@@ -576,7 +577,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         seekbarItems: [
             (s) => [s.allItems, s.showOnlyMatching, s.showMatchingEventsFilter],
             (allItems, showOnlyMatching, showMatchingEventsFilter): InspectorListItemEvent[] => {
-                return allItems.filter((item) => {
+                let items = allItems.filter((item) => {
                     if (item.type !== SessionRecordingPlayerTab.EVENTS) {
                         return false
                     }
@@ -587,6 +588,22 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                     return true
                 }) as InspectorListItemEvent[]
+
+                if (items.length > MAX_SEEKBAR_ITEMS) {
+                    items = items.filter((item) => {
+                        return item.highlightColor === 'primary' || item.data.event === '$pageview'
+                    })
+
+                    items = items.filter((_, i) => {
+                        if (i % Math.ceil(items.length / MAX_SEEKBAR_ITEMS) === 0) {
+                            return true
+                        }
+
+                        return false
+                    })
+                }
+
+                return items
             },
         ],
 

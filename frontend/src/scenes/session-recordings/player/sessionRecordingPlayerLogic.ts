@@ -293,16 +293,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         tryInitReplayer: () => {
             // Tries to initialize a new player
-
-            const windowId =
-                segmentForTimestamp(values.sessionPlayerData.segments, values.currentTimestamp)?.windowId ?? null
-
-            console.log('tryInitReplayer', values.currentTimestamp, windowId)
+            const windowId = segmentForTimestamp(values.sessionPlayerData.segments, values.currentTimestamp)?.windowId
 
             actions.setPlayer(null)
+
             if (
                 !values.rootFrame ||
-                windowId === null ||
+                windowId === undefined ||
                 !values.sessionPlayerData.snapshotsByWindowId[windowId] ||
                 values.sessionPlayerData.snapshotsByWindowId[windowId].length < 2
             ) {
@@ -314,7 +311,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.rootFrame.innerHTML = '' // Clear the previously drawn frames
             }
 
-            console.log('tryInitReplayer: replayer', windowId)
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
                 root: values.rootFrame,
                 triggerFocus: false,
@@ -486,31 +482,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         seekToTimestamp: async ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
-
-            console.log({ isBuffering: values.isBuffering })
-
-            // if (values.sessionPlayerData.segments.length) {
-            //     console.log(
-            //         timestamp,
-            //         values.sessionPlayerData.segments[0].startTimestamp,
-            //         values.sessionPlayerData.segments[values.sessionPlayerData.segments.length - 1].endTimestamp
-            //     )
-            //     timestamp = clamp(
-            //         timestamp,
-            //         values.sessionPlayerData.segments[0].startTimestamp,
-            //         values.sessionPlayerData.segments[values.sessionPlayerData.segments.length - 1].endTimestamp
-            //     )
-            // }
-
             actions.setCurrentTimestamp(timestamp)
 
             // Check if we're seeking to a new segment
             const segment = segmentForTimestamp(values.sessionPlayerData.segments, timestamp)
 
-            console.log({ segment })
-
             if (segment && segment !== values.currentSegment) {
-                console.log('seektoTimestamp::setCurrentSegment')
                 actions.setCurrentSegment(segment)
             }
 
@@ -602,7 +579,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const nextSegment = segmentForTimestamp(values.sessionPlayerData.segments, newTimestamp)
 
                 if (nextSegment) {
-                    console.log('updateAnimation::setCurrentSegment')
                     actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
                     actions.setCurrentSegment(nextSegment)
                 } else {
@@ -611,26 +587,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 return
             }
-
-            // // If next position tries to access snapshot that is not loaded, show error state
-            // if (
-            //     !!values.sessionPlayerData?.bufferedTo &&
-            //     !!nextPlayerPosition &&
-            //     !!values.currentSegment &&
-            //     comparePlayerPositions(
-            //         nextPlayerPosition,
-            //         values.sessionPlayerData.bufferedTo,
-            //         values.sessionPlayerData.segments
-            //     ) > 0 &&
-            //     !values.sessionPlayerSnapshotDataLoading
-            // ) {
-            //     console.log('updateAnimation::error')
-            //     values.player?.replayer?.pause()
-            //     actions.endBuffer()
-            //     console.error('PostHog Recording Playback Error: Tried to access snapshot that is not loaded yet')
-            //     actions.setErrorPlayerState(true)
-            //     return
-            // }
 
             // If we're beyond buffered position, set to buffering
             if (values.currentSegment?.kind === 'buffer') {
