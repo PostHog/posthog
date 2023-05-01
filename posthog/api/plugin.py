@@ -236,7 +236,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        context_organization = self.context["access_organization"]()
+        context_organization = self.context["get_organization"]()
         if (
             "is_global" in validated_data
             and context_organization.plugins_access_level < Organization.PluginsAccessLevel.ROOT
@@ -506,7 +506,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             return None
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
-        if not can_configure_plugins(self.context["access_organization"]()):
+        if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team_id"] = self.context["team_id"]
         _fix_formdata_config_json(self.context["request"], validated_data)

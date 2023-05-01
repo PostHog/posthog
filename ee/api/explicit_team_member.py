@@ -37,7 +37,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
         read_only_fields = ["id", "parent_membership_id", "joined_at", "updated_at", "user", "effective_level"]
 
     def create(self, validated_data):
-        team: Team = self.context["access_team"]()
+        team: Team = self.context["get_team"]()
         user_uuid = validated_data.pop("user_uuid")
         validated_data["team"] = team
         try:
@@ -53,7 +53,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
             raise exceptions.ValidationError("This user likely already is an explicit member of the project.")
 
     def validate(self, attrs):
-        team: Team = self.context["access_team"]()
+        team: Team = self.context["get_team"]()
         if not team.access_control:
             raise exceptions.ValidationError(
                 "Explicit members can only be accessed for projects with project-based permissioning enabled."

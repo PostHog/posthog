@@ -153,8 +153,8 @@ class StructuredViewSetMixin(_GenericViewSet):
         serializer_context = super().get_serializer_context()
         serializer_context.update(self.parents_query_dict)
         # The below are lambdas for lazy evaluation (i.e. we only query Postgres for team/org if actually needed)
-        serializer_context["access_team"] = lambda: self.team
-        serializer_context["access_organization"] = lambda: self.organization
+        serializer_context["get_team"] = lambda: self.team
+        serializer_context["get_organization"] = lambda: self.organization
         return serializer_context
 
     def _get_team_from_request(self) -> Optional["Team"]:
