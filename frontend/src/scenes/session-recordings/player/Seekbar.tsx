@@ -165,7 +165,7 @@ export function Seekbar(): JSX.Element {
                     <div className="PlayerSeekbar__segments">
                         {sessionPlayerData.segments?.map((segment: RecordingSegment) => (
                             <div
-                                key={`${segment.windowId}-${segment.startTimeEpochMs}`}
+                                key={`${segment.windowId}-${segment.startTimestamp}`}
                                 className={clsx(
                                     'PlayerSeekbar__segments__item',
                                     segment.isActive && 'PlayerSeekbar__segments__item--active'

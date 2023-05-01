@@ -22,16 +22,14 @@ const isActiveEvent = (event: eventWithTime): boolean => {
 export const createSegments = (
     sessionPlayerSnapshotData: SessionPlayerSnapshotData | null,
     snapshotsByWindowId: Record<string, eventWithTime[]>,
-    end: Dayjs
+    start?: Dayjs,
+    end?: Dayjs
 ): RecordingSegment[] => {
-    if (!sessionPlayerSnapshotData?.snapshots?.length) {
-        return []
-    }
     let segments: RecordingSegment[] = []
     let activeSegment!: Partial<RecordingSegment>
     let lastActiveEventTimestamp = 0
 
-    sessionPlayerSnapshotData.snapshots.forEach((snapshot) => {
+    sessionPlayerSnapshotData?.snapshots.forEach((snapshot) => {
         const eventIsActive = isActiveEvent(snapshot)
         lastActiveEventTimestamp = eventIsActive ? snapshot.timestamp : lastActiveEventTimestamp
 
@@ -60,16 +58,19 @@ export const createSegments = (
             }
 
             activeSegment = {
-                startTimeEpochMs: snapshot.timestamp,
+                kind: 'window',
+                startTimestamp: snapshot.timestamp,
                 windowId: snapshot.windowId,
                 isActive: eventIsActive,
             }
         }
 
-        activeSegment.endTimeEpochMs = snapshot.timestamp
+        activeSegment.endTimestamp = snapshot.timestamp
     })
 
-    segments.push(activeSegment as RecordingSegment)
+    if (activeSegment) {
+        segments.push(activeSegment as RecordingSegment)
+    }
 
     // We've built the segments, but this might not account for "gaps" in them
     // To account for this we build up a new segment list filling in gaps with the whatever window is available (preferably the previous one)
@@ -97,13 +98,15 @@ export const createSegments = (
         const nextSegment = segments[index + 1]
         const list = [...acc]
 
-        if (previousSegment && nextSegment && segment.startTimeEpochMs - previousSegment.endTimeEpochMs > 1) {
-            const startTimeEpochMs = previousSegment.endTimeEpochMs + 1
-            const endTimeEpochMs = segment.startTimeEpochMs - 1
+        if (previousSegment && nextSegment && segment.startTimestamp - previousSegment.endTimestamp > 1) {
+            const startTimestamp = previousSegment.endTimestamp + 1
+            const endTimestamp = segment.startTimestamp - 1
+            const windowId = findWindowIdForTimestamp(startTimestamp, previousSegment.windowId)
             const gapSegment: Partial<RecordingSegment> = {
-                startTimeEpochMs,
-                endTimeEpochMs,
-                windowId: findWindowIdForTimestamp(startTimeEpochMs, previousSegment.windowId),
+                kind: 'gap',
+                startTimestamp,
+                endTimestamp,
+                windowId,
                 isActive: false,
             }
 
@@ -115,35 +118,29 @@ export const createSegments = (
         return list
     }, [] as RecordingSegment[])
 
-    // As we don't necessarily have all the segments at once, we add a final segment to fill the gap between the last segment and the end of the recording
-    const lastSegment = segments[segments.length - 1]
-    const endTimestamp = end.valueOf()
+    if (start && end) {
+        // As we don't necessarily have all the segments at once, we add a final segment to fill the gap between the last segment and the end of the recording
+        const latestTimestamp = segments[segments.length - 1]?.endTimestamp
+        const endTimestamp = end.valueOf()
 
-    if (lastSegment.endTimeEpochMs + 1 < endTimestamp) {
-        segments.push({
-            startTimeEpochMs: lastSegment.endTimeEpochMs + 1,
-            endTimeEpochMs: endTimestamp,
-            windowId: 'buffer',
-            isActive: false,
-        } as RecordingSegment)
+        if (!latestTimestamp || latestTimestamp < endTimestamp) {
+            segments.push({
+                kind: 'buffer',
+                startTimestamp: latestTimestamp ? latestTimestamp + 1 : start.valueOf(),
+                endTimestamp: endTimestamp,
+                windowId: 'buffer',
+                isActive: false,
+            } as RecordingSegment)
+        }
     }
 
     segments = segments.map((segment) => {
-        const windowStartTimestamp = snapshotsByWindowId[segment.windowId]?.[0]?.timestamp ?? segment.startTimeEpochMs
-
         // These can all be done in a loop at the end...
-        segment.durationMs = segment.endTimeEpochMs - segment.startTimeEpochMs
-        segment.startPlayerPosition = {
-            windowId: segment.windowId,
-            time: segment.startTimeEpochMs - windowStartTimestamp,
-        }
-        segment.endPlayerPosition = {
-            windowId: segment.windowId,
-            time: segment.endTimeEpochMs - windowStartTimestamp,
-        }
-
+        segment.durationMs = segment.endTimestamp - segment.startTimestamp
         return segment
     })
+
+    console.log({ segments })
 
     // segments.forEach((segment) => {
     //     console.log('segment', {

@@ -557,11 +557,6 @@ export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGr
 
 export type SessionRecordingId = SessionRecordingType['id']
 
-export interface PlayerPosition {
-    time: number // This is relative to that window
-    windowId: string
-}
-
 export interface RRWebRecordingConsoleLogPayload {
     level: LogLevel
     payload: (string | null)[]
@@ -596,12 +591,11 @@ export type RecordingConsoleLogV2 = {
 }
 
 export interface RecordingSegment {
-    startPlayerPosition: PlayerPosition // Player time (for the specific window_id's player) that the segment starts. If the segment starts 10 seconds into a recording, this would be 10000
-    endPlayerPosition: PlayerPosition // Player time (for the specific window_id' player) that the segment ends
-    startTimeEpochMs: number // Epoch time that the segment starts
-    endTimeEpochMs: number // Epoch time that the segment ends
+    kind: 'window' | 'buffer' | 'gap'
+    startTimestamp: number // Epoch time that the segment starts
+    endTimestamp: number // Epoch time that the segment ends
     durationMs: number
-    windowId: string
+    windowId?: string
     isActive: boolean
 }
 
@@ -632,10 +626,15 @@ export interface SessionPlayerMetaData {
     segments: RecordingSegment[]
 }
 
-export interface SessionPlayerData extends SessionPlayerMetaData {
-    bufferedTo: (PlayerPosition & { timestamp: number }) | null
+export interface SessionPlayerData {
+    pinnedCount: number
+    person: PersonType | null
+    segments: RecordingSegment[]
+    bufferedToTime: number | null
     snapshotsByWindowId: Record<string, eventWithTime[]>
     durationMs: number
+    start?: Dayjs
+    end?: Dayjs
 }
 
 export enum SessionRecordingUsageType {

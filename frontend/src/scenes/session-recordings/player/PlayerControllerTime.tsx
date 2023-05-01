@@ -13,7 +13,7 @@ export function Timestamp(): JSX.Element {
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
-    const endTimeSeconds = Math.floor((sessionPlayerData.durationMs ?? 0) / 1000)
+    const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 

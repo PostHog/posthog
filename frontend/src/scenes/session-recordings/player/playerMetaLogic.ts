@@ -18,7 +18,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingDataLogic(props),
             ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerPosition', 'scale', 'currentPlayerTime', 'absolutePlayerTime'],
+            ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment'],
         ],
         actions: [sessionRecordingDataLogic(props), ['loadRecordingMetaSuccess']],
     })),
@@ -30,21 +30,17 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         resolution: [
-            (selectors) => [selectors.sessionPlayerData, selectors.absolutePlayerTime, selectors.currentPlayerPosition],
-            (
-                sessionPlayerData,
-                absolutePlayerTime,
-                currentPlayerPosition
-            ): { width: number; height: number } | null => {
+            (selectors) => [selectors.sessionPlayerData, selectors.currentTimestamp, selectors.currentSegment],
+            (sessionPlayerData, currentTimestamp, currentSegment): { width: number; height: number } | null => {
                 // Find snapshot to pull resolution from
-                if (!currentPlayerPosition || !absolutePlayerTime) {
+                if (!currentTimestamp) {
                     return null
                 }
-                const snapshots = sessionPlayerData.snapshotsByWindowId[currentPlayerPosition.windowId] ?? []
+                const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment?.windowId ?? ''] ?? []
 
                 const currIndex = findLastIndex(
                     snapshots,
-                    (s: eventWithTime) => s.timestamp < absolutePlayerTime && (s.data as any).width
+                    (s: eventWithTime) => s.timestamp < currentTimestamp && (s.data as any).width
                 )
 
                 if (currIndex === -1) {
@@ -71,9 +67,9 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         currentWindowIndex: [
-            (selectors) => [selectors.windowIds, selectors.currentPlayerPosition],
-            (windowIds, currentPlayerPosition) => {
-                return windowIds.findIndex((windowId) => windowId === currentPlayerPosition?.windowId ?? -1)
+            (selectors) => [selectors.windowIds, selectors.currentSegment],
+            (windowIds, currentSegment) => {
+                return windowIds.findIndex((windowId) => windowId === currentSegment?.windowId ?? -1)
             },
         ],
         lastPageviewEvent: [

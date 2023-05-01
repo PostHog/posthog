@@ -39,7 +39,7 @@ export const createExportedSessionRecording = (
     return {
         version: '2023-04-28',
         data: {
-            person: sessionPlayerMetaData.person,
+            person: sessionPlayerMetaData?.person ?? null,
             snapshots: sessionPlayerSnapshotData?.snapshots || [],
         },
     }

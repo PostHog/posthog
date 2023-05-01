@@ -64,19 +64,13 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.seek(
-                    {
-                        time: 50, // greater than null buffered time
-                        windowId: '1',
-                    },
-                    true
-                )
+                logic.actions.seekToTime(50) // greater than null buffered time
             }).toDispatchActionsInAnyOrder([
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsFailure,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
-                'seek',
+                'seekToTimestamp',
                 'setErrorPlayerState',
             ])
 
