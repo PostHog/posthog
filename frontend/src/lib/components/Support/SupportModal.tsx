@@ -7,6 +7,10 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { Field } from 'lib/forms/Field'
 import { IconBugReport, IconFeedback, IconSupport } from 'lib/lemon-ui/icons'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { LemonFileInput, useUploadFiles } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { useRef } from 'react'
+import { lemonToast } from '@posthog/lemon-ui'
 
 const SUPPORT_TICKET_OPTIONS: LemonSelectOptions<SupportTicketKind> = [
     {
@@ -38,7 +42,19 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
 
 export function SupportModal(): JSX.Element {
     const { sendSupportRequest, isSupportFormOpen } = useValues(supportLogic)
-    const { closeSupportForm } = useActions(supportLogic)
+    const { setSendSupportRequestValue, closeSupportForm } = useActions(supportLogic)
+    const { objectStorageAvailable } = useValues(preflightLogic)
+
+    const dropRef = useRef<HTMLDivElement>(null)
+
+    const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
+        onUpload: (url, fileName) => {
+            setSendSupportRequestValue('message', sendSupportRequest.message + `\n\n![${fileName}](${url})`)
+        },
+        onError: (detail) => {
+            lemonToast.error(`Error uploading image: ${detail}`)
+        },
+    })
 
     return (
         <LemonModal
@@ -85,7 +101,25 @@ export function SupportModal(): JSX.Element {
                     name="message"
                     label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
                 >
-                    <LemonTextArea placeholder="Type your message here" data-attr="support-form-content-input" />
+                    {(props) => (
+                        <div ref={dropRef} className="flex flex-col gap-2">
+                            <LemonTextArea
+                                placeholder="Type your message here"
+                                data-attr="support-form-content-input"
+                                {...props}
+                            />
+                            {objectStorageAvailable && (
+                                <LemonFileInput
+                                    accept="image/*"
+                                    multiple={false}
+                                    alternativeDropTargetRef={dropRef}
+                                    onChange={setFilesToUpload}
+                                    loading={uploading}
+                                    value={filesToUpload}
+                                />
+                            )}
+                        </div>
+                    )}
                 </Field>
             </Form>
         </LemonModal>
