@@ -245,9 +245,41 @@ components:
                     format: uuid
                 type:
                     type: string
+                $set:
+                    $ref: '#/components/schemas/SetPersonProperties'
+                $set_once:
+                    $ref: '#/components/schemas/SetOncePersonProperties'
                 properties:
                     type: object
+                    properties:
+                        $set:
+                            $ref: '#/components/schemas/SetPersonProperties'
+                        $set_once:
+                            $ref: '#/components/schemas/SetOncePersonProperties'
                     additionalProperties: true
+
+        SetPersonProperties:
+            type: object
+            description: |
+                Set person property to a given values. If the property does not 
+                exist, it will be set. If the property already exists, it
+                will be updated to the new value. The type of the property
+                will be inferred from the value.
+            additionalProperties: true
+            example:
+                $set:
+                    country: UK
+                    city: Cambridge
+
+        SetOncePersonProperties:
+            type: object
+            description: |
+                Set person property to a given value, but only if it is not
+                currently set. It will not override existing values. The type
+                of the property will be inferred from the value.
+            example:
+                $set_once:
+                    initial_referrer: https://google.com
 
         EventCaptureRequest:
             $ref: '#/components/schemas/Event'

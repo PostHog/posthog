@@ -57,6 +57,8 @@ export const capture = async ({
     sentAt = new Date(),
     eventTime = new Date(),
     now = new Date(),
+    $set = undefined,
+    $set_once = undefined,
     topic = ['$performance_event', '$snapshot'].includes(event)
         ? 'session_recording_events'
         : 'events_plugin_ingestion',
@@ -71,6 +73,8 @@ export const capture = async ({
     eventTime?: Date
     now?: Date
     topic?: string
+    $set?: object
+    $set_once?: object
 }) => {
     // WARNING: this capture method is meant to simulate the ingestion of events
     // from the capture endpoint, but there is no guarantee that is is 100%
@@ -92,6 +96,8 @@ export const capture = async ({
                     properties: { ...properties, uuid },
                     team_id: teamId,
                     timestamp: eventTime,
+                    $set,
+                    $set_once,
                 }),
             })
         ),
