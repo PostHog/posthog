@@ -28,6 +28,7 @@ class FeatureFlag(models.Model):
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
     filters: models.JSONField = models.JSONField(default=dict)
+    super_filters: models.JSONField = models.JSONField(default=dict, blank=True, null=True)
     rollout_percentage: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)

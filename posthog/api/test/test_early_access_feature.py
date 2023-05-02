@@ -33,6 +33,8 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "concept"
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
+        assert len(response_data["feature_flag"]["super_filters"]["groups"]) == 2
+        assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert isinstance(response_data["created_at"], str)
 
     def test_can_edit_feature(self):

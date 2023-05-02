@@ -82,6 +82,41 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
         feature_flag_id = validated_data.get("feature_flag_id", None)
 
+        super_filter_groups = lambda feature_flag_key: [
+            {
+                "properties": [
+                    {
+                        "key": f"$feature_enrollment/{feature_flag_key}",
+                        "type": "person",
+                        "value": ["true"],
+                        "operator": "exact",
+                    },
+                    {
+                        "key": f"$feature_enrollment/{feature_flag_key}",
+                        "type": "person",
+                        "operator": "is_set",
+                    },
+                ],
+                "rollout_percentage": 100,
+            },
+            {
+                "properties": [
+                    {
+                        "key": f"$feature_enrollment/{feature_flag_key}",
+                        "type": "person",
+                        "value": ["false"],
+                        "operator": "exact",
+                    },
+                    {
+                        "key": f"$feature_enrollment/{feature_flag_key}",
+                        "type": "person",
+                        "operator": "is_set",
+                    },
+                ],
+                "rollout_percentage": 100,
+            },
+        ]
+
         if feature_flag_id:
             feature_flag = FeatureFlag.objects.get(pk=feature_flag_id)
             feature_flag_key = feature_flag.key
@@ -92,20 +127,8 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 key=feature_flag_key,
                 name=f"Feature Flag for Feature {validated_data['name']}",
                 created_by=self.context["request"].user,
-                filters={
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": f"$feature_enrollment/{feature_flag_key}",
-                                    "type": "person",
-                                    "value": ["true"],
-                                    "operator": "exact",
-                                }
-                            ],
-                            "rollout_percentage": 100,
-                        }
-                    ],
+                super_filters={
+                    "groups": super_filter_groups(feature_flag_key),
                     "payloads": {},
                     "multivariate": None,
                 },
@@ -114,21 +137,8 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         validated_data["feature_flag_id"] = feature_flag.id
 
         feature: EarlyAccessFeature = super().create(validated_data)
-        feature_flag.filters = {
-            "groups": [
-                *feature_flag.filters["groups"],
-                {
-                    "properties": [
-                        {
-                            "key": f"$feature_enrollment/{feature_flag_key}",
-                            "type": "person",
-                            "value": ["true"],
-                            "operator": "exact",
-                        }
-                    ],
-                    "rollout_percentage": 100,
-                },
-            ],
+        feature_flag.super_filters = {
+            "groups": super_filter_groups(feature_flag_key),
             "payloads": {},
             "multivariate": None,
         }
