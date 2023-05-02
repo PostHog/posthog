@@ -76,10 +76,8 @@ export function NotebookSideBar(): JSX.Element {
                                     icon={<IconJournal />}
                                     sideIcon={null}
                                 >
-                                    <span className="font-semibold">Notebooks</span>
+                                    <span className="font-semibold">{selectedNotebook}</span>
                                 </LemonButtonWithDropdown>
-                                <span>/</span>
-                                <span className="font-semibold px-2">{selectedNotebook}</span>
                             </span>
                             <span className="flex gap-2">
                                 <LemonButton
