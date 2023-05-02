@@ -125,6 +125,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             0,
             {
                 loadRecordingSnapshotsSuccess: (state) => state + 1,
+                // load recording blob snapshots will call loadRecordingSnapshotsSuccess again when complete
+                loadRecordingBlobSnapshots: () => 0,
             },
         ],
 
@@ -160,6 +162,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             if (values.sessionPlayerSnapshotData?.blob_keys?.length) {
                 // then we need to load the snapshots from the blob, before calling loadRecordingSnapshotsSuccess again
                 actions.loadRecordingBlobSnapshots(null)
+                return
             }
 
             // If there is more data to poll for load the next batch.
