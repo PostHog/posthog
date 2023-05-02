@@ -171,14 +171,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise exceptions.NotFound("Recording not found")
 
         if request.GET.get("blob_loading_enabled", "false") == "true":
-            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}"
+            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
             blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
                 return Response(
                     {
                         "snapshot_data_by_window_id": [],
-                        "blob_keys": [x.replace(blob_prefix + "/data/", "") for x in blob_keys],
+                        "blob_keys": [x.replace(blob_prefix, "") for x in blob_keys],
                         "next": None,
                     }
                 )
