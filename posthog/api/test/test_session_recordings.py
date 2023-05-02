@@ -380,7 +380,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         blob_objects = ["session_recordings/something/data", "session_recordings/something_else/data"]
         mock_list_objects.return_value = blob_objects
         chunked_session_id = "chunk_id"
-        num_chunks = 60
+        # only needs enough data so that the test fails if the blobs aren't loaded
+        num_chunks = 2
         snapshots_per_chunk = 2
 
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -402,17 +403,19 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch("posthog.api.session_recording.object_storage.get_presigned_url")
     @patch("posthog.api.session_recording.requests")
-    def test_can_get_session_recording_blob(self, mock_presigned_url, _mock_requests) -> None:
+    def test_can_get_session_recording_blob(self, _mock_requests, mock_presigned_url) -> None:
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
         blob_key = f"data/1682608337071"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshot_file/?blob_key={blob_key}"
 
-        mock_presigned_url.side_effect = (
-            lambda blob_key: f"https://test.com/{blob_key}"
-            if blob_key == f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/{blob_key}a"
-            else None
-        )
+        def presigned_url_sideeffect(key: str, **kwargs):
+            if key == f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/{blob_key}":
+                return f"https://test.com/"
+            else:
+                return None
+
+        mock_presigned_url.side_effect = presigned_url_sideeffect
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
