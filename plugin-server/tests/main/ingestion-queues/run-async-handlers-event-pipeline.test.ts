@@ -19,6 +19,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import Redis from 'ioredis'
 import { KafkaJSError } from 'kafkajs'
 
+import { defaultConfig } from '../../../src/config/config'
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
 import { buildOnEventIngestionConsumer } from '../../../src/main/ingestion-queues/on-event-handler-consumer'
 import { Hub } from '../../../src/types'
@@ -242,11 +243,10 @@ describe('eachBatchAsyncHandlers', () => {
 
     afterEach(async () => {
         await closeHub?.()
-        await piscina.destroy()
     })
 
     test('rejections from piscina are bubbled up to the consumer', async () => {
-        piscina = makePiscina(hub)
+        piscina = await makePiscina(defaultConfig, hub)
         const ingestionConsumer = buildOnEventIngestionConsumer({ hub, piscina })
 
         jest.spyOn(ingestionConsumer, 'eachBatch').mockRejectedValue(
