@@ -1563,6 +1563,7 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
+    aggregation_group_type_index?: number // Groups aggregation
 }
 
 export interface PropertiesTimelineFilterType {
@@ -1626,6 +1627,7 @@ export interface FunnelsFilterType extends FilterType {
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    funnel_aggregate_by_hogql?: string
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
@@ -1653,6 +1655,7 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
     period?: RetentionPeriod
+    retention_aggregate_by_hogql?: string
 }
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue

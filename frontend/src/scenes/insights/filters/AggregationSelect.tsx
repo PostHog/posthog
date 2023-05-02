@@ -6,17 +6,22 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { InsightLogicProps } from '~/types'
 import { insightLogic } from '../insightLogic'
-import { isInsightQueryNode } from '~/queries/utils'
+import { isFunnelsQuery, isInsightQueryNode } from '~/queries/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { FunnelsQuery } from '~/queries/schema'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
     className?: string
+    hogqlAvailable?: boolean
+    value?: string
 }
 
 export function AggregationSelectDataExploration({
     insightProps,
     className,
+    hogqlAvailable,
 }: AggregationSelectProps): JSX.Element | null {
     const { querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -25,46 +30,112 @@ export function AggregationSelectDataExploration({
         return null
     }
 
-    return (
-        <AggregationSelectComponent
-            className={className}
-            aggregationGroupTypeIndex={querySource.aggregation_group_type_index}
-            onChange={(aggregation_group_type_index) => updateQuerySource({ aggregation_group_type_index })}
-        />
-    )
-}
-
-export function AggregationSelect({ insightProps, className }: AggregationSelectProps): JSX.Element {
-    const { filters } = useValues(insightLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
+    let value = UNIQUE_USERS
+    if (querySource.aggregation_group_type_index !== undefined) {
+        value = `$group_${querySource.aggregation_group_type_index}`
+    } else if (isFunnelsQuery(querySource) && querySource.funnelsFilter?.funnel_aggregate_by_hogql !== undefined) {
+        value = querySource.funnelsFilter.funnel_aggregate_by_hogql
+    }
 
     return (
         <AggregationSelectComponent
             className={className}
-            aggregationGroupTypeIndex={filters.aggregation_group_type_index}
-            onChange={(aggregation_group_type_index) => {
-                setFilters({ ...filters, aggregation_group_type_index })
+            hogqlAvailable={hogqlAvailable}
+            value={value}
+            onChange={(value) => {
+                if (hogqlAvailable) {
+                    if (isFunnelsQuery(querySource)) {
+                        if (value?.startsWith('$group_')) {
+                            const aggregation_group_type_index = parseInt(value.replace('$group_', ''))
+                            updateQuerySource({
+                                aggregation_group_type_index,
+                                funnelsFilter: { ...querySource.funnelsFilter, funnel_aggregate_by_hogql: undefined },
+                            } as FunnelsQuery)
+                        } else {
+                            updateQuerySource({
+                                aggregation_group_type_index: undefined,
+                                funnelsFilter: { ...querySource.funnelsFilter, funnel_aggregate_by_hogql: value },
+                            } as FunnelsQuery)
+                        }
+                    } else {
+                        throw new Error('hogqlAvailable is true but querySource is not a funnel query')
+                    }
+                } else if (value?.startsWith('$group_')) {
+                    const aggregation_group_type_index = parseInt(value.replace('$group_', ''))
+                    updateQuerySource({ aggregation_group_type_index })
+                } else {
+                    updateQuerySource({ aggregation_group_type_index: undefined })
+                }
             }}
         />
     )
 }
 
-const UNIQUE_USERS = -1
+export function AggregationSelect({ insightProps, className, hogqlAvailable }: AggregationSelectProps): JSX.Element {
+    const { filters } = useValues(insightLogic(insightProps))
+    const { setFilters } = useActions(funnelLogic(insightProps))
+
+    let value = UNIQUE_USERS
+    if (filters.aggregation_group_type_index !== undefined) {
+        value = `$group_${filters.aggregation_group_type_index}`
+    } else if (isFunnelsFilter(filters) && filters.funnel_aggregate_by_hogql !== undefined) {
+        value = filters.funnel_aggregate_by_hogql
+    }
+
+    return (
+        <AggregationSelectComponent
+            className={className}
+            value={value}
+            hogqlAvailable={hogqlAvailable}
+            onChange={(value) => {
+                if (hogqlAvailable) {
+                    if (isFunnelsFilter(filters)) {
+                        if (value?.startsWith('$group_')) {
+                            const aggregation_group_type_index = parseInt(value.replace('$group_', ''))
+                            setFilters({
+                                ...filters,
+                                aggregation_group_type_index,
+                                funnel_aggregate_by_hogql: undefined,
+                            })
+                        } else {
+                            setFilters({
+                                ...filters,
+                                aggregation_group_type_index: undefined,
+                                funnel_aggregate_by_hogql: value,
+                            })
+                        }
+                    } else {
+                        throw new Error('hogqlAvailable is true but querySource is not a funnel query')
+                    }
+                } else if (value?.startsWith('$group_')) {
+                    const aggregation_group_type_index = parseInt(value.replace('$group_', ''))
+                    setFilters({ ...filters, aggregation_group_type_index })
+                } else {
+                    setFilters({ ...filters, aggregation_group_type_index: undefined })
+                }
+            }}
+        />
+    )
+}
+
+const UNIQUE_USERS = 'person_id'
 interface AggregationSelectComponentProps {
     className?: string
-    aggregationGroupTypeIndex: number | undefined
-    onChange: (aggregation_group_type_index: number | undefined) => void
+    hogqlAvailable?: boolean
+    value?: string
+    onChange: (value: string | undefined) => void
 }
 
 function AggregationSelectComponent({
     className,
-    aggregationGroupTypeIndex: aggregation_group_type_index,
+    hogqlAvailable,
     onChange,
+    value,
 }: AggregationSelectComponentProps): JSX.Element {
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
-    const optionSections: LemonSelectSection<number>[] = [
+    const optionSections: LemonSelectSection<string>[] = [
         {
             title: 'Event Aggregation',
             options: [
@@ -81,20 +152,26 @@ function AggregationSelectComponent({
     } else {
         groupTypes.forEach((groupType) => {
             optionSections[0].options.push({
-                value: groupType.group_type_index,
+                value: `$group_${groupType.group_type_index}`,
                 label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
             })
+        })
+    }
+
+    if (hogqlAvailable) {
+        optionSections[0].options.push({
+            value: `properties.$session_id`,
+            label: `Unique sessions`,
         })
     }
 
     return (
         <LemonSelect
             className={className}
-            value={aggregation_group_type_index === undefined ? UNIQUE_USERS : aggregation_group_type_index}
-            onChange={(value) => {
-                if (value !== null) {
-                    const groupTypeIndex = value === UNIQUE_USERS ? undefined : value
-                    onChange(groupTypeIndex)
+            value={value}
+            onChange={(newValue) => {
+                if (newValue !== null) {
+                    onChange(newValue)
                 }
             }}
             data-attr="retention-aggregation-selector"

@@ -179,6 +179,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             entrance_period_start: filters.entrance_period_start,
             drop_off: filters.drop_off,
             hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
+            funnel_aggregate_by_hogql: filters.funnel_aggregate_by_hogql,
         })
     }
 

@@ -472,7 +472,10 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.aggregationLabel],
-            (filters, aggregationLabel): Noun => aggregationLabel(filters.aggregation_group_type_index),
+            (filters, aggregationLabel): Noun =>
+                filters.funnel_aggregate_by_hogql
+                    ? aggregationLabelForHogQL(filters.funnel_aggregate_by_hogql)
+                    : aggregationLabel(filters.aggregation_group_type_index),
         ],
         advancedOptionsUsedCount: [
             (s) => [s.filters, s.stepReference],
@@ -640,3 +643,9 @@ export const funnelLogic = kea<funnelLogicType>({
         },
     }),
 })
+function aggregationLabelForHogQL(funnel_aggregate_by_hogql: string): Noun {
+    if (funnel_aggregate_by_hogql === 'properties.$session_id') {
+        return { singular: 'session', plural: 'sessions' }
+    }
+    return { singular: 'match', plural: 'matches' }
+}
