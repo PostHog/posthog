@@ -33,7 +33,7 @@ from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_e
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
-from posthog.models import Cohort, Filter, Person, User
+from posthog.models import Cohort, Filter, Person, User, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -88,7 +88,7 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
         }
 
 
-def get_person_name(person: Person) -> str:
+def get_person_name(team: Team, person: Person) -> str:
     if person.properties.get("email"):
         return person.properties["email"]
     if len(person.distinct_ids) > 0:
@@ -228,7 +228,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team.pk, actor_ids)
+        actors, serialized_actors = get_people(team, actor_ids)
 
         _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
