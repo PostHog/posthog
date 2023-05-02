@@ -1,9 +1,9 @@
-import Piscina from '@posthog/piscina'
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 import { IngestionConsumer } from 'main/ingestion-queues/kafka-queue'
 import * as prometheus from 'prom-client'
 
 import { status } from '../../utils/status'
+import Piscina from '../../worker/piscina'
 
 export const HTTP_SERVER_PORT = 6738
 

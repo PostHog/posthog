@@ -1,10 +1,9 @@
-import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { LogLevel } from '../../src/types'
 import { delay } from '../../src/utils/utils'
-import { makePiscina } from '../../src/worker/piscina'
+import Piscina, { makePiscina } from '../../src/worker/piscina'
 import { pluginConfig39 } from '../helpers/plugins'
 import { getErrorForPluginConfig, resetTestDatabase } from '../helpers/sql'
 
@@ -53,7 +52,7 @@ describe('teardown', () => {
 
         await processEvent(piscina, defaultEvent)
 
-        await stop()
+        await stop?.()
 
         // verify the teardownPlugin code runs
         const error2 = await getErrorForPluginConfig(pluginConfig39.id)

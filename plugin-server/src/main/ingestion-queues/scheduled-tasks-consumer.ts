@@ -1,10 +1,10 @@
-import Piscina from '@posthog/piscina'
 import { StatsD } from 'hot-shots'
 import { Batch, EachBatchHandler, Kafka, Producer } from 'kafkajs'
 
 import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/kafka-topics'
 import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
+import Piscina from '../../worker/piscina'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 import { latestOffsetTimestampGauge } from './metrics'
 
@@ -155,10 +155,10 @@ const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
     // In any one batch, we only want to run one task per plugin config id.
     // Hence here we dedupe the tasks by plugin config id and task type.
     const tasksbyTypeAndPluginConfigId = {} as Record<
-        (typeof taskTypes)[number],
+        typeof taskTypes[number],
         Record<
             number,
-            { taskType: (typeof taskTypes)[number]; pluginConfigId: number; message: (typeof batch.messages)[number] }
+            { taskType: typeof taskTypes[number]; pluginConfigId: number; message: typeof batch.messages[number] }
         >
     >
 
@@ -172,7 +172,7 @@ const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
         }
 
         let task: {
-            taskType: (typeof taskTypes)[number]
+            taskType: typeof taskTypes[number]
             pluginConfigId: number
         }
 

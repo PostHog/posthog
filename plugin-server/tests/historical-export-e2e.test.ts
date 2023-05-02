@@ -1,4 +1,3 @@
-import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { defaultConfig } from '../src/config/config'
@@ -6,7 +5,7 @@ import { startPluginsServer } from '../src/main/pluginsServer'
 import { EnqueuedPluginJob, Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { UUIDT } from '../src/utils/utils'
 import { EventPipelineRunner } from '../src/worker/ingestion/event-pipeline/runner'
-import { makePiscina } from '../src/worker/piscina'
+import Piscina, { makePiscina } from '../src/worker/piscina'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
 import { resetGraphileWorkerSchema } from './helpers/graphile-worker'
