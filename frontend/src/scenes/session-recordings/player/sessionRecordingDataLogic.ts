@@ -27,6 +27,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
+import { decompressSync, strFromU8 } from 'fflate'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -345,6 +346,21 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         nextUrl ||
                         `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
                     const response = await api.get(apiUrl)
+
+                    if (response.objects) {
+                        let wat: Record<string, any>[] = []
+                        for (const obj of response.objects) {
+                            const response = await api.getResponse(
+                                `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots_file?snapshot_file_key=${obj}`
+                            )
+                            const contentBuffer = await response.arrayBuffer()
+                            const massiveFile = new Uint8Array(contentBuffer)
+                            const jsonLines = strFromU8(decompressSync(massiveFile)).trim().split('\n')
+                            const decompressed = jsonLines.map((l) => JSON.parse(l))
+                            wat = wat.concat(decompressed)
+                        }
+                    }
+
                     breakpoint()
                     // If we have a next url, we need to append the new snapshots to the existing ones
                     const snapshotsByWindowId = {

@@ -1,5 +1,5 @@
 import abc
-from typing import Optional, Union
+from typing import Optional, Union, List
 
 import structlog
 from boto3 import client
@@ -22,6 +22,14 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+        pass
+
+    @abc.abstractmethod
+    def list_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+        pass
+
+    @abc.abstractmethod
     def read(self, bucket: str, key: str) -> Optional[str]:
         pass
 
@@ -37,6 +45,12 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
 class UnavailableStorage(ObjectStorageClient):
     def head_bucket(self, bucket: str):
         return False
+
+    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+        pass
+
+    def list_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+        pass
 
     def read(self, bucket: str, key: str) -> Optional[str]:
         pass
@@ -58,6 +72,35 @@ class ObjectStorage(ObjectStorageClient):
         except Exception as e:
             logger.warn("object_storage.health_check_failed", bucket=bucket, error=e)
             return False
+
+    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+        s3_response = {}
+        try:
+            s3_response = self.aws_client.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={"Bucket": bucket, "Key": file_key},
+                ExpiresIn=expiration,
+                HttpMethod="GET",
+            )
+            return s3_response
+        except Exception as e:
+            logger.error(
+                "object_storage.get_presigned_url_failed", file_name=file_key, error=e, s3_response=s3_response
+            )
+            capture_exception(e)
+            return None
+
+    def list_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+        try:
+            s3_response = self.aws_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
+            if s3_response.get("Contents"):
+                return [obj["Key"] for obj in s3_response["Contents"]]
+            else:
+                return None
+        except Exception as e:
+            logger.error("object_storage.list_objects_failed", bucket=bucket, prefix=prefix, error=e)
+            capture_exception(e)
+            return None
 
     def read(self, bucket: str, key: str) -> Optional[str]:
         object_bytes = self.read_bytes(bucket, key)
@@ -119,6 +162,16 @@ def read(file_name: str) -> Optional[str]:
 
 def read_bytes(file_name: str) -> Optional[bytes]:
     return object_storage_client().read_bytes(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
+
+
+def list_objects(prefix: str) -> Optional[List[str]]:
+    return object_storage_client().list_objects(bucket=settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+
+
+def get_presigned_url(file_key: str, expiration: int = 3600) -> Optional[str]:
+    return object_storage_client().get_presigned_url(
+        bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, expiration=expiration
+    )
 
 
 def health_check() -> bool:

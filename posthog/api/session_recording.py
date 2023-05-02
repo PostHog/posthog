@@ -1,12 +1,13 @@
 import json
 from typing import Any, List, Type, cast
 
+import requests
 import structlog
 from dateutil import parser
 from django.db.models import Count, Prefetch
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.renderers import JSONRenderer
@@ -26,6 +27,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
@@ -136,9 +138,33 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         return Response({"success": True})
 
+    @action(methods=["GET"], detail=True)
+    def snapshots_file(self, request: request.Request, **kwargs) -> HttpResponse:
+        file_key = request.GET.get("snapshot_file_key")
+
+        if not file_key:
+            raise exceptions.ValidationError("Must provide a snapshot file key")
+
+        url = object_storage.get_presigned_url(file_key)
+        with requests.get(url=url, stream=True) as r:
+            r.raw.decode_content = True
+            r.raise_for_status()
+            response = HttpResponse(content=r.raw, content_type="application/json")
+            response["Content-Disposition"] = "inline"
+            return response
+
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
+
+        if request.GET.get("from_s3"):
+            blob_snapshots = object_storage.list_objects(
+                f"session_recordings/team_id/{self.team.pk}/session_id/{kwargs['pk']}/"
+            )
+            return (
+                Response({"objects": blob_snapshots}) if blob_snapshots else Response(status=status.HTTP_404_NOT_FOUND)
+            )
+
         # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
         filter = Filter(request=request)
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
