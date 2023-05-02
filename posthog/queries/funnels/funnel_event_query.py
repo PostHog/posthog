@@ -25,7 +25,7 @@ class FunnelEventQuery(EventQuery):
             )
 
         # Aggregating by HogQL
-        elif self._filter.funnel_aggregate_by_hogql:
+        elif self._filter.funnel_aggregate_by_hogql and self._filter.funnel_aggregate_by_hogql != "person_id":
             aggregation_target = translate_hogql(
                 self._filter.funnel_aggregate_by_hogql,
                 events_table_alias=self.EVENT_TABLE_ALIAS,

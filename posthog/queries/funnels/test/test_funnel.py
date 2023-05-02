@@ -2475,6 +2475,18 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 2)
             self.assertEqual(result[2]["count"], 1)
 
+            # distinct_id
+            result = self._basic_funnel(filters={**basic_filters, "funnel_aggregate_by_hogql": "distinct_id"}).run()
+            self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 1)
+
+            # person_id
+            result = self._basic_funnel(filters={**basic_filters, "funnel_aggregate_by_hogql": "person_id"}).run()
+            self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 1)
+
             # # person.properties.common_prop - not supported!
             # result = self._basic_funnel(
             #     filters={**basic_filters, "funnel_aggregate_by_hogql": "person.properties.common_prop"}
