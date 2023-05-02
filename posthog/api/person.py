@@ -89,7 +89,6 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
 
 
 def get_person_name(person: Person) -> str:
-    raise Exception("get_person_name called")
     if person.properties.get("email"):
         return person.properties["email"]
     if len(person.distinct_ids) > 0:
@@ -121,6 +120,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
 
     def get_name(self, person: Person) -> str:
+        raise Exception("get_name called")
         return get_person_name(person)
 
     def to_representation(self, instance: Person) -> Dict[str, Any]:
