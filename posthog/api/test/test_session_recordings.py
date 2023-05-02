@@ -403,6 +403,34 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data == {"snapshot_data_by_window_id": [], "next": None, "blob_keys": blob_objects}
         mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/chunk_id/data/")
 
+    @patch("posthog.api.session_recording.object_storage.list_objects")
+    def test_get_snapshots_can_fallback_to_clickhouse_when_blob_not_available(self, mock_list_objects) -> None:
+        mock_list_objects.return_value = []
+        chunked_session_id = "chunk_id"
+        # only needs enough data so that the test fails if the blobs aren't loaded
+        num_chunks = 2
+        snapshots_per_chunk = 2
+
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            start_time = now()
+            for index, s in enumerate(range(num_chunks)):
+                self.create_chunked_snapshots(
+                    snapshots_per_chunk,
+                    "user",
+                    chunked_session_id,
+                    start_time + relativedelta(minutes=s),
+                    window_id="1" if index % 2 == 0 else "2",
+                )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots?blob_loading_enabled=true"
+        )
+        response_data = response.json()
+
+        assert response_data["next"] is None
+        assert len(response_data["snapshot_data_by_window_id"]) == 2  # 2 windows
+        mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/chunk_id/data/")
+
     @patch("posthog.api.session_recording.SessionRecording.get_or_build")
     @patch("posthog.api.session_recording.object_storage.get_presigned_url")
     @patch("posthog.api.session_recording.requests")
