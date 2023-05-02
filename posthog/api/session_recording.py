@@ -260,8 +260,10 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
 
     if all_session_ids:
         # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
+        sorted_session_ids = sorted(all_session_ids)
+
         persisted_recordings_queryset = (
-            SessionRecording.objects.filter(team=team, session_id__in=sorted(all_session_ids))
+            SessionRecording.objects.filter(team=team, session_id__in=sorted_session_ids)
             .exclude(object_storage_path=None)
             .annotate(pinned_count=Count("playlist_items"))
         )
@@ -301,9 +303,9 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     )
 
     # Get the related persons for all the recordings
-    distinct_ids = [x.distinct_id for x in recordings]
+    distinct_ids = sorted([x.distinct_id for x in recordings])
     person_distinct_ids = (
-        PersonDistinctId.objects.filter(distinct_id__in=sorted(distinct_ids), team=team)
+        PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
         .select_related("person")
         .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
     )
