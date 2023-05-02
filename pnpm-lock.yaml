@@ -121,6 +121,9 @@ dependencies:
   fast-deep-equal:
     specifier: ^3.1.3
     version: 3.1.3
+  fflate:
+    specifier: ^0.7.4
+    version: 0.7.4
   fs-extra:
     specifier: ^10.0.0
     version: 10.1.0
@@ -10273,6 +10276,10 @@ packages:
 
   /fflate@0.4.8:
     resolution: {integrity: sha512-FJqqoDBR00Mdj9ppamLa/Y7vxm+PRmNWA67N846RvsoYVMKB4q3y/de5PA7gUmRMYK/8CMz2GDZQmCRN1wBcWA==}
+    dev: false
+
+  /fflate@0.7.4:
+    resolution: {integrity: sha512-5u2V/CDW15QM1XbbgS+0DfPxVB+jUKhWEKuuFuHncbk3tEEqzmoXL+2KyOFuKGqOnmdIy0/davWF1CkuwtibCw==}
     dev: false
 
   /figgy-pudding@3.5.2:
