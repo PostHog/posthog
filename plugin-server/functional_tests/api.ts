@@ -17,6 +17,7 @@ import {
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
+import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
 let clickHouseClient: ClickHouse
@@ -131,12 +132,26 @@ export const createPluginConfig = async (
     })
 }
 
+export const getPluginConfig = async (teamId: number, pluginId: number) => {
+    const queryResult = (await postgres.query(`SELECT * FROM posthog_pluginconfig WHERE team_id = $1 AND id = $2`, [
+        teamId,
+        pluginId,
+    ])) as { rows: any[] }
+    return queryResult.rows[0]
+}
+
 export const createAndReloadPluginConfig = async (teamId: number, pluginId: number) => {
     const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId })
     // Make sure the plugin server reloads the newly created plugin config.
     // TODO: avoid reaching into the pluginsServer internals and rather use
     // the pubsub mechanism to trigger this.
     await redis.publish('reload-plugins', '')
+    // We wait for some log entries for the plugin, to make sure it's ready to
+    // process events.
+    await waitForExpect(async () => {
+        const logs = await fetchPluginLogEntries(pluginConfig.id)
+        expect(logs.length).toBeGreaterThan(0)
+    })
     return pluginConfig
 }
 
@@ -194,12 +209,20 @@ export const fetchPerformanceEvents = async (teamId: number) => {
     return queryResult.data
 }
 
-export const fetchPluginLogEntries = async (pluginConfigId: number) => {
+export const fetchPluginConsoleLogEntries = async (pluginConfigId: number) => {
     const { data: logEntries } = (await clickHouseClient.querying(`
         SELECT * FROM plugin_log_entries
         WHERE plugin_config_id = ${pluginConfigId} AND source = 'CONSOLE'
     `)) as unknown as ClickHouse.ObjectQueryResult<PluginLogEntry>
     return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
+}
+
+export const fetchPluginLogEntries = async (pluginConfigId: number) => {
+    const { data: logEntries } = (await clickHouseClient.querying(`
+        SELECT * FROM plugin_log_entries
+        WHERE plugin_config_id = ${pluginConfigId}
+    `)) as unknown as ClickHouse.ObjectQueryResult<PluginLogEntry>
+    return logEntries
 }
 
 export const createOrganization = async () => {

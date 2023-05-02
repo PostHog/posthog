@@ -44,13 +44,14 @@ describe('teardown', () => {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
             },
-            makePiscina
+            makePiscina,
+            undefined
         )
 
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
 
-        await processEvent(piscina, defaultEvent)
+        await processEvent(piscina!, defaultEvent)
 
         await stop?.()
 
@@ -75,13 +76,14 @@ describe('teardown', () => {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
             },
-            makePiscina
+            makePiscina,
+            undefined
         )
 
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
 
-        await stop()
+        await stop?.()
 
         // verify the teardownPlugin code doesn't run, because processEvent was never called
         // and thus the plugin was never setup - see LazyVM
@@ -104,7 +106,8 @@ describe('teardown', () => {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
             },
-            makePiscina
+            makePiscina,
+            { ingestion: true }
         )
 
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
@@ -112,21 +115,21 @@ describe('teardown', () => {
 
         await delay(100)
 
-        await hub.db.postgresQuery(
+        await hub!.db.postgresQuery(
             'update posthog_pluginconfig set updated_at = now() where id = $1',
             [pluginConfig39.id],
             'testTag'
         )
-        const event1 = await processEvent(piscina, defaultEvent)
+        const event1 = await processEvent(piscina!, defaultEvent)
         expect(event1.properties.storage).toBe('nope')
 
         await piscina!.broadcastTask({ task: 'reloadPlugins' })
         await delay(10000)
 
         // const event2 = await piscina!.run({ task: 'runEventPipeline', args: { event: { ...defaultEvent } } })
-        const event2 = await processEvent(piscina, defaultEvent)
+        const event2 = await processEvent(piscina!, defaultEvent)
         expect(event2.properties.storage).toBe('tore down')
 
-        await stop()
+        await stop?.()
     })
 })
