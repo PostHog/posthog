@@ -10,6 +10,7 @@ from . import (
     async_migration,
     authentication,
     dead_letter_queue,
+    early_access_feature,
     event_definition,
     exports,
     feature_flag,
@@ -29,7 +30,6 @@ from . import (
     property_definition,
     query,
     sharing,
-    site_app,
     tagged_item,
     team,
     uploaded_media,
@@ -50,9 +50,11 @@ def api_not_found(request):
 router = DefaultRouterPlusPlus()
 
 # Legacy endpoints shared (to be removed eventually)
-router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)  # Should be completely unused now
-router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be deleted - unified into insight viewset
-router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
+router.register(r"dashboard", dashboard.LegacyDashboardsViewSet, "legacy_dashboards")  # Should be completely unused now
+router.register(
+    r"dashboard_item", dashboard.LegacyInsightViewSet, "legacy_insights"
+)  # To be deleted - unified into insight viewset
+router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"prompts", prompt.PromptSequenceViewSet, "user_prompts")  # User prompts
@@ -80,6 +82,12 @@ project_feature_flags_router = projects_router.register(
     r"feature_flags",
     feature_flag.FeatureFlagViewSet,
     "project_feature_flags",
+    ["team_id"],
+)
+project_features_router = projects_router.register(
+    r"early_access_feature",
+    early_access_feature.EarlyAccessFeatureViewSet,
+    "project_early_access_feature",
     ["team_id"],
 )
 

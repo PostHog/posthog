@@ -6,13 +6,14 @@ import { Pool } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import {
     ActionStep,
+    Plugin,
+    PluginConfig,
     PluginLogEntry,
     RawAction,
     RawClickHouseEvent,
     RawPerformanceEvent,
     RawSessionRecordingEvent,
 } from '../src/types'
-import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
@@ -56,6 +57,8 @@ export const capture = async ({
     sentAt = new Date(),
     eventTime = new Date(),
     now = new Date(),
+    $set = undefined,
+    $set_once = undefined,
     topic = ['$performance_event', '$snapshot'].includes(event)
         ? 'session_recording_events'
         : 'events_plugin_ingestion',
@@ -70,6 +73,8 @@ export const capture = async ({
     eventTime?: Date
     now?: Date
     topic?: string
+    $set?: object
+    $set_once?: object
 }) => {
     // WARNING: this capture method is meant to simulate the ingestion of events
     // from the capture endpoint, but there is no guarantee that is is 100%
@@ -91,6 +96,8 @@ export const capture = async ({
                     properties: { ...properties, uuid },
                     team_id: teamId,
                     timestamp: eventTime,
+                    $set,
+                    $set_once,
                 }),
             })
         ),
@@ -137,26 +144,19 @@ export const reloadAction = async (teamId: number, actionId: number) => {
     await redis.publish('reload-action', JSON.stringify({ teamId, actionId }))
 }
 
-export const reloadDictionaries = async () => {
-    const queryResult = (await clickHouseClient.querying(
-        `SYSTEM RELOAD DICTIONARIES`
-    )) as unknown as ClickHouse.ObjectQueryResult<any>
-
-    return queryResult
-}
-
 export const fetchEvents = async (teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(`
-        SELECT
-            *,
-            dictGetOrDefault(
-                person_overrides_dict,
-                'override_person_id',
-                (${teamId}, events.person_id),
-                events.person_id
-            ) as person_id
-        FROM events
-        WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``} ORDER BY timestamp ASC
+        SELECT *,
+               if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id
+        FROM events e
+                 LEFT OUTER JOIN
+             (SELECT argMax(override_person_id, version) as person_id,
+                     old_person_id
+              FROM person_overrides
+              WHERE team_id = ${teamId}
+              GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+        WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``}
+        ORDER BY timestamp ASC
     `)) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
     return queryResult.data.map(parseRawClickHouseEvent)
 }

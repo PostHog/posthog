@@ -10,7 +10,6 @@ from django.conf import settings
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from sentry_sdk import capture_exception, configure_scope
 from statshog.defaults.django import statsd
@@ -119,7 +118,12 @@ def _screenshot_asset(
         driver = get_driver()
         driver.set_window_size(screenshot_width, screenshot_width * 0.5)
         driver.get(url_to_render)
-        WebDriverWait(driver, 30).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
+        WebDriverWait(driver, 60).until(
+            lambda x: (
+                x.find_element_by_css_selector(wait_for_css_selector)
+                and not x.find_element_by_class_name("Spinner")  # Also wait until nothing is loading
+            )
+        )
         height = driver.execute_script("return document.body.scrollHeight")
         driver.set_window_size(screenshot_width, height)
         driver.save_screenshot(image_path)

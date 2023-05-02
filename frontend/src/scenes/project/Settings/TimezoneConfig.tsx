@@ -47,7 +47,7 @@ export function TimezoneConfig(): JSX.Element {
             loading={currentTeamLoading}
             disabled={currentTeamLoading}
             value={[currentTeam.timezone]}
-            onChange={(val) => onChange(val as any)}
+            onChange={(val: string[]) => onChange(val as any)}
             options={options}
             data-attr="timezone-select"
         />

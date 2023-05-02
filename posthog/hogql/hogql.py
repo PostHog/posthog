@@ -2,7 +2,7 @@ from typing import Literal, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import create_hogql_database
+from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import HogQLException, NotImplementedException, SyntaxException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -17,7 +17,10 @@ def translate_hogql(query: str, context: HogQLContext, dialect: Literal["hogql",
 
     try:
         # Create a fake query that selects from "events" to have fields to select from.
-        context.database = context.database or create_hogql_database(context.team_id)
+        if context.database is None:
+            if context.team_id is None:
+                raise ValueError("Cannot translate HogQL for a filter with no team specified")
+            context.database = create_hogql_database(context.team_id)
         node = parse_expr(query, no_placeholders=True)
         select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
         prepared_select_query: ast.SelectQuery = cast(

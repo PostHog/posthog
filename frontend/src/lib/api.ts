@@ -37,6 +37,8 @@ import {
     RecentPerformancePageView,
     DashboardTemplateType,
     DashboardTemplateEditorType,
+    EarlyAccsesFeatureType,
+    NewEarlyAccessFeatureType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -387,6 +389,15 @@ class ApiRequest {
             return this.featureFlag(id, teamId).addPathComponent('activity')
         }
         return this.featureFlags(teamId).addPathComponent('activity')
+    }
+
+    // # Features
+    public earlyAccessFeatures(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('early_access_feature')
+    }
+
+    public earlyAccessFeature(id: EarlyAccsesFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.earlyAccessFeatures(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -1089,6 +1100,24 @@ const api = {
                 .withAction('recordings')
                 .withAction(session_recording_id)
                 .delete()
+        },
+    },
+
+    earlyAccessFeatures: {
+        async get(featureId: EarlyAccsesFeatureType['id']): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeature(featureId).get()
+        },
+        async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeatures().create({ data })
+        },
+        async update(
+            featureId: EarlyAccsesFeatureType['id'],
+            data: Pick<EarlyAccsesFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+        ): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
+        },
+        async list(): Promise<PaginatedResponse<EarlyAccsesFeatureType>> {
+            return await new ApiRequest().earlyAccessFeatures().get()
         },
     },
 

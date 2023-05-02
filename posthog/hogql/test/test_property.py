@@ -342,6 +342,6 @@ class TestProperty(BaseTest):
         self.assertEqual(
             property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             parse_expr(
-                f"person_id IN (SELECT person_id FROM cohort_people WHERE cohort_id = {cohort.pk} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+                f"person_id IN (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort.pk} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
             ),
         )

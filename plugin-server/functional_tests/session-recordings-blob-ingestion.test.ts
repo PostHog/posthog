@@ -1,9 +1,11 @@
 import { GetObjectCommand, GetObjectCommandOutput, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
-import fs from 'fs'
+import { readdir, readFile } from 'fs/promises'
+import { join } from 'path'
 import * as zlib from 'zlib'
 
 import { defaultConfig } from '../src/config/config'
 import { compressToString } from '../src/main/ingestion-queues/session-recording/blob-ingester/utils'
+import { bufferFileDir } from '../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
 import { getObjectStorage } from '../src/main/services/object_storage'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createOrganization, createTeam } from './api'
@@ -58,7 +60,7 @@ test.skip(`single recording event writes data to local tmp file`, async () => {
     let tempFiles: string[] = []
 
     await waitForExpect(async () => {
-        const files = await fs.promises.readdir(defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY)
+        const files = await readdir(bufferFileDir(defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY))
         tempFiles = files.filter((f) => f.startsWith(`${teamId}.${sessionId}`))
         expect(tempFiles.length).toBe(1)
     })
@@ -66,8 +68,8 @@ test.skip(`single recording event writes data to local tmp file`, async () => {
     await waitForExpect(async () => {
         const currentFile = tempFiles[0]
 
-        const fileContents = await fs.promises.readFile(
-            `${defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY}/${currentFile}`,
+        const fileContents = await readFile(
+            join(bufferFileDir(defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY), currentFile),
             'utf8'
         )
 

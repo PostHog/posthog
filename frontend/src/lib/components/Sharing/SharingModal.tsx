@@ -140,7 +140,7 @@ export function SharingModal({
                                             {showPreview && (
                                                 <div className="SharingPreview border-t">
                                                     <iframe
-                                                        style={{ display: 'block' }}
+                                                        className="block"
                                                         {...iframeProperties}
                                                         onLoad={() => setIframeLoaded(true)}
                                                     />
@@ -154,13 +154,11 @@ export function SharingModal({
                                                 fullWidth
                                                 bordered
                                                 label={
-                                                    <div className="flex">
-                                                        <div className="mr-2" style={{ lineHeight: '1.5rem' }}>
-                                                            Show PostHog branding
-                                                        </div>
+                                                    <div className="flex items-center">
+                                                        <span>Show PostHog branding</span>
                                                         {!whitelabelAvailable ? (
                                                             <Tooltip title="Upgrade to PostHog Scale to hide PostHog branding">
-                                                                <IconLock />
+                                                                <IconLock className="ml-2" />
                                                             </Tooltip>
                                                         ) : null}
                                                     </div>

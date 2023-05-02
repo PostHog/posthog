@@ -88,7 +88,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
-        team = Team.objects.get(id=self.context["team_id"])
+        team = self.context["get_team"]()
 
         self._check_can_create_playlist(team)
 

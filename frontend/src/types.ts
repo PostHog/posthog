@@ -330,6 +330,10 @@ export interface TeamType extends TeamBasicType {
     groups_on_events_querying_enabled: boolean
 }
 
+// This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
+// scenes, so not worth the refactor to use the `isAuthenticatedTeam()` check
+export type TeamPublicType = Partial<TeamType> & Pick<TeamType, 'id' | 'uuid' | 'name' | 'timezone'>
+
 export interface ActionType {
     count?: number
     created_at: string
@@ -615,6 +619,8 @@ export interface SessionRecordingMeta {
     segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
+    startTimestamp: Dayjs
+    endTimestamp: Dayjs
 }
 
 export interface SessionPlayerSnapshotData {
@@ -882,6 +888,12 @@ export interface EventsTableAction {
     id: string
 }
 
+export interface EventsTableRowItem {
+    event?: EventType
+    date_break?: string
+    new_events?: boolean
+}
+
 export interface EventType {
     // fields from the API
     id: string
@@ -892,24 +904,17 @@ export interface EventType {
     person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     elements: ElementType[]
     elements_chain?: string | null
-    /** Used in session recording events list */
-    colonTimestamp?: string
     uuid?: string
 }
 
 export interface RecordingTimeMixinType {
     playerTime: number | null
-    playerPosition: PlayerPosition | null
-    colonTimestamp?: string
-    capturedInWindow?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
-export interface RecordingEventType extends EventType, RecordingTimeMixinType {}
-
-export interface EventsTableRowItem {
-    event?: EventType
-    date_break?: string
-    new_events?: boolean
+export interface RecordingEventType
+    extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
+        RecordingTimeMixinType {
+    fullyLoaded: boolean
 }
 
 export interface SessionRecordingPlaylistType {
@@ -967,11 +972,6 @@ export interface SessionRecordingType {
 export interface SessionRecordingPropertiesType {
     id: string
     properties?: Record<string, any>
-}
-
-export interface SessionRecordingEvents {
-    next?: string
-    events: RecordingEventType[]
 }
 
 export interface PerformancePageView {
@@ -1096,6 +1096,7 @@ export interface BillingProductV2Type {
     unit_amount_usd: string | null
     plans: BillingV2PlanType[]
     contact_support: boolean
+    inclusion_only: any
     feature_groups: {
         // deprecated, remove after removing the billing plans table
         group: string
@@ -1103,8 +1104,9 @@ export interface BillingProductV2Type {
         features: BillingV2FeatureType[]
     }[]
     addons: BillingProductV2AddonType[]
-    // sometimes addons are included with the base product, but they aren't subscribed individually
-    included?: boolean
+
+    // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
+    included_with_main_product?: boolean
 }
 
 export interface BillingProductV2AddonType {
@@ -1118,7 +1120,7 @@ export interface BillingProductV2AddonType {
     tiered: boolean
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
-    included?: boolean
+    included_with_main_product?: boolean
     contact_support?: boolean
     unit: string | null
     unit_amount_usd: string | null
@@ -1168,6 +1170,7 @@ export interface BillingV2PlanType {
     plan_key?: string
     current_plan?: any
     tiers?: BillingV2TierType[]
+    included_if?: 'no_active_subscription' | 'has_subscription' | null
 }
 
 export interface PlanInterface {
@@ -1985,6 +1988,7 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
+    feature_preview?: string
 }
 
 export interface MultivariateFlagVariant {
@@ -2004,19 +2008,27 @@ export interface FeatureFlagFilters {
     payloads: Record<string, JsonType>
 }
 
-export interface FeatureFlagType {
-    id: number | null
+export interface FeatureFlagBasicType {
+    id: number
+    team_id: TeamType['id']
     key: string
-    name: string // Used as description
+    /* The description field (the name is a misnomer because of its legacy). */
+    name: string
     filters: FeatureFlagFilters
     deleted: boolean
     active: boolean
+    ensure_experience_continuity: boolean | null
+}
+
+export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'> {
+    /** Null means that the flag has never been saved yet (it's new). */
+    id: number | null
     created_by: UserBasicType | null
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
-    ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
+    features: EarlyAccsesFeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -2034,6 +2046,22 @@ export interface FeatureFlagRollbackConditions {
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
+}
+
+export interface EarlyAccsesFeatureType {
+    /** UUID */
+    id: string
+    feature_flag: FeatureFlagBasicType
+    name: string
+    description: string
+    stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
+    /** Documentation URL. Can be empty. */
+    documentation_url: string
+    created_at: string
+}
+
+export interface NewEarlyAccessFeatureType extends Omit<EarlyAccsesFeatureType, 'id' | 'created_at' | 'feature_flag'> {
+    feature_flag_id: number | undefined
 }
 
 export interface UserBlastRadiusType {
@@ -2357,7 +2385,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
-    current_team: TeamType | null
+    current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]
