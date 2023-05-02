@@ -1028,14 +1028,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            // run 4 item reloaders in parallel
             function loadNextPromise(): void {
                 if (!cancelled && fetchItemFunctions.length > 0) {
                     fetchItemFunctions.shift()?.().then(loadNextPromise)
                 }
             }
 
-            for (let i = 0; i < 4; i++) {
+            // run 2 item reloaders in parallel
+            for (let i = 0; i < 2; i++) {
                 void loadNextPromise()
             }
 
