@@ -53,7 +53,7 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, Team, User, SharingConfiguration
+from posthog.models import DashboardTile, Filter, Insight, User, SharingConfiguration
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -83,10 +83,17 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, refresh_requested_by_client, relative_date_parse, str_to_bool
 
 logger = structlog.get_logger(__name__)
+
+INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
+    "insight_refresh_initiated",
+    "Insight refreshes initiated, based on should_refresh_insight().",
+    labelnames=["is_shared"],
+)
 
 
 def log_insight_activity(
@@ -286,14 +293,14 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
-        team = Team.objects.get(id=self.context["team_id"])
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
+        team_id = self.context["team_id"]
 
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
 
         insight = Insight.objects.create(
-            team=team,
+            team_id=team_id,
             created_by=created_by,
             last_modified_by=request.user,
             **validated_data,
@@ -316,7 +323,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             insight_id=insight.id,
             insight_short_id=insight.short_id,
             organization_id=self.context["request"].user.current_organization_id,
-            team_id=team.id,
+            team_id=team_id,
             user=self.context["request"].user,
         )
 
@@ -491,10 +498,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
         target = insight if dashboard is None else dashboard_tile
 
+        is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
-            insight, dashboard_tile, request=self.context["request"], is_shared=self.context.get("is_shared", False)
+            insight, dashboard_tile, request=self.context["request"], is_shared=is_shared
         )
         if refresh_insight_now:
+            INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
             return synchronously_update_cache(insight, dashboard, refresh_frequency)
 
         # :TODO: Clear up if tile can be null or not

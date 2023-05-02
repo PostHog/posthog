@@ -3,8 +3,9 @@ from typing import Any, List, Type, cast
 
 import structlog
 from dateutil import parser
+import requests
 from django.db.models import Count, Prefetch
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
@@ -26,6 +27,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
@@ -136,18 +138,50 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         return Response({"success": True})
 
+    @action(methods=["GET"], detail=True)
+    def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:
+        blob_key = request.GET.get("blob_key")
+
+        if not blob_key:
+            raise exceptions.ValidationError("Must provide a snapshot file blob key")
+
+        # very short-lived pre-signed URL
+        file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{self.kwargs['pk']}/{blob_key}"
+        url = object_storage.get_presigned_url(file_key, expiration=60)
+        if not url:
+            raise exceptions.NotFound("Snapshot file not found")
+
+        with requests.get(url=url, stream=True) as r:
+            r.raise_for_status()
+            response = HttpResponse(content=r.raw, content_type="application/json")
+            response["Content-Disposition"] = "inline"
+            return response
+
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
-        # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
-        filter = Filter(request=request)
-        limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
-        offset = filter.offset if filter.offset else 0
-
         recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
+
+        if request.GET.get("blob_loading_enabled", "false") == "true":
+            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}"
+            blob_keys = object_storage.list_objects(blob_prefix)
+
+            if blob_keys:
+                return Response(
+                    {
+                        "snapshot_data_by_window_id": [],
+                        "blob_keys": [x.replace(blob_prefix + "/", "") for x in blob_keys],
+                        "next": None,
+                    }
+                )
+
+        # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
+        filter = Filter(request=request)
+        limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
+        offset = filter.offset if filter.offset else 0
 
         # Optimisation step if passed to speed up retrieval of CH data
         if not recording.start_time:
