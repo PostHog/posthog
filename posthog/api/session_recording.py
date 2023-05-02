@@ -3,8 +3,9 @@ from typing import Any, List, Type, cast
 
 import structlog
 from dateutil import parser
+import requests
 from django.db.models import Count, Prefetch
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
@@ -136,6 +137,21 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         recording.save()
 
         return Response({"success": True})
+
+    @action(methods=["GET"], detail=True)
+    def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:
+        file_key = request.GET.get("blob_key")
+
+        if not file_key:
+            raise exceptions.ValidationError("Must provide a snapshot file blob key")
+
+        url = object_storage.get_presigned_url(file_key)
+        with requests.get(url=url, stream=True) as r:
+            r.raw.decode_content = True
+            r.raise_for_status()
+            response = HttpResponse(content=r.raw, content_type="application/json")
+            response["Content-Disposition"] = "inline"
+            return response
 
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)

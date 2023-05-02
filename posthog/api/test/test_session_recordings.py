@@ -388,7 +388,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots")
         response_data = response.json()
-        assert response_data == {"snapshots": [], "next": None, "blob_keys": blob_objects}
+        assert response_data == {"snapshot_data_by_window_id": [], "next": None, "blob_keys": blob_objects}
 
     def test_get_metadata_for_chunked_session_recording(self):
 
