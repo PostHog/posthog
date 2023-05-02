@@ -371,8 +371,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 e__pdi.person_id as aggregation_target,
-                                 e__pdi.person_id as person_id ,
+                                 pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id ,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -389,7 +389,7 @@
                              FROM person_distinct_id2
                              WHERE team_id = 2
                              GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           INNER JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -504,8 +504,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 e__pdi.person_id as aggregation_target,
-                                 e__pdi.person_id as person_id ,
+                                 pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id ,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -522,7 +522,7 @@
                              FROM person_distinct_id2
                              WHERE team_id = 2
                              GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           INNER JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -641,8 +641,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 e__pdi.person_id as aggregation_target,
-                                 e__pdi.person_id as person_id ,
+                                 pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id ,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -659,7 +659,7 @@
                              FROM person_distinct_id2
                              WHERE team_id = 2
                              GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           INNER JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -778,8 +778,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 e__pdi.person_id as aggregation_target,
-                                 e__pdi.person_id as person_id ,
+                                 pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id ,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -796,7 +796,7 @@
                              FROM person_distinct_id2
                              WHERE team_id = 2
                              GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           INNER JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -915,8 +915,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 e__pdi.person_id as aggregation_target,
-                                 e__pdi.person_id as person_id ,
+                                 pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id ,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -933,7 +933,7 @@
                              FROM person_distinct_id2
                              WHERE team_id = 2
                              GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           INNER JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -1333,8 +1333,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 e__pdi.person_id as aggregation_target,
-                                 e__pdi.person_id as person_id ,
+                                 pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id ,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -1351,7 +1351,7 @@
                              FROM person_distinct_id2
                              WHERE team_id = 2
                              GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           INNER JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -1447,8 +1447,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1465,7 +1465,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -1562,8 +1562,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1580,7 +1580,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -1677,8 +1677,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1695,7 +1695,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -1792,8 +1792,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1810,7 +1810,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2207,8 +2207,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 e__pdi.person_id as aggregation_target,
-                                 e__pdi.person_id as person_id ,
+                                 pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id ,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -2225,7 +2225,7 @@
                              FROM person_distinct_id2
                              WHERE team_id = 2
                              GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           INNER JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -2369,8 +2369,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -2387,7 +2387,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2428,8 +2428,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -2446,7 +2446,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2487,8 +2487,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -2505,7 +2505,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2653,8 +2653,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -2671,7 +2671,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2712,8 +2712,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -2730,7 +2730,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2771,8 +2771,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -2789,7 +2789,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2937,8 +2937,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -2955,7 +2955,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2996,8 +2996,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -3014,7 +3014,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -3055,8 +3055,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -3073,7 +3073,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -3221,8 +3221,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -3239,7 +3239,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -3280,8 +3280,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -3298,7 +3298,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -3339,8 +3339,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -3357,7 +3357,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
