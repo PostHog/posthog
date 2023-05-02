@@ -58,8 +58,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              e__pdi.person_id as aggregation_target,
-                              e__pdi.person_id as person_id ,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -73,7 +73,7 @@
                           FROM person_distinct_id2
                           WHERE team_id = 2
                           GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
@@ -141,8 +141,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              e__pdi.person_id as aggregation_target,
-                              e__pdi.person_id as person_id ,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -156,7 +156,7 @@
                           FROM person_distinct_id2
                           WHERE team_id = 2
                           GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
@@ -312,8 +312,8 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e__pdi.person_id as aggregation_target,
-                        e__pdi.person_id as person_id ,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'user signed up'
                            AND (person_id IN
                                   (SELECT id
@@ -332,13 +332,13 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT id
                     FROM person
                     WHERE team_id = 2
                     GROUP BY id
-                    HAVING max(is_deleted) = 0) person ON person.id = e__pdi.person_id
+                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -402,8 +402,8 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e__pdi.person_id as aggregation_target,
-                        e__pdi.person_id as person_id ,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'user signed up'
                            AND (person_id IN
                                   (SELECT DISTINCT person_id
@@ -421,13 +421,13 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT id
                     FROM person
                     WHERE team_id = 2
                     GROUP BY id
-                    HAVING max(is_deleted) = 0) person ON person.id = e__pdi.person_id
+                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -500,8 +500,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              e__pdi.person_id as aggregation_target,
-                              e__pdi.person_id as person_id ,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
@@ -517,7 +517,7 @@
                           FROM person_distinct_id2
                           WHERE team_id = 2
                           GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
                          (SELECT id
                           FROM person
@@ -527,7 +527,7 @@
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
                                 AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
                                OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = e__pdi.person_id
+                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'user signed up']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -595,8 +595,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              e__pdi.person_id as aggregation_target,
-                              e__pdi.person_id as person_id ,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
@@ -612,7 +612,7 @@
                           FROM person_distinct_id2
                           WHERE team_id = 2
                           GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
                          (SELECT id
                           FROM person
@@ -622,7 +622,7 @@
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
                                 AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
                                OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = e__pdi.person_id
+                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'user signed up']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -694,8 +694,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              e__pdi.person_id as aggregation_target,
-                              e__pdi.person_id as person_id ,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
@@ -711,7 +711,7 @@
                           FROM person_distinct_id2
                           WHERE team_id = 2
                           GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
                          (SELECT id
                           FROM person
@@ -721,7 +721,7 @@
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
                                 AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
                                OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = e__pdi.person_id
+                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'user signed up']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -793,8 +793,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              e__pdi.person_id as aggregation_target,
-                              e__pdi.person_id as person_id ,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
@@ -810,7 +810,7 @@
                           FROM person_distinct_id2
                           WHERE team_id = 2
                           GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
                          (SELECT id
                           FROM person
@@ -820,7 +820,7 @@
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
                                 AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
                                OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = e__pdi.person_id
+                                   OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'user signed up']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -869,8 +869,8 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e__pdi.person_id as aggregation_target,
-                        e__pdi.person_id as person_id ,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'user signed up'
                            AND (person_id IN
                                   (SELECT person_id as id
@@ -887,13 +887,13 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT id
                     FROM person
                     WHERE team_id = 2
                     GROUP BY id
-                    HAVING max(is_deleted) = 0) person ON person.id = e__pdi.person_id
+                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -937,8 +937,8 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e__pdi.person_id as aggregation_target,
-                        e__pdi.person_id as person_id ,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -950,7 +950,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 00:00:00', 'US/Pacific')
@@ -1022,8 +1022,8 @@
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy'
@@ -1039,7 +1039,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['buy', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -1114,8 +1114,8 @@
                         prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy'
@@ -1133,7 +1133,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['buy', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -1209,8 +1209,8 @@
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['','']) as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -1225,7 +1225,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['buy', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
