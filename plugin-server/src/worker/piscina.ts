@@ -1,13 +1,14 @@
 import Sentry from '@sentry/node'
-import { Hub } from 'types'
+import { Hub, PluginsServerConfig } from 'types'
 
-import { workerTasks } from './tasks'
+import { createWorker } from './worker'
 
-export const makePiscina = (hub: Hub) => {
+export const makePiscina = async (serverConfig: PluginsServerConfig, hub: Hub) => {
+    const worker = await createWorker(serverConfig, hub)
     return {
-        run: async ({ task, args }: { task: string; args?: any }, _?: any) => {
+        run: async ({ task, args }: { task: string; args?: any }) => {
             try {
-                return await workerTasks[task](hub, args)
+                return await worker({ task, args: args ?? undefined })
             } catch (err) {
                 Sentry.captureException(err)
                 throw err
@@ -15,7 +16,7 @@ export const makePiscina = (hub: Hub) => {
         },
         broadcastTask: async ({ task, args }: { task: string; args?: any }) => {
             try {
-                return [await workerTasks[task](hub, args)]
+                return [await worker({ task, args: args ?? undefined })]
             } catch (err) {
                 Sentry.captureException(err)
                 throw err
@@ -25,6 +26,6 @@ export const makePiscina = (hub: Hub) => {
     }
 }
 
-type Piscina = ReturnType<typeof makePiscina>
+type Piscina = Awaited<ReturnType<typeof makePiscina>>
 
 export default Piscina

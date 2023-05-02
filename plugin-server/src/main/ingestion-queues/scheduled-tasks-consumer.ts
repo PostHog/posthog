@@ -63,26 +63,13 @@ export const startScheduledTasksConsumer = async ({
             })
             const startTime = performance.now()
 
-            // Make sure tasks can't run forever, according to `taskTimeouts`.
-            const abortController = new AbortController()
-            const timeout = setTimeout(() => {
-                abortController.abort()
-                status.warn('⚠️', 'scheduled_task_timed_out', {
-                    taskType,
-                    pluginConfigId,
-                })
-            }, taskTimeouts[taskType])
-
             // Make sure we keep the heartbeat going while the tasks is
             // running.
             const heartbeatInterval = setInterval(() => heartbeat(), 1000)
 
             try {
                 // The part that actually runs the task.
-                await piscina.run(
-                    { task: taskType, args: { pluginConfigId: pluginConfigId } },
-                    { signal: abortController.signal }
-                )
+                await piscina.run({ task: taskType, args: { pluginConfigId: pluginConfigId } })
 
                 resolveOffset(message.offset)
                 status.info('⏲️', 'finished_scheduled_task', {
@@ -118,7 +105,6 @@ export const startScheduledTasksConsumer = async ({
                 resolveOffset(message.offset)
                 statsd?.increment('failed_scheduled_tasks', { taskType })
             } finally {
-                clearTimeout(timeout)
                 clearInterval(heartbeatInterval)
             }
 
@@ -207,9 +193,3 @@ const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
         .flat()
         .sort((a, b) => Number.parseInt(a.message.offset) - Number.parseInt(b.message.offset))
 }
-
-const taskTimeouts = {
-    runEveryMinute: 1000 * 60,
-    runEveryHour: 1000 * 60 * 5,
-    runEveryDay: 1000 * 60 * 5,
-} as const

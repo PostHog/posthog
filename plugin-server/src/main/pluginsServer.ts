@@ -44,7 +44,7 @@ export type ServerInstance = {
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (hub: Hub) => Piscina = defaultMakePiscina,
+    makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
     capabilities: PluginServerCapabilities | undefined
 ): Promise<Partial<ServerInstance>> {
     const timer = new Date()
@@ -234,8 +234,10 @@ export async function startPluginsServer(
             // it's that heavy so it may be fine, but something to watch out
             // for.
             await graphileWorker.connectProducer()
-            piscina = piscina ?? makePiscina(hub)
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            status.info('👷', 'Starting graphile worker...')
             await startGraphileWorker(hub, graphileWorker, piscina)
+            status.info('👷', 'Graphile worker is ready!')
 
             if (capabilities.pluginScheduledTasks) {
                 schedulerTasksConsumer = await startScheduledTasksConsumer({
@@ -256,12 +258,13 @@ export async function startPluginsServer(
                 })
             }
         }
+        console.log("🚀 Plugin server is ready! Let's go!")
 
         if (capabilities.ingestion) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
-            piscina = piscina ?? makePiscina(hub)
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(
                 {
                     hub: hub,
@@ -285,7 +288,7 @@ export async function startPluginsServer(
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
-            piscina = piscina ?? makePiscina(hub)
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             analyticsEventsIngestionOverflowConsumer = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
                 piscina: piscina,
@@ -296,7 +299,7 @@ export async function startPluginsServer(
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
-            piscina = piscina ?? makePiscina(hub)
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startOnEventHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
@@ -394,6 +397,8 @@ export async function startPluginsServer(
             hub.lastActivityType = 'serverStart'
         }
 
+        console.log("🚀 Plugin server is ready! Let's go!")
+
         if (capabilities.sessionRecordingIngestion) {
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
@@ -458,6 +463,8 @@ export async function startPluginsServer(
         if (joinSessionRecordingBlobConsumer) {
             joinSessionRecordingBlobConsumer().catch(closeJobs)
         }
+
+        console.log("🚀 Plugin server is ready! Let's go!")
 
         return serverInstance ?? { stop: closeJobs }
     } catch (error) {
