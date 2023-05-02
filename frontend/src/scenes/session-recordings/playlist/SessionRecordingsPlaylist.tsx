@@ -13,12 +13,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { SessionRecordingsList } from './SessionRecordingsList'
-import { StickyView } from 'lib/components/StickyView/StickyView'
 import clsx from 'clsx'
 import { SessionRecordingsPlaylistFilters } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistFilters'
 import { PLAYLIST_PREVIEW_RECORDINGS_LIMIT } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
-
-const MARGIN_TOP = 16
 
 export function RecordingsLists({
     playlistShortId,
