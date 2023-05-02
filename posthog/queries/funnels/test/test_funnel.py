@@ -2430,14 +2430,26 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
 
         def test_hogql_aggregation(self):
-            # events
-            person_factory(distinct_ids=["user"], team_id=self.team.pk)
+            # first person
+            person_factory(
+                distinct_ids=["user"],
+                team_id=self.team.pk,
+                properties={"email": "lembitu@posthog.com", "common_prop": "yes"},
+            )
             self._signup_event(distinct_id="user", properties={"$session_id": "1"})
             self._add_to_cart_event(distinct_id="user", properties={"$session_id": "1"})
             self._checkout_event(distinct_id="user", properties={"$session_id": "1"})
 
             self._signup_event(distinct_id="user", properties={"$session_id": "2"})
             self._add_to_cart_event(distinct_id="user", properties={"$session_id": "2"})
+
+            # second person
+            person_factory(
+                distinct_ids=["second"],
+                team_id=self.team.pk,
+                properties={"email": "toomas@posthog.com", "common_prop": "yes"},
+            )
+            self._signup_event(distinct_id="second", properties={"$session_id": "3"})
 
             basic_filters = {
                 "events": [
@@ -2451,7 +2463,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # without hogql aggregation
             result = self._basic_funnel(filters=basic_filters).run()
             self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[0]["count"], 2)
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 1)
 
@@ -2459,10 +2471,17 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             result = self._basic_funnel(
                 filters={**basic_filters, "funnel_aggregate_by_hogql": "properties.$session_id"}
             ).run()
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(result[0]["count"], 3)
             self.assertEqual(result[1]["count"], 2)
             self.assertEqual(result[2]["count"], 1)
+
+            # # person.properties.common_prop - not supported!
+            # result = self._basic_funnel(
+            #     filters={**basic_filters, "funnel_aggregate_by_hogql": "person.properties.common_prop"}
+            # ).run()
+            # self.assertEqual(result[0]["count"], 1)
+            # self.assertEqual(result[1]["count"], 1)
+            # self.assertEqual(result[2]["count"], 1)
 
     return TestGetFunnel
 

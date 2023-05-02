@@ -12,9 +12,6 @@ from posthog.utils import PersonOnEventsMode
 class FunnelEventQuery(EventQuery):
     _filter: Filter
 
-    DISTINCT_ID_TABLE_ALIAS = "e__pdi"
-    # PERSON_TABLE_ALIAS = "e__pdi__person"
-
     def get_query(
         self,
         entities=None,
