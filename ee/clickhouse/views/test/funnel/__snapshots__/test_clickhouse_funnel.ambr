@@ -235,8 +235,8 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id ,
+                        e__pdi.person_id as aggregation_target,
+                        e__pdi.person_id as person_id ,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
@@ -249,7 +249,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -290,8 +290,8 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id ,
+                        e__pdi.person_id as aggregation_target,
+                        e__pdi.person_id as person_id ,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
@@ -304,7 +304,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -352,8 +352,8 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id ,
+                        e__pdi.person_id as aggregation_target,
+                        e__pdi.person_id as person_id ,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -365,7 +365,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
@@ -414,8 +414,8 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id ,
+                        e__pdi.person_id as aggregation_target,
+                        e__pdi.person_id as person_id ,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -427,7 +427,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0

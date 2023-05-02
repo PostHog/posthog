@@ -83,9 +83,9 @@
                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) "$window_id_2"
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
+                        e__pdi.person_id as aggregation_target,
                         e.uuid AS uuid,
-                        pdi.person_id as person_id ,
+                        e__pdi.person_id as person_id ,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -108,7 +108,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
@@ -218,9 +218,9 @@
                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) "$window_id_2"
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
+                        e__pdi.person_id as aggregation_target,
                         e.uuid AS uuid,
-                        pdi.person_id as person_id ,
+                        e__pdi.person_id as person_id ,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -243,7 +243,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
@@ -353,9 +353,9 @@
                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) "$window_id_2"
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
+                        e__pdi.person_id as aggregation_target,
                         e.uuid AS uuid,
-                        pdi.person_id as person_id ,
+                        e__pdi.person_id as person_id ,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -378,7 +378,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 2
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
