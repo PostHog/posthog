@@ -14,7 +14,6 @@ export interface PiscinaOptions {
     execArgv?: string[]
     env?: any
     workerData?: any
-    taskQueue?: TaskQueue
     niceIncrement?: number
     trackUnmanagedFds?: boolean
     atomicsTimeout?: number
