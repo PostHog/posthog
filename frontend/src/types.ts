@@ -1563,7 +1563,6 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
-    aggregation_group_type_index?: number // Groups aggregation
 }
 
 export interface PropertiesTimelineFilterType {
