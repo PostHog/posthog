@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 from urllib.parse import urlencode
 
 from dateutil.parser import parse
@@ -366,6 +366,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     self.assertIsNotNone(response_data["next"])
 
                 next_url = response_data["next"]
+
+    @patch("posthog.api.session_recording.object_storage.list_objects")
+    def test_get_snapshots_prefers_blobs_when_available(self, mock_list_objects) -> None:
+        blob_objects = ["session_recordings/something/data", "session_recordings/something_else/data"]
+        mock_list_objects.return_value = blob_objects
+        chunked_session_id = "chunk_id"
+        num_chunks = 60
+        snapshots_per_chunk = 2
+
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            start_time = now()
+            for index, s in enumerate(range(num_chunks)):
+                self.create_chunked_snapshots(
+                    snapshots_per_chunk,
+                    "user",
+                    chunked_session_id,
+                    start_time + relativedelta(minutes=s),
+                    window_id="1" if index % 2 == 0 else "2",
+                )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots")
+        response_data = response.json()
+        assert response_data == {"snapshots": [], "next": None, "blob_keys": blob_objects}
 
     def test_get_metadata_for_chunked_session_recording(self):
 

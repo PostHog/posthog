@@ -26,6 +26,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
@@ -139,15 +140,28 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
-        # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
-        filter = Filter(request=request)
-        limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
-        offset = filter.offset if filter.offset else 0
-
         recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
+
+        blob_keys = object_storage.list_objects(
+            f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}"
+        )
+
+        if blob_keys:
+            return Response(
+                {
+                    "snapshots": [],
+                    "blob_keys": blob_keys,
+                    "next": None,
+                }
+            )
+
+        # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
+        filter = Filter(request=request)
+        limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
+        offset = filter.offset if filter.offset else 0
 
         # Optimisation step if passed to speed up retrieval of CH data
         if not recording.start_time:
