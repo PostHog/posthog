@@ -22,7 +22,6 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
-from posthog.models.team.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
@@ -97,7 +96,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         filter = SessionRecordingsFilter(request=request)
         use_v2_list = request.GET.get("version") == "2"
 
-        return Response(list_recordings(filter, request, self.team, v2=use_v2_list))
+        return Response(list_recordings(filter, request, context=self.get_serializer_context(), v2=use_v2_list))
 
     # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -237,7 +236,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return Response({"results": session_recording_serializer.data})
 
 
-def list_recordings(filter: SessionRecordingsFilter, request: request.Request, team: Team, v2=False) -> dict:
+def list_recordings(
+    filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any], v2=False
+) -> dict:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -252,6 +253,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     recordings: List[SessionRecording] = []
     more_recordings_available = False
     can_use_v2 = v2 and not any(entity.has_hogql_property for entity in filter.entities)
+    team = context["get_team"]()
 
     if all_session_ids:
         # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
@@ -311,7 +313,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
         recording.viewed = recording.session_id in viewed_session_recordings
         recording.person = distinct_id_to_person.get(recording.distinct_id)
 
-    session_recording_serializer = SessionRecordingSerializer(recordings, many=True)
+    session_recording_serializer = SessionRecordingSerializer(recordings, many=True, context=context)
     results = session_recording_serializer.data
 
     return {"results": results, "has_next": more_recordings_available, "version": 2 if can_use_v2 else 1}
