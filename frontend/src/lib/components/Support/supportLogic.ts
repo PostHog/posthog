@@ -40,7 +40,7 @@ export const TARGET_AREA_TO_NAME = {
     ingestion: 'Event Ingestion',
     experiments: 'Experiments',
     feature_flags: 'Feature Flags',
-    analytics: 'Product Analytics (Insights)',
+    analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
 }
 export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
