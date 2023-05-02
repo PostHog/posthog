@@ -50,8 +50,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              e__pdi.person_id as aggregation_target,
-                              e__pdi.person_id as person_id ,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -65,7 +65,7 @@
                           FROM person_distinct_id2
                           WHERE team_id = 2
                           GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-04-30 00:00:00', 'UTC')
@@ -135,8 +135,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              e__pdi.person_id as aggregation_target,
-                              e__pdi.person_id as person_id ,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -150,7 +150,7 @@
                           FROM person_distinct_id2
                           WHERE team_id = 2
                           GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
                          AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2021-04-30 00:00:00', 'US/Pacific')
@@ -220,8 +220,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              e__pdi.person_id as aggregation_target,
-                              e__pdi.person_id as person_id ,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -235,7 +235,7 @@
                           FROM person_distinct_id2
                           WHERE team_id = 2
                           GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
@@ -298,8 +298,8 @@
                                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = 'step one', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'step two', 1, 0) as step_1,
@@ -313,7 +313,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['step one', 'step three', 'step two']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
