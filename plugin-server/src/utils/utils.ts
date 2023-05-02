@@ -286,6 +286,12 @@ export function clickHouseTimestampToISO(timestamp: ClickHouseTimestamp): ISOTim
     return clickHouseTimestampToDateTime(timestamp).toISO() as ISOTimestamp
 }
 
+export function clickHouseTimestampSecondPrecisionToISO(timestamp: ClickHouseTimestamp): ISOTimestamp {
+    return DateTime.fromFormat(timestamp, DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION, {
+        zone: 'UTC',
+    }).toISO() as ISOTimestamp
+}
+
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms)
