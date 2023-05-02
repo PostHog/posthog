@@ -4,8 +4,9 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, KafkaJSError, Partitioners, SASLOptions } from 'kafkajs'
+import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { LibrdKafkaError } from 'node-rdkafka-acosom'
 import { hostname } from 'os'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
@@ -15,6 +16,8 @@ import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
+import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
+import { createKafkaProducer, produce } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
@@ -130,13 +133,10 @@ export async function createHub(
 
     const kafka = createKafkaClient(serverConfig as KafkaConfig)
 
-    const producer = kafka.producer({
-        retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
-        createPartitioner: Partitioners.LegacyPartitioner,
-    })
-    await producer.connect()
+    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig as KafkaConfig)
+    const producer = await createKafkaProducer(kafkaConnectionConfig)
 
-    const kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
+    const kafkaProducer = new KafkaProducerWrapper(producer)
     status.info('👍', `Kafka ready`)
 
     status.info('🤔', `Connecting to Postgresql...`)
@@ -195,24 +195,19 @@ export async function createHub(
         // chained, and if we do not manage to produce then the chain will be
         // broken.
         try {
-            await kafkaProducer.producer.send({
-                topic: KAFKA_JOBS,
-                messages: [
-                    {
-                        key: job.pluginConfigTeam.toString(),
-                        value: JSON.stringify(job),
-                    },
-                ],
-            })
+            await produce(
+                producer,
+                KAFKA_JOBS,
+                Buffer.from(job.pluginConfigTeam.toString()),
+                Buffer.from(JSON.stringify(job))
+            )
         } catch (error) {
-            if (error instanceof KafkaJSError) {
-                // If we get a retriable Kafka error (maybe it's down for
-                // example), rethrow the error as a generic `DependencyUnavailableError`
-                // passing through retriable such that we can decide if this is
-                // something we should retry at the consumer level.
-                if (error.retriable) {
-                    throw new DependencyUnavailableError(error.message, 'Kafka', error)
-                }
+            // If we get a retriable Kafka error (maybe it's down for
+            // example), rethrow the error as a generic `DependencyUnavailableError`
+            // passing through retriable such that we can decide if this is
+            // something we should retry at the consumer level.
+            if ((error as LibrdKafkaError).isRetriable) {
+                throw new DependencyUnavailableError(error.message, 'Kafka', error)
             }
 
             // Otherwise, just rethrow the error as is. E.g. if we fail to

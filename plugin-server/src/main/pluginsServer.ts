@@ -243,7 +243,6 @@ export async function startPluginsServer(
                 schedulerTasksConsumer = await startScheduledTasksConsumer({
                     piscina: piscina,
                     kafka: hub.kafka,
-                    producer: hub.kafkaProducer.producer,
                     partitionConcurrency: serverConfig.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                     statsd: hub.statsd,
                 })
@@ -252,7 +251,6 @@ export async function startPluginsServer(
             if (capabilities.processPluginJobs) {
                 jobsConsumer = await startJobsConsumer({
                     kafka: hub.kafka,
-                    producer: hub.kafkaProducer.producer,
                     graphileWorker: graphileWorker,
                     statsd: hub.statsd,
                 })

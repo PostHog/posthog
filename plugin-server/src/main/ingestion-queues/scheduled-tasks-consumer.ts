@@ -16,13 +16,11 @@ const taskTypes = ['runEveryMinute', 'runEveryHour', 'runEveryDay'] as const
 export const startScheduledTasksConsumer = async ({
     kafka,
     piscina,
-    producer,
     partitionConcurrency = 3,
     statsd,
 }: {
     kafka: Kafka
     piscina: Piscina
-    producer: Producer // NOTE: not using KafkaProducerWrapper here to avoid buffering logic
     partitionConcurrency: number
     statsd?: StatsD
 }) => {
@@ -50,6 +48,8 @@ export const startScheduledTasksConsumer = async ({
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting scheduled tasks consumer')
+
+    const producer = kafka.producer()
 
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
@@ -134,17 +134,23 @@ export const startScheduledTasksConsumer = async ({
         },
     })
 
-    return consumer
+    return {
+        ...consumer,
+        stop: async () => {
+            await consumer.stop()
+            await producer.disconnect()
+        },
+    }
 }
 
 const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
     // In any one batch, we only want to run one task per plugin config id.
     // Hence here we dedupe the tasks by plugin config id and task type.
     const tasksbyTypeAndPluginConfigId = {} as Record<
-        (typeof taskTypes)[number],
+        typeof taskTypes[number],
         Record<
             number,
-            { taskType: (typeof taskTypes)[number]; pluginConfigId: number; message: (typeof batch.messages)[number] }
+            { taskType: typeof taskTypes[number]; pluginConfigId: number; message: typeof batch.messages[number] }
         >
     >
 
@@ -158,7 +164,7 @@ const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
         }
 
         let task: {
-            taskType: (typeof taskTypes)[number]
+            taskType: typeof taskTypes[number]
             pluginConfigId: number
         }
 

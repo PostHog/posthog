@@ -1,5 +1,5 @@
 import { StatsD } from 'hot-shots'
-import { EachBatchHandler, Kafka, Producer } from 'kafkajs'
+import { EachBatchHandler, Kafka } from 'kafkajs'
 import { Counter } from 'prom-client'
 
 import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
@@ -21,12 +21,10 @@ const jobsConsumerFailuresCounter = new Counter({
 
 export const startJobsConsumer = async ({
     kafka,
-    producer,
     graphileWorker,
     statsd,
 }: {
     kafka: Kafka
-    producer: Producer // NOTE: not using KafkaProducerWrapper here to avoid buffering logic
     graphileWorker: GraphileWorker
     statsd?: StatsD
 }) => {
@@ -40,6 +38,8 @@ export const startJobsConsumer = async ({
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting jobs consumer')
+
+    const producer = kafka.producer()
 
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
@@ -111,5 +111,11 @@ export const startJobsConsumer = async ({
         },
     })
 
-    return consumer
+    return {
+        ...consumer,
+        stop: async () => {
+            await consumer.stop()
+            await producer.disconnect()
+        },
+    }
 }

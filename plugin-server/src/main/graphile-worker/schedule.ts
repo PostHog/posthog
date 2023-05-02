@@ -50,13 +50,18 @@ export async function runScheduledTasks(
     }
 
     if (server.USE_KAFKA_FOR_SCHEDULED_TASKS) {
-        for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
-            status.info('⏲️', 'queueing_schedule_task', { taskType, pluginConfigId })
-            await server.kafkaProducer.producer.send({
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
-            })
-            server.statsd?.increment('queued_scheduled_task', { taskType })
+        const producer = server.kafka.producer()
+        try {
+            for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
+                status.info('⏲️', 'queueing_schedule_task', { taskType, pluginConfigId })
+                await producer.send({
+                    topic: KAFKA_SCHEDULED_TASKS,
+                    messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
+                })
+                server.statsd?.increment('queued_scheduled_task', { taskType })
+            }
+        } finally {
+            await producer.disconnect()
         }
     } else {
         for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
