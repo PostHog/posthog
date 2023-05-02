@@ -2,7 +2,7 @@ import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { IconPlus, IconOpenInNew, IconWithCount } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
 
-export function PlaylistPopover(): JSX.Element {
+export function PlaylistPopover(props: LemonButtonProps): JSX.Element {
     const { sessionRecordingId, logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const logic = playlistPopoverLogic(logicProps)
     const {
@@ -123,7 +123,7 @@ export function PlaylistPopover(): JSX.Element {
                     icon={<IconPlus />}
                     active={showPlaylistPopover}
                     onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}
-                    size={'small'}
+                    {...props}
                 >
                     <span>Pin to list</span>
                 </LemonButton>

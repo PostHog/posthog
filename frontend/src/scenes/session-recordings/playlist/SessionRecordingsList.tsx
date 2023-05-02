@@ -81,7 +81,7 @@ export function SessionRecordingsList({
                 'overflow-hidden': recordings?.length,
             })}
         >
-            <div className="shrink-0 relative flex justify-between items-center p-1 gap-1">
+            <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap">
                 {onCollapse ? (
                     <LemonButton
                         className="flex-1"

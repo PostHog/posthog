@@ -203,13 +203,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
             {!embedded && <SessionRecordingsPlaylistFilters {...props} />}
             <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
                 <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4', embedded && '-mr-4')}>
-                    {embedded ? (
-                        <div className="sticky top-0 border-r">{lists}</div>
-                    ) : (
-                        <StickyView top="3.5rem" marginTop={MARGIN_TOP}>
-                            {lists}
-                        </StickyView>
-                    )}
+                    {lists}
                 </div>
                 <div className="SessionRecordingsPlaylist__right-column">
                     {activeSessionRecording?.id ? (

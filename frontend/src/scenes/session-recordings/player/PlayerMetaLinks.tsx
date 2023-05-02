@@ -1,6 +1,6 @@
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopover } from './playlist-popover/PlaylistPopover'
@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -39,6 +40,40 @@ export function PlayerMetaLinks(): JSX.Element {
             },
         })
     }
+
+    const commonProps: Partial<LemonButtonProps> = {
+        fullWidth: true,
+    }
+
+    return (
+        <More
+            overlay={
+                <>
+                    <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" {...commonProps}>
+                        Share
+                    </LemonButton>
+
+                    <PlaylistPopover {...commonProps} />
+
+                    {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
+                        <AddToNotebook
+                            node={NotebookNodeType.Recording}
+                            properties={{ sessionRecordingId }}
+                            {...commonProps}
+                        >
+                            Add to Notebook
+                        </AddToNotebook>
+                    )}
+
+                    {logicProps.playerKey !== 'modal' && (
+                        <LemonButton status="danger" icon={<IconDelete />} onClick={onDelete} {...commonProps}>
+                            Delete
+                        </LemonButton>
+                    )}
+                </>
+            }
+        />
+    )
 
     return (
         <div className="flex flex-row gap-1 items-center">

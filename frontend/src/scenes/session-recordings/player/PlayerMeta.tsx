@@ -156,7 +156,7 @@ export function PlayerMeta(): JSX.Element {
                     </div>
                 </div>
 
-                {!logicProps.embedded && (
+                {/* {!logicProps.embedded && (
                     <>
                         <LemonButton
                             className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
@@ -173,11 +173,12 @@ export function PlayerMeta(): JSX.Element {
                                 <IconUnfoldMore className="text-lg text-muted-alt" />
                             )}
                         </LemonButton>
-                        {sessionRecordingId ? <PlayerMetaLinks /> : null}
                     </>
-                )}
+                )} */}
+
+                {sessionRecordingId ? <PlayerMetaLinks /> : null}
             </div>
-            {sessionPerson && (
+            {/* {sessionPerson && (
                 <CSSTransition
                     in={isMetadataExpanded}
                     timeout={200}
@@ -193,7 +194,7 @@ export function PlayerMeta(): JSX.Element {
                         )}
                     </div>
                 </CSSTransition>
-            )}
+            )} */}
             <div
                 className={clsx(
                     'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
