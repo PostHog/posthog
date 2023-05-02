@@ -93,6 +93,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_from: query.dateRange?.date_from,
         entity_type: 'events',
         sampling_factor: query.samplingFactor,
+        aggregation_group_type_index: query.aggregation_group_type_index,
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {
