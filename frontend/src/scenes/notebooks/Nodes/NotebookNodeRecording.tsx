@@ -27,7 +27,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const RecordingNode = Node.create({
+export const NotebookNodeRecording = Node.create({
     name: NotebookNodeType.Recording,
     group: 'block',
     atom: true,

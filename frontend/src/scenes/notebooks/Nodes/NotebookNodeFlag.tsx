@@ -43,7 +43,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const FeatureFlagNode = Node.create({
+export const NotebookNodeFlag = Node.create({
     name: NotebookNodeType.FeatureFlag,
     group: 'block',
     atom: true,

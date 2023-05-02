@@ -28,7 +28,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const InsightNode = Node.create({
+export const NotebookNodeInsight = Node.create({
     name: NotebookNodeType.Insight,
     group: 'block',
     atom: true,

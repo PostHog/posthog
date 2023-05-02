@@ -33,7 +33,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const RecordingPlaylistNode = Node.create({
+export const NotebookNodePlaylist = Node.create({
     name: NotebookNodeType.RecordingPlaylist,
     group: 'block',
     atom: true,

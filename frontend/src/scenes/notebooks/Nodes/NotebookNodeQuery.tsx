@@ -39,7 +39,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const QueryNode = Node.create({
+export const NotebookNodeQuery = Node.create({
     name: NotebookNodeType.Query,
     group: 'block',
     atom: true,
