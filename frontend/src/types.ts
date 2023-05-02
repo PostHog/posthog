@@ -1654,7 +1654,6 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
     period?: RetentionPeriod
-    retention_aggregate_by_hogql?: string
 }
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue

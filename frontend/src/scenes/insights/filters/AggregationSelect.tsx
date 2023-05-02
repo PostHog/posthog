@@ -18,6 +18,16 @@ type AggregationSelectProps = {
     value?: string
 }
 
+function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
+    if (groupIndex !== undefined) {
+        return `$group_${groupIndex}`
+    } else if (aggregationQuery) {
+        return aggregationQuery
+    } else {
+        return UNIQUE_USERS
+    }
+}
+
 export function AggregationSelectDataExploration({
     insightProps,
     className,
@@ -30,12 +40,10 @@ export function AggregationSelectDataExploration({
         return null
     }
 
-    let value = UNIQUE_USERS
-    if (querySource.aggregation_group_type_index !== undefined) {
-        value = `$group_${querySource.aggregation_group_type_index}`
-    } else if (isFunnelsQuery(querySource) && querySource.funnelsFilter?.funnel_aggregate_by_hogql !== undefined) {
-        value = querySource.funnelsFilter.funnel_aggregate_by_hogql
-    }
+    const value = getHogQLValue(
+        querySource.aggregation_group_type_index,
+        isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnel_aggregate_by_hogql : undefined
+    )
 
     return (
         <AggregationSelectComponent
@@ -75,12 +83,10 @@ export function AggregationSelect({ insightProps, className, hogqlAvailable }: A
     const { filters } = useValues(insightLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
 
-    let value = UNIQUE_USERS
-    if (filters.aggregation_group_type_index !== undefined) {
-        value = `$group_${filters.aggregation_group_type_index}`
-    } else if (isFunnelsFilter(filters) && filters.funnel_aggregate_by_hogql !== undefined) {
-        value = filters.funnel_aggregate_by_hogql
-    }
+    const value = getHogQLValue(
+        filters.aggregation_group_type_index,
+        isFunnelsFilter(filters) ? filters.funnel_aggregate_by_hogql : undefined
+    )
 
     return (
         <AggregationSelectComponent

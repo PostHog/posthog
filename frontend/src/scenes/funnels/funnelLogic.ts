@@ -650,5 +650,5 @@ function aggregationLabelForHogQL(funnel_aggregate_by_hogql: string): Noun {
     if (funnel_aggregate_by_hogql === 'properties.$session_id') {
         return { singular: 'session', plural: 'sessions' }
     }
-    return { singular: 'match', plural: 'matches' }
+    return { singular: 'result', plural: 'results' }
 }
