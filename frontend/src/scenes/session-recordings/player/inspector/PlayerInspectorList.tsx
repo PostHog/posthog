@@ -58,13 +58,13 @@ function PlayerInspectorListItem({
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { tab, recordingTimeInfo, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
+    const { tab, durationMs, end, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
     const { timestampMode } = useValues(playerSettingsLogic)
 
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
     const showIcon = tab === SessionRecordingPlayerTab.ALL
-    const fixedUnits = recordingTimeInfo.duration / 1000 > 3600 ? 3 : 2
+    const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
 
     const isExpanded = expandedItems.includes(index)
 
@@ -152,7 +152,7 @@ function PlayerInspectorListItem({
                 )}
             >
                 {item.type === SessionRecordingPlayerTab.NETWORK ? (
-                    <ItemPerformanceEvent item={item.data} finalTimestamp={recordingTimeInfo.end} {...itemProps} />
+                    <ItemPerformanceEvent item={item.data} finalTimestamp={end} {...itemProps} />
                 ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
                     <ItemConsoleLog item={item} {...itemProps} />
                 ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
