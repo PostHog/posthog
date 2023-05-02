@@ -329,7 +329,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.headers.get("Content-Encoding", None), "gzip")
 
-    def test_get_snapshots_for_chunked_session_recording(self):
+    def _test_body_for_chunked_session_recording(self, include_feature_flag_param: bool):
         chunked_session_id = "chunk_id"
         expected_num_requests = 3
         num_chunks = 60
@@ -346,7 +346,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     window_id="1" if index % 2 == 0 else "2",
                 )
 
-            next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots"
+            blob_flag = "?blob_loading_enabled=false" if include_feature_flag_param else ""
+            next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots{blob_flag}"
 
             for i in range(expected_num_requests):
                 response = self.client.get(next_url)
@@ -367,8 +368,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
                 next_url = response_data["next"]
 
+    def test_get_snapshots_for_chunked_session_recording_with_blob_flag_included_and_off(self):
+        self._test_body_for_chunked_session_recording(include_feature_flag_param=True)
+
+    def test_get_snapshots_for_chunked_session_recording_with_blob_flag_not_included(self):
+        self._test_body_for_chunked_session_recording(include_feature_flag_param=False)
+
     @patch("posthog.api.session_recording.object_storage.list_objects")
-    def test_get_snapshots_prefers_blobs_when_available(self, mock_list_objects) -> None:
+    def test_get_snapshots_can_load_blobs_when_available(self, mock_list_objects) -> None:
         blob_objects = ["session_recordings/something/data", "session_recordings/something_else/data"]
         mock_list_objects.return_value = blob_objects
         chunked_session_id = "chunk_id"
@@ -386,7 +393,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     window_id="1" if index % 2 == 0 else "2",
                 )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots?blob_loading_enabled=true"
+        )
         response_data = response.json()
         assert response_data == {"snapshot_data_by_window_id": [], "next": None, "blob_keys": blob_objects}
 

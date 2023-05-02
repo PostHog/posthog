@@ -26,6 +26,8 @@ import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import { decompressSync, strFromU8 } from 'fflate'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -91,7 +93,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -313,6 +315,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const params = toParams({
                         recording_start_time: props.recordingStartTime,
+                        blob_loading_enabled: !!values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY],
                     })
                     const apiUrl =
                         nextUrl ||

@@ -146,6 +146,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise exceptions.ValidationError("Must provide a snapshot file blob key")
 
         url = object_storage.get_presigned_url(file_key)
+        if not url:
+            raise exceptions.NotFound("Snapshot file not found")
+
         with requests.get(url=url, stream=True) as r:
             r.raw.decode_content = True
             r.raise_for_status()
@@ -161,18 +164,19 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
 
-        blob_keys = object_storage.list_objects(
-            f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}"
-        )
-
-        if blob_keys:
-            return Response(
-                {
-                    "snapshots": [],
-                    "blob_keys": blob_keys,
-                    "next": None,
-                }
+        if request.GET.get("blob_loading_enabled", "false") == "true":
+            blob_keys = object_storage.list_objects(
+                f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}"
             )
+
+            if blob_keys:
+                return Response(
+                    {
+                        "snapshot_data_by_window_id": [],
+                        "blob_keys": blob_keys,
+                        "next": None,
+                    }
+                )
 
         # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
         filter = Filter(request=request)
