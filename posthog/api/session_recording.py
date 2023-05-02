@@ -150,7 +150,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise exceptions.NotFound("Snapshot file not found")
 
         with requests.get(url=url, stream=True) as r:
-            r.raw.decode_content = True
             r.raise_for_status()
             response = HttpResponse(content=r.raw, content_type="application/json")
             response["Content-Disposition"] = "inline"
