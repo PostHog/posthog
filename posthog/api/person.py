@@ -64,6 +64,15 @@ from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
 DEFAULT_PAGE_LIMIT = 100
+PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    "email",
+    "Email",
+    "name",
+    "Name",
+    "username",
+    "Username",
+    "UserName",
+]
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -89,12 +98,19 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
 
 
 def get_person_name(team: Team, person: Person) -> str:
-    if person.properties.get("email"):
-        return person.properties["email"]
+    if display_name := get_person_display_name(person, team):
+        return display_name
     if len(person.distinct_ids) > 0:
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(person.distinct_ids, key=is_anonymous_id)[0]
     return person.pk
+
+
+def get_person_display_name(person: Person, team: Team) -> str | None:
+    for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
+        if person.properties.get(property):
+            return person.properties.get(property)
+    return None
 
 
 class PersonsThrottle(ClickHouseSustainedRateThrottle):
