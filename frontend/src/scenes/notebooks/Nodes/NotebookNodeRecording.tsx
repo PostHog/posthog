@@ -24,8 +24,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             // TODO: Fix "meta" preview
             // preview={<PlayerMeta {...recordingLogicProps} />}
         >
-            {/* TODO: replace hardcoded height, 32 (top) + 500 (player) + 16 (margins) + 88 (seekbar) = 620 */}
-            <div style={{ maxHeight: 636 }}>
+            <div className="max-h-120">
                 <SessionRecordingPlayer {...recordingLogicProps} />
             </div>
         </NodeWrapper>

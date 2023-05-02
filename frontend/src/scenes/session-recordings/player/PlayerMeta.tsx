@@ -115,8 +115,8 @@ export function PlayerMeta(): JSX.Element {
 
             <div
                 className={clsx(
-                    'PlayerMeta__top flex items-center gap-2 shrink-0',
-                    isFullScreen ? 'px-3 p-1 text-xs' : 'p-3 border-b'
+                    'PlayerMeta__top flex items-center gap-2 shrink-0 px-3 p-1',
+                    isFullScreen ? ' text-xs' : 'border-b'
                 )}
             >
                 <div className="ph-no-capture">

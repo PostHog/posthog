@@ -2,7 +2,8 @@
 
 .SessionRecordingPlayer {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    overflow: hidden;
     height: 100%;
     width: 100%;
     border: 1px solid var(--border);
@@ -20,9 +21,13 @@
         background-color: var(--bg-light);
         min-width: 1px;
         height: 500px;
-        margin: 0.5rem;
+        // margin: 0.5rem;
         overflow: hidden;
-        border-radius: var(--radius);
+        // border-radius: var(--radius);
+    }
+
+    .SessionRecordingPlayer__main {
+        flex: 1;
     }
 
     &--fullscreen {
@@ -34,10 +39,8 @@
         overflow-y: auto;
         background-color: var(--white);
         z-index: var(--z-modal);
-
-        .SessionRecordingPlayer__main {
-            flex: 1;
-        }
+        border: none;
+        border-radius: 0px;
 
         .SessionRecordingPlayer__body {
             height: 100%;
@@ -51,41 +54,24 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        flex-shrink: 0;
     }
 
     .SessionRecordingPlayer__inspector {
-        border-top: 1px solid var(--border);
-        min-height: 50rem;
+        min-width: 30%;
+        width: 40%;
+        max-width: 400px;
+        flex-shrink: 0;
+        border-left: 1px solid var(--border);
     }
 
-    &--widescreen {
-        flex-direction: row;
-        overflow: hidden;
+    // &--widescreen {
 
-        .SessionRecordingPlayer__main {
-            flex: 2;
-        }
-
-        .SessionRecordingPlayer__inspector {
-            min-width: 450px;
-            flex: 1;
-            border-left: 1px solid var(--border);
-            border-top: none;
-            min-height: auto;
-        }
-
+    .LemonModal & {
         .SessionRecordingPlayer__body {
-            // Rough aproximation of the parent elements
-            height: calc(100vh - 20rem);
-        }
-
-        .LemonModal & {
-            .SessionRecordingPlayer__body {
-                height: calc(90vh - 15rem);
-            }
+            height: calc(90vh - 15rem);
         }
     }
+    // }
 
     &--explorer-mode {
         .SessionRecordingPlayer__main,

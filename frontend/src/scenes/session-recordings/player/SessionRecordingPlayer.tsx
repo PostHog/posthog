@@ -134,11 +134,11 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     <LemonDivider className="my-0" />
                     <PlayerController />
                 </div>
-                {!isFullScreen && (
-                    <div className="SessionRecordingPlayer__inspector">
-                        <PlayerInspector />
-                    </div>
-                )}
+                {/* {!isFullScreen && ( */}
+                <div className="SessionRecordingPlayer__inspector">
+                    <PlayerInspector />
+                </div>
+                {/* )} */}
 
                 {explorerMode && <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />}
             </div>
