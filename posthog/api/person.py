@@ -89,6 +89,7 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
 
 
 def get_person_name(person: Person) -> str:
+    raise Exception("get_person_name called")
     if person.properties.get("email"):
         return person.properties["email"]
     if len(person.distinct_ids) > 0:
