@@ -286,10 +286,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     )
                     breakpoint()
 
-                    const contentBuffer = await response.arrayBuffer()
-                    const massiveFile = new Uint8Array(contentBuffer)
-                    const jsonLines = strFromU8(decompressSync(massiveFile)).trim().split('\n')
-                    const snapshots = jsonLines.map((l) => JSON.parse(l))
+                    const contentBuffer = new Uint8Array(await response.arrayBuffer())
+                    const jsonLines = strFromU8(decompressSync(contentBuffer)).trim().split('\n')
+                    const snapshots: RecordingSnapshot[] = jsonLines.flatMap((l) => {
+                        const snapshotLine = JSON.parse(l)
+                        const snapshotData = JSON.parse(snapshotLine['data'])
+
+                        return snapshotData.map((d: any) => ({
+                            windowId: snapshotLine['window_id'],
+                            ...d,
+                        }))
+                    })
 
                     return {
                         blob_keys: snapshotDataClone.blob_keys,
