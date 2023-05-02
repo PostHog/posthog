@@ -465,6 +465,13 @@ class TrendsFilter(BaseModel):
     smoothing_intervals: Optional[float] = None
 
 
+class TrendsQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    results: List
+
+
 class Breakdown(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -1059,6 +1066,7 @@ class TrendsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
+    response: Optional[TrendsQueryResponse] = Field(None, description="Cached query response")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
         ..., description="Events and actions to include"

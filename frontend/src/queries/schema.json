@@ -3031,6 +3031,10 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/TrendsQueryResponse",
+                    "description": "Cached query response"
+                },
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
@@ -3058,6 +3062,17 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "TrendsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "results": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         }
     }

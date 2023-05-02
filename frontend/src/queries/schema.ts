@@ -157,6 +157,10 @@ export interface NewEntityNode extends EntityNode {
     event?: string | null
 }
 
+export interface TrendsQueryResponse {
+    results: any[]
+}
+
 export interface EventsQueryResponse {
     columns: any[]
     types: string[]
@@ -316,6 +320,8 @@ export interface TrendsQuery extends InsightsQueryBase {
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdown?: BreakdownFilter
+    /** Cached query response */
+    response?: TrendsQueryResponse
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and

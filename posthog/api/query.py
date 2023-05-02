@@ -28,8 +28,9 @@ from posthog.models.event.events_query import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
+from posthog.queries.trends.trends_query import run_trends_query
 from posthog.rate_limit import TeamRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode
+from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode, TrendsQuery
 from posthog.utils import relative_date_parse
 
 
@@ -166,7 +167,11 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
 
     tag_queries(query=query_json)
 
-    if query_kind == "EventsQuery":
+    if query_kind == "TrendsQuery":
+        trends_query = TrendsQuery.parse_obj(query_json)
+        response = run_trends_query(query=trends_query, team=team)
+        return _response_to_dict(response)
+    elif query_kind == "EventsQuery":
         events_query = EventsQuery.parse_obj(query_json)
         response = run_events_query(query=events_query, team=team)
         return _response_to_dict(response)
