@@ -258,7 +258,6 @@ export async function startPluginsServer(
                 })
             }
         }
-        console.log("🚀 Plugin server is ready! Let's go!")
 
         if (capabilities.ingestion) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
@@ -397,8 +396,6 @@ export async function startPluginsServer(
             hub.lastActivityType = 'serverStart'
         }
 
-        console.log("🚀 Plugin server is ready! Let's go!")
-
         if (capabilities.sessionRecordingIngestion) {
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
@@ -463,8 +460,6 @@ export async function startPluginsServer(
         if (joinSessionRecordingBlobConsumer) {
             joinSessionRecordingBlobConsumer().catch(closeJobs)
         }
-
-        console.log("🚀 Plugin server is ready! Let's go!")
 
         return serverInstance ?? { stop: closeJobs }
     } catch (error) {
