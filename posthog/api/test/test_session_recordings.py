@@ -399,7 +399,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots?blob_loading_enabled=true"
         )
         response_data = response.json()
+
         assert response_data == {"snapshot_data_by_window_id": [], "next": None, "blob_keys": blob_objects}
+        mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/chunk_id/data/")
 
     @patch("posthog.api.session_recording.SessionRecording.get_or_build")
     @patch("posthog.api.session_recording.object_storage.get_presigned_url")
