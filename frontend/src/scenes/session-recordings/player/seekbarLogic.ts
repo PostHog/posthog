@@ -1,31 +1,21 @@
 import { MutableRefObject } from 'react'
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { seekbarLogicType } from './seekbarLogicType'
 import {
     SessionRecordingLogicProps,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { clamp } from 'lib/utils'
-import { PlayerPosition } from '~/types'
 
-import {
-    convertPlayerPositionToX,
-    convertXToPlayerPosition,
-    getPlayerTimeFromPlayerPosition,
-    getXPos,
-    InteractEvent,
-    ReactInteractEvent,
-    THUMB_OFFSET,
-    THUMB_SIZE,
-} from './playerUtils'
+import { getXPos, InteractEvent, ReactInteractEvent, THUMB_OFFSET, THUMB_SIZE } from './utils/playerUtils'
 
 export const seekbarLogic = kea<seekbarLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'seekbarLogic', key]),
     props({} as SessionRecordingLogicProps),
     key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingLogicProps) => ({
-        values: [sessionRecordingPlayerLogic(props), ['sessionPlayerData', 'currentPlayerPosition']],
-        actions: [sessionRecordingPlayerLogic(props), ['seek', 'startScrub', 'endScrub', 'setCurrentPlayerPosition']],
+        values: [sessionRecordingPlayerLogic(props), ['sessionPlayerData', 'currentPlayerTime']],
+        actions: [sessionRecordingPlayerLogic(props), ['seekToTime', 'startScrub', 'endScrub', 'setCurrentTimestamp']],
     })),
     actions({
         setThumbLeftPos: (thumbLeftPos: number, shouldSeek: boolean) => ({ thumbLeftPos, shouldSeek }),
@@ -35,7 +25,6 @@ export const seekbarLogic = kea<seekbarLogicType>([
         handleUp: (event: InteractEvent) => ({ event }),
         handleDown: (event: ReactInteractEvent) => ({ event }),
         handleClick: (event: ReactInteractEvent) => ({ event }),
-        handleTickClick: (playerPosition: PlayerPosition) => ({ playerPosition }),
         setSlider: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
         setThumb: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
         debouncedSetTime: (time: number) => ({ time }),
@@ -85,24 +74,15 @@ export const seekbarLogic = kea<seekbarLogicType>([
         endTimeMs: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
-                return sessionPlayerData?.metadata?.recordingDurationMs ?? 0
+                return sessionPlayerData?.durationMs ?? 0
             },
         ],
 
         bufferPercent: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
-                if (
-                    sessionPlayerData?.bufferedTo &&
-                    sessionPlayerData?.metadata?.segments &&
-                    sessionPlayerData?.metadata?.recordingDurationMs
-                ) {
-                    const bufferedToPlayerTime =
-                        getPlayerTimeFromPlayerPosition(
-                            sessionPlayerData.bufferedTo,
-                            sessionPlayerData.metadata.segments
-                        ) ?? 0
-                    return (100 * bufferedToPlayerTime) / sessionPlayerData.metadata.recordingDurationMs
+                if (sessionPlayerData?.bufferedToTime && sessionPlayerData?.segments && sessionPlayerData?.durationMs) {
+                    return 100 * (sessionPlayerData?.bufferedToTime / sessionPlayerData.durationMs)
                 }
                 return 0
             },
@@ -110,37 +90,24 @@ export const seekbarLogic = kea<seekbarLogicType>([
         scrubbingTime: [
             (selectors) => [selectors.thumbLeftPos, selectors.slider, selectors.sessionPlayerData],
             (thumbLeftPos, slider, sessionPlayerData) => {
-                if (thumbLeftPos && slider && sessionPlayerData?.metadata?.recordingDurationMs) {
-                    return (
-                        ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) *
-                        sessionPlayerData.metadata.recordingDurationMs
-                    )
+                if (thumbLeftPos && slider && sessionPlayerData?.durationMs) {
+                    return ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) * sessionPlayerData.durationMs
                 }
                 return 0
             },
         ],
     }),
     listeners(({ values, actions }) => ({
-        setCurrentPlayerPosition: async () => {
+        setCurrentTimestamp: () => {
             if (!values.slider) {
                 return
             }
             // Don't update thumb position if seekbar logic is already seeking and setting the thumb position.
             // Except in one case when the updated thumb position is at the start. This happens when the user
             // scrubs to the end of the recording while playing, and then the player loop restarts the recording.
-            if (
-                !values.isSeeking ||
-                values.currentPlayerPosition === values.sessionPlayerData?.metadata?.segments[0]?.startPlayerPosition
-            ) {
-                const xValue = values.currentPlayerPosition
-                    ? convertPlayerPositionToX(
-                          values.currentPlayerPosition,
-                          values.slider.offsetWidth,
-                          values.sessionPlayerData.metadata.segments,
-                          values.sessionPlayerData.metadata.recordingDurationMs
-                      )
-                    : 0
-
+            if (!values.isSeeking) {
+                const xValue =
+                    ((values.currentPlayerTime ?? 0) / values.sessionPlayerData.durationMs) * values.slider.offsetWidth
                 actions.setThumbLeftPos(xValue - THUMB_OFFSET, false)
             }
         },
@@ -149,22 +116,18 @@ export const seekbarLogic = kea<seekbarLogicType>([
             if (!values.slider) {
                 return
             }
-            if (shouldSeek && values.sessionPlayerData?.metadata) {
-                const playerPosition = convertXToPlayerPosition(
-                    thumbLeftPos + THUMB_OFFSET,
-                    values.slider.offsetWidth,
-                    values.sessionPlayerData.metadata.segments,
-                    values.sessionPlayerData.metadata.recordingDurationMs
-                )
-                actions.seek(playerPosition)
+            if (shouldSeek) {
+                const playerTime =
+                    ((thumbLeftPos + THUMB_OFFSET) / values.slider.offsetWidth) * values.sessionPlayerData.durationMs
+                actions.seekToTime(playerTime)
             }
         },
-        handleSeek: async ({ newX, shouldSeek }) => {
+        handleSeek: ({ newX, shouldSeek }) => {
             const end = values.slider?.offsetWidth ?? 0
-            await actions.setThumbLeftPos(clamp(newX, 0, end) - THUMB_OFFSET, shouldSeek)
+            actions.setThumbLeftPos(clamp(newX, 0, end) - THUMB_OFFSET, shouldSeek)
             actions.endSeeking()
         },
-        handleMove: async ({ event }) => {
+        handleMove: ({ event }) => {
             if (!values.slider) {
                 return
             }
@@ -204,26 +167,5 @@ export const seekbarLogic = kea<seekbarLogicType>([
             document.addEventListener('mousemove', actions.handleMove)
             document.addEventListener('mouseup', actions.handleUp)
         },
-        handleTickClick: ({ playerPosition }) => {
-            if (!values.isSeeking && values.slider) {
-                actions.handleSeek(
-                    convertPlayerPositionToX(
-                        playerPosition,
-                        values.slider.offsetWidth,
-                        values.sessionPlayerData.metadata.segments,
-                        values.sessionPlayerData.metadata.recordingDurationMs
-                    )
-                )
-            }
-        },
     })),
-    afterMount(({ actions, values, cache }) => {
-        cache.setCurrentPlayerPosition = () => {
-            actions.setCurrentPlayerPosition(values.currentPlayerPosition)
-        }
-        window.addEventListener('resize', cache.setCurrentPlayerPosition)
-    }),
-    beforeUnmount(({ cache }) => {
-        window.removeEventListener('resize', cache.setCurrentPlayerPosition)
-    }),
 ])

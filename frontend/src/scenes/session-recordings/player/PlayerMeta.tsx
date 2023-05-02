@@ -81,7 +81,7 @@ export function PlayerMeta(): JSX.Element {
         lastPageviewEvent,
         scale,
         currentWindowIndex,
-        recordingStartTime,
+        startTime,
         sessionPlayerMetaDataLoading,
         windowIds,
     } = useValues(playerMetaLogic(logicProps))
@@ -128,14 +128,14 @@ export function PlayerMeta(): JSX.Element {
                 </div>
                 <div className="overflow-hidden ph-no-capture flex-1">
                     <div className="font-bold">
-                        {!sessionPerson || !recordingStartTime ? (
+                        {!sessionPerson || !startTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
                         ) : (
                             <div className="flex gap-1">
                                 <PersonHeader person={sessionPerson} withIcon={false} noEllipsis={true} />
                                 {'·'}
                                 <TZLabel
-                                    time={dayjs(recordingStartTime)}
+                                    time={dayjs(startTime)}
                                     formatDate="MMMM DD, YYYY"
                                     formatTime="h:mm A"
                                     showPopover={false}

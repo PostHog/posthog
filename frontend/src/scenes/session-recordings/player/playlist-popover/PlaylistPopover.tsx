@@ -11,12 +11,9 @@ import { Field } from 'lib/forms/Field'
 import { urls } from 'scenes/urls'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 export function PlaylistPopover(): JSX.Element {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const dataLogic = sessionRecordingDataLogic(logicProps)
-    const { sessionPlayerData } = useValues(dataLogic)
+    const { sessionRecordingId, logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
@@ -31,7 +28,7 @@ export function PlaylistPopover(): JSX.Element {
         useActions(logic)
 
     return (
-        <IconWithCount count={sessionPlayerData.metadata.pinnedCount ?? 0} showZero={false}>
+        <IconWithCount count={sessionPlayerData.pinnedCount ?? 0} showZero={false}>
             <Popover
                 visible={showPlaylistPopover}
                 onClickOutside={() => setShowPlaylistPopover(false)}
