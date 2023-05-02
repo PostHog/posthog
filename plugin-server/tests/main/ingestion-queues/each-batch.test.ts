@@ -2,7 +2,13 @@ import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW }
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { ClickHouseTimestamp, ISOTimestamp, PostIngestionEvent, RawClickHouseEvent } from '../../../src/types'
+import {
+    ClickHouseTimestamp,
+    ClickHouseTimestampSecondPrecision,
+    ISOTimestamp,
+    PostIngestionEvent,
+    RawClickHouseEvent,
+} from '../../../src/types'
 import { ConfiguredLimiter } from '../../../src/utils/token-bucket'
 import { groupIntoBatches } from '../../../src/utils/utils'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
@@ -36,7 +42,7 @@ const clickhouseEvent: RawClickHouseEvent = {
     distinct_id: 'my_id',
     created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
-    person_created_at: '2020-02-20 02:15:00.00' as ClickHouseTimestamp,
+    person_created_at: '2020-02-20 02:15:00' as ClickHouseTimestampSecondPrecision, // Match createEvent ts format
     person_properties: '{}',
 }
 
