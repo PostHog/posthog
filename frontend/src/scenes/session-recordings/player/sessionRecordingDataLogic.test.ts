@@ -1,7 +1,4 @@
-import {
-    parseMetadataResponse,
-    sessionRecordingDataLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
@@ -62,18 +59,11 @@ describe('sessionRecordingDataLogic', () => {
         it('has default values', async () => {
             expect(logic.values).toMatchObject({
                 sessionRecordingId: null,
-                sessionPlayerData: {
-                    bufferedTo: null,
-                    metadata: {
-                        durationMs: 0,
-                        pinnedCount: 0,
-                        start: expect.anything(),
-                        end: expect.anything(),
-                        segments: [],
-                    },
-                    person: null,
-                    snapshotsByWindowId: {},
-                },
+                bufferedToTime: null,
+                durationMs: 0,
+                start: undefined,
+                end: undefined,
+                segments: [],
                 sessionEventsData: null,
                 filters: {},
                 chunkPaginationIndex: 0,
@@ -84,22 +74,15 @@ describe('sessionRecordingDataLogic', () => {
 
     describe('loading session core', () => {
         it('is triggered by mounting', async () => {
-            const expectedData = {
-                person: recordingMetaJson.person,
-                metadata: parseMetadataResponse(recordingMetaJson),
-                bufferedTo: {
-                    time: 2725496,
-                    windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
-                },
-                next: undefined,
-                snapshotsByWindowId: sortedRecordingSnapshotsJson.snapshot_data_by_window_id,
-            }
             await expectLogic(logic)
                 .toDispatchActions(['loadEntireRecording', 'loadRecordingMetaSuccess', 'loadRecordingSnapshotsSuccess'])
                 .toFinishAllListeners()
-                .toMatchValues({
-                    sessionPlayerData: expectedData,
-                })
+
+            expect(logic.values.sessionPlayerData).toMatchObject({
+                person: recordingMetaJson.person,
+                bufferedToTime: 11868,
+                snapshotsByWindowId: sortedRecordingSnapshotsJson.snapshot_data_by_window_id,
+            })
         })
 
         it('fetch metadata error', async () => {
@@ -118,14 +101,12 @@ describe('sessionRecordingDataLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     sessionPlayerData: {
-                        bufferedTo: null,
-                        metadata: {
-                            start: expect.anything(),
-                            end: expect.anything(),
-                            durationMs: 0,
-                            pinnedCount: 0,
-                            segments: [],
-                        },
+                        bufferedToTime: null,
+                        start: undefined,
+                        end: undefined,
+                        durationMs: 0,
+                        pinnedCount: 0,
+                        segments: [],
                         person: null,
                         snapshotsByWindowId: {},
                     },
@@ -143,16 +124,13 @@ describe('sessionRecordingDataLogic', () => {
             })
             logic.mount()
 
-            await expectLogic(logic)
-                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsFailure'])
-                .toMatchValues({
-                    sessionPlayerData: {
-                        person: recordingMetaJson.person,
-                        metadata: parseMetadataResponse(recordingMetaJson),
-                        snapshotsByWindowId: {},
-                        bufferedTo: null,
-                    },
-                })
+            await expectLogic(logic).toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsFailure'])
+            expect(logic.values.sessionPlayerData).toMatchObject({
+                person: recordingMetaJson.person,
+                durationMs: 11868,
+                snapshotsByWindowId: {},
+                bufferedToTime: 0,
+            })
             resumeKeaLoadersErrors()
         })
     })
@@ -191,12 +169,12 @@ describe('sessionRecordingDataLogic', () => {
                 {
                     client_query_id: undefined,
                     query: {
-                        after: '2021-12-09T19:34:39+00:00',
-                        before: '2021-12-09T20:23:24+00:00',
+                        after: '2023-05-01T14:45:20+00:00',
+                        before: '2023-05-01T14:47:32+00:00',
                         kind: 'EventsQuery',
                         limit: 1000000,
                         orderBy: ['timestamp ASC'],
-                        personId: '1',
+                        personId: 11,
                         properties: [{ key: '$session_id', operator: 'exact', type: 'event', value: ['2'] }],
                         select: [
                             'uuid',
@@ -276,19 +254,20 @@ describe('sessionRecordingDataLogic', () => {
                 logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
-                .toMatchValues({
-                    sessionPlayerData: {
-                        person: recordingMetaJson.person,
-                        metadata: parseMetadataResponse(recordingMetaJson),
-                        bufferedTo: {
-                            time: 2725496,
-                            windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
-                        },
-                        next: undefined,
-                        snapshotsByWindowId: sortedRecordingSnapshotsJson.snapshot_data_by_window_id,
-                    },
-                })
                 .toNotHaveDispatchedActions(['loadRecordingSnapshots'])
+                .toFinishAllListeners()
+
+            expect(logic.values).toMatchObject({
+                sessionPlayerData: {
+                    person: recordingMetaJson.person,
+                    bufferedToTime: 11868,
+                    durationMs: 11868,
+                    snapshotsByWindowId: sortedRecordingSnapshotsJson.snapshot_data_by_window_id,
+                },
+                sessionPlayerSnapshotData: {
+                    next: null,
+                },
+            })
         })
 
         it('fetch all chunks of recording', async () => {
@@ -328,39 +307,25 @@ describe('sessionRecordingDataLogic', () => {
             api.get.mockClear()
             await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
 
-            await expectLogic(logic)
-                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
-                .toMatchValues({
-                    sessionPlayerData: {
-                        person: recordingMetaJson.person,
-                        metadata: parseMetadataResponse(recordingMetaJson),
-                        bufferedTo: {
-                            time: 167777,
-                            windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
-                        },
-                        snapshotsByWindowId: snapshots1.snapshot_data_by_window_id,
-                        next: firstNext,
-                    },
-                })
+            await expectLogic(logic).toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
 
             await expectLogic(logic)
                 .toDispatchActions([
                     logic.actionCreators.loadRecordingSnapshots(firstNext),
                     'loadRecordingSnapshotsSuccess',
                 ])
-                .toMatchValues({
-                    sessionPlayerData: {
-                        person: recordingMetaJson.person,
-                        metadata: parseMetadataResponse(recordingMetaJson),
-                        bufferedTo: {
-                            time: 2725496,
-                            windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
-                        },
-                        snapshotsByWindowId: sortedRecordingSnapshotsJson.snapshot_data_by_window_id,
-                        next: undefined,
-                    },
-                })
                 .toFinishAllListeners()
+
+            expect(logic.values).toMatchObject({
+                sessionPlayerData: {
+                    person: recordingMetaJson.person,
+                    bufferedToTime: 11868,
+                    durationMs: 11868,
+                },
+                sessionPlayerSnapshotData: {
+                    next: undefined,
+                },
+            })
             expect(api.get).toBeCalledTimes(3) // 2 calls to loadRecordingSnapshots + 1 call to loadPerformanceEvents
         })
 
@@ -400,15 +365,13 @@ describe('sessionRecordingDataLogic', () => {
                 await logic.actions.loadRecordingSnapshots()
             }).toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
 
-            expectLogic(logic).toMatchValues({
+            expect(logic.values).toMatchObject({
                 sessionPlayerData: {
                     person: recordingMetaJson.person,
-                    metadata: parseMetadataResponse(recordingMetaJson),
-                    bufferedTo: {
-                        time: 2725496,
-                        windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
-                    },
+                    bufferedToTime: 11868,
                     snapshotsByWindowId: sortedRecordingSnapshotsJson.snapshot_data_by_window_id,
+                },
+                sessionPlayerSnapshotData: {
                     next: firstNext,
                 },
             })

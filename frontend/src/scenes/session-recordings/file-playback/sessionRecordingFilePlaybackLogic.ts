@@ -1,5 +1,5 @@
 import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { Breadcrumb, PersonType, RecordingSnapshot } from '~/types'
+import { Breadcrumb, PersonType, RecordingSnapshot, SessionRecordingType } from '~/types'
 import { urls } from 'scenes/urls'
 import { loaders } from 'kea-loaders'
 
@@ -26,7 +26,8 @@ export type ExportedSessionRecordingFileV1 = {
 export type ExportedSessionRecordingFileV2 = {
     version: '2023-04-28'
     data: {
-        person: PersonType | null
+        id: SessionRecordingType['id']
+        person: SessionRecordingType['person']
         snapshots: RecordingSnapshot[]
     }
 }
@@ -39,7 +40,8 @@ export const createExportedSessionRecording = (
     return {
         version: '2023-04-28',
         data: {
-            person: sessionPlayerMetaData?.person ?? null,
+            id: sessionPlayerMetaData?.id ?? '',
+            person: sessionPlayerMetaData?.person,
             snapshots: sessionPlayerSnapshotData?.snapshots || [],
         },
     }
@@ -58,7 +60,8 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
         return {
             version: '2023-04-28',
             data: {
-                person: data.data.person,
+                id: '', // This wasn't available in previous version
+                person: data.data.person || undefined,
                 snapshots: Object.entries(data.data.snapshotsByWindowId)
                     .flatMap(([windowId, snapshots]) => {
                         return snapshots.map((snapshot) => ({
@@ -140,10 +143,13 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             })
 
             dataLogic.actions.loadRecordingMetaSuccess({
-                person: values.sessionRecording.person,
-                start: dayjs(snapshots[0].timestamp),
-                end: dayjs(snapshots[snapshots.length - 1].timestamp),
-                pinnedCount: 0,
+                id: values.sessionRecording.id,
+                viewed: false,
+                recording_duration: snapshots[snapshots.length - 1].timestamp - snapshots[0].timestamp,
+                person: values.sessionRecording.person || undefined,
+                start_time: dayjs(snapshots[0].timestamp).toISOString(),
+                end_time: dayjs(snapshots[snapshots.length - 1].timestamp).toISOString(),
+                pinned_count: 0,
             })
         },
     })),
