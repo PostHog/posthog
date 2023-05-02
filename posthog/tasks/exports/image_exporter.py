@@ -119,10 +119,10 @@ def _screenshot_asset(
         driver = get_driver()
         driver.set_window_size(screenshot_width, screenshot_width * 0.5)
         driver.get(url_to_render)
-        WebDriverWait(driver, 15).until(lambda x: x.find_element_by_css_selector(wait_for_css_selector))
+        WebDriverWait(driver, 20).until(lambda x: x.find_element_by_css_selector(wait_for_css_selector))
         # Also wait until nothing is loading
         try:
-            WebDriverWait(driver, 15).until_not(lambda x: x.find_element_by_class_name("Spinner"))
+            WebDriverWait(driver, 20).until_not(lambda x: x.find_element_by_class_name("Spinner"))
         except TimeoutException:
             capture_exception()
         height = driver.execute_script("return document.body.scrollHeight")
