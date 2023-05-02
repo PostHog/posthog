@@ -83,10 +83,17 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, refresh_requested_by_client, relative_date_parse, str_to_bool
 
 logger = structlog.get_logger(__name__)
+
+INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
+    "insight_refresh_initiated",
+    "Insight refreshes initiated, based on should_refresh_insight().",
+    labelnames=["is_shared"],
+)
 
 
 def log_insight_activity(
@@ -491,10 +498,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
         target = insight if dashboard is None else dashboard_tile
 
+        is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
-            insight, dashboard_tile, request=self.context["request"], is_shared=self.context.get("is_shared", False)
+            insight, dashboard_tile, request=self.context["request"], is_shared=is_shared
         )
         if refresh_insight_now:
+            INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
             return synchronously_update_cache(insight, dashboard, refresh_frequency)
 
         # :TODO: Clear up if tile can be null or not
