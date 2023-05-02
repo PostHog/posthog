@@ -39,7 +39,7 @@ export function DataAttributes(): JSX.Element {
             <div className="space-y-4 max-w-160">
                 <LemonSelectMultiple
                     mode="multiple-custom"
-                    onChange={(values) => setValue(values || [])}
+                    onChange={(values: string[]) => setValue(values || [])}
                     value={value}
                     data-attr="data-attribute-select"
                     placeholder={'data-attr, ...'}

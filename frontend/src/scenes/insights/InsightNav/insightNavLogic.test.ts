@@ -68,10 +68,8 @@ describe('insightNavLogic', () => {
                             type: 'events',
                         },
                     ],
-                    filter_test_accounts: false,
                     insight: 'TRENDS',
                     interval: 'day',
-                    properties: [],
                 },
             })
         })
@@ -159,22 +157,6 @@ describe('insightNavLogic', () => {
                 })
                 theInsightNavLogicForTheCachedInsight.mount()
                 expect(theInsightNavLogicForTheCachedInsight.values.activeView).toEqual(InsightType.FUNNELS)
-            })
-
-            it('sets view from setFilters', async () => {
-                await expectLogic(theInsightNavLogic, () => {
-                    theInsightLogic.actions.setFilters({ insight: InsightType.FUNNELS })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('does not set view from setInsight if filters not overriding', async () => {
-                await expectLogic(theInsightNavLogic, () => {
-                    theInsightLogic.actions.setInsight({ filters: { insight: InsightType.FUNNELS } }, {})
-                }).toMatchValues({
-                    activeView: InsightType.TRENDS,
-                })
             })
 
             it('does set view from setInsight if filters are overriding', async () => {

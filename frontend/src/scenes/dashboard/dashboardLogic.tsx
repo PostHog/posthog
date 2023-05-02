@@ -15,7 +15,7 @@ import {
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router, urlToAction } from 'kea-router'
-import { clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, isUserLoggedIn, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
@@ -70,6 +70,8 @@ export interface DashboardLogicProps {
     id?: number
     dashboard?: DashboardType
     placement?: DashboardPlacement
+    /** If showing a shared dashboard, we need the access token for refreshing. */
+    sharingAccessToken?: string
 }
 
 export interface RefreshStatus {
@@ -140,7 +142,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     actions({
-        loadExportedDashboard: (dashboard: DashboardType | null) => ({ dashboard }),
         loadDashboardItems: (payload: { refresh?: boolean; action: string }) => payload,
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
@@ -339,7 +340,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         allItems: [
             null as DashboardType | null,
             {
-                loadExportedDashboard: (_, { dashboard }) => dashboard,
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts = layoutsByTile(layouts)
 
@@ -775,7 +775,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         afterMount: () => {
             if (props.id) {
                 if (props.dashboard) {
-                    actions.loadExportedDashboard(props.dashboard)
+                    // If we already have dashboard data, use it. Should the data turn out to be stale,
+                    // the loadDashboardItemsSuccess listener will initiate a refresh
+                    actions.loadDashboardItemsSuccess(props.dashboard)
                 } else {
                     actions.loadDashboardItems({
                         refresh: false,
@@ -953,6 +955,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
+                    sharing_access_token: props.sharingAccessToken,
                 })}`
 
                 try {
@@ -985,7 +988,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 } catch (e: any) {
                     if (isBreakpoint(e)) {
                         cancelled = true
-                    } else if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                    } else if (shouldCancelQuery(e)) {
                         if (!cancelled) {
                             // cancel all insight requests for this query in one go
                             actions.abortQuery({ dashboardQueryId: dashboardQueryId, queryId: queryId, queryStartTime })

@@ -521,6 +521,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFlagsCodeExampleInteraction: (optionType: string) => ({
             optionType,
         }),
+        reportFlagsCodeExampleLanguage: (language: string) => ({
+            language,
+        }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -1268,6 +1271,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFlagsCodeExampleInteraction: ({ optionType }) => {
             posthog.capture('flags code example option selected', {
                 option_type: optionType,
+            })
+        },
+        reportFlagsCodeExampleLanguage: ({ language }) => {
+            posthog.capture('flags code example language selected', {
+                language,
             })
         },
     }),

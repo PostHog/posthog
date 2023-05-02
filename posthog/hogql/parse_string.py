@@ -1,5 +1,7 @@
 from antlr4 import ParserRuleContext
 
+from posthog.hogql.errors import HogQLException
+
 
 def parse_string(text: str) -> str:
     """Converts a string received from antlr via ctx.getText() into a Python string"""
@@ -20,7 +22,7 @@ def parse_string(text: str) -> str:
         text = text.replace("{{", "{")
         text = text.replace("\\{", "{")
     else:
-        raise ValueError(f"Invalid string literal, must start and end with the same quote ref: {text}")
+        raise HogQLException(f"Invalid string literal, must start and end with the same quote type: {text}")
 
     # copied from clickhouse_driver/util/escape.py
     text = text.replace("\\b", "\b")

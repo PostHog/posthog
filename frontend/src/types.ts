@@ -15,7 +15,7 @@ import {
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { UploadFile } from 'antd/lib/upload/interface'
-import { eventWithTime } from 'rrweb/typings/types'
+import { eventWithTime } from '@rrweb/types'
 import { PostHog } from 'posthog-js'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -77,6 +77,15 @@ export enum AvailableFeature {
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
     SUPPORT_SLAS = 'support_slas',
+}
+
+export type AvailableProductFeature = {
+    key: AvailableFeature
+    name: string
+    description?: string | null
+    limit?: number | null
+    note?: string | null
+    unit?: string | null
 }
 
 export enum LicensePlan {
@@ -184,6 +193,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
+    available_product_features: AvailableProductFeature[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
@@ -319,6 +329,10 @@ export interface TeamType extends TeamBasicType {
     person_on_events_querying_enabled: boolean
     groups_on_events_querying_enabled: boolean
 }
+
+// This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
+// scenes, so not worth the refactor to use the `isAuthenticatedTeam()` check
+export type TeamPublicType = Partial<TeamType> & Pick<TeamType, 'id' | 'uuid' | 'name' | 'timezone'>
 
 export interface ActionType {
     count?: number
@@ -558,6 +572,10 @@ export interface RRWebRecordingConsoleLogPayload {
     trace: string[]
 }
 
+export interface RRWebRecordingNetworkPayload {
+    [key: number]: any
+}
+
 export interface RecordingConsoleLogBase {
     parsedPayload: string
     hash?: string // md5() on parsedPayload. Used for deduping console logs.
@@ -601,6 +619,8 @@ export interface SessionRecordingMeta {
     segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
+    startTimestamp: Dayjs
+    endTimestamp: Dayjs
 }
 
 export interface SessionPlayerSnapshotData {
@@ -868,6 +888,12 @@ export interface EventsTableAction {
     id: string
 }
 
+export interface EventsTableRowItem {
+    event?: EventType
+    date_break?: string
+    new_events?: boolean
+}
+
 export interface EventType {
     // fields from the API
     id: string
@@ -878,24 +904,17 @@ export interface EventType {
     person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     elements: ElementType[]
     elements_chain?: string | null
-    /** Used in session recording events list */
-    colonTimestamp?: string
     uuid?: string
 }
 
 export interface RecordingTimeMixinType {
     playerTime: number | null
-    playerPosition: PlayerPosition | null
-    colonTimestamp?: string
-    capturedInWindow?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
-export interface RecordingEventType extends EventType, RecordingTimeMixinType {}
-
-export interface EventsTableRowItem {
-    event?: EventType
-    date_break?: string
-    new_events?: boolean
+export interface RecordingEventType
+    extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
+        RecordingTimeMixinType {
+    fullyLoaded: boolean
 }
 
 export interface SessionRecordingPlaylistType {
@@ -955,11 +974,6 @@ export interface SessionRecordingPropertiesType {
     properties?: Record<string, any>
 }
 
-export interface SessionRecordingEvents {
-    next?: string
-    events: RecordingEventType[]
-}
-
 export interface PerformancePageView {
     session_id: string
     pageview_id: string
@@ -972,7 +986,7 @@ export interface RecentPerformancePageView extends PerformancePageView {
 
 export interface PerformanceEvent {
     uuid: string
-    timestamp: string
+    timestamp: string | number
     distinct_id: string
     session_id: string
     window_id: string
@@ -1038,8 +1052,6 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export type BillingVersion = 'v1' | 'v2'
-
 export interface BillingV2FeatureType {
     key: string
     name: string
@@ -1051,33 +1063,76 @@ export interface BillingV2FeatureType {
 }
 
 export interface BillingV2TierType {
+    flat_amount_usd: string
     unit_amount_usd: string
-    current_amount_usd?: string | null
+    current_amount_usd: string | null
+    current_usage: number
+    projected_usage: number | null
+    projected_amount_usd: number | null
     up_to: number | null
 }
 
 export interface BillingProductV2Type {
-    type: 'events' | 'recordings' | 'enterprise' | 'base'
+    type: string
+    usage_key: string
     name: string
-    description?: string
-    price_description?: string
-    image_url?: string
+    description: string
+    price_description?: string | null
+    image_url?: string | null
+    docs_url: string | null
     free_allocation?: number
-    tiers?: BillingV2TierType[]
+    subscribed: boolean
+    tiers?: BillingV2TierType[] | null
     tiered: boolean
     current_usage?: number
+    projected_amount_usd?: string
     projected_usage?: number
     percentage_usage: number
-    current_amount_usd?: string
-    usage_limit?: number
+    current_amount_usd_before_addons: string | null
+    current_amount_usd: string | null
+    usage_limit: number | null
+    has_exceeded_limit: boolean
+    unit: string
     unit_amount_usd: string | null
+    plans: BillingV2PlanType[]
+    contact_support: boolean
+    inclusion_only: any
     feature_groups: {
+        // deprecated, remove after removing the billing plans table
         group: string
         name: string
         features: BillingV2FeatureType[]
     }[]
+    addons: BillingProductV2AddonType[]
+
+    // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
+    included_with_main_product?: boolean
 }
 
+export interface BillingProductV2AddonType {
+    name: string
+    description: string
+    price_description: string | null
+    image_url: string | null
+    docs_url: string | null
+    type: string
+    tiers: BillingV2TierType[] | null
+    tiered: boolean
+    subscribed: boolean
+    // sometimes addons are included with the base product, but they aren't subscribed individually
+    included_with_main_product?: boolean
+    contact_support?: boolean
+    unit: string | null
+    unit_amount_usd: string | null
+    current_amount_usd: string | null
+    current_usage: number
+    projected_usage: number | null
+    projected_amount_usd: string | null
+    plans: BillingV2PlanType[]
+    usage_key: string
+    free_allocation?: number
+    percentage_usage?: number
+}
 export interface BillingV2Type {
     customer_id: string
     has_active_subscription: boolean
@@ -1087,7 +1142,6 @@ export interface BillingV2Type {
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
-    products_enterprise?: BillingProductV2Type[]
 
     custom_limits_usd?: {
         [key: string]: string | null | undefined
@@ -1106,11 +1160,17 @@ export interface BillingV2Type {
 }
 
 export interface BillingV2PlanType {
+    free_allocation?: number
+    features: BillingV2FeatureType[]
     key: string
     name: string
     description: string
     is_free?: boolean
     products: BillingProductV2Type[]
+    plan_key?: string
+    current_plan?: any
+    tiers?: BillingV2TierType[]
+    included_if?: 'no_active_subscription' | 'has_subscription' | null
 }
 
 export interface PlanInterface {
@@ -1299,7 +1359,7 @@ export interface PluginType {
     organization_id: string
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
-    capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
+    capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[] | undefined>
     public_jobs?: Record<string, JobSpec>
 }
 
@@ -1470,7 +1530,12 @@ export interface Breakdown {
 
 export interface FilterType {
     // used by all
+    from_dashboard?: boolean | number
     insight?: InsightType
+    filter_test_accounts?: boolean
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    sampling_factor?: number | null
+
     date_from?: string | null
     date_to?: string | null
     /**
@@ -1479,13 +1544,9 @@ export interface FilterType {
      */
     explicit_date?: boolean | string | null
 
-    properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     new_entity?: Record<string, any>[]
-
-    filter_test_accounts?: boolean
-    from_dashboard?: boolean | number
 
     // persons modal
     entity_id?: string | number
@@ -1502,7 +1563,6 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
-    sampling_factor?: number | null
 }
 
 export interface PropertiesTimelineFilterType {
@@ -1533,7 +1593,6 @@ export interface TrendsFilterType extends FilterType {
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
-
     show_values_on_series?: boolean
 }
 export interface StickinessFilterType extends FilterType {
@@ -1543,7 +1602,6 @@ export interface StickinessFilterType extends FilterType {
     stickiness_days?: number
     shown_as?: ShownAsValue
     display?: ChartDisplayType
-
     show_values_on_series?: boolean
 }
 export interface FunnelsFilterType extends FilterType {
@@ -1610,7 +1668,6 @@ export type AnyFilterType =
     | PathsFilterType
     | RetentionFilterType
     | LifecycleFilterType
-    | PropertiesTimelineFilterType
     | FilterType
 
 export type AnyPartialFilterType =
@@ -1931,6 +1988,7 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
+    feature_preview?: string
 }
 
 export interface MultivariateFlagVariant {
@@ -1950,19 +2008,27 @@ export interface FeatureFlagFilters {
     payloads: Record<string, JsonType>
 }
 
-export interface FeatureFlagType {
-    id: number | null
+export interface FeatureFlagBasicType {
+    id: number
+    team_id: TeamType['id']
     key: string
-    name: string // Used as description
+    /* The description field (the name is a misnomer because of its legacy). */
+    name: string
     filters: FeatureFlagFilters
     deleted: boolean
     active: boolean
+    ensure_experience_continuity: boolean | null
+}
+
+export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'> {
+    /** Null means that the flag has never been saved yet (it's new). */
+    id: number | null
     created_by: UserBasicType | null
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
-    ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
+    features: EarlyAccsesFeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -1980,6 +2046,22 @@ export interface FeatureFlagRollbackConditions {
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
+}
+
+export interface EarlyAccsesFeatureType {
+    /** UUID */
+    id: string
+    feature_flag: FeatureFlagBasicType
+    name: string
+    description: string
+    stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
+    /** Documentation URL. Can be empty. */
+    documentation_url: string
+    created_at: string
+}
+
+export interface NewEarlyAccessFeatureType extends Omit<EarlyAccsesFeatureType, 'id' | 'created_at' | 'feature_flag'> {
+    feature_flag_id: number | undefined
 }
 
 export interface UserBlastRadiusType {
@@ -2089,7 +2171,8 @@ export type HotKey =
     | 'z'
     | 'escape'
     | 'enter'
-    | ' '
+    | 'space'
+    | 'tab'
     | 'arrowleft'
     | 'arrowright'
     | 'arrowdown'
@@ -2212,7 +2295,6 @@ interface BaseExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
-    secondary_metric_results?: SecondaryMetricAPIResult[]
     variants: ExperimentVariant[]
 }
 
@@ -2238,11 +2320,6 @@ export interface FunnelExperimentResults {
 }
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
-
-export interface SecondaryMetricAPIResult {
-    name: string
-    result: Record<string, number>
-}
 
 export interface SecondaryExperimentMetric {
     name: string
@@ -2308,7 +2385,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
-    current_team: TeamType | null
+    current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]
@@ -2342,6 +2419,7 @@ export enum HelpType {
     Email = 'email',
     Docs = 'docs',
     Updates = 'updates',
+    SupportForm = 'support_form',
 }
 
 export interface VersionType {

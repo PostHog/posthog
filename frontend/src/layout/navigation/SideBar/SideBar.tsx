@@ -20,6 +20,7 @@ import {
     IconPinOutline,
     IconPlus,
     IconRecording,
+    IconRocketLaunch,
     IconSettings,
     IconTools,
     IconUnverifiedEvent,
@@ -30,7 +31,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
 import { canViewPlugins } from '~/scenes/plugins/access'
 import { Scene } from '~/scenes/sceneTypes'
-import { teamLogic } from '~/scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import { AvailableFeature } from '~/types'
 import './SideBar.scss'
@@ -73,7 +74,7 @@ function Pages(): JSX.Element {
             <div className="SideBar__heading">Project</div>
             <PageButton
                 title={
-                    currentTeam?.name ? (
+                    isAuthenticatedTeam(currentTeam) ? (
                         <>
                             <span>
                                 <ProjectName team={currentTeam} />
@@ -168,6 +169,14 @@ function Pages(): JSX.Element {
                         to={urls.sessionRecordings()}
                     />
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
+                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
+                        <PageButton
+                            icon={<IconRocketLaunch />}
+                            identifier={Scene.EarlyAccessFeatures}
+                            title={'Early Access Management'}
+                            to={urls.earlyAccessFeatures()}
+                        />
+                    )}
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />

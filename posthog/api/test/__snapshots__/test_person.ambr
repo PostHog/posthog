@@ -32,11 +32,6 @@
   SELECT id
   FROM person
   WHERE team_id = 2
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 2
-         AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'some_prop'), '^"|"$', ''))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   and argMax(created_at, version) < now() + interval '1 day'

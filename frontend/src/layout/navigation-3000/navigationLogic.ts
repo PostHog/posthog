@@ -1,7 +1,10 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { BasicListItem, ExtendedListItem, SidebarNavbarItem } from './types'
 
 import type { navigation3000LogicType } from './navigationLogicType'
+import { NAVBAR_ITEM_ID_TO_ITEM } from './sidebars/navbarItems'
+import { Scene } from 'scenes/sceneTypes'
 
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
@@ -10,9 +13,10 @@ const MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE: number = 50
 
 export const navigation3000Logic = kea<navigation3000LogicType>([
     path(['layout', 'navigation-3000', 'navigationLogic']),
+    props({} as { inputElement?: HTMLInputElement | null }),
     actions({
         hideSidebar: true,
-        showSidebar: true,
+        showSidebar: (newNavbarItemId?: string) => ({ newNavbarItemId }),
         toggleSidebar: true,
         setSidebarWidth: (width: number) => ({ width }),
         setSidebarOverslide: (overslide: number) => ({ overslide }),
@@ -21,6 +25,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         beginResize: true,
         endResize: true,
         acknowledgeSidebarKeyboardShortcut: true,
+        setIsSearchShown: (isSearchShown: boolean) => ({ isSearchShown }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setLastFocusedItemIndex: (index: number) => ({ index }),
+        setLastFocusedItemByKey: (key: string | number) => ({ key }), // A wrapper over setLastFocusedItemIndex
+        focusNextItem: true,
+        focusPreviousItem: true,
     }),
     reducers({
         isSidebarShown: [
@@ -44,7 +54,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         sidebarOverslide: [
             // Overslide is how far beyond the min/max sidebar width the cursor has moved
             0,
-            { persist: true },
             {
                 setSidebarOverslide: (_, { overslide }) => overslide,
             },
@@ -63,6 +72,35 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
             {
                 acknowledgeSidebarKeyboardShortcut: () => true,
+            },
+        ],
+        activeNavbarItemId: [
+            Scene.Dashboards as string,
+            {
+                persist: true,
+            },
+            {
+                showSidebar: (state, { newNavbarItemId }) => newNavbarItemId || state,
+            },
+        ],
+        isSearchShown: [
+            false,
+            {
+                setIsSearchShown: (_, { isSearchShown }) => isSearchShown,
+            },
+        ],
+        internalSearchTerm: [
+            // Do not reference this outside of this file
+            // `searchTerm` is the outwards-facing value, as it's made empty when search is hidden
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        lastFocusedItemIndex: [
+            -1 as number,
+            {
+                setLastFocusedItemIndex: (_, { index }) => index,
             },
         ],
     }),
@@ -102,6 +140,24 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         toggleSidebar: () => {
             actions.endResize()
         },
+        focusNextItem: () => {
+            const nextIndex = values.lastFocusedItemIndex + 1
+            if (nextIndex < values.sidebarContentsFlattened.length) {
+                actions.setLastFocusedItemIndex(nextIndex)
+            }
+        },
+        focusPreviousItem: () => {
+            const nextIndex = values.lastFocusedItemIndex - 1
+            if (nextIndex >= -1) {
+                actions.setLastFocusedItemIndex(nextIndex)
+            }
+        },
+        setLastFocusedItemByKey: ({ key }) => {
+            const index = values.sidebarContentsFlattened.findIndex((item) => item.key === key)
+            if (index !== -1) {
+                actions.setLastFocusedItemIndex(index)
+            }
+        },
     })),
     selectors({
         sidebarOverslideDirection: [
@@ -116,8 +172,25 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 }
             },
         ],
+        activeNavbarItem: [
+            (s) => [s.activeNavbarItemId],
+            (activeNavbarItemId): SidebarNavbarItem => {
+                return NAVBAR_ITEM_ID_TO_ITEM[activeNavbarItemId] as SidebarNavbarItem
+            },
+        ],
+        searchTerm: [
+            (s) => [s.internalSearchTerm, s.isSearchShown],
+            (internalSearchTerm, isSearchShown): string => {
+                return isSearchShown ? internalSearchTerm : ''
+            },
+        ],
+        sidebarContentsFlattened: [
+            (s) => [(state) => s.activeNavbarItem(state).pointer.findMounted()?.selectors.contents(state)],
+            (sidebarContents): BasicListItem[] | ExtendedListItem[] =>
+                sidebarContents ? sidebarContents.flatMap((item) => ('items' in item ? item.items : item)) : [],
+        ],
     }),
-    subscriptions(({ cache, actions }) => ({
+    subscriptions(({ props, cache, actions, values }) => ({
         isResizeInProgress: (isResizeInProgress) => {
             if (isResizeInProgress) {
                 cache.onMouseMove = (e: MouseEvent): void => actions.syncSidebarWidthWithMouseMove(e.movementX)
@@ -134,13 +207,30 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 document.removeEventListener('mouseup', cache.onMouseUp)
             }
         },
+        sidebarContentsFlattened: () => {
+            actions.setLastFocusedItemIndex(-1) // Reset focused item index on contents change
+        },
+        lastFocusedItemIndex: (lastFocusedItemIndex) => {
+            if (lastFocusedItemIndex >= 0) {
+                const item = values.sidebarContentsFlattened[lastFocusedItemIndex]
+                item.ref?.current?.focus()
+            } else {
+                props.inputElement?.focus()
+            }
+        },
     })),
-    events(({ actions, cache }) => ({
+    events(({ props, actions, cache }) => ({
         afterMount: () => {
             cache.onResize = () => actions.syncSidebarWidthWithViewport()
             cache.onKeyDown = (e: KeyboardEvent) => {
                 if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
                     actions.toggleSidebar()
+                    e.preventDefault()
+                }
+                if (e.key === 'f' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+                    actions.setIsSearchShown(true)
+                    props.inputElement?.focus()
+                    e.preventDefault()
                 }
             }
             window.addEventListener('resize', cache.onResize)

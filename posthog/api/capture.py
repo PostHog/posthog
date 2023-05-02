@@ -31,7 +31,9 @@ from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
+from posthog.session_recordings.session_recording_helpers import (
+    preprocess_session_recording_events_for_clickhouse,
+)
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
@@ -69,6 +71,32 @@ TOKEN_SHAPE_INVALID_COUNTER = Counter(
     "Events dropped due to an invalid token shape, per reason.",
     labelnames=["reason"],
 )
+
+# This is a heuristic of ids we have seen used as anonymous. As they frequently
+# have significantly more traffic than non-anonymous distinct_ids, and likely
+# don't refer to the same underlying person we prefer to partition them randomly
+# to distribute the load.
+# This list mimics the array used in the plugin-server, and should be kept in-sync. See:
+# https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L22-L33
+LIKELY_ANONYMOUS_IDS = {
+    "0",
+    "anon",
+    "anon_id",
+    "anonymous",
+    "anonymous_id",
+    "distinct_id",
+    "distinctid",
+    "email",
+    "false",
+    "guest",
+    "id",
+    "nan",
+    "none",
+    "not_authenticated",
+    "null",
+    "true",
+    "undefined",
+}
 
 
 def build_kafka_event_data(
@@ -415,11 +443,15 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
     kafka_partition_key = None
 
     if event["event"] in ("$snapshot", "$performance_event"):
+        # We only need locality for snapshot events, not performance events, so
+        # we only set the partition key for snapshot events.
+        if event["event"] == "$snapshot":
+            kafka_partition_key = event["properties"]["$session_id"]
         return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
 
     candidate_partition_key = f"{token}:{distinct_id}"
 
-    if is_randomly_partitioned(candidate_partition_key) is False:
+    if distinct_id.lower() not in LIKELY_ANONYMOUS_IDS and is_randomly_partitioned(candidate_partition_key) is False:
         kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
@@ -451,11 +483,9 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
         Whether the given partition key should be used.
     """
     if settings.PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED:
-
         has_capacity = LIMITER.consume(candidate_partition_key)
 
         if has_capacity is False:
-
             if not LOG_RATE_LIMITER.consume(candidate_partition_key):
                 # Return early if we have logged this key already.
                 return True

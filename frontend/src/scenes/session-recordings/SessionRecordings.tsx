@@ -4,10 +4,10 @@ import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tabs } from 'antd'
-import { SessionRecordingsTabs } from '~/types'
+import { AvailableFeature, SessionRecordingsTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -18,12 +18,17 @@ import { SessionRecordingFilePlayback } from './file-playback/SessionRecordingFi
 import { createPlaylist } from './playlist/playlistUtils'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { tab } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
+    const { guardAvailableFeature } = useActions(sceneLogic)
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: SessionRecordingsTabs.Recent })
+    const { playlists } = useValues(playlistsLogic)
 
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({}, true)
@@ -50,7 +55,16 @@ export function SessionsRecordings(): JSX.Element {
                         {tab === SessionRecordingsTabs.Playlists && (
                             <LemonButton
                                 type="primary"
-                                onClick={newPlaylistHandler.onEvent}
+                                onClick={(e) =>
+                                    guardAvailableFeature(
+                                        AvailableFeature.RECORDINGS_PLAYLISTS,
+                                        'recording playlists',
+                                        "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
+                                        () => newPlaylistHandler.onEvent?.(e),
+                                        undefined,
+                                        playlists.count
+                                    )
+                                }
                                 data-attr="save-recordings-playlist-button"
                                 loading={newPlaylistHandler.loading}
                             >
@@ -72,7 +86,7 @@ export function SessionsRecordings(): JSX.Element {
             </Tabs>
             {recordingsDisabled ? (
                 <div className="mb-4">
-                    <AlertMessage
+                    <LemonBanner
                         type="info"
                         action={{
                             type: 'secondary',
@@ -82,7 +96,7 @@ export function SessionsRecordings(): JSX.Element {
                         }}
                     >
                         Session recordings are currently disabled for this project.
-                    </AlertMessage>
+                    </LemonBanner>
                 </div>
             ) : null}
             {!tab ? (

@@ -21,5 +21,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(remove_breakdowns, migrations.RunPython.noop),
+        migrations.RunPython(remove_breakdowns, migrations.RunPython.noop, elidable=True),
     ]

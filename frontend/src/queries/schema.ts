@@ -296,6 +296,8 @@ export interface InsightsQueryBase extends Node {
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     /** Groups aggregation */
     aggregation_group_type_index?: number
+    /** Sampling rate */
+    samplingFactor?: number | null
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
@@ -428,8 +430,18 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     response?: TimeToSeeDataSessionsQueryResponse
 }
 
+export interface DatabaseSchemaQueryResponseField {
+    key: string
+    type: string
+    table?: string
+    fields?: string[]
+    chain?: string[]
+}
+export type DatabaseSchemaQueryResponse = Record<string, DatabaseSchemaQueryResponseField[]>
+
 export interface DatabaseSchemaQuery extends DataNode {
     kind: NodeKind.DatabaseSchemaQuery
+    response?: DatabaseSchemaQueryResponse
 }
 
 export interface TimeToSeeDataQuery extends DataNode {

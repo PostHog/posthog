@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, Optional
 
 import pytest
 from django.db.utils import IntegrityError
@@ -7,7 +7,7 @@ from rest_framework import status
 
 from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition
-from posthog.models import EventProperty, Tag
+from posthog.models import EventProperty, Tag, ActivityLog
 from posthog.models.property_definition import PropertyDefinition
 from posthog.test.base import APIBaseTest
 
@@ -148,6 +148,30 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         property.refresh_from_db()
         self.assertEqual(set(property.tagged_items.values_list("tag__name", flat=True)), {"official", "internal"})
+
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        assert activity_log is not None
+        self.assertEqual(activity_log.scope, "PropertyDefinition")
+        self.assertEqual(activity_log.activity, "changed")
+        self.assertEqual(activity_log.detail["name"], "enterprise property")
+        self.assertEqual(activity_log.detail["type"], "event")
+        self.assertEqual(activity_log.user, self.user)
+        assert sorted(activity_log.detail["changes"], key=lambda x: x["field"]) == [
+            {
+                "action": "changed",
+                "after": "This is a description.",
+                "before": "",
+                "field": "description",
+                "type": "PropertyDefinition",
+            },
+            {
+                "action": "changed",
+                "after": ["official", "internal"],
+                "before": [],
+                "field": "tags",
+                "type": "PropertyDefinition",
+            },
+        ]
 
     def test_update_property_definition_property_type(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

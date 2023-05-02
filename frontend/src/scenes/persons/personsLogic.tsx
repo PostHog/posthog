@@ -2,7 +2,16 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
-import { Breadcrumb, CohortType, ExporterFormat, PersonListParams, PersonsTabType, PersonType } from '~/types'
+import {
+    PersonPropertyFilter,
+    Breadcrumb,
+    CohortType,
+    ExporterFormat,
+    PersonListParams,
+    PersonsTabType,
+    PersonType,
+    AnyPropertyFilter,
+} from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,6 +20,8 @@ import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PersonPaginatedResponse {
     next: string | null
@@ -22,26 +33,36 @@ export interface PersonLogicProps {
     cohort?: number | 'new'
     syncWithUrl?: boolean
     urlId?: string
+    fixedProperties?: PersonPropertyFilter[]
 }
 
 export const personsLogic = kea<personsLogicType>({
     props: {} as PersonLogicProps,
     key: (props) => {
-        if (!props.cohort && !props.syncWithUrl) {
-            throw new Error(`personsLogic must be initialized with props.cohort or props.syncWithUrl`)
+        if (!props.fixedProperties && !props.cohort && !props.syncWithUrl) {
+            throw new Error(
+                `personsLogic must be initialized with props.cohort or props.syncWithUrl or props.fixedProperties`
+            )
         }
+
+        if (props.fixedProperties) {
+            return JSON.stringify(props.fixedProperties)
+        }
+
         return props.cohort ? `cohort_${props.cohort}` : 'scene'
     },
     path: (key) => ['scenes', 'persons', 'personsLogic', key],
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
     },
     actions: {
         setPerson: (person: PersonType | null) => ({ person }),
+        setPersons: (persons: PersonType[]) => ({ persons }),
         loadPerson: (id: string) => ({ id }),
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: PersonListParams) => ({ payload }),
+        setHiddenListProperties: (payload: AnyPropertyFilter[]) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
@@ -49,12 +70,13 @@ export const personsLogic = kea<personsLogicType>({
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
     },
-    reducers: {
+    reducers: () => ({
         listFilters: [
             {} as PersonListParams,
             {
                 setListFilters: (state, { payload }) => {
                     const newFilters = { ...state, ...payload }
+
                     if (newFilters.properties?.length === 0) {
                         delete newFilters['properties']
                     }
@@ -64,6 +86,19 @@ export const personsLogic = kea<personsLogicType>({
                         )
                     }
                     return newFilters
+                },
+            },
+        ],
+        hiddenListProperties: [
+            [] as AnyPropertyFilter[],
+            {
+                setHiddenListProperties: (state, { payload }) => {
+                    let newProperties = [...state, ...payload]
+                    if (newProperties) {
+                        newProperties =
+                            convertPropertyGroupToProperties(newProperties.filter(isValidPropertyFilter)) || []
+                    }
+                    return newProperties
                 },
             },
         ],
@@ -84,6 +119,10 @@ export const personsLogic = kea<personsLogicType>({
                 ...state,
                 results: state.results.map((p) => (person && p.id === person.id ? person : p)),
             }),
+            setPersons: (state, { persons }) => ({
+                ...state,
+                results: [...persons, ...state.results],
+            }),
         },
         person: {
             loadPerson: () => null,
@@ -95,7 +134,7 @@ export const personsLogic = kea<personsLogicType>({
                 setDistinctId: (_, { distinctId }) => distinctId,
             },
         ],
-    },
+    }),
     selectors: () => ({
         apiDocsURL: [
             () => [(_, props) => props.cohort],
@@ -218,10 +257,15 @@ export const personsLogic = kea<personsLogicType>({
             {
                 loadPersons: async ({ url }) => {
                     if (!url) {
+                        const newFilters = { ...values.listFilters }
+                        newFilters.properties = [
+                            ...(values.listFilters.properties || []),
+                            ...values.hiddenListProperties,
+                        ]
                         if (props.cohort) {
-                            url = `api/cohort/${props.cohort}/persons/?${toParams(values.listFilters)}`
+                            url = `api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`
                         } else {
-                            return api.persons.list(values.listFilters)
+                            return api.persons.list(newFilters)
                         }
                     }
                     return await api.get(url)
@@ -281,7 +325,8 @@ export const personsLogic = kea<personsLogicType>({
     }),
     urlToAction: ({ actions, values, props }) => ({
         '/persons': ({}, searchParams) => {
-            if (props.syncWithUrl) {
+            const featureDataExploration = values.featureFlags[FEATURE_FLAGS.HOGQL]
+            if (props.syncWithUrl && !featureDataExploration) {
                 actions.setListFilters(searchParams)
                 if (!values.persons.results.length && !values.personsLoading) {
                     // Initial load
@@ -316,6 +361,11 @@ export const personsLogic = kea<personsLogicType>({
         afterMount: () => {
             if (props.cohort && typeof props.cohort === 'number') {
                 actions.setListFilters({ cohort: props.cohort })
+                actions.loadPersons()
+            }
+
+            if (props.fixedProperties) {
+                actions.setHiddenListProperties(props.fixedProperties)
                 actions.loadPersons()
             }
         },

@@ -2,7 +2,7 @@ import concurrent.futures
 from typing import cast
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 
@@ -1826,10 +1826,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides(self):
 
-        with connection.cursor() as cursor:
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
-            )
+        set_feature_flag_hash_key_overrides(
+            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1841,10 +1840,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_retrieving_hash_key_overrides(self):
 
-        with connection.cursor() as cursor:
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
-            )
+        set_feature_flag_hash_key_overrides(
+            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+        )
 
         hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["example_id"])
 
@@ -1860,13 +1858,8 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             team=self.team, distinct_ids=["2"], properties={"email": "beuk2@posthog.com", "team": "posthog"}
         )
 
-        with connection.cursor() as cursor:
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=["1"], hash_key_override="other_id1"
-            )
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=["2"], hash_key_override="aother_id2"
-            )
+        set_feature_flag_hash_key_overrides(team_id=self.team.pk, distinct_ids=["1"], hash_key_override="other_id1")
+        set_feature_flag_hash_key_overrides(team_id=self.team.pk, distinct_ids=["2"], hash_key_override="aother_id2")
 
         hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["1", "2"])
 
@@ -1888,10 +1881,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         )
 
         # and now we come to get new overrides
-        with connection.cursor() as cursor:
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
-            )
+        set_feature_flag_hash_key_overrides(
+            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1903,10 +1895,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides_when_persons_dont_exist(self):
 
-        with connection.cursor() as cursor:
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=["1", "2", "3", "4"], hash_key_override="other_id"
-            )
+        set_feature_flag_hash_key_overrides(
+            team_id=self.team.pk, distinct_ids=["1", "2", "3", "4"], hash_key_override="other_id"
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1948,7 +1939,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(payloads, {})
 
 
-class TestHashKeyOverridesRaceConditions(TransactionTestCase):
+class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest):
     def test_hash_key_overrides_with_race_conditions(self):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")
@@ -1997,7 +1988,8 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
                 for index in range(5)
             }
             for future in concurrent.futures.as_completed(future_to_index):
-                flags, reasons, payloads, _ = future.result()
+                flags, reasons, payloads, errors = future.result()
+                assert errors is False
                 assert flags == {
                     "beta-feature": True,
                     "multivariate-flag": "first-variant",
@@ -2005,6 +1997,231 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
                 }
 
                 # the failure mode is when this raises an `IntegrityError` because the hash key override was racy
+
+    def test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging(self):
+        def insert_fail(execute, sql, *args, **kwargs):
+            if "statement_timeout" in sql:
+                return execute(sql, *args, **kwargs)
+            if "insert" in sql.lower():
+                # run the sql so it shows up in snapshots
+                execute(sql, *args, **kwargs)
+
+                raise IntegrityError(
+                    """
+                    insert or update on table "posthog_featureflaghashkeyoverride" violates foreign key constraint "posthog_featureflagh_person_id_7e517f7c_fk_posthog_p"
+                    DETAIL:  Key (person_id)=(1487010281) is not present in table "posthog_person".
+                """
+                )
+            return execute(sql, *args, **kwargs)
+
+        org = Organization.objects.create(name="test")
+        user = User.objects.create_and_join(org, "a@b.com", "kkk")
+        team = Team.objects.create(organization=org)
+
+        FeatureFlag.objects.create(
+            team=team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+
+        Person.objects.create(
+            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+        Person.objects.create(
+            team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+
+        with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(insert_fail):
+            flags, reasons, payloads, errors = get_all_feature_flags(
+                team.pk, "other_id", {}, hash_key_override="example_id"
+            )
+            assert errors is False
+            # overrides failed since both insert failed :shrug:
+            assert flags == {
+                "beta-feature": False,
+                "multivariate-flag": "third-variant",
+                "default-flag": True,
+            }
+
+    def test_hash_key_overrides_with_simulated_race_conditions_on_person_merging(self):
+        class InsertFailOnce:
+            def __init__(self):
+                self.has_failed = False
+
+            def __call__(self, execute, sql, *args, **kwargs):
+                if "statement_timeout" in sql:
+                    return execute(sql, *args, **kwargs)
+                if "insert" in sql.lower() and not self.has_failed:
+                    self.has_failed = True
+                    # run the sql so it shows up in snapshots
+                    execute(sql, *args, **kwargs)
+                    # then raise an error
+                    raise IntegrityError(
+                        """
+                        insert or update on table "posthog_featureflaghashkeyoverride" violates foreign key constraint "posthog_featureflagh_person_id_7e517f7c_fk_posthog_p"
+                        DETAIL:  Key (person_id)=(1487010281) is not present in table "posthog_person".
+                    """
+                    )
+                return execute(sql, *args, **kwargs)
+
+        org = Organization.objects.create(name="test")
+        user = User.objects.create_and_join(org, "a@b.com", "kkk")
+        team = Team.objects.create(organization=org)
+
+        FeatureFlag.objects.create(
+            team=team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+
+        Person.objects.create(
+            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+        Person.objects.create(
+            team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+
+        with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(
+            InsertFailOnce()
+        ):
+            flags, reasons, payloads, errors = get_all_feature_flags(
+                team.pk, "other_id", {}, hash_key_override="example_id"
+            )
+            assert errors is False
+            # overrides succeeded on second try
+            assert flags == {
+                "beta-feature": True,
+                "multivariate-flag": "first-variant",
+                "default-flag": True,
+            }
+
+    def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self):
+        org = Organization.objects.create(name="test")
+        user = User.objects.create_and_join(org, "a@b.com", "kkk")
+        team = Team.objects.create(organization=org)
+
+        FeatureFlag.objects.create(
+            team=team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+
+        person1 = Person.objects.create(
+            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+        person2 = Person.objects.create(
+            team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+
+        def delete_and_add(person, person2, distinct_id):
+            FeatureFlagHashKeyOverride.objects.filter(person=person).delete()
+            Person.objects.filter(id=person.id).delete()
+            person2.add_distinct_id(distinct_id)
+            return True, "deleted and added", {}, False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_index = {
+                executor.submit(get_all_feature_flags, team.pk, "other_id", {}, hash_key_override="example_id"): index
+                for index in range(5)
+            }
+
+            future_to_index = {
+                executor.submit(delete_and_add, person1, person2, "example_id"): 10,
+                **future_to_index,
+            }
+            for future in concurrent.futures.as_completed(future_to_index):
+                flags, reasons, payloads, errors = future.result()
+                if flags is not True:  # type: ignore
+                    assert errors is False
+                    assert flags == {
+                        "beta-feature": True,
+                        "multivariate-flag": "first-variant",
+                        "default-flag": True,
+                    }
+
+                # the failure mode is when this raises an `IntegrityError` because the hash key override was racy
+                # or if the insert fails because person was deleted
 
 
 class TestFeatureFlagMatcherConsistency(BaseTest):

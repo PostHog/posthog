@@ -7,7 +7,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
 import { defaultEntityFilterOnFlag, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { FeatureFlagInstructions, FeatureFlagPayloadInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import {
@@ -38,14 +37,15 @@ import {
     Resource,
     FeatureFlagType,
     SessionRecordingsTabs,
+    FeatureFlagGroupType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { router } from 'kea-router'
@@ -74,15 +74,16 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import clsx from 'clsx'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-    paramsToProps: ({ params: { id } }): typeof featureFlagLogic['props'] => ({
+    paramsToProps: ({ params: { id } }): (typeof featureFlagLogic)['props'] => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
 }
@@ -172,13 +173,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         />
                         <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
-                            <AlertMessage type="warning">
+                            <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. It's recommended to only make changes to
                                 this flag{' '}
                                 <Link to={urls.experiment(featureFlag.experiment_set[0])}>
                                     using the experiment creation screen.
                                 </Link>
-                            </AlertMessage>
+                            </LemonBanner>
                         )}
                         <Row gutter={16} style={{ marginBottom: 32 }}>
                             <Col span={12} className="space-y-4">
@@ -289,23 +290,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     )}
                                 </Field>
                             </Col>
-                            {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                <Col span={12}>
-                                    <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                                </Col>
-                            )}
                         </Row>
                         <LemonDivider />
                         <FeatureFlagRollout />
                         <LemonDivider />
                         <FeatureFlagReleaseConditions />
-                        {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                            <>
-                                <LemonDivider />
-                                <FeatureFlagCodeExample featureFlag={featureFlag} />
-                                <LemonDivider />
-                            </>
-                        )}
+                        <LemonDivider />
+                        <FeatureFlagCodeExample featureFlag={featureFlag} />
+                        <LemonDivider />
                         {isNewFeatureFlag && (
                             <>
                                 <div>
@@ -316,8 +308,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
                                         <div>
-                                            <h3 className="l4">Advanced settings</h3>
-                                            <div className="text-muted mb-4 font-medium">
+                                            <h3 className="l4 mt-2">Advanced settings</h3>
+                                            <div className="text-muted mb-2 font-medium">
                                                 Define who can modify this flag.
                                             </div>
                                         </div>
@@ -489,7 +481,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
-                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS}>
+                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
                                                     <span>
                                                         <AddToNotebook
                                                             node={NotebookNodeType.FeatureFlag}
@@ -520,32 +512,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Col span={11} className="pl-4">
                                                 <RecentFeatureFlagInsights />
                                                 <div className="my-4" />
-                                                {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                                    <FeatureFlagInstructions
-                                                        featureFlagKey={featureFlag.key || 'my-flag'}
-                                                    />
-                                                )}
                                             </Col>
                                         </Row>
-                                        {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                            <>
-                                                <LemonDivider className="mb-4" />
-                                                <FeatureFlagCodeExample featureFlag={featureFlag} />
-                                            </>
-                                        )}
+                                        <LemonDivider className="mb-4" />
+                                        <FeatureFlagCodeExample featureFlag={featureFlag} />
                                     </Tabs.TabPane>
-                                    {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
-                                        <Tabs.TabPane
-                                            tab={
-                                                <div>
-                                                    Usage
-                                                    <LemonTag type="warning" className="uppercase ml-2">
-                                                        Beta
-                                                    </LemonTag>
-                                                </div>
-                                            }
-                                            key="usage"
-                                        >
+                                    {featureFlag.key && id && (
+                                        <Tabs.TabPane tab={<div>Usage</div>} key="usage">
                                             <UsageTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
@@ -670,7 +643,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature } = useValues(userLogic)
     const { upgradeLink } = useValues(billingLogic)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
         <>
@@ -694,9 +666,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                     <LemonDivider className="my-3" />
                     {featureFlag.filters.multivariate && (
                         <>
-                            <div className="mb-2">
-                                <b>Variant keys</b>
-                            </div>
+                            <h3 className="l3">Variant keys</h3>
                             <div className="border rounded p-4 mb-4">
                                 <Row gutter={16} className="font-semibold">
                                     <Col span={6}>Key</Col>
@@ -749,7 +719,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                 </>
             ) : (
                 <div className="mb-8">
-                    <h3 className="l4">Served value</h3>
+                    <h3 className="l3">Served value</h3>
                     <div className="mb-2">
                         <Popconfirm
                             placement="top"
@@ -829,7 +799,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
             )}
             {!multivariateEnabled && (
                 <div className="mb-6">
-                    <h3 className="l4">Payload</h3>
+                    <h3 className="l3">Payload</h3>
                     {readOnly ? (
                         featureFlag.filters.payloads?.['true'] ? (
                             <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
@@ -854,11 +824,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     </Field>
                                 </Group>
                             </Col>
-                            {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                <Col span={12}>
-                                    <FeatureFlagPayloadInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                                </Col>
-                            )}
                         </Row>
                     )}
                 </div>
@@ -1020,17 +985,123 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
             (property) => property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
         )
     }
+
+    const isFeaturePreviewCondition = (group: FeatureFlagGroupType): boolean => {
+        return !!(
+            featureFlag.features?.length &&
+            featureFlag.features?.length > 0 &&
+            group.properties.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
+        )
+    }
+
+    const renderReleaseCondition = (group: FeatureFlagGroupType, index: number): JSX.Element => {
+        if (isFeaturePreviewCondition(group)) {
+            return (
+                <Row justify="space-between" align="middle">
+                    <LemonTag type={'default'}>
+                        <div className="text-sm ">Connected to feature preview</div>
+                    </LemonTag>
+                    <LemonButtonWithDropdown
+                        aria-label="more"
+                        data-attr={'feature-flag-feature-list-button'}
+                        status="primary"
+                        dropdown={{
+                            placement: 'bottom-end',
+                            actionable: true,
+                            overlay: (
+                                <>
+                                    {featureFlag.features?.map((feature) => (
+                                        <LemonButton
+                                            key={feature.id}
+                                            onClick={() => router.actions.push(urls.earlyAccessFeature(feature.id))}
+                                        >
+                                            {feature.name}
+                                        </LemonButton>
+                                    ))}
+                                </>
+                            ),
+                        }}
+                        size="small"
+                        onClick={() => {}}
+                    >
+                        Manage
+                    </LemonButtonWithDropdown>
+                </Row>
+            )
+        }
+
+        if (readOnly) {
+            return (
+                <LemonTag
+                    type={
+                        featureFlag.filters.groups.length == 1
+                            ? group.rollout_percentage == null || group.rollout_percentage == 100
+                                ? 'highlight'
+                                : group.rollout_percentage == 0
+                                ? 'caution'
+                                : 'none'
+                            : 'none'
+                    }
+                >
+                    <div className="text-sm ">
+                        Rolled out to <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
+                        <b>{aggregationTargetName}</b> in this set.{' '}
+                    </div>
+                </LemonTag>
+            )
+        }
+
+        return (
+            <div className="feature-flag-form-row">
+                <div className="centered">
+                    Roll out to{' '}
+                    <InputNumber
+                        style={{ width: 100, marginLeft: 8, marginRight: 8 }}
+                        onChange={(value): void => {
+                            updateConditionSet(index, value as number)
+                        }}
+                        value={group.rollout_percentage != null ? group.rollout_percentage : 100}
+                        min={0}
+                        max={100}
+                        addonAfter="%"
+                    />{' '}
+                    of <b>{aggregationTargetName}</b> in this set.{' '}
+                    {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
+                        <>
+                            Will match approximately{' '}
+                            {affectedUsers[index] !== undefined ? (
+                                <b>
+                                    {`${
+                                        computeBlastRadiusPercentage(group.rollout_percentage, index).toPrecision(2) * 1
+                                        // Multiplying by 1 removes trailing zeros after the decimal
+                                        // point added by toPrecision
+                                    }% `}
+                                </b>
+                            ) : (
+                                <Spinner className="mr-1" />
+                            )}{' '}
+                            {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
+                                ? `(${humanFriendlyNumber(
+                                      Math.floor((affectedUsers[index] * (group.rollout_percentage ?? 100)) / 100)
+                                  )} / ${humanFriendlyNumber(totalUsers)})`
+                                : ''}{' '}
+                            of total {aggregationTargetName}.
+                        </>
+                    )}
+                </div>
+            </div>
+        )
+    }
+
     return (
         <>
             <div className="feature-flag-form-row">
                 <div data-attr="feature-flag-release-conditions">
                     {readOnly ? (
-                        <div className="mb-2">
-                            <b>Release conditions</b>
-                        </div>
+                        <h3 className="l3">Release conditions</h3>
                     ) : (
                         <>
-                            <h3 className="l4">Release conditions</h3>
+                            <h3 className="l3">Release conditions</h3>
                             <div className="text-muted mb-4">
                                 Specify the {aggregationTargetName} to which you want to release this flag. Note that
                                 condition sets are rolled out independently of each other.
@@ -1072,11 +1143,19 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                     </div>
                 )}
             </div>
-            <Row gutter={16}>
+            <Row className="FeatureConditionCard" gutter={16}>
                 {featureFlag.filters.groups.map((group, index) => (
                     <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
                         {index > 0 && <div className="condition-set-separator">OR</div>}
-                        <div className="mb-4 border rounded p-4">
+                        <div
+                            className={clsx(
+                                'mb-4',
+                                'border',
+                                'rounded',
+                                'p-4',
+                                isFeaturePreviewCondition(group) && 'FeatureConditionCard--border--highlight'
+                            )}
+                        >
                             <Row align="middle" justify="space-between">
                                 <Row align="middle">
                                     <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
@@ -1108,7 +1187,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                             noPadding
                                             onClick={() => duplicateConditionSet(index)}
                                         />
-                                        {featureFlag.filters.groups.length > 1 && (
+                                        {!isFeaturePreviewCondition(group) && featureFlag.filters.groups.length > 1 && (
                                             <LemonButton
                                                 icon={<IconDelete />}
                                                 status="muted"
@@ -1121,7 +1200,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             </Row>
                             <LemonDivider className="my-3" />
                             {!readOnly && hasNonInstantProperty(group.properties) && (
-                                <AlertMessage type="info" className="mt-3 mb-3">
+                                <LemonBanner type="info" className="mt-3 mb-3">
                                     These properties aren't immediately available on first page load for unidentified
                                     persons. This feature flag requires that at least one event is sent prior to
                                     becoming available to your product or website.{' '}
@@ -1132,7 +1211,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         {' '}
                                         Learn more about how to make feature flags available instantly.
                                     </a>
-                                </AlertMessage>
+                                </LemonBanner>
                             )}
 
                             {readOnly ? (
@@ -1198,7 +1277,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         propertyFilters={group?.properties}
                                         logicalRowDivider
                                         addButton={
-                                            <LemonButton icon={<IconPlusMini />} noPadding>
+                                            <LemonButton icon={<IconPlusMini />} sideIcon={null} noPadding>
                                                 Add condition
                                             </LemonButton>
                                         }
@@ -1230,71 +1309,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             {(!readOnly || (readOnly && group.properties?.length > 0)) && (
                                 <LemonDivider className="my-3" />
                             )}
-                            {readOnly ? (
-                                <LemonTag
-                                    type={
-                                        featureFlag.filters.groups.length == 1
-                                            ? group.rollout_percentage == null || group.rollout_percentage == 100
-                                                ? 'highlight'
-                                                : group.rollout_percentage == 0
-                                                ? 'caution'
-                                                : 'none'
-                                            : 'none'
-                                    }
-                                >
-                                    <div className="text-sm ">
-                                        Rolled out to{' '}
-                                        <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                        <b>{aggregationTargetName}</b> in this set.{' '}
-                                    </div>
-                                </LemonTag>
-                            ) : (
-                                <div className="feature-flag-form-row">
-                                    <div className="centered">
-                                        Roll out to{' '}
-                                        <InputNumber
-                                            style={{ width: 100, marginLeft: 8, marginRight: 8 }}
-                                            onChange={(value): void => {
-                                                updateConditionSet(index, value as number)
-                                            }}
-                                            value={group.rollout_percentage != null ? group.rollout_percentage : 100}
-                                            min={0}
-                                            max={100}
-                                            addonAfter="%"
-                                        />{' '}
-                                        of <b>{aggregationTargetName}</b> in this set.{' '}
-                                        {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
-                                            <>
-                                                Will match approximately{' '}
-                                                {affectedUsers[index] !== undefined ? (
-                                                    <b>
-                                                        {`${
-                                                            computeBlastRadiusPercentage(
-                                                                group.rollout_percentage,
-                                                                index
-                                                            ).toPrecision(2) * 1
-                                                            // Multiplying by 1 removes trailing zeros after the decimal
-                                                            // point added by toPrecision
-                                                        }% `}
-                                                    </b>
-                                                ) : (
-                                                    <Spinner className="mr-1" />
-                                                )}{' '}
-                                                {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
-                                                    ? `(${humanFriendlyNumber(
-                                                          Math.floor(
-                                                              (affectedUsers[index] *
-                                                                  (group.rollout_percentage ?? 100)) /
-                                                                  100
-                                                          )
-                                                      )} / ${humanFriendlyNumber(totalUsers)})`
-                                                    : ''}{' '}
-                                                of total {aggregationTargetName}.
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
+                            {renderReleaseCondition(group, index)}
                             {nonEmptyVariants.length > 0 && (
                                 <>
                                     <LemonDivider className="my-3" />

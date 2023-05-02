@@ -11,7 +11,7 @@ import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
@@ -140,6 +140,7 @@ interface PropertiesTableType extends BasePropertyType {
     properties: any
     sortProperties?: boolean
     searchable?: boolean
+    filterable?: boolean
     /** Whether this table should be style for being embedded. Default: true. */
     embedded?: boolean
     onDelete?: (key: string) => void
@@ -156,6 +157,7 @@ export function PropertiesTable({
     onEdit,
     sortProperties = false,
     searchable = false,
+    filterable = false,
     embedded = true,
     nestingLevel = 0,
     onDelete,
@@ -165,6 +167,7 @@ export function PropertiesTable({
     highlightedKeys,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
+    const [filtered, setFiltered] = useState(false)
 
     if (Array.isArray(properties)) {
         return (
@@ -282,6 +285,11 @@ export function PropertiesTable({
                         JSON.stringify(value).toLowerCase().includes(normalizedSearchTerm)
                 )
             }
+
+            if (filterable && filtered) {
+                entries = entries.filter(([key]) => !key.startsWith('$') && !keyMappingKeys.includes(key))
+            }
+
             if (sortProperties) {
                 entries.sort(([aKey], [bKey]) => {
                     if (highlightedKeys) {
@@ -301,23 +309,37 @@ export function PropertiesTable({
                 })
             }
             return entries
-        }, [properties, sortProperties, searchTerm])
+        }, [properties, sortProperties, searchTerm, filtered])
 
         return (
             <>
-                {searchable && (
-                    <div className="flex justify-between items-center gap-4 mb-4">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search for property keys and values"
-                            autoFocus
-                            value={searchTerm || ''}
-                            onChange={setSearchTerm}
-                        />
+                {(searchable || filterable) && (
+                    <div className="flex justify-between items-center gap-2 mb-2">
+                        <span className="flex justify-between gap-2">
+                            {searchable && (
+                                <LemonInput
+                                    type="search"
+                                    placeholder="Search for property keys and values"
+                                    autoFocus
+                                    value={searchTerm || ''}
+                                    onChange={setSearchTerm}
+                                />
+                            )}
+
+                            {filterable && (
+                                <LemonCheckbox
+                                    checked={filtered}
+                                    label="Hide PostHog properties"
+                                    bordered
+                                    onChange={setFiltered}
+                                />
+                            )}
+                        </span>
 
                         {onEdit && <NewPropertyComponent editProperty={onEdit} />}
                     </div>
                 )}
+
                 <LemonTable
                     columns={columns}
                     showHeader={!embedded}
@@ -326,7 +348,26 @@ export function PropertiesTable({
                     embedded={embedded}
                     dataSource={objectProperties}
                     className={className}
-                    emptyState="This person doesn't have any properties"
+                    emptyState={
+                        <>
+                            {filtered || searchTerm ? (
+                                <span className="flex gap-2">
+                                    <span>No properties found</span>
+                                    <LemonButton
+                                        noPadding
+                                        onClick={() => {
+                                            setSearchTerm('')
+                                            setFiltered(false)
+                                        }}
+                                    >
+                                        Clear filters
+                                    </LemonButton>
+                                </span>
+                            ) : (
+                                'No properties set yet'
+                            )}
+                        </>
+                    }
                     inset={nestingLevel > 0}
                     onRow={(record) =>
                         highlightedKeys?.includes(record[0])

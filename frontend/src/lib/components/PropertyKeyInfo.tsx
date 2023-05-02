@@ -464,9 +464,10 @@ export const keyMapping: KeyMappingInterface = {
             hide: true,
         },
         $time: {
-            label: 'Time',
-            description: 'Time as given by the client.',
+            label: 'Timestamp (seconds)',
+            description: 'Time as given by the client, seconds since epoch.',
             hide: true,
+            examples: ['1681211521.345'],
         },
         $device_id: {
             label: 'Device ID',
@@ -736,6 +737,15 @@ export function getKeyMapping(
                 label: `Feature: ${featureFlagKey}`,
                 description: `Value for the feature flag "${featureFlagKey}" when this event was sent.`,
                 examples: ['true', 'variant-1a'],
+            }
+        }
+    } else if (value.startsWith('$feature_enrollment/')) {
+        const featureFlagKey = value.replace(/^\$feature_enrollment\//, '')
+        if (featureFlagKey) {
+            return {
+                label: `Feature Enrollment: ${featureFlagKey}`,
+                description: `Whether the user has opted into the "${featureFlagKey}" beta program.`,
+                examples: ['true', 'false'],
             }
         }
     }

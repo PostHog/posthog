@@ -1,12 +1,14 @@
 import json
+import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
-from unittest.mock import patch
+from unittest.mock import patch, ANY
 from urllib.parse import parse_qsl, urlparse
 
 import pytz
 from django.conf import settings
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
@@ -40,6 +42,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_different_timezones,
     also_test_with_materialized_columns,
+    create_person_id_override_by_distinct_id,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
@@ -4929,7 +4932,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "key_2", "value": "value_2", "type": "person"}]}],
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        # try different versions
+        cohort1.calculate_people_ch(pending_version=1)
         cohort2.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
@@ -5115,25 +5119,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
 
-            self.assertEqual(
-                dict(parse_qsl(urlparse(response[0]["persons_urls"][7]["url"]).query)),
-                {
-                    "breakdown_attribution_type": "first_touch",
-                    "breakdown_normalize_url": "False",
-                    "date_from": f"2020-01-05T07:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
-                    "date_to": f"2020-01-05T08:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
-                    "display": "ActionsLineGraph",
-                    "entity_id": "sign up",
-                    "entity_math": "dau",
-                    "entity_type": "events",
-                    "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
-                    'up", "custom_name": null, "math": "dau", "math_property": null, '
-                    '"math_group_type_index": null, "properties": {}}]',
-                    "insight": "TRENDS",
-                    "interval": "hour",
-                    "smoothing_intervals": "1",
-                },
-            )
+            assert dict(parse_qsl(urlparse(response[0]["persons_urls"][7]["url"]).query)) == {
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": "False",
+                "date_from": f"2020-01-05T07:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
+                "date_to": f"2020-01-05T08:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
+                "display": "ActionsLineGraph",
+                "entity_id": "sign up",
+                "entity_math": "dau",
+                "entity_type": "events",
+                "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
+                'up", "custom_name": null, "math": "dau", "math_property": null, '
+                '"math_group_type_index": null, "properties": {}}]',
+                "insight": "TRENDS",
+                "interval": "hour",
+                "smoothing_intervals": "1",
+                "cache_invalidation_key": ANY,
+            }
             persons = self.client.get("/" + response[0]["persons_urls"][7]["url"]).json()
             self.assertEqual(persons["results"][0]["count"], 1)
 
@@ -5474,6 +5476,149 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         self.assertEqual(response[0]["data"], [1.0])
+
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @snapshot_clickhouse_queries
+    def test_same_day_with_person_on_events_v2(self):
+        person_id1 = str(uuid.uuid4())
+        person_id2 = str(uuid.uuid4())
+
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid1"], properties={})
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid2"], properties={})
+
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="distinctid1",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id1,
+        )
+
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="distinctid2",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id2,
+        )
+
+        create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk)
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [2.0])
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [1.0])
+
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @snapshot_clickhouse_queries
+    def test_same_day_with_person_on_events_v2_latest_override(self):
+        # In this test we check that we always prioritize the latest override (based on the `version`)
+        # To do so, we first create an override to a person 2 that did not perform the event we're building
+        # the insight on, which should lead us to have 2 DAUs. We then create an override to a person 3 that did
+        # have the event, which should lead us to have 1 DAU only, since persons 1 and 3 are now the same person.
+        # Lastly, we create an override back to person 2 and check that DAUs go back to 2.
+        person_id1 = str(uuid.uuid4())
+        person_id2 = str(uuid.uuid4())
+        person_id3 = str(uuid.uuid4())
+
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid1"], properties={})
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid2"], properties={})
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid3"], properties={})
+
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="distinctid1",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id1,
+        )
+
+        _create_event(
+            team=self.team,
+            event="some other event",
+            distinct_id="distinctid2",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id2,
+        )
+
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="distinctid3",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id3,
+        )
+
+        create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk, 0)
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [2.0])
+
+        create_person_id_override_by_distinct_id("distinctid1", "distinctid3", self.team.pk, 1)
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [1.0])
+
+        create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk, 2)
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [2.0])
 
     @also_test_with_materialized_columns(event_properties=["email", "name"], person_properties=["email", "name"])
     def test_ilike_regression_with_current_clickhouse_version(self):
@@ -5897,6 +6042,66 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "date_to": "2020-01-12T00:00:00Z",
                     "breakdown": "key",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
+                    "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+                }
+            ),
+            self.team,
+        )
+
+        self.assertEqual(len(response), 2)
+        self.assertEqual(response[0]["breakdown_value"], "oh")
+        self.assertEqual(response[0]["count"], 1)
+        self.assertEqual(response[1]["breakdown_value"], "uh")
+        self.assertEqual(response[1]["count"], 1)
+
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @snapshot_clickhouse_queries
+    def test_breakdown_with_filter_groups_person_on_events_v2(self):
+        self._create_groups()
+
+        id1 = str(uuid.uuid4())
+        id2 = str(uuid.uuid4())
+        _create_event(
+            event="sign up",
+            distinct_id="test_breakdown_d1",
+            team=self.team,
+            properties={"key": "oh", "$group_0": "org:7", "$group_1": "company:10"},
+            timestamp="2020-01-02T12:00:00Z",
+            person_id=id1,
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="test_breakdown_d1",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:01Z",
+            person_id=id1,
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="test_breakdown_d1",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:02Z",
+            person_id=id1,
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="test_breakdown_d2",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:02Z",
+            person_id=id2,
+        )
+
+        create_person_id_override_by_distinct_id("test_breakdown_d1", "test_breakdown_d2", self.team.pk)
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-01T00:00:00Z",
+                    "date_to": "2020-01-12T00:00:00Z",
+                    "breakdown": "key",
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0, "math": "dau"}],
                     "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
                 }
             ),

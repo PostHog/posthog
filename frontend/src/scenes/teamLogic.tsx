@@ -1,7 +1,7 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
-import { CorrelationConfigType, PropertyOperator, TeamType } from '~/types'
+import { CorrelationConfigType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
@@ -21,6 +21,11 @@ const parseUpdatedAttributeName = (attr: string | null): string => {
         return 'Authorized URLs'
     }
     return attr ? identifierToHuman(attr) : 'Project'
+}
+
+/** Return whether the provided value is a full TeamType object that's only available when authenticated. */
+export function isAuthenticatedTeam(team: TeamType | TeamPublicType | undefined | null): team is TeamType {
+    return !!team && 'api_token' in team
 }
 
 export interface FrequentMistakeAdvice {
@@ -51,7 +56,7 @@ export const teamLogic = kea<teamLogicType>([
     }),
     loaders(({ values, actions }) => ({
         currentTeam: [
-            null as TeamType | null,
+            null as TeamType | TeamPublicType | null,
             {
                 loadCurrentTeam: async () => {
                     if (!isUserLoggedIn()) {
@@ -147,7 +152,7 @@ export const teamLogic = kea<teamLogicType>([
                     PropertyOperator.IsSet,
                 ]
                 const positiveFilters = []
-                for (const filter of currentTeam.test_account_filters) {
+                for (const filter of currentTeam.test_account_filters || []) {
                     if (
                         'operator' in filter &&
                         !!filter.operator &&
@@ -180,7 +185,7 @@ export const teamLogic = kea<teamLogicType>([
                 }
                 const frequentMistakes: FrequentMistakeAdvice[] = []
 
-                for (const filter of currentTeam.test_account_filters) {
+                for (const filter of currentTeam.test_account_filters || []) {
                     if (filter.key === 'email' && filter.type === 'event') {
                         frequentMistakes.push({
                             key: 'email',

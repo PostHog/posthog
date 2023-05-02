@@ -23,7 +23,7 @@ WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && \
+RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
@@ -49,6 +49,7 @@ RUN apt-get update && \
     "g++" \
     "gcc" \
     "python3" \
+    "libssl-dev" \
     && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \

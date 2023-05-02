@@ -1,5 +1,6 @@
 import base64
 import json
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import connection
@@ -38,13 +39,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
         api_version=1,
         distinct_id="example_id",
         groups={},
+        geoip_disable=False,
         ip="127.0.0.1",
     ):
         return self.client.post(
             f"/decide/?v={api_version}",
             {
                 "data": self._dict_to_b64(
-                    data or {"token": self.team.api_token, "distinct_id": distinct_id, "groups": groups}
+                    data
+                    or {
+                        "token": self.team.api_token,
+                        "distinct_id": distinct_id,
+                        "groups": groups,
+                        "geoip_disable": geoip_disable,
+                    },
                 )
             },
             HTTP_ORIGIN=origin,
@@ -600,6 +608,59 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # different hash, overridden by distinct_id, same variant assigned
 
+    def test_feature_flags_v3_consistent_flags_with_numeric_distinct_ids(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        Person.objects.create(team=self.team, distinct_ids=[1], properties={"email": "tim@posthog.com"})
+        Person.objects.create(team=self.team, distinct_ids=[12345, "xyz"], properties={"email": "tim@posthog.com"})
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+
+        # caching flag definitions mean fewer queries
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=2)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+
+        with self.assertNumQueries(9):
+            response = self._post_decide(
+                api_version=2,
+                data={"token": self.team.api_token, "distinct_id": 12345, "$anon_distinct_id": "example_id"},
+            )
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+
+        with self.assertNumQueries(9):
+            response = self._post_decide(
+                api_version=2,
+                data={"token": self.team.api_token, "distinct_id": "xyz", "$anon_distinct_id": 12345},
+            )
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+
+        with self.assertNumQueries(9):
+            response = self._post_decide(
+                api_version=2,
+                data={"token": self.team.api_token, "distinct_id": 5, "$anon_distinct_id": 12345},
+            )
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+
     def test_feature_flags_v2_consistent_flags_with_ingestion_delays(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -995,7 +1056,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )  # different hash, different variant assigned
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-    def test_feature_flags_v3_with_database_errors(self):
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
+    def test_feature_flags_v3_with_database_errors(self, mock_counter):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
@@ -1080,6 +1142,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
             self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
             self.assertTrue(response.json()["errorsWhileComputingFlags"])
+
+            mock_counter.labels.assert_called_once_with(reason="timeout")
 
     def test_feature_flags_v3_with_database_errors_and_no_flags(self):
         self.team.app_urls = ["https://example.com"]
@@ -1414,6 +1478,71 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None})
         self.assertIn("Malformed request data:", detail)
 
+    def test_geoip_disable(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$geoip_country_name": "India"})
+
+        australia_ip = "13.106.122.3"
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Beta feature 1",
+            key="australia-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "Australia", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Beta feature 2",
+            key="india-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "India", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        with self.assertNumQueries(4):
+            geoip_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable=False)
+            geoip_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable=True)
+
+            # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
+            self.assertEqual(
+                geoip_not_disabled_res.json()["featureFlags"], {"australia-feature": True, "india-feature": False}
+            )
+            # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
+            self.assertEqual(
+                geoip_disabled_res.json()["featureFlags"], {"australia-feature": False, "india-feature": True}
+            )
+
+        # test for falsy/truthy values
+        geoip_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable="0")
+        geoip_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable="yes")
+
+        # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
+        self.assertEqual(
+            geoip_not_disabled_res.json()["featureFlags"], {"australia-feature": True, "india-feature": False}
+        )
+        # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
+        self.assertEqual(geoip_disabled_res.json()["featureFlags"], {"australia-feature": False, "india-feature": True})
+
     @snapshot_postgres_queries
     def test_decide_doesnt_error_out_when_database_is_down(self):
         ALL_TEAM_PARAMS_FOR_DECIDE = {
@@ -1448,3 +1577,67 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)
             self.assertEqual(response["featureFlags"], {})
+
+    def test_decide_with_json_and_numeric_distinct_ids(self):
+        self.client.logout()
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[
+                "a",
+                "{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'}",
+                "{'x': 'y'}",
+                '{"x": "z"}',
+            ],
+            properties={"email": "tim@posthog.com", "realm": "cloud"},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"rollout_percentage": 100}]},
+            name="This is a group-based flag",
+            key="random-flag",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
+            rollout_percentage=100,
+            name="Filter by property",
+            key="filer-by-property",
+            created_by=self.user,
+        )
+
+        self._post_decide(api_version=2, distinct_id="a")
+
+        # caching flag definitions mean fewer queries
+        with self.assertNumQueries(4):
+            response = self._post_decide(api_version=2, distinct_id=12345)
+            self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
+
+        with self.assertNumQueries(4):
+            response = self._post_decide(
+                api_version=2,
+                distinct_id={
+                    "id": 33040,
+                    "shopify_domain": "xxx.myshopify.com",
+                    "shopify_token": "shpat_xxxx",
+                    "created_at": "2023-04-17T08:55:34.624Z",
+                    "updated_at": "2023-04-21T08:43:34.479",
+                },
+            )
+            self.assertEqual(response.json()["featureFlags"], {"random-flag": True, "filer-by-property": True})
+
+        with self.assertNumQueries(4):
+            response = self._post_decide(
+                api_version=2,
+                distinct_id="{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'",
+            )
+            self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
+
+        with self.assertNumQueries(4):
+            response = self._post_decide(api_version=2, distinct_id={"x": "y"})
+            self.assertEqual(response.json()["featureFlags"], {"random-flag": True, "filer-by-property": True})
+
+        with self.assertNumQueries(4):
+            response = self._post_decide(api_version=2, distinct_id={"x": "z"})
+            self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
+            # need to pass in exact string to get the property flag

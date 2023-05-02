@@ -21,7 +21,6 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
-from posthog.models.team import Team
 from posthog.permissions import (
     PremiumFeaturePermission,
     ProjectMembershipNecessaryPermissions,
@@ -58,7 +57,15 @@ def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: i
 
 
 def _experiment_results_cached(experiment: Experiment, results_type: str, filter: Filter, calculate_func: Callable):
-    cache_key = generate_cache_key(f"experiment_{results_type}_{filter.toJSON()}_{experiment.team.pk}_{experiment.pk}")
+    cache_filter = filter.shallow_clone(
+        {
+            "date_from": experiment.start_date,
+            "date_to": experiment.end_date if experiment.end_date else None,
+        }
+    )
+    cache_key = generate_cache_key(
+        f"experiment_{results_type}_{cache_filter.toJSON()}_{experiment.team.pk}_{experiment.pk}"
+    )
 
     tag_queries(cache_key=cache_key)
 
@@ -138,7 +145,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team = Team.objects.get(id=self.context["team_id"])
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
@@ -172,7 +178,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
-        experiment = Experiment.objects.create(team=team, feature_flag=feature_flag, **validated_data)
+        experiment = Experiment.objects.create(
+            team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
+        )
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:

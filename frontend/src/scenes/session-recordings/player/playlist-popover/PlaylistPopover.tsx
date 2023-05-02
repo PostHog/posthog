@@ -9,14 +9,15 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Field } from 'lib/forms/Field'
 import { urls } from 'scenes/urls'
-import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const dataLogic = sessionRecordingDataLogic(props)
+export function PlaylistPopover(): JSX.Element {
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const dataLogic = sessionRecordingDataLogic(logicProps)
     const { sessionPlayerData } = useValues(dataLogic)
-    const logic = playlistPopoverLogic(props)
+    const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
         searchQuery,
@@ -42,7 +43,7 @@ export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.El
                                 <Form
                                     formKey="newPlaylist"
                                     logic={playlistPopoverLogic}
-                                    props={props}
+                                    props={{ sessionRecordingId }}
                                     enableFormOnSubmit
                                     className="space-y-1"
                                 >
@@ -100,7 +101,7 @@ export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.El
                                         >
                                             {playlist.name || playlist.derived_name}
 
-                                            {props.playlistShortId === playlist.short_id && (
+                                            {logicProps.playlistShortId === playlist.short_id && (
                                                 <span className="text-muted-alt italic text-sm ml-1">(current)</span>
                                             )}
                                         </LemonButton>
@@ -122,7 +123,6 @@ export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.El
                 }
             >
                 <LemonButton
-                    data-attr="export-button"
                     icon={<IconPlus />}
                     active={showPlaylistPopover}
                     onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}

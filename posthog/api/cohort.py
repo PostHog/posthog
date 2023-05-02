@@ -39,7 +39,6 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
-from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.paths import PathsActors
@@ -96,7 +95,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
-        Team.objects.get(pk=self.context["team_id"])
         validated_data["created_by"] = request.user
 
         if not validated_data.get("is_static"):
@@ -208,7 +206,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-        return queryset.prefetch_related("created_by").order_by("-created_at")
+        return queryset.prefetch_related("created_by", "team").order_by("-created_at")
 
     @action(
         methods=["GET"],
@@ -230,7 +228,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
         actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team.pk, actor_ids, distinct_id_limit=10 if is_csv_request else None)
+        actors, serialized_actors = get_people(team.pk, actor_ids, distinct_id_limit=10)
 
         _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None

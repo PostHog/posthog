@@ -13,11 +13,11 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-first-name]').type('Jane').should('have.value', 'Jane')
         cy.get('[data-attr=signup-organization-name]').type('Hogflix Movies').should('have.value', 'Hogflix Movies')
         cy.get('[data-attr=signup-role-at-organization]').click()
-        cy.get('.Popover button:first-child').click()
+        cy.get('.Popover li:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
-        cy.get('.AlertMessage').should('contain', 'There is already an account with this email address.')
+        cy.get('.LemonBanner').should('contain', 'There is already an account with this email address.')
     })
 
     it('Cannot signup without required attributes', () => {
@@ -45,7 +45,7 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-first-name]').type('Alice').should('have.value', 'Alice')
         cy.get('[data-attr=signup-organization-name]').type('Hogflix SpinOff').should('have.value', 'Hogflix SpinOff')
         cy.get('[data-attr=signup-role-at-organization]').click()
-        cy.get('.Popover button:first-child').click()
+        cy.get('.Popover li:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
@@ -64,7 +64,7 @@ describe('Signup', () => {
         cy.get('[name=first_name]').should('have.value', 'Test')
         cy.get('[name=organization_name]').type('Hogflix SpinOff').should('have.value', 'Hogflix SpinOff')
         cy.get('[data-attr=signup-role-at-organization]').click()
-        cy.get('.Popover button:first-child').click()
+        cy.get('.Popover li:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[type=submit]').click()
         // if there are other form issues, we'll get errors on the form, not this toast

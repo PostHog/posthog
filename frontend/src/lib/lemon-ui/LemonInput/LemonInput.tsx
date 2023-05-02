@@ -4,22 +4,23 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconClose, IconEyeHidden, IconEyeVisible, IconMagnifier } from 'lib/lemon-ui/icons'
 
-type LemonInputPropsBase = Pick<
-    // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
-    React.InputHTMLAttributes<HTMLInputElement>,
-    | 'className'
-    | 'onFocus'
-    | 'onBlur'
-    | 'autoFocus'
-    | 'maxLength'
-    | 'onKeyDown'
-    | 'onKeyUp'
-    | 'onKeyPress'
-    | 'autoComplete'
-    | 'autoCorrect'
-    | 'autoCapitalize'
-    | 'spellCheck'
-> & {
+interface LemonInputPropsBase
+    extends Pick<
+        // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
+        React.InputHTMLAttributes<HTMLInputElement>,
+        | 'className'
+        | 'onFocus'
+        | 'onBlur'
+        | 'autoFocus'
+        | 'maxLength'
+        | 'onKeyDown'
+        | 'onKeyUp'
+        | 'onKeyPress'
+        | 'autoComplete'
+        | 'autoCorrect'
+        | 'autoCapitalize'
+        | 'spellCheck'
+    > {
     ref?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
@@ -43,7 +44,7 @@ type LemonInputPropsBase = Pick<
     'aria-label'?: string
 }
 
-type LemonInputPropsText = LemonInputPropsBase & {
+export interface LemonInputPropsText extends LemonInputPropsBase {
     type?: 'text' | 'email' | 'search' | 'url' | 'password'
     value?: string
     defaultValue?: string
@@ -51,14 +52,15 @@ type LemonInputPropsText = LemonInputPropsBase & {
     onPressEnter?: (newValue: string) => void
 }
 
-type LemonInputPropsNumber = LemonInputPropsBase &
-    Pick<React.InputHTMLAttributes<HTMLInputElement>, 'step' | 'min' | 'max'> & {
-        type: 'number'
-        value?: number
-        defaultValue?: number
-        onChange?: (newValue: number | undefined) => void
-        onPressEnter?: (newValue: number | undefined) => void
-    }
+export interface LemonInputPropsNumber
+    extends LemonInputPropsBase,
+        Pick<React.InputHTMLAttributes<HTMLInputElement>, 'step' | 'min' | 'max'> {
+    type: 'number'
+    value?: number
+    defaultValue?: number
+    onChange?: (newValue: number | undefined) => void
+    onPressEnter?: (newValue: number | undefined) => void
+}
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 
