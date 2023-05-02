@@ -26,6 +26,18 @@ from posthog.test.base import (
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
+    def test_legacy_get_person_by_id(self) -> None:
+        person = _create_person(
+            team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"}, immediate=True
+        )
+        flush_persons_and_events()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/person/{person.pk}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], person.pk)
+
     def test_search(self) -> None:
         _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
         _create_person(
