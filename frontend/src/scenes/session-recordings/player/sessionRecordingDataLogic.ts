@@ -154,7 +154,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         loadRecordingBlobSnapshotsSuccess: () => {
             if (values.sessionPlayerSnapshotData?.blob_keys?.length) {
-                // then we need to load the snapshots from the blob, before calling loadRecordingSnapshotsSuccess again
                 actions.loadRecordingBlobSnapshots(null)
             } else {
                 actions.loadRecordingSnapshotsSuccess(values.sessionPlayerSnapshotData)
@@ -162,7 +161,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         loadRecordingSnapshotsSuccess: () => {
             if (values.sessionPlayerSnapshotData?.blob_keys?.length) {
-                // then we need to load the snapshots from the blob, before calling loadRecordingSnapshotsSuccess again
                 actions.loadRecordingBlobSnapshots(null)
                 return
             }
