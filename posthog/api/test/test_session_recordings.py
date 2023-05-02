@@ -10,7 +10,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
-from posthog.models import Organization, Person
+from posthog.models import Organization, Person, SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
 from posthog.session_recordings.test.test_factory import create_session_recording_events
@@ -401,16 +401,22 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response_data = response.json()
         assert response_data == {"snapshot_data_by_window_id": [], "next": None, "blob_keys": blob_objects}
 
+    @patch("posthog.api.session_recording.SessionRecording.get_or_build")
     @patch("posthog.api.session_recording.object_storage.get_presigned_url")
     @patch("posthog.api.session_recording.requests")
-    def test_can_get_session_recording_blob(self, _mock_requests, mock_presigned_url) -> None:
+    def test_can_get_session_recording_blob(
+        self, _mock_requests, mock_presigned_url, mock_get_session_recording
+    ) -> None:
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
-        blob_key = f"data/1682608337071"
+        blob_key = f"1682608337071"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshot_file/?blob_key={blob_key}"
 
+        # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
         def presigned_url_sideeffect(key: str, **kwargs):
-            if key == f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/{blob_key}":
+            if key == f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{blob_key}":
                 return f"https://test.com/"
             else:
                 return None
@@ -419,6 +425,24 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
+
+    @patch("posthog.api.session_recording.SessionRecording.get_or_build")
+    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
+    @patch("posthog.api.session_recording.requests")
+    def test_cannot_get_session_recording_blob_for_made_up_sessions(
+        self, _mock_requests, mock_presigned_url, mock_get_session_recording
+    ) -> None:
+        session_id = str(uuid.uuid4())
+        blob_key = f"1682608337071"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshot_file/?blob_key={blob_key}"
+
+        # by default a session recording is deleted, and _that_ is what we check for to see if it exists
+        # so, we have to explicitly mark the mock as deleted
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=True)
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert mock_presigned_url.call_count == 0
 
     @patch("posthog.api.session_recording.object_storage.get_presigned_url")
     def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:

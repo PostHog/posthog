@@ -140,13 +140,18 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["GET"], detail=True)
     def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:
+        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
         blob_key = request.GET.get("blob_key")
 
         if not blob_key:
             raise exceptions.ValidationError("Must provide a snapshot file blob key")
 
         # very short-lived pre-signed URL
-        file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{self.kwargs['pk']}/{blob_key}"
+        file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{self.kwargs['pk']}/data/{blob_key}"
         url = object_storage.get_presigned_url(file_key, expiration=60)
         if not url:
             raise exceptions.NotFound("Snapshot file not found")
@@ -173,7 +178,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 return Response(
                     {
                         "snapshot_data_by_window_id": [],
-                        "blob_keys": [x.replace(blob_prefix + "/", "") for x in blob_keys],
+                        "blob_keys": [x.replace(blob_prefix + "/data/", "") for x in blob_keys],
                         "next": None,
                     }
                 )
