@@ -43,12 +43,15 @@ FLAG_EVALUATION_ERROR_COUNTER = Counter(
 
 
 class FeatureFlagMatchReason(str, Enum):
+    SUPER_CONDITION_MATCHH = "super_condition_match"
     CONDITION_MATCH = "condition_match"
     NO_CONDITION_MATCH = "no_condition_match"
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
     NO_GROUP_TYPE = "no_group_type"
 
     def score(self):
+        if self == FeatureFlagMatchReason.SUPER_CONDITION_MATCHH:
+            return 4
         if self == FeatureFlagMatchReason.CONDITION_MATCH:
             return 3
         if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
@@ -129,6 +132,19 @@ class FeatureFlagMatcher:
 
         highest_priority_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
         highest_priority_index = 0
+
+        # Match for boolean super condition first
+        for index, condition in enumerate(feature_flag.super_conditions):
+            is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, index)
+            if is_match:
+                payload = self.get_matching_payload(is_match, None, feature_flag)
+                return FeatureFlagMatch(
+                    match=True,
+                    reason=FeatureFlagMatchReason.SUPER_CONDITION_MATCHH,
+                    condition_index=index,
+                    payload=payload,
+                )
+
         # Stable sort conditions with variant overrides to the top. This ensures that if overrides are present, they are
         # evaluated first, and the variant override is applied to the first matching condition.
         # :TRICKY: We need to include the enumeration index before the sort so the flag evaluation reason gets the right condition index.
