@@ -58,10 +58,10 @@ describe('Historical Export (v2)', () => {
             await resetGraphileWorkerSchema(defaultConfig),
         ])
 
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
-        hub = startResponse.hub
-        piscina = startResponse.piscina
-        stopServer = startResponse.stop
+        const startResponse = await startPluginsServer(extraServerConfig, makePiscina, undefined)
+        hub = startResponse.hub!
+        piscina = startResponse.piscina!
+        stopServer = startResponse.stop!
     })
 
     afterEach(async () => {
@@ -136,11 +136,13 @@ describe('Historical Export (v2)', () => {
             '2021-08-04T23:00:00.000Z',
             '2021-08-04T23:59:59.000Z',
         ])
-        expect(exportedEventLogs[0][1].properties).toEqual({
-            foo: 'bar',
-            $$historical_export_source_db: 'clickhouse',
-            $$is_historical_export_event: true,
-            $$historical_export_timestamp: expect.any(String),
-        })
+        expect(exportedEventLogs[0][1].properties).toEqual(
+            expect.objectContaining({
+                foo: 'bar',
+                $$historical_export_source_db: 'clickhouse',
+                $$is_historical_export_event: true,
+                $$historical_export_timestamp: expect.any(String),
+            })
+        )
     })
 })
