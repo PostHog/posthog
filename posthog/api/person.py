@@ -120,8 +120,8 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
 
     def get_name(self, person: Person) -> str:
-        raise Exception("get_name called")
-        return get_person_name(person)
+        team = self.context["get_team"]()
+        return get_person_name(team, person)
 
     def to_representation(self, instance: Person) -> Dict[str, Any]:
         representation = super().to_representation(instance)

@@ -122,7 +122,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
         recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
 
-        serializer = SessionRecordingSerializer(recording)
+        serializer = SessionRecordingSerializer(recording, context=self.get_serializer_context())
 
         return Response(serializer.data)
 
@@ -313,7 +313,7 @@ def list_recordings(
         recording.viewed = recording.session_id in viewed_session_recordings
         recording.person = distinct_id_to_person.get(recording.distinct_id)
 
-    session_recording_serializer = SessionRecordingSerializer(recordings, many=True, context=context)
+    session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
 
     return {"results": results, "has_next": more_recordings_available, "version": 2 if can_use_v2 else 1}
