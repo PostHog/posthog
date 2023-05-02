@@ -123,7 +123,7 @@ export function PlayerMeta(): JSX.Element {
                     {!sessionPerson ? (
                         <LemonSkeleton.Circle className="w-10 h-10" />
                     ) : (
-                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xl' : 'md'} />
+                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'md' : 'md'} />
                     )}
                 </div>
                 <div className="overflow-hidden ph-no-capture flex-1">

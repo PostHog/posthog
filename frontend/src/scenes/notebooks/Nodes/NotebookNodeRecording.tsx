@@ -1,11 +1,15 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import {
+    SessionRecordingPlayer,
+    SessionRecordingPlayerProps,
+} from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { urls } from 'scenes/urls'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const recordingLogicProps = {
+    const recordingLogicProps: SessionRecordingPlayerProps = {
         embedded: true,
         sessionRecordingId: props.node.attrs.sessionRecordingId,
         playerKey: `notebook-${props.node.attrs.sessionRecordingId}`,
@@ -16,6 +20,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             {...props}
             className={NotebookNodeType.Recording}
             title="Recording"
+            href={urls.sessionRecording(recordingLogicProps.sessionRecordingId)}
             // TODO: Fix "meta" preview
             // preview={<PlayerMeta {...recordingLogicProps} />}
         >
