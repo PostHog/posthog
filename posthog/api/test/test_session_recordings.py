@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import ANY, patch
 from urllib.parse import urlencode
@@ -398,6 +399,34 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         response_data = response.json()
         assert response_data == {"snapshot_data_by_window_id": [], "next": None, "blob_keys": blob_objects}
+
+    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
+    @patch("posthog.api.session_recording.requests")
+    def test_can_get_session_recording_blob(self, mock_presigned_url, _mock_requests) -> None:
+        session_id = str(uuid.uuid4())
+        """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
+        blob_key = f"data/1682608337071"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshot_file/?blob_key={blob_key}"
+
+        mock_presigned_url.side_effect = (
+            lambda blob_key: f"https://test.com/{blob_key}"
+            if blob_key == f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/{blob_key}a"
+            else None
+        )
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
+    def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
+        session_id = str(uuid.uuid4())
+        blob_key = f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/1682608337071"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshot_file/?blob_key={blob_key}"
+
+        mock_presigned_url.return_value = None
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_get_metadata_for_chunked_session_recording(self):
 

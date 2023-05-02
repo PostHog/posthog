@@ -140,12 +140,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["GET"], detail=True)
     def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:
-        file_key = request.GET.get("blob_key")
+        blob_key = request.GET.get("blob_key")
 
-        if not file_key:
+        if not blob_key:
             raise exceptions.ValidationError("Must provide a snapshot file blob key")
 
-        url = object_storage.get_presigned_url(file_key)
+        # very short-lived pre-signed URL
+        file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{self.kwargs['pk']}/{blob_key}"
+        url = object_storage.get_presigned_url(file_key, expiration=60)
         if not url:
             raise exceptions.NotFound("Snapshot file not found")
 
@@ -164,15 +166,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise exceptions.NotFound("Recording not found")
 
         if request.GET.get("blob_loading_enabled", "false") == "true":
-            blob_keys = object_storage.list_objects(
-                f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}"
-            )
+            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}"
+            blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
                 return Response(
                     {
                         "snapshot_data_by_window_id": [],
-                        "blob_keys": blob_keys,
+                        "blob_keys": [x.replace(blob_prefix + "/", "") for x in blob_keys],
                         "next": None,
                     }
                 )
