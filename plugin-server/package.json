@@ -47,7 +47,6 @@
         "@google-cloud/storage": "^5.8.5",
         "@maxmind/geoip2-node": "^3.4.0",
         "@posthog/clickhouse": "^1.7.0",
-        "@posthog/piscina": "^3.2.0-posthog",
         "@posthog/plugin-contrib": "^0.0.5",
         "@posthog/plugin-scaffold": "1.4.0",
         "@sentry/node": "^7.17.4",
