@@ -105,8 +105,8 @@
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = '$pageleave', 1, 0) as step_1,
@@ -121,7 +121,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['$pageleave', '$pageview']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -243,8 +243,8 @@
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = '$pageleave', 1, 0) as step_1,
@@ -259,7 +259,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['$pageleave', '$pageview']
                       AND toTimeZone(timestamp, 'Europe/Amsterdam') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
@@ -381,8 +381,8 @@
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e__pdi.person_id as aggregation_target,
-                           e__pdi.person_id as person_id ,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = '$pageleave', 1, 0) as step_1,
@@ -397,7 +397,7 @@
                        FROM person_distinct_id2
                        WHERE team_id = 2
                        GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS e__pdi ON e.distinct_id = e__pdi.distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['$pageleave', '$pageview']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
