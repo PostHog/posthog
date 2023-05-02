@@ -28,6 +28,16 @@ function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
     }
 }
 
+function hogQLToFilterValue(value?: string): { groupIndex?: number; aggregationQuery?: string } {
+    if (value?.match(/^\$group_$/)) {
+        return { groupIndex: parseInt(value.replace('$group_', '')) }
+    } else if (value === 'person_id') {
+        return {}
+    } else {
+        return { aggregationQuery: value }
+    }
+}
+
 export function AggregationSelectDataExploration({
     insightProps,
     className,
@@ -51,28 +61,14 @@ export function AggregationSelectDataExploration({
             hogqlAvailable={hogqlAvailable}
             value={value}
             onChange={(value) => {
-                if (hogqlAvailable) {
-                    if (isFunnelsQuery(querySource)) {
-                        if (value?.startsWith('$group_')) {
-                            const aggregation_group_type_index = parseInt(value.replace('$group_', ''))
-                            updateQuerySource({
-                                aggregation_group_type_index,
-                                funnelsFilter: { ...querySource.funnelsFilter, funnel_aggregate_by_hogql: undefined },
-                            } as FunnelsQuery)
-                        } else {
-                            updateQuerySource({
-                                aggregation_group_type_index: undefined,
-                                funnelsFilter: { ...querySource.funnelsFilter, funnel_aggregate_by_hogql: value },
-                            } as FunnelsQuery)
-                        }
-                    } else {
-                        throw new Error('hogqlAvailable is true but querySource is not a funnel query')
-                    }
-                } else if (value?.startsWith('$group_')) {
-                    const aggregation_group_type_index = parseInt(value.replace('$group_', ''))
-                    updateQuerySource({ aggregation_group_type_index })
+                const { aggregationQuery, groupIndex } = hogQLToFilterValue(value)
+                if (isFunnelsQuery(querySource)) {
+                    updateQuerySource({
+                        aggregation_group_type_index: groupIndex,
+                        funnelsFilter: { ...querySource.funnelsFilter, funnel_aggregate_by_hogql: aggregationQuery },
+                    } as FunnelsQuery)
                 } else {
-                    updateQuerySource({ aggregation_group_type_index: undefined })
+                    updateQuerySource({ aggregation_group_type_index: groupIndex } as FunnelsQuery)
                 }
             }}
         />
@@ -94,30 +90,18 @@ export function AggregationSelect({ insightProps, className, hogqlAvailable }: A
             value={value}
             hogqlAvailable={hogqlAvailable}
             onChange={(value) => {
-                if (hogqlAvailable) {
-                    if (isFunnelsFilter(filters)) {
-                        if (value?.startsWith('$group_')) {
-                            const aggregation_group_type_index = parseInt(value.replace('$group_', ''))
-                            setFilters({
-                                ...filters,
-                                aggregation_group_type_index,
-                                funnel_aggregate_by_hogql: undefined,
-                            })
-                        } else {
-                            setFilters({
-                                ...filters,
-                                aggregation_group_type_index: undefined,
-                                funnel_aggregate_by_hogql: value,
-                            })
-                        }
-                    } else {
-                        throw new Error('hogqlAvailable is true but querySource is not a funnel query')
-                    }
-                } else if (value?.startsWith('$group_')) {
-                    const aggregation_group_type_index = parseInt(value.replace('$group_', ''))
-                    setFilters({ ...filters, aggregation_group_type_index })
+                const { aggregationQuery, groupIndex } = hogQLToFilterValue(value)
+                if (isFunnelsFilter(filters)) {
+                    setFilters({
+                        ...filters,
+                        aggregation_group_type_index: groupIndex,
+                        funnel_aggregate_by_hogql: aggregationQuery,
+                    })
                 } else {
-                    setFilters({ ...filters, aggregation_group_type_index: undefined })
+                    setFilters({
+                        ...filters,
+                        aggregation_group_type_index: groupIndex,
+                    })
                 }
             }}
         />
