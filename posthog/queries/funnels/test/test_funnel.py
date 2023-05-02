@@ -57,6 +57,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         def _signup_event(self, **kwargs):
             event_factory(team=self.team, event="user signed up", **kwargs)
 
+        def _add_to_cart_event(self, **kwargs):
+            event_factory(team=self.team, event="added to cart", **kwargs)
+
+        def _checkout_event(self, **kwargs):
+            event_factory(team=self.team, event="checked out", **kwargs)
+
         def _pay_event(self, **kwargs):
             event_factory(
                 team=self.team,
@@ -109,7 +115,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 filters.update({"properties": properties})
 
             filters["insight"] = INSIGHT_FUNNELS
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             return Funnel(filter=filter, team=self.team)
 
         def test_funnel_default(self):
@@ -2422,6 +2428,41 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(result[1]["name"], "watched movie")
             self.assertEqual(result[1]["count"], 1)
+
+        def test_hogql_aggregation(self):
+            # events
+            person_factory(distinct_ids=["user"], team_id=self.team.pk)
+            self._signup_event(distinct_id="user", properties={"$session_id": "1"})
+            self._add_to_cart_event(distinct_id="user", properties={"$session_id": "1"})
+            self._checkout_event(distinct_id="user", properties={"$session_id": "1"})
+
+            self._signup_event(distinct_id="user", properties={"$session_id": "2"})
+            self._add_to_cart_event(distinct_id="user", properties={"$session_id": "2"})
+
+            basic_filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "added to cart", "type": "events", "order": 0},
+                    {"id": "checked out", "type": "events", "order": 0},
+                ],
+                "funnel_window_days": 14,
+            }
+
+            # without hogql aggregation
+            result = self._basic_funnel(filters=basic_filters).run()
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 1)
+
+            # properties.$session_id
+            result = self._basic_funnel(
+                filters={**basic_filters, "funnel_aggregate_by_hogql": "properties.$session_id"}
+            ).run()
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(result[1]["count"], 2)
+            self.assertEqual(result[2]["count"], 1)
 
     return TestGetFunnel
 
