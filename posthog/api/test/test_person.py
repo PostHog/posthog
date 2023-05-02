@@ -32,7 +32,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(6):
             response = self.client.get(f"/api/person/{person.pk}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
