@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingFilters, SessionRecordingType } from '~/types'
 import {
@@ -16,6 +16,7 @@ import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { SessionRecordingsPlaylistFilters } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistFilters'
 import { PLAYLIST_PREVIEW_RECORDINGS_LIMIT } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 export function RecordingsLists({
     playlistShortId,
@@ -178,7 +179,11 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
     const logic = sessionRecordingsListLogic(logicProps)
     const { activeSessionRecording, nextSessionRecording, filters, showFilters } = useValues(logic)
     const { setFilters } = useActions(logic)
-    const playlistRef = useRef<HTMLDivElement>(null)
+
+    const { ref: playlistRef, size } = useResizeBreakpoints({
+        0: 'small',
+        750: 'medium',
+    })
 
     useEffect(() => {
         if (filters !== defaultFilters) {
@@ -198,7 +203,13 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
     return (
         <>
             {!embedded && <SessionRecordingsPlaylistFilters {...props} />}
-            <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
+            <div
+                ref={playlistRef}
+                data-attr="session-recordings-playlist"
+                className={clsx('SessionRecordingsPlaylist', {
+                    'SessionRecordingsPlaylist--wide': size !== 'small',
+                })}
+            >
                 <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4', embedded && '-mr-4')}>
                     {lists}
                 </div>

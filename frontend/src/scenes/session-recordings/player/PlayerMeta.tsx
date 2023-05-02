@@ -10,11 +10,8 @@ import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -156,45 +153,8 @@ export function PlayerMeta(): JSX.Element {
                     </div>
                 </div>
 
-                {/* {!logicProps.embedded && (
-                    <>
-                        <LemonButton
-                            className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
-                            status="stealth"
-                            active={isMetadataExpanded}
-                            onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
-                            tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
-                            tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
-                            size="small"
-                        >
-                            {isMetadataExpanded ? (
-                                <IconUnfoldLess className="text-lg text-muted-alt" />
-                            ) : (
-                                <IconUnfoldMore className="text-lg text-muted-alt" />
-                            )}
-                        </LemonButton>
-                    </>
-                )} */}
-
                 {sessionRecordingId ? <PlayerMetaLinks /> : null}
             </div>
-            {/* {sessionPerson && (
-                <CSSTransition
-                    in={isMetadataExpanded}
-                    timeout={200}
-                    classNames="PlayerMetaPersonProperties-"
-                    mountOnEnter
-                    unmountOnExit
-                >
-                    <div className="PlayerMetaPersonProperties">
-                        {Object.keys(sessionPerson.properties).length ? (
-                            <PropertiesTable properties={sessionPerson.properties} searchable filterable />
-                        ) : (
-                            <p className="text-center m-4">There are no properties.</p>
-                        )}
-                    </div>
-                </CSSTransition>
-            )} */}
             <div
                 className={clsx(
                     'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',

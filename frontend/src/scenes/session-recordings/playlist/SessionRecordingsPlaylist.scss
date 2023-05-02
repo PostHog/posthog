@@ -8,26 +8,11 @@
     gap: 1rem;
     overflow: hidden;
 
-    @include screen($md) {
-        flex-direction: row;
-        justify-content: flex-start;
-        height: calc(100vh - 3.5rem);
-        padding-bottom: 1rem;
-    }
-
     .SessionRecordingsPlaylist__left-column {
         flex-shrink: 0;
         width: 100%;
         display: flex;
         flex-direction: column;
-
-        @include screen($md) {
-            max-width: 350px;
-            min-width: 300px;
-            width: 25%;
-            overflow: hidden;
-            height: 100%;
-        }
 
         .SessionRecordingsPlaylist__lists {
             display: flex;
@@ -53,16 +38,35 @@
         }
     }
     .SessionRecordingsPlaylist__right-column {
-        flex: 1;
         overflow: hidden;
         width: 100%;
-        height: 100%;
+        height: 30rem;
 
         .SessionRecordingsPlaylist__loading {
             display: flex;
             align-items: center;
             justify-content: center;
             margin-top: 10rem;
+        }
+    }
+
+    &--wide {
+        flex-direction: row;
+        justify-content: flex-start;
+        height: calc(100vh - 3.5rem);
+        padding-bottom: 1rem;
+
+        .SessionRecordingsPlaylist__left-column {
+            max-width: 350px;
+            min-width: 300px;
+            width: 25%;
+            overflow: hidden;
+            height: 100%;
+        }
+
+        .SessionRecordingsPlaylist__right-column {
+            flex: 1;
+            height: 100%;
         }
     }
 }
