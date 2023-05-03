@@ -28,8 +28,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     session_id VARCHAR,
     team_id Int64,
     distinct_id VARCHAR,
-    first_timestamp AggregateFunction(min, DateTime64(6, 'UTC')),
-    last_timestamp AggregateFunction(max, DateTime64(6, 'UTC')),
+    first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+    last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
     first_url Nullable(VARCHAR),
     click_count SimpleAggregateFunction(sum, Int64),
     keypress_count SimpleAggregateFunction(sum, Int64),
@@ -44,7 +44,9 @@ SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE = lambda: AggregatingMergeTree(
 
 SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: (
     SESSION_REPLAY_EVENTS_TABLE_BASE_SQL
-    + """ORDER BY (team_id, session_id)
+    + """
+    PARTITION BY toYYYYMM(first_timestamp)
+    ORDER BY (team_id, toDate(first_timestamp), session_id, first_timestamp)
 SETTINGS index_granularity=512
 """
 ).format(
@@ -66,8 +68,8 @@ AS SELECT
 session_id,
 team_id,
 any(distinct_id) as distinct_id,
-minState(first_timestamp) AS first_timestamp,
-maxState(last_timestamp) AS last_timestamp,
+min(first_timestamp) AS first_timestamp,
+max(last_timestamp) AS last_timestamp,
 any(first_url) AS first_url,
 sum(click_count) as click_count,
 sum(keypress_count) as keypress_count,
@@ -107,9 +109,9 @@ select
    session_id,
    any(team_id),
    any(distinct_id),
-   minMerge(first_timestamp),
-   maxMerge(last_timestamp),
-   dateDiff('SECOND', minMerge(first_timestamp), maxMerge(last_timestamp)) as duration,
+   min(first_timestamp),
+   max(last_timestamp),
+   dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
    sum(click_count),
    sum(keypress_count),
    sum(mouse_activity_count)
