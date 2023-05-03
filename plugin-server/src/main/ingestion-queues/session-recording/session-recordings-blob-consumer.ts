@@ -196,7 +196,7 @@ export class SessionRecordingBlobIngester {
 
         this.offsetManager = new OffsetManager(this.batchConsumer.consumer)
 
-        this.batchConsumer.consumer.on('rebalance', async (err, assignments) => {
+        this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
@@ -210,44 +210,53 @@ export class SessionRecordingBlobIngester {
              */
             status.info('🏘️', 'Blob ingestion consumer rebalanced')
             if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-                const partitions = assignments.map((assignment) => assignment.partition)
+                /**
+                 * The assign_partitions indicates that the consumer group has new assignments. We don't need to do anything but it is useful to log for debugging.
+                 */
+                const partitions = topicPartitions.map((x) => x.partition)
 
+                if (!partitions.length) {
+                    return
+                }
+
+                status.info('⚖️', 'Blob ingestion consumer was assigned partitions', {
+                    assignedPartitions: partitions,
+                })
+                return
+            }
+
+            if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+                /**
+                 * The revoke_partitions indicates that the consumer group has new assignments. We don't need to do anything but it is useful to log for debugging.
+                 * As a result, we need to drop all sessions currently managed for the revoked partitions
+                 */
+
+                const partitions = topicPartitions.map((x) => x.partition)
                 const currentPartitions = [...this.sessions.values()].map((session) => session.partition)
 
                 const sessions = [...this.sessions.values()].filter(
                     (session) => !partitions.includes(session.partition)
                 )
 
-                status.info('⚖️', 'Blob ingestion consumer assignments change', {
-                    assignedPartitions: partitions,
-                    currentPartitions: currentPartitions,
-                    droppedSessions: sessions.map((s) => s.sessionId),
-                })
+                if (!partitions.length) {
+                    return
+                }
 
                 this.offsetManager?.cleanPartitions(KAFKA_SESSION_RECORDING_EVENTS, partitions)
 
                 await Promise.all(sessions.map((session) => session.destroy()))
-            } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                /**
-                 * The revoke_partitions event occurs when the Kafka Consumer is part of a consumer group and the group rebalances.
-                 * As a result, some partitions previously assigned to a consumer might be taken away (revoked) and reassigned to another consumer.
-                 * After the revoke_partitions event is handled, the consumer will receive an assign_partitions event,
-                 * which will inform the consumer of the new set of partitions it is responsible for processing.
-                 *
-                 * Depending on why the rebalancing is occurring and the partition.assignment.strategy,
-                 * A partition revoked here, may be assigned back to the same consumer.
-                 *
-                 * This is where we could act to reduce raciness/duplication when partitions are reassigned to different consumers
-                 * e.g. stop the `flushInterval` and wait for the `assign_partitions` event to start it again.
-                 */
-                status.info('⚖️', 'Blob ingestion consumer has had assignments revoked', {
-                    assignments,
+
+                status.info('⚖️', 'Blob ingestion consumer has partitions revoked', {
+                    currentPartitions: currentPartitions,
+                    revokedPartitions: partitions,
+                    droppedSessions: sessions.map((s) => s.sessionId),
                 })
-            } else {
-                // We had a "real" error
-                status.error('🔥', 'Blob ingestion consumer rebalancing error', { err })
-                // TODO: immediately die? or just keep going?
+                return
             }
+
+            // We had a "real" error
+            status.error('🔥', 'Blob ingestion consumer rebalancing error', { err })
+            // TODO: immediately die? or just keep going?
         })
 
         // Make sure to disconnect the producer after we've finished consuming.
