@@ -13,6 +13,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import request, serializers, status, viewsets
+from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.parsers import JSONParser
@@ -558,6 +559,11 @@ class InsightViewSet(
         ):
             return InsightBasicSerializer
         return super().get_serializer_class()
+
+    def get_authenticators(self) -> List[BaseAuthentication]:
+        authenticators = super().get_authenticators()
+        authenticators.append(SharingAccessTokenAuthentication())
+        return authenticators
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
