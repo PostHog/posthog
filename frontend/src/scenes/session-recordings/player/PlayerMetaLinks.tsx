@@ -79,21 +79,28 @@ export function PlayerMetaLinks(): JSX.Element {
     // )
 
     return (
-        <div className="flex flex-row gap-1 items-center">
+        <div className="flex flex-row gap-1 items-center flex-1 justify-end">
             <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" {...commonProps}>
                 {showText ? 'Share' : null}
             </LemonButton>
 
-            <PlaylistPopoverButton {...commonProps}>{showText ? 'Pin to list' : null}</PlaylistPopoverButton>
+            <PlaylistPopoverButton tooltip="Pin to list" {...commonProps}>
+                {showText ? 'Pin to list' : null}
+            </PlaylistPopoverButton>
 
             {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                <AddToNotebook node={NotebookNodeType.Recording} properties={{ sessionRecordingId }} {...commonProps}>
+                <AddToNotebook
+                    tooltip="Add to Notebook"
+                    node={NotebookNodeType.Recording}
+                    properties={{ sessionRecordingId }}
+                    {...commonProps}
+                >
                     {showText ? 'Add to Notebook' : null}
                 </AddToNotebook>
             )}
 
             {logicProps.playerKey !== 'modal' && (
-                <LemonButton status="danger" icon={<IconDelete />} onClick={onDelete} {...commonProps}>
+                <LemonButton tooltip="Delete" status="danger" icon={<IconDelete />} onClick={onDelete} {...commonProps}>
                     {showText ? 'Delete' : null}
                 </LemonButton>
             )}
