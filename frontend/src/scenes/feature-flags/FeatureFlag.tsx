@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Row, Col, Radio, InputNumber, Popconfirm, Select, Tabs, Skeleton, Card } from 'antd'
+import { Row, Col, Radio, Popconfirm, Select, Tabs, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
-import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
 import { defaultEntityFilterOnFlag, featureFlagLogic } from './featureFlagLogic'
@@ -40,14 +40,14 @@ import {
     FeatureFlagGroupType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
@@ -968,9 +968,6 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
         taxonomicGroupTypes,
         nonEmptyVariants,
         propertySelectErrors,
-        computeBlastRadiusPercentage,
-        affectedUsers,
-        totalUsers,
     } = useValues(featureFlagLogic)
     const {
         setAggregationGroupTypeIndex,
@@ -980,7 +977,6 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
         addConditionSet,
     } = useActions(featureFlagLogic)
     const { cohortsById } = useValues(cohortsModel)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     const _filter_groups: FeatureFlagGroupType[] = isSuper
         ? featureFlag.filters.super_groups || []
@@ -1001,118 +997,11 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
         )
     }
 
-    const renderReleaseConditionFooter = (group: FeatureFlagGroupType, index: number): JSX.Element => {
-        if (isEarlyAccessFeatureCondition(group)) {
-            return (
-                <Row justify="space-between" align="middle">
-                    <LemonTag type={'default'}>
-                        <div className="text-sm ">Connected to feature preview</div>
-                    </LemonTag>
-                    <LemonButtonWithDropdown
-                        aria-label="more"
-                        data-attr={'feature-flag-feature-list-button'}
-                        status="primary"
-                        dropdown={{
-                            placement: 'bottom-end',
-                            actionable: true,
-                            overlay: (
-                                <>
-                                    {featureFlag.features?.map((feature) => (
-                                        <LemonButton
-                                            key={feature.id}
-                                            onClick={() => router.actions.push(urls.earlyAccessFeature(feature.id))}
-                                        >
-                                            {feature.name}
-                                        </LemonButton>
-                                    ))}
-                                </>
-                            ),
-                        }}
-                        size="small"
-                        onClick={() => {}}
-                    >
-                        Manage
-                    </LemonButtonWithDropdown>
-                </Row>
-            )
-        }
-
-        if (readOnly) {
-            return (
-                <LemonTag
-                    type={
-                        _filter_groups.length == 1
-                            ? group.rollout_percentage == null || group.rollout_percentage == 100
-                                ? 'highlight'
-                                : group.rollout_percentage == 0
-                                ? 'caution'
-                                : 'none'
-                            : 'none'
-                    }
-                >
-                    <div className="text-sm ">
-                        Rolled out to <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                        <b>{aggregationTargetName}</b> in this set.{' '}
-                    </div>
-                </LemonTag>
-            )
-        }
-
-        return (
-            <div className="feature-flag-form-row">
-                <div className="centered">
-                    Roll out to{' '}
-                    <InputNumber
-                        style={{ width: 100, marginLeft: 8, marginRight: 8 }}
-                        onChange={(value): void => {
-                            updateConditionSet(index, value as number)
-                        }}
-                        value={group.rollout_percentage != null ? group.rollout_percentage : 100}
-                        min={0}
-                        max={100}
-                        addonAfter="%"
-                    />{' '}
-                    of <b>{aggregationTargetName}</b> in this set.{' '}
-                    {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
-                        <>
-                            Will match approximately{' '}
-                            {affectedUsers[index] !== undefined ? (
-                                <b>
-                                    {`${
-                                        computeBlastRadiusPercentage(group.rollout_percentage, index).toPrecision(2) * 1
-                                        // Multiplying by 1 removes trailing zeros after the decimal
-                                        // point added by toPrecision
-                                    }% `}
-                                </b>
-                            ) : (
-                                <Spinner className="mr-1" />
-                            )}{' '}
-                            {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
-                                ? `(${humanFriendlyNumber(
-                                      Math.floor((affectedUsers[index] * (group.rollout_percentage ?? 100)) / 100)
-                                  )} / ${humanFriendlyNumber(totalUsers)})`
-                                : ''}{' '}
-                            of total {aggregationTargetName}.
-                        </>
-                    )}
-                </div>
-            </div>
-        )
-    }
-
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
             <Col span={24} md={24} key={`${index}-${_filter_groups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div
-                    className={clsx(
-                        'mb-4',
-                        'border',
-                        'rounded',
-                        'p-4',
-                        isEarlyAccessFeatureCondition(group) && 'FeatureConditionCard--border--highlight'
-                    )}
-                >
+                <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
                     <Row align="middle" justify="space-between">
                         <Row align="middle">
                             <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
@@ -1257,7 +1146,6 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
                         </div>
                     )}
                     {(!readOnly || (readOnly && group.properties?.length > 0)) && <LemonDivider className="my-3" />}
-                    {renderReleaseConditionFooter(group, index)}
                     {nonEmptyVariants.length > 0 && (
                         <>
                             <LemonDivider className="my-3" />
@@ -1301,21 +1189,13 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
 
     const renderSuperReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         if (!readOnly) {
-            return
+            return <></>
         }
 
         return (
             <Col span={24} md={24} key={`${index}-${_filter_groups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div
-                    className={clsx(
-                        'mb-4',
-                        'border',
-                        'rounded',
-                        'p-4',
-                        isEarlyAccessFeatureCondition(group) && 'FeatureConditionCard--border--highlight'
-                    )}
-                >
+                <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
                     <Row align="middle" justify="space-between">
                         <Row align="middle">
                             <div>
@@ -1336,19 +1216,21 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
                     </Row>
                     <LemonDivider className="my-3" />
 
-                    <>
-                        <div className="feature-flag-property-display">
-                            <LemonButton
-                                icon={<IconSubArrowRight className="arrow-right" />}
-                                status="muted"
-                                size="small"
-                            />
-                            <span>
-                                If null, default to <b>Release conditions</b>
-                            </span>
-                        </div>
-                    </>
-                    {(!readOnly || (readOnly && group.properties?.length > 0)) && <LemonDivider className="my-3" />}
+                    {group.properties?.length > 0 && (
+                        <>
+                            <div className="feature-flag-property-display">
+                                <LemonButton
+                                    icon={<IconSubArrowRight className="arrow-right" />}
+                                    status="muted"
+                                    size="small"
+                                />
+                                <span>
+                                    If null, default to <b>Release conditions</b>
+                                </span>
+                            </div>
+                            <LemonDivider className="my-3" />
+                        </>
+                    )}
                     <Row justify="space-between" align="middle">
                         <div />
                         <LemonButton

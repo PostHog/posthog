@@ -7,10 +7,10 @@ from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
 from posthog.models.early_access_feature import EarlyAccessFeature
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
-from rest_framework import status
-
+from rest_framework import status, response
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
@@ -19,6 +19,7 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.utils import cors_response
+from typing import Any
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
@@ -141,6 +142,13 @@ class EarlyAccessFeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet): 
             return EarlyAccessFeatureSerializerCreateOnly
         else:
             return EarlyAccessFeatureSerializer
+
+    @action(methods=["POST"], detail=True)
+    def promote(self, request: Request, *args: Any, **kwargs: Any):
+        early_access_feature: EarlyAccessFeature = self.get_object()
+        early_access_feature.promote()
+        res = EarlyAccessFeatureSerializer(early_access_feature, many=False).data
+        return response.Response(res, status=status.HTTP_200_OK)
 
 
 @csrf_exempt
