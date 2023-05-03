@@ -5,9 +5,16 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from .batch_export import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportRun,
+    BatchExportSchedule,
+)
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
+from .early_access_feature import EarlyAccessFeature
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -17,7 +24,6 @@ from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
-from .early_access_feature import EarlyAccessFeature
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -54,11 +60,16 @@ __all__ = [
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
+    "BatchExport",
+    "BatchExportDestination",
+    "BatchExportRun",
+    "BatchExportSchedule",
     "Cohort",
     "CohortPeople",
     "Dashboard",
     "DashboardTile",
     "DeletionType",
+    "EarlyAccessFeature",
     "Element",
     "ElementGroup",
     "Entity",
@@ -69,7 +80,6 @@ __all__ = [
     "Experiment",
     "ExportedAsset",
     "FeatureFlag",
-    "EarlyAccessFeature",
     "Filter",
     "Group",
     "GroupTypeMapping",
