@@ -19,6 +19,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
+from posthog.models.cohort import Cohort
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q
 
@@ -121,6 +122,7 @@ class FeatureFlagMatcher:
         self.property_value_overrides = property_value_overrides
         self.group_property_value_overrides = group_property_value_overrides
         self.skip_experience_continuity_flags = skip_experience_continuity_flags
+        self.cohorts_cache: Dict[int, Cohort] = {}
 
     def get_match(self, feature_flag: FeatureFlag) -> FeatureFlagMatch:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
@@ -297,6 +299,7 @@ class FeatureFlagMatcher:
                             expr = properties_to_Q(
                                 Filter(data=condition).property_groups.flat,
                                 override_property_values=target_properties,
+                                cohorts_cache=self.cohorts_cache,
                             )
 
                             # TRICKY: Due to property overrides, we sometimes shortcircuit the condition check.
