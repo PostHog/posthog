@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     first_url Nullable(VARCHAR),
     click_count Int64,
     keypress_count Int64,
-    mouse_activity_count Int64
+    mouse_activity_count Int64,
+    active_milliseconds Int64
 ) ENGINE = {engine}
 """
 
@@ -33,7 +34,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     first_url Nullable(VARCHAR),
     click_count SimpleAggregateFunction(sum, Int64),
     keypress_count SimpleAggregateFunction(sum, Int64),
-    mouse_activity_count SimpleAggregateFunction(sum, Int64)
+    mouse_activity_count SimpleAggregateFunction(sum, Int64),
+    active_milliseconds SimpleAggregateFunction(sum, Int64)
 ) ENGINE = {engine}
 """
 
@@ -73,7 +75,8 @@ max(last_timestamp) AS last_timestamp,
 any(first_url) AS first_url,
 sum(click_count) as click_count,
 sum(keypress_count) as keypress_count,
-sum(mouse_activity_count) as mouse_activity_count
+sum(mouse_activity_count) as mouse_activity_count,
+sum(active_milliseconds) as active_milliseconds
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
@@ -114,7 +117,8 @@ select
    dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
    sum(click_count),
    sum(keypress_count),
-   sum(mouse_activity_count)
+   sum(mouse_activity_count),
+   sum(active_milliseconds)
 from session_replay_events
 group by session_id
 """

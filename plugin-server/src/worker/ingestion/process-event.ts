@@ -3,6 +3,7 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
+import { activeMilliseconds, RRWebEventSummary } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
     Element,
     GroupTypeIndex,
@@ -290,18 +291,7 @@ export interface SummarizedSessionRecordingEvent {
     click_count: number
     keypress_count: number
     mouse_activity_count: number
-}
-
-interface RRWebEventSummaryData {
-    href?: string
-    source?: number
-    payload?: Record<string, any>
-}
-
-export interface RRWebEventSummary {
-    timestamp: number
-    type: number
-    data: RRWebEventSummaryData
+    active_milliseconds: number
 }
 
 export const createSessionReplayEvent = (
@@ -345,6 +335,8 @@ export const createSessionReplayEvent = (
         }
     })
 
+    const activeTime = activeMilliseconds(eventsSummaries)
+
     const data: SummarizedSessionRecordingEvent = {
         uuid,
         team_id: team_id,
@@ -356,6 +348,7 @@ export const createSessionReplayEvent = (
         keypress_count: keypressCount,
         mouse_activity_count: mouseActivity,
         first_url: url,
+        active_milliseconds: activeTime,
     }
 
     return data
