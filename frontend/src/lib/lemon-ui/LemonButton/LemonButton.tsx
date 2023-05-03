@@ -160,7 +160,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         active && 'LemonButton--active',
                         fullWidth && 'LemonButton--full-width',
                         center && 'LemonButton--centered',
-                        !children && 'LemonButton--no-content',
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
                         className
