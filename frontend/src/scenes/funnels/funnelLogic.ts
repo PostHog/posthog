@@ -514,6 +514,12 @@ export const funnelLogic = kea<funnelLogicType>({
             (s) => [s.steps],
             (steps): LemonSelectOptions<number> => steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` })),
         ],
+        canOpenPersonModal: [
+            (s) => [s.filters, s.isInDashboardContext],
+            (filters, isInDashboardContext): boolean => {
+                return !isInDashboardContext && !filters.funnel_aggregate_by_hogql
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({

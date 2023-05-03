@@ -32,6 +32,7 @@ export function FunnelStepsTableDataExploration(): JSX.Element | null {
     const { steps, flattenedBreakdowns, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelLogic(insightProps))
+    const { canOpenPersonModal } = useValues(funnelLogic(insightProps))
 
     return (
         <FunnelStepsTableComponent
@@ -44,14 +45,16 @@ export function FunnelStepsTableDataExploration(): JSX.Element | null {
             setHiddenLegendBreakdowns={(hidden_legend_breakdowns: string[]) => {
                 updateInsightFilter({ hidden_legend_breakdowns })
             }}
-            openPersonsModalForSeries={openPersonsModalForSeries}
+            openPersonsModalForSeries={canOpenPersonModal ? openPersonsModalForSeries : null}
         />
     )
 }
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
-    const { filters, steps, flattenedBreakdowns, hiddenLegendKeys, isOnlySeries } = useValues(funnelLogic(insightProps))
+    const { filters, steps, flattenedBreakdowns, hiddenLegendKeys, isOnlySeries, canOpenPersonModal } = useValues(
+        funnelLogic(insightProps)
+    )
     const { setFilters, openPersonsModalForSeries } = useActions(funnelLogic(insightProps))
 
     return (
@@ -66,7 +69,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             }}
             hiddenLegendBreakdowns={cleanHiddenLegendSeries(hiddenLegendKeys)}
             isOnlySeries={isOnlySeries}
-            openPersonsModalForSeries={openPersonsModalForSeries}
+            openPersonsModalForSeries={canOpenPersonModal ? openPersonsModalForSeries : null}
         />
     )
 }
@@ -79,15 +82,17 @@ type FunnelStepsTableComponentProps = {
     isOnlySeries: boolean
     hiddenLegendBreakdowns: string[] | undefined
     setHiddenLegendBreakdowns: (hidden_legend_breakdowns: string[]) => void
-    openPersonsModalForSeries: ({
-        step,
-        series,
-        converted,
-    }: {
-        step: FunnelStep
-        series: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>
-        converted: boolean
-    }) => void
+    openPersonsModalForSeries:
+        | null
+        | (({
+              step,
+              series,
+              converted,
+          }: {
+              step: FunnelStep
+              series: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>
+              converted: boolean
+          }) => void)
 }
 
 export function FunnelStepsTableComponent({
@@ -200,7 +205,8 @@ export function FunnelStepsTableComponent({
                     ): JSX.Element | undefined {
                         const stepSeries = breakdown.steps?.[stepIndex]
                         return (
-                            stepSeries && (
+                            stepSeries &&
+                            (openPersonsModalForSeries ? (
                                 <ValueInspectorButton
                                     onClick={() =>
                                         openPersonsModalForSeries({ step, series: stepSeries, converted: true })
@@ -209,7 +215,9 @@ export function FunnelStepsTableComponent({
                                 >
                                     {humanFriendlyNumber(stepSeries.count ?? 0)}
                                 </ValueInspectorButton>
-                            )
+                            ) : (
+                                <>{humanFriendlyNumber(stepSeries.count ?? 0)}</>
+                            ))
                         )
                     },
 
@@ -226,7 +234,8 @@ export function FunnelStepsTableComponent({
                               ): JSX.Element | undefined {
                                   const stepSeries = breakdown.steps?.[stepIndex]
                                   return (
-                                      stepSeries && (
+                                      stepSeries &&
+                                      (openPersonsModalForSeries ? (
                                           <ValueInspectorButton
                                               onClick={() =>
                                                   openPersonsModalForSeries({
@@ -239,7 +248,9 @@ export function FunnelStepsTableComponent({
                                           >
                                               {humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}
                                           </ValueInspectorButton>
-                                      )
+                                      ) : (
+                                          <>{humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}</>
+                                      ))
                                   )
                               },
                               align: 'right',

@@ -39,6 +39,7 @@ export function StepLegendComponent({
     isUsingDataExploration,
 }: StepLegendComponentProps): JSX.Element {
     const { openPersonsModalForStep } = useActions(funnelLogic)
+    const { canOpenPersonModal } = useValues(funnelLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const convertedCountPresentation = pluralize(
@@ -93,7 +94,7 @@ export function StepLegendComponent({
                 style={{ color: 'unset' }} // Prevent status color from affecting text
                 title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} who completed this step`}
             >
-                {showPersonsModal ? (
+                {canOpenPersonModal && showPersonsModal ? (
                     <ValueInspectorButton
                         onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
                         style={{ padding: 0 }}
@@ -112,7 +113,7 @@ export function StepLegendComponent({
                         style={{ color: 'unset' }} // Prevent status color from affecting text
                         title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} who didn't complete this step`}
                     >
-                        {showPersonsModal && stepIndex ? (
+                        {canOpenPersonModal && showPersonsModal && stepIndex ? (
                             <ValueInspectorButton
                                 onClick={() => openPersonsModalForStep({ step, stepIndex, converted: false })}
                                 style={{ padding: 0 }}
