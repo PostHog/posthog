@@ -87,8 +87,9 @@
         bottom: 0;
         z-index: 10;
         width: var(--inspector-width);
+        max-width: 95%;
 
-        transform: translateX(calc(var(--inspector-width) - var(--inspector-peek-width)));
+        transform: translateX(calc(100% - var(--inspector-peek-width)));
         transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
         box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.1);
 
