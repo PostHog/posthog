@@ -37,6 +37,7 @@ export function TaxonomicBreakdownFilter({
     }
 
     const hasSelectedBreakdown = breakdown && typeof breakdown === 'string'
+    const hasSingleOrMultiBreakdown = hasSelectedBreakdown || (breakdowns || []).length > 0
 
     const breakdownArray = useMultiBreakdown
         ? (breakdowns || []).map((b) => b.property)
@@ -89,7 +90,7 @@ export function TaxonomicBreakdownFilter({
           }
         : undefined
 
-    const tags = !breakdown_type
+    const tags = !hasSingleOrMultiBreakdown
         ? []
         : breakdownArray.map((t, index) => {
               const key = `${t}-${index}`
