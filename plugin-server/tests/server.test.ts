@@ -9,8 +9,6 @@ import { delay } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
-jest.mock('@sentry/node')
-jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
 jest.mock('../src/main/graphile-worker/schedule')
 jest.mock('../src/main/graphile-worker/worker-setup')
@@ -25,7 +23,7 @@ describe('server', () => {
 
     function createPluginServer(
         config: Partial<PluginsServerConfig> = {},
-        capabilities: PluginServerCapabilities | null = null
+        capabilities: PluginServerCapabilities | undefined = undefined
     ) {
         return startPluginsServer(
             {
@@ -37,6 +35,14 @@ describe('server', () => {
             capabilities
         )
     }
+
+    beforeEach(() => {
+        // We use procese.exit in a few places, which end up terminating tests
+        // if we don't mock it.
+        jest.spyOn(process, 'exit').mockImplementation((number) => {
+            throw new Error('process.exit: ' + number)
+        })
+    })
 
     afterEach(async () => {
         await pluginsServer?.stop()
