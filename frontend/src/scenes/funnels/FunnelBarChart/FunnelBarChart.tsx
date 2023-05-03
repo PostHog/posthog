@@ -15,19 +15,28 @@ import { funnelDataLogic } from '../funnelDataLogic'
 
 export function FunnelBarChartDataExploration(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { canOpenPersonModal } = useValues(funnelLogic)
     const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
     return (
         <FunnelBarChartComponent
             isUsingDataExploration
             visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
             {...props}
+            showPersonsModal={canOpenPersonModal && props.showPersonsModal}
         />
     )
 }
 
 export function FunnelBarChart(props: ChartParams): JSX.Element {
-    const { visibleStepsWithConversionMetrics } = useValues(funnelLogic)
-    return <FunnelBarChartComponent visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics} {...props} />
+    const { visibleStepsWithConversionMetrics, canOpenPersonModal } = useValues(funnelLogic)
+    console.log({ canOpenPersonModal })
+    return (
+        <FunnelBarChartComponent
+            visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
+            {...props}
+            showPersonsModal={canOpenPersonModal && props.showPersonsModal}
+        />
+    )
 }
 
 interface FunnelBarChartCSSProperties extends React.CSSProperties {
@@ -45,6 +54,7 @@ export function FunnelBarChartComponent({
     isUsingDataExploration = false,
     visibleStepsWithConversionMetrics,
 }: FunnelBarChartComponent): JSX.Element {
+    console.log({ showPersonsModal })
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
 
