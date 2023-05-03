@@ -237,7 +237,7 @@ export class SessionRecordingBlobIngester {
                     revokedPartitions.includes(session.partition)
                 )
 
-                this.offsetManager?.cleanPartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
+                this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
 
                 await Promise.all(sessionsToDrop.map((session) => session.destroy()))
 
