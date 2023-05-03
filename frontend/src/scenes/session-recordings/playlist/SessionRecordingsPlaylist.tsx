@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingFilters, SessionRecordingType } from '~/types'
 import {
@@ -20,6 +20,11 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
+    <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold">{children}</span>
+)
 
 export function RecordingsLists({
     playlistShortId,
@@ -111,9 +116,7 @@ export function RecordingsLists({
                     title="Pinned Recordings"
                     titleRight={
                         pinnedRecordingsResponse?.results?.length ? (
-                            <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold">
-                                {pinnedRecordingsResponse?.results?.length}
-                            </span>
+                            <CounterBadge>{pinnedRecordingsResponse.results.length}</CounterBadge>
                         ) : null
                     }
                     onRecordingClick={onRecordingClick}
@@ -140,7 +143,27 @@ export function RecordingsLists({
                 })}
                 listKey="other"
                 title={!playlistShortId ? 'Recordings' : 'Other recordings'}
-                titleRight={!infiniteScroller ? paginationControls : null}
+                titleRight={
+                    infiniteScroller ? (
+                        sessionRecordings.length ? (
+                            <Tooltip
+                                placement="bottom"
+                                title={
+                                    <>
+                                        Showing {sessionRecordings.length} results.
+                                        <br />
+                                        Scrolling to the bottom or the top of the list will load older or newer
+                                        recordings respectively.
+                                    </>
+                                }
+                            >
+                                <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                            </Tooltip>
+                        ) : null
+                    ) : (
+                        paginationControls
+                    )
+                }
                 onRecordingClick={onRecordingClick}
                 onPropertyClick={onPropertyClick}
                 collapsed={collapsed.other}
@@ -154,7 +177,7 @@ export function RecordingsLists({
                 activeRecordingId={activeSessionRecording?.id}
                 onScrollToEnd={
                     infiniteScroller
-                        ? () => !sessionRecordingsResponseLoading && loadSessionRecordings('older')
+                        ? () => !sessionRecordingsResponseLoading && hasNext && loadSessionRecordings('older')
                         : undefined
                 }
                 onScrollToStart={
@@ -165,7 +188,7 @@ export function RecordingsLists({
                 footer={
                     <>
                         <LemonDivider />
-                        <div className="m-4 flex items-center justify-center gap-2">
+                        <div className="m-4 flex items-center justify-center gap-2 text-muted-alt">
                             {sessionRecordingsResponseLoading ? (
                                 <>
                                     <Spinner monocolor /> Loading older recordings

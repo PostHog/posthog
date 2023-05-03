@@ -211,10 +211,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
                     mergedResults.sort((a, b) => (a.start_time > b.start_time ? -1 : 1))
 
-                    console.log('loadSessionRecordings', direction, currentResults.length, mergedResults.length)
-
                     return {
-                        has_next: true, // TODO
+                        has_next:
+                            direction === 'newer'
+                                ? values.sessionRecordingsResponse?.has_next ?? true
+                                : response.has_next,
                         results: mergedResults,
                     }
                 },
