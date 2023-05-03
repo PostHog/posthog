@@ -12,7 +12,8 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
-from rest_framework import request, serializers, status, viewsets, authentication
+from rest_framework import request, serializers, status, viewsets
+from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.parsers import JSONParser
@@ -36,7 +37,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
 from posthog.caching.insights_api import should_refresh_insight
 from posthog.client import sync_execute
@@ -83,10 +84,17 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, refresh_requested_by_client, relative_date_parse, str_to_bool
 
 logger = structlog.get_logger(__name__)
+
+INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
+    "insight_refresh_initiated",
+    "Insight refreshes initiated, based on should_refresh_insight().",
+    labelnames=["is_shared"],
+)
 
 
 def log_insight_activity(
@@ -491,10 +499,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
         target = insight if dashboard is None else dashboard_tile
 
+        is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
-            insight, dashboard_tile, request=self.context["request"], is_shared=self.context.get("is_shared", False)
+            insight, dashboard_tile, request=self.context["request"], is_shared=is_shared
         )
         if refresh_insight_now:
+            INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
             return synchronously_update_cache(insight, dashboard, refresh_frequency)
 
         # :TODO: Clear up if tile can be null or not
@@ -528,12 +538,6 @@ class InsightViewSet(
         ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        authentication.BasicAuthentication,
-        authentication.SessionAuthentication,
-        SharingAccessTokenAuthentication,
-    ]
     throttle_classes = [
         ClickHouseBurstRateThrottle,
         ClickHouseSustainedRateThrottle,
@@ -555,6 +559,11 @@ class InsightViewSet(
         ):
             return InsightBasicSerializer
         return super().get_serializer_class()
+
+    def get_authenticators(self) -> List[BaseAuthentication]:
+        authenticators = super().get_authenticators()
+        authenticators.append(SharingAccessTokenAuthentication())
+        return authenticators
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()

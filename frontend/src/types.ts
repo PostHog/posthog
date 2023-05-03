@@ -618,6 +618,7 @@ export type RecordingSnapshot = eventWithTime & {
 export interface SessionPlayerSnapshotData {
     snapshots: RecordingSnapshot[]
     next?: string
+    blob_keys?: string[]
 }
 
 export interface SessionPlayerData {

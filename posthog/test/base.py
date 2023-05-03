@@ -328,7 +328,7 @@ class QueryMatchingTest:
 
         # hog ql checks team ids differently
         query = re.sub(
-            r"equals\((events\.)?team_id, \d+\)",
+            r"equals\(([^.]+\.)?team_id?, \d+\)",
             r"equals(\1team_id, 2)",
             query,
         )
