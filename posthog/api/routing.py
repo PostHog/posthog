@@ -150,7 +150,7 @@ class StructuredViewSetMixin(_GenericViewSet):
         return result
 
     def get_serializer_context(self) -> Dict[str, Any]:
-        serializer_context = super().get_serializer_context()
+        serializer_context = super().get_serializer_context() if hasattr(super(), "get_serializer_context") else {}
         serializer_context.update(self.parents_query_dict)
         # The below are lambdas for lazy evaluation (i.e. we only query Postgres for team/org if actually needed)
         serializer_context["get_team"] = lambda: self.team
