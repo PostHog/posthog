@@ -140,12 +140,22 @@ export const getPluginConfig = async (teamId: number, pluginId: number) => {
     return queryResult.rows[0]
 }
 
+export const updatePluginConfig = async (
+    teamId: number,
+    pluginConfigId: string,
+    pluginConfig: Partial<PluginConfig>
+) => {
+    await postgres.query(
+        `UPDATE posthog_pluginconfig SET config = $1, updated_at = $2 WHERE id = $3 AND team_id = $4`,
+        [pluginConfig.config ?? {}, pluginConfig.updated_at, pluginConfigId, teamId]
+    )
+}
+
+export const reloadPlugins = async () => await redis.publish('reload-plugins', '')
+
 export const createAndReloadPluginConfig = async (teamId: number, pluginId: number) => {
     const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId })
-    // Make sure the plugin server reloads the newly created plugin config.
-    // TODO: avoid reaching into the pluginsServer internals and rather use
-    // the pubsub mechanism to trigger this.
-    await redis.publish('reload-plugins', '')
+    await reloadPlugins()
     // We wait for some log entries for the plugin, to make sure it's ready to
     // process events.
     await waitForExpect(async () => {

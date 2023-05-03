@@ -12,6 +12,8 @@ import {
     fetchPluginConsoleLogEntries,
     fetchPostgresPersons,
     getPluginConfig,
+    reloadPlugins,
+    updatePluginConfig,
 } from './api'
 import { waitForExpect } from './expectations'
 
@@ -202,6 +204,56 @@ test.concurrent(`plugin method tests: creates error on unhandled promise errors`
     })
 
     expect(error.message).toEqual('error thrown in plugin')
+})
+
+test.concurrent(`plugin method tests: teardown is called on stateful plugin reload if they are updated`, async () => {
+    const plugin = await createPlugin({
+        organization_id: organizationId,
+        name: 'test plugin',
+        plugin_type: 'source',
+        is_global: false,
+        is_stateless: false,
+        source__index_ts: `
+            async function processEvent (event, meta) {
+                console.log({ method: "processEvent" })
+                return event
+            }
+
+            async function teardownPlugin(meta) {
+                console.log({ method: "teardownPlugin" })
+            }
+        `,
+    })
+
+    const teamId = await createTeam(organizationId)
+    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
+
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    const event = {
+        event: 'custom event',
+        properties: { name: 'haha' },
+    }
+
+    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(teamId)
+        expect(events.length).toBe(1)
+    })
+
+    const pluginConfigAgain = await getPluginConfig(teamId, pluginConfig.id)
+    expect(pluginConfigAgain.error).toBeNull()
+
+    // We need to first change the plugin config to trigger a reload of the plugin.
+    await updatePluginConfig(teamId, pluginConfig.id, { updated_at: new Date().toISOString() })
+    await reloadPlugins()
+
+    await waitForExpect(async () => {
+        const logs = await fetchPluginConsoleLogEntries(pluginConfig.id)
+        expect(logs.filter((log) => log.message.method === 'teardownPlugin')).toHaveLength(1)
+    })
 })
 
 test.concurrent(`plugin method tests: can update distinct_id via processEvent`, async () => {
