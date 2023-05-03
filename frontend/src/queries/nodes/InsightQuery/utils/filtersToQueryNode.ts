@@ -134,8 +134,12 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             breakdowns: filters.breakdowns,
             breakdown_value: filters.breakdown_value,
             breakdown_group_type_index: filters.breakdown_group_type_index,
-            aggregation_group_type_index: filters.aggregation_group_type_index,
         })
+    }
+
+    // group aggregation
+    if (filters.aggregation_group_type_index !== undefined) {
+        query.aggregation_group_type_index = filters.aggregation_group_type_index
     }
 
     // trends filter
