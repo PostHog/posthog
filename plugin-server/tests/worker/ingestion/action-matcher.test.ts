@@ -682,19 +682,19 @@ describe('ActionMatcher', () => {
                 actionDefinitionOpExact,
                 actionDefinitionOpUndefined,
             ])
-            // expect(await actionMatcher.match({...event, person_properties: {foo: 'bar', pol: 'pot' }})).toEqual([
-            //     actionDefinitionOpExact,
-            //     actionDefinitionOpUndefined,
-            // ])
-            // expect(await actionMatcher.match({...event, person_properties: {foo: 'baR'}})).toEqual([])
-            // expect(await actionMatcher.match({...event, person_properties: {foo: 'baz'}})).toEqual([])
-            // expect(await actionMatcher.match({...event, person_properties: {foo: 'barabara'}})).toEqual([])
-            // expect(await actionMatcher.match({...event, person_properties: {foo: 'rabarbar'}})).toEqual([])
-            // expect(await actionMatcher.match({...event, person_properties: {foo: 7}})).toEqual([])
-            // expect(await actionMatcher.match({...event, person_properties: {}})).toEqual([])
-            // expect(await actionMatcher.match({...event, person_properties: {something_else: 999}})).toEqual([])
-            // expect(await actionMatcher.match({...event, person_properties: {foo: true}})).toEqual([])
-            // expect(await actionMatcher.match({...event, person_properties: {foo: null}})).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'bar', pol: 'pot' } })).toEqual([
+                actionDefinitionOpExact,
+                actionDefinitionOpUndefined,
+            ])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'baR' } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'baz' } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'barabara' } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'rabarbar' } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 7 } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: {} })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { something_else: 999 } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: true } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: null } })).toEqual([])
         })
 
         it('returns a match in case of cohort match', async () => {
