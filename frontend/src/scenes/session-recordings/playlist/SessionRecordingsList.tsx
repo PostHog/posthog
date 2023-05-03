@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { IconUnfoldLess, IconUnfoldMore, IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils'
-import React, { Fragment } from 'react'
+import React, { Fragment, useRef } from 'react'
 import { SessionRecordingType } from '~/types'
 import {
     SessionRecordingPlaylistItem,
@@ -14,6 +14,8 @@ import { useActions, useValues } from 'kea'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+const SCROLL_TRIGGER_OFFSET = 100
 
 export type SessionRecordingsListProps = {
     listKey: string
@@ -31,6 +33,9 @@ export type SessionRecordingsListProps = {
     empty?: React.ReactNode
     className?: string
     embedded?: boolean // if embedded don't show border
+    footer?: React.ReactNode
+    onScrollToStart?: () => void
+    onScrollToEnd?: () => void
 }
 
 export function SessionRecordingsList({
@@ -48,9 +53,14 @@ export function SessionRecordingsList({
     onPropertyClick,
     activeRecordingId,
     className,
+    footer,
+    onScrollToStart,
+    onScrollToEnd,
     embedded = false,
 }: SessionRecordingsListProps): JSX.Element {
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
+
+    const lastScrollPositionRef = useRef(0)
 
     const logic = sessionRecordingsListPropertiesLogic({
         key: listKey,
@@ -73,6 +83,28 @@ export function SessionRecordingsList({
         onCollapse?.(val)
         reportRecordingListVisibilityToggled(listKey, !val)
     }
+
+    const handleScroll =
+        onScrollToEnd || onScrollToStart
+            ? (e: React.UIEvent<HTMLUListElement>): void => {
+                  // If we are scrolling down then check if we are at the bottom of the list
+                  if (e.currentTarget.scrollTop > lastScrollPositionRef.current) {
+                      const scrollPosition = e.currentTarget.scrollTop + e.currentTarget.clientHeight
+                      if (e.currentTarget.scrollHeight - scrollPosition < SCROLL_TRIGGER_OFFSET) {
+                          onScrollToEnd?.()
+                      }
+                  }
+
+                  // Same again but if scrolling to the top
+                  if (e.currentTarget.scrollTop < lastScrollPositionRef.current) {
+                      if (e.currentTarget.scrollTop < SCROLL_TRIGGER_OFFSET) {
+                          onScrollToStart?.()
+                      }
+                  }
+
+                  lastScrollPositionRef.current = e.currentTarget.scrollTop
+              }
+            : undefined
 
     return (
         <div
@@ -100,7 +132,7 @@ export function SessionRecordingsList({
             </div>
             {!collapsed ? (
                 recordings?.length ? (
-                    <ul className="overflow-y-auto border-t">
+                    <ul className="overflow-y-auto border-t" onScroll={handleScroll}>
                         {recordings.map((rec, i) => (
                             <Fragment key={rec.id}>
                                 {i > 0 && <div className="border-t" />}
@@ -114,6 +146,8 @@ export function SessionRecordingsList({
                                 />
                             </Fragment>
                         ))}
+
+                        {footer}
                     </ul>
                 ) : loading ? (
                     <>

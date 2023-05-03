@@ -9,7 +9,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { SessionRecordingsList } from './SessionRecordingsList'
@@ -17,6 +17,9 @@ import clsx from 'clsx'
 import { SessionRecordingsPlaylistFilters } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistFilters'
 import { PLAYLIST_PREVIEW_RECORDINGS_LIMIT } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export function RecordingsLists({
     playlistShortId,
@@ -43,7 +46,9 @@ export function RecordingsLists({
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
     } = useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev, setFilters } = useActions(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev, setFilters, loadSessionRecordings } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const infiniteScroller = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
 
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
     const offset = filters.offset ?? 0
@@ -134,8 +139,8 @@ export function RecordingsLists({
                     'shrink-0': collapsed.other,
                 })}
                 listKey="other"
-                title={!playlistShortId ? 'Recent recordings' : 'Other recordings'}
-                titleRight={paginationControls}
+                title={!playlistShortId ? 'Recordings' : 'Other recordings'}
+                titleRight={!infiniteScroller ? paginationControls : null}
                 onRecordingClick={onRecordingClick}
                 onPropertyClick={onPropertyClick}
                 collapsed={collapsed.other}
@@ -147,6 +152,30 @@ export function RecordingsLists({
                 loadingSkeletonCount={RECORDINGS_LIMIT}
                 empty={<>No matching recordings found</>}
                 activeRecordingId={activeSessionRecording?.id}
+                onScrollToEnd={
+                    infiniteScroller
+                        ? () => !sessionRecordingsResponseLoading && loadSessionRecordings('older')
+                        : undefined
+                }
+                onScrollToStart={
+                    infiniteScroller
+                        ? () => !sessionRecordingsResponseLoading && loadSessionRecordings('newer')
+                        : undefined
+                }
+                footer={
+                    <>
+                        <LemonDivider />
+                        <div className="m-4 flex items-center justify-center gap-2">
+                            {sessionRecordingsResponseLoading ? (
+                                <>
+                                    <Spinner monocolor /> Loading older recordings
+                                </>
+                            ) : (
+                                'You reached the end!'
+                            )}
+                        </div>
+                    </>
+                }
             />
         </>
     )
