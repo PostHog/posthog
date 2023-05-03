@@ -114,7 +114,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdown))
     }
 
-    if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query)) {
+    if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query) || isFunnelsQuery(query)) {
         filters.interval = query.interval
     }
 
