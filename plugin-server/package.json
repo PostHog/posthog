@@ -10,7 +10,7 @@
         "functional_tests": "jest --config ./jest.config.functional.js",
         "start": "pnpm start:dist",
         "start:dist": "BASE_DIR=.. node dist/index.js",
-        "start:dev": "NODE_ENV=dev BASE_DIR=.. nodemon --exec node -r @swc-node/register src/index.ts",
+        "start:dev": "NODE_ENV=dev BASE_DIR=.. nodemon --watch src/ --exec node -r @swc-node/register src/index.ts",
         "build": "pnpm clean && pnpm compile",
         "clean": "rm -rf dist/*",
         "typescript:compile": "tsc -b",
