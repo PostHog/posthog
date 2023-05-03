@@ -118,6 +118,7 @@ class EventQuery(metaclass=ABCMeta):
             return PERSON_OVERRIDES_JOIN_SQL.format(
                 person_overrides_table_alias=self.PERSON_ID_OVERRIDES_TABLE_ALIAS,
                 event_table_alias=self.EVENT_TABLE_ALIAS,
+                person_id_alias="person_id",
             )
 
         return f"""

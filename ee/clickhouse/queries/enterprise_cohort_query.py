@@ -11,6 +11,7 @@ from posthog.queries.foss_cohort_query import (
     validate_interval,
     validate_seq_date_more_recent_than_date,
 )
+from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import PersonOnEventsMode
 
@@ -71,11 +72,22 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         # Since we can FULL OUTER JOIN, we may end up with pairs of uuids where one side is blank. Always try to choose the non blank ID
         q, fields = self._build_sources(subq)
 
-        final_query = f"""
+        person_override_join = PERSON_OVERRIDES_JOIN_SQL.format(
+            person_overrides_table_alias="overrides",
+            event_table_alias="e",
+            person_id_alias="person_id",
+        )
+
+        inner_query = f"""
         SELECT {fields} AS id  FROM
         {q}
         WHERE 1 = 1
         {conditions}
+        """
+
+        final_query = f"""
+        SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.id) AS id FROM ({inner_query}) AS e
+        {person_override_join}
         """
 
         return final_query, self.params
