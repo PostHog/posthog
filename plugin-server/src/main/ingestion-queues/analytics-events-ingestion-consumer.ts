@@ -1,4 +1,7 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes } from 'kafkajs'
+// @ts-expect-error no type definitions
+import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
@@ -16,6 +19,8 @@ import Piscina from '../../worker/piscina'
 import { eachBatch } from './batch-processing/each-batch'
 import { eachBatchIngestion, eachMessageIngestion } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
+
+CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
 export const ingestionPartitionKeyOverflowed = new Counter({
     name: 'ingestion_partition_key_overflowed',
