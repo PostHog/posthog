@@ -6,6 +6,7 @@ import { Pool } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import {
     ActionStep,
+    Hook,
     Plugin,
     PluginConfig,
     PluginLogEntry,
@@ -196,7 +197,7 @@ export const fetchPluginLogEntries = async (pluginConfigId: number) => {
     return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
 }
 
-export const createOrganization = async () => {
+export const createOrganization = async (organizationProperties = {}) => {
     const organizationId = new UUIDT().toString()
     await insertRow(postgres, 'posthog_organization', {
         id: organizationId,
@@ -211,6 +212,7 @@ export const createOrganization = async () => {
         domain_whitelist: [],
         is_member_join_email_enabled: false,
         slug: Math.round(Math.random() * 20000),
+        ...organizationProperties,
     })
     return organizationId
 }
@@ -276,6 +278,19 @@ export const createUser = async (teamId: number, email: string) => {
         events_column_config: '{}',
         uuid: new UUIDT().toString(),
     })
+}
+
+export async function createHook(teamId: number, userId: number, resourceId: number, target: string) {
+    await insertRow(postgres, 'ee_hook', {
+        id: new UUIDT().toString(),
+        team_id: teamId,
+        user_id: userId,
+        resource_id: resourceId,
+        event: 'action_performed',
+        target: target,
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+    } as Hook)
 }
 
 export const getPropertyDefinitions = async (teamId: number) => {
