@@ -202,6 +202,37 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
     })
 })
 
+test.concurrent(`event ingestion: can $set and update person properties with top level $set`, async () => {
+    // We support $set at the top level. This is as the time of writing how the
+    // posthog-js library works.
+    const teamId = await createTeam(organizationId)
+    const distinctId = new UUIDT().toString()
+
+    await capture({
+        teamId,
+        distinctId,
+        uuid: new UUIDT().toString(),
+        event: '$identify',
+        properties: {
+            distinct_id: distinctId,
+        },
+        $set: { prop: 'value' },
+    })
+
+    const firstUuid = new UUIDT().toString()
+    await capture({ teamId, distinctId, uuid: firstUuid, event: 'custom event', properties: {} })
+    await waitForExpect(async () => {
+        const [event] = await fetchEvents(teamId, firstUuid)
+        expect(event).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({
+                    prop: 'value',
+                }),
+            })
+        )
+    })
+})
+
 test.concurrent(`event ingestion: person properties are point in event time`, async () => {
     const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
@@ -300,6 +331,42 @@ test.concurrent(`event ingestion: can $set_once person properties but not update
         )
     })
 })
+
+test.concurrent(
+    `event ingestion: can $set_once person properties but not update, with top level $set_once`,
+    async () => {
+        // We support $set_once at the top level. This is as the time of writing
+        // how the posthog-js library works.
+        const teamId = await createTeam(organizationId)
+        const distinctId = new UUIDT().toString()
+
+        const personEventUuid = new UUIDT().toString()
+        await capture({
+            teamId,
+            distinctId,
+            uuid: personEventUuid,
+            event: '$identify',
+            properties: {
+                distinct_id: distinctId,
+            },
+            $set_once: { prop: 'value' },
+        })
+
+        const firstUuid = new UUIDT().toString()
+        await capture({ teamId, distinctId, uuid: firstUuid, event: 'custom event', properties: {} })
+        await waitForExpect(async () => {
+            const [event] = await fetchEvents(teamId, firstUuid)
+            expect(event).toEqual(
+                expect.objectContaining({
+                    person_properties: {
+                        $creator_event_uuid: personEventUuid,
+                        prop: 'value',
+                    },
+                })
+            )
+        })
+    }
+)
 
 test.concurrent(`event ingestion: events without a team_id get processed correctly`, async () => {
     const token = new UUIDT().toString()

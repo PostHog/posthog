@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
+import path from 'path'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
@@ -18,6 +19,8 @@ const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
 
+export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
+
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
     offsetManager?: OffsetManager
@@ -33,7 +36,8 @@ export class SessionRecordingBlobIngester {
         private objectStorage: ObjectStorage
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
-        this.enabledTeams = enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').map(parseInt)
+        this.enabledTeams =
+            enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
@@ -162,13 +166,11 @@ export class SessionRecordingBlobIngester {
     }
 
     public async start(): Promise<void> {
-        status.info('🔁', 'Starting session recordings blob consumer')
+        status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer')
 
         // Currently we can't reuse any files stored on disk, so we opt to delete them all
-        rmSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
-        mkdirSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true })
-
-        status.info('🔁', 'Starting session recordings consumer')
+        rmSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true, force: true })
+        mkdirSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true })
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
         this.producer = await createKafkaProducer(connectionConfig)
@@ -204,17 +206,16 @@ export class SessionRecordingBlobIngester {
              * For the cooperative assignors, such as cooperative-sticky, the application must use
              * incremental_assign() for ERR__ASSIGN_PARTITIONS and incremental_unassign() for ERR__REVOKE_PARTITIONS.
              */
-            status.info('🏘️', 'Blob ingestion consumer rebalanced')
-            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-                const partitions = assignments.map((assignment) => assignment.partition)
+            const partitions = assignments.map((assignment) => assignment.partition).sort()
 
-                const currentPartitions = [...this.sessions.values()].map((session) => session.partition)
+            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
+                const currentPartitions = [...this.sessions.values()].map((session) => session.partition).sort()
 
                 const sessions = [...this.sessions.values()].filter(
                     (session) => !partitions.includes(session.partition)
                 )
 
-                status.info('⚖️', 'Blob ingestion consumer assignments change', {
+                status.info('⚖️', 'blob_ingester_consumer - partitions assigned', {
                     assignedPartitions: partitions,
                     currentPartitions: currentPartitions,
                     droppedSessions: sessions.map((s) => s.sessionId),
@@ -236,12 +237,12 @@ export class SessionRecordingBlobIngester {
                  * This is where we could act to reduce raciness/duplication when partitions are reassigned to different consumers
                  * e.g. stop the `flushInterval` and wait for the `assign_partitions` event to start it again.
                  */
-                status.info('⚖️', 'Blob ingestion consumer has had assignments revoked', {
-                    assignments,
+                status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
+                    revokedPartitions: partitions,
                 })
             } else {
                 // We had a "real" error
-                status.error('🔥', 'Blob ingestion consumer rebalancing error', { err })
+                status.error('🔥', 'blob_ingester_consumer Blob ingestion consumer rebalancing error', { err })
                 // TODO: immediately die? or just keep going?
             }
         })
@@ -249,7 +250,10 @@ export class SessionRecordingBlobIngester {
         // Make sure to disconnect the producer after we've finished consuming.
         this.batchConsumer.join().finally(async () => {
             if (this.producer && this.producer.isConnected()) {
-                status.debug('🔁', 'disconnecting kafka producer in session recordings batchConsumer finally')
+                status.debug(
+                    '🔁',
+                    'blob_ingester_consumer disconnecting kafka producer in session recordings batchConsumer finally'
+                )
                 await disconnectProducer(this.producer)
             }
         })
@@ -257,7 +261,7 @@ export class SessionRecordingBlobIngester {
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', 'Blob ingestion consumer disconnected, cleaning up', { err })
+            status.info('🔁', 'blob_ingester_consumer Blob ingestion consumer disconnected, cleaning up', { err })
             await this.stop()
         })
 
@@ -270,14 +274,17 @@ export class SessionRecordingBlobIngester {
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', 'Stopping session recordings consumer')
+        status.info('🔁', 'blob_ingester_consumer Stopping session recordings consumer')
 
         if (this.flushInterval) {
             clearInterval(this.flushInterval)
         }
 
         if (this.producer && this.producer.isConnected()) {
-            status.info('🔁', 'disconnecting kafka producer in session recordings batchConsumer stop')
+            status.info(
+                '🔁',
+                'blob_ingester_consumer disconnecting kafka producer in session recordings batchConsumer stop'
+            )
             await disconnectProducer(this.producer)
         }
         await this.batchConsumer?.stop()

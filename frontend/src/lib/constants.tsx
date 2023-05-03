@@ -63,6 +63,7 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
 
 // Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
+// Sync with api/person.py
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
     'Email',
@@ -149,6 +150,7 @@ export const FEATURE_FLAGS = {
     RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     DATA_MANAGEMENT_HISTORY: 'data-management-history', // owner: @pauldambra
+    SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
