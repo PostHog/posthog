@@ -258,7 +258,7 @@ class FeatureFlagMatcher:
 
         return True, FeatureFlagMatchReason.CONDITION_MATCH
 
-    def _super_condition_value(self, feature_flag: FeatureFlag) -> bool:
+    def _super_condition_value(self, feature_flag: FeatureFlag) -> Optional[bool]:
         if self.failed_to_fetch_conditions:
             raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
         return self.query_conditions.get(f"flag_{feature_flag.pk}_super_condition", None)
@@ -319,7 +319,7 @@ class FeatureFlagMatcher:
 
                     for index, condition in enumerate(feature_flag.conditions):
                         key = f"flag_{feature_flag.pk}_condition_{index}"
-                        expr: Any = None
+                        expr = None
                         if len(condition.get("properties", {})) > 0:
                             # Feature Flags don't support OR filtering yet
                             target_properties = self.property_value_overrides
@@ -344,7 +344,7 @@ class FeatureFlagMatcher:
                         else:
                             if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
                                 # ignore flags that didn't have the right groups passed in
-                                return
+                                continue
                             group_query, group_fields = group_query_per_group_type_mapping[
                                 feature_flag.aggregation_group_type_index
                             ]
