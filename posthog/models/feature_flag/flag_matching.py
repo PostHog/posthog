@@ -135,17 +135,17 @@ class FeatureFlagMatcher:
         highest_priority_index = 0
 
         # Match for boolean super condition first
+        if feature_flag.filters.get("suoer_groups", None):
+            super_condition_value = self._super_condition_value(feature_flag)
 
-        super_condition_value = self._super_condition_value(feature_flag)
-
-        if super_condition_value is not None:
-            payload = self.get_matching_payload(super_condition_value, None, feature_flag)
-            return FeatureFlagMatch(
-                match=super_condition_value,
-                reason=FeatureFlagMatchReason.SUPER_CONDITION_MATCH,
-                condition_index=0,
-                payload=payload,
-            )
+            if super_condition_value is not None:
+                payload = self.get_matching_payload(super_condition_value, None, feature_flag)
+                return FeatureFlagMatch(
+                    match=super_condition_value,
+                    reason=FeatureFlagMatchReason.SUPER_CONDITION_MATCH,
+                    condition_index=0,
+                    payload=payload,
+                )
 
         # Stable sort conditions with variant overrides to the top. This ensures that if overrides are present, they are
         # evaluated first, and the variant override is applied to the first matching condition.
