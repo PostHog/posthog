@@ -9,12 +9,18 @@ export function PlayerInspector({ onFocusChange }: { onFocusChange: (focus: bool
     const [inspectorFocus, setInspectorFocus] = useState(false)
     const timeoutRef = useRef<any>(null)
 
+    const clear = (): void => {
+        clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+    }
+
     const onInspectorEnter = (): void => {
+        clear()
         setInspectorFocus(true)
     }
 
     const onInspectorLeave = (): void => {
-        clearTimeout(timeoutRef.current)
+        clear()
         timeoutRef.current = setTimeout(() => {
             setInspectorFocus(false)
         }, MOUSE_LEAVE_DELAY)
@@ -23,7 +29,7 @@ export function PlayerInspector({ onFocusChange }: { onFocusChange: (focus: bool
     // Behaves like a delayed hover where we will only close if the mouse is outside of the inspector for a certain time
     // but clicking outside will immediately close
     useEffect(() => {
-        clearTimeout(timeoutRef.current)
+        clear()
         onFocusChange(inspectorFocus)
 
         if (!inspectorFocus) {
