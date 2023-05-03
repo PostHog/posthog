@@ -145,6 +145,7 @@ export function SessionRecordingsPlaylistFilters({
                             node={NotebookNodeType.RecordingPlaylist}
                             properties={{ filters: {} }}
                             data-attr="add-playlist-to-notebook-button"
+                            size="small"
                         >
                             Add to notebook
                         </AddToNotebook>

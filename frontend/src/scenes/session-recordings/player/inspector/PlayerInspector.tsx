@@ -2,6 +2,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { PlayerInspectorList } from './PlayerInspectorList'
 import { PlayerInspectorControls } from './PlayerInspectorControls'
 import { useEffect, useRef, useState } from 'react'
+import { PlayerInspectorPreview } from './PlayerInspectorPreview'
 
 const MOUSE_LEAVE_DELAY = 500
 
@@ -56,6 +57,7 @@ export function PlayerInspector({ onFocusChange }: { onFocusChange: (focus: bool
             <PlayerInspectorControls />
             <LemonDivider className="my-0" />
             <PlayerInspectorList />
+            <PlayerInspectorPreview />
         </div>
     )
 }
