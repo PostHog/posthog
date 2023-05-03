@@ -161,7 +161,6 @@ export function AuthorizedUrlList({
                                                         : 'Launch url'
                                                 }
                                                 center
-                                                className="ActionButton"
                                                 data-attr="toolbar-open"
                                             >
                                                 Launch
@@ -172,14 +171,12 @@ export function AuthorizedUrlList({
                                                 onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
                                                 tooltip={'Edit'}
                                                 center
-                                                className="ActionButton"
                                             />
 
                                             <LemonButton
                                                 icon={<IconDelete />}
                                                 tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
                                                 center
-                                                className="ActionButton"
                                                 onClick={() => {
                                                     LemonDialog.open({
                                                         title: <>Remove {keyedURL.url} ?</>,
