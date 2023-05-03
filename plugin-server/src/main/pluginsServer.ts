@@ -433,7 +433,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.http) {
-            httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer, piscina)
+            httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer)
         }
 
         // If session recordings consumer is defined, then join it. If join
