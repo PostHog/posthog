@@ -5,7 +5,6 @@ import { startGraphileWorker } from '../src/main/graphile-worker/worker-setup'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
 import { killProcess } from '../src/utils/kill'
-import { delay } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -42,11 +41,17 @@ describe('server', () => {
         jest.spyOn(process, 'exit').mockImplementation((number) => {
             throw new Error('process.exit: ' + number)
         })
+
+        jest.spyOn(Sentry, 'captureMessage')
+
+        jest.useFakeTimers({ advanceTimers: true })
     })
 
     afterEach(async () => {
         await pluginsServer?.stop()
         pluginsServer = null
+        jest.runAllTimers()
+        jest.useRealTimers()
     })
 
     test('startPluginsServer does not error', async () => {
@@ -72,7 +77,7 @@ describe('server', () => {
                 STALENESS_RESTART_SECONDS: 5,
             })
 
-            await delay(10000)
+            jest.advanceTimersByTime(10000)
 
             expect(killProcess).toHaveBeenCalled()
 
@@ -83,7 +88,6 @@ describe('server', () => {
                         instanceId: expect.any(String),
                         lastActivity: expect.any(String),
                         lastActivityType: 'serverStart',
-                        piscina: expect.any(String),
                         isServerStale: true,
                         timeSinceLastActivity: expect.any(Number),
                     },
