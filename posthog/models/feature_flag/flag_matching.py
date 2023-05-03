@@ -262,7 +262,6 @@ class FeatureFlagMatcher:
     def query_conditions(self) -> Dict[str, bool]:
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-                all_conditions = {}
                 team_id = self.feature_flags[0].team_id
                 person_query: QuerySet = Person.objects.filter(
                     team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
@@ -299,11 +298,6 @@ class FeatureFlagMatcher:
                                 override_property_values=target_properties,
                             )
 
-                            # TRICKY: Due to property overrides, we sometimes shortcircuit the condition check.
-                            # In that case, the expression is empty, and we can assume the condition is a match.
-                            if not expr:
-                                all_conditions[key] = True
-
                         if feature_flag.aggregation_group_type_index is None:
                             person_query = person_query.annotate(
                                 **{
@@ -333,6 +327,7 @@ class FeatureFlagMatcher:
                                 group_fields,
                             )
 
+                all_conditions = {}
                 if len(person_fields) > 0:
                     person_query = person_query.values(*person_fields)
                     if len(person_query) > 0:
