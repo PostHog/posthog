@@ -82,31 +82,12 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
         feature_flag_id = validated_data.get("feature_flag_id", None)
 
+        default_condition = [
+            {"properties": [], "rollout_percentage": 100, "variant": None},
+        ]
         super_conditions = lambda feature_flag_key: [
             {
                 "properties": [
-                    {
-                        "key": f"$feature_enrollment/{feature_flag_key}",
-                        "type": "person",
-                        "value": ["true"],
-                        "operator": "exact",
-                    },
-                    {
-                        "key": f"$feature_enrollment/{feature_flag_key}",
-                        "type": "person",
-                        "operator": "is_set",
-                    },
-                ],
-                "rollout_percentage": 100,
-            },
-            {
-                "properties": [
-                    {
-                        "key": f"$feature_enrollment/{feature_flag_key}",
-                        "type": "person",
-                        "value": ["false"],
-                        "operator": "exact",
-                    },
                     {
                         "key": f"$feature_enrollment/{feature_flag_key}",
                         "type": "person",
@@ -128,7 +109,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 name=f"Feature Flag for Feature {validated_data['name']}",
                 created_by=self.context["request"].user,
                 filters={
-                    "groups": [],
+                    "groups": default_condition,
                     "payloads": {},
                     "multivariate": None,
                     "super_groups": super_conditions(feature_flag_key),
@@ -136,10 +117,9 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             )
             feature_flag_key = feature_flag.key
         validated_data["feature_flag_id"] = feature_flag.id
-
         feature: EarlyAccessFeature = super().create(validated_data)
         feature_flag.filters = {
-            "groups": [],
+            "groups": feature_flag.filters.get("groups", default_condition),
             "payloads": {},
             "multivariate": None,
             "super_groups": super_conditions(feature_flag_key),

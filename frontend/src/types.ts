@@ -1983,7 +1983,6 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
-    feature_preview?: string
 }
 
 export interface MultivariateFlagVariant {
@@ -2001,6 +2000,7 @@ export interface FeatureFlagFilters {
     multivariate: MultivariateFlagOptions | null
     aggregation_group_type_index?: number | null
     payloads: Record<string, JsonType>
+    super_groups?: FeatureFlagGroupType[]
 }
 
 export interface FeatureFlagBasicType {
