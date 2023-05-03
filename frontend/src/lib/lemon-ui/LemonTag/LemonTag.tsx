@@ -35,7 +35,7 @@ export function LemonTag({
     ...props
 }: LemonTagProps): JSX.Element {
     return (
-        <div className={clsx('LemonTag', { clickable: !!props.onClick }, type, className)} {...props}>
+        <div className={clsx('LemonTag', { 'cursor-pointer': !!props.onClick }, type, className)} {...props}>
             {icon && <span className="LemonTag__icon">{icon}</span>}
             {children}
             {popover?.overlay && (

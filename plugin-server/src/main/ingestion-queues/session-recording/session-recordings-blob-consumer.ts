@@ -166,13 +166,11 @@ export class SessionRecordingBlobIngester {
     }
 
     public async start(): Promise<void> {
-        status.info('🔁', 'Starting session recordings blob consumer')
+        status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer')
 
         // Currently we can't reuse any files stored on disk, so we opt to delete them all
         rmSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true, force: true })
         mkdirSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true })
-
-        status.info('🔁', 'Starting session recordings consumer')
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
         this.producer = await createKafkaProducer(connectionConfig)
@@ -202,51 +200,48 @@ export class SessionRecordingBlobIngester {
              *
              * This event is received when the consumer group starts _or_ finishes rebalancing.
              *
-             * Also, see https://docs.confluent.io/platform/current/clients/librdkafka/html/classRdKafka_1_1RebalanceCb.html
-             * For eager/non-cooperative partition.assignment.strategy assignors, such as range and roundrobin,
-             * the application must use assign() to set and unassign() to clear the entire assignment.
-             * For the cooperative assignors, such as cooperative-sticky, the application must use
-             * incremental_assign() for ERR__ASSIGN_PARTITIONS and incremental_unassign() for ERR__REVOKE_PARTITIONS.
+             * NB if the partition assignment strategy changes then this code may need to change too.
+             * e.g. round-robin and cooperative strategies will assign partitions differently
              */
-            status.info('🏘️', 'Blob ingestion consumer rebalanced')
             if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
                 /**
-                 * The assign_partitions indicates that the consumer group has new assignments. We don't need to do anything but it is useful to log for debugging.
+                 * The assign_partitions indicates that the consumer group has new assignments.
+                 * We don't need to do anything, but it is useful to log for debugging.
                  */
-                const assignedPartitions = topicPartitions.map((x) => x.partition)
+                const assignedPartitions = topicPartitions.map((c) => c.partition).sort()
 
                 if (!assignedPartitions.length) {
                     return
                 }
 
-                status.info('⚖️', 'Blob ingestion consumer was assigned partitions', {
-                    assignedPartitions,
+                status.info('⚖️', 'blob_ingester_consumer - assigned partitions', {
+                    assignedPartitions: assignedPartitions,
                 })
                 return
             }
 
             if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
                 /**
-                 * The revoke_partitions indicates that the consumer group has new assignments. We don't need to do anything but it is useful to log for debugging.
+                 * The revoke_partitions indicates that the consumer group has had partitions revoked.
                  * As a result, we need to drop all sessions currently managed for the revoked partitions
                  */
 
-                const revokedPartitions = topicPartitions.map((x) => x.partition)
-                const currentPartitions = [...this.sessions.values()].map((session) => session.partition)
+                const revokedPartitions = topicPartitions.map((x) => x.partition).sort()
+                if (!revokedPartitions.length) {
+                    return
+                }
+
+                const currentPartitions = [...this.sessions.values()].map((session) => session.partition).sort()
 
                 const sessionsToDrop = [...this.sessions.values()].filter((session) =>
                     revokedPartitions.includes(session.partition)
                 )
 
-                if (!revokedPartitions.length) {
-                    return
-                }
-
                 this.offsetManager?.cleanPartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
 
                 await Promise.all(sessionsToDrop.map((session) => session.destroy()))
 
-                status.info('⚖️', 'Blob ingestion consumer has partitions revoked', {
+                status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
                     currentPartitions: currentPartitions,
                     revokedPartitions: revokedPartitions,
                     droppedSessions: sessionsToDrop.map((s) => s.sessionId),
@@ -255,14 +250,17 @@ export class SessionRecordingBlobIngester {
             }
 
             // We had a "real" error
-            status.error('🔥', 'Blob ingestion consumer rebalancing error', { err })
+            status.error('🔥', 'blob_ingester_consumer - rebalancing error', { err })
             // TODO: immediately die? or just keep going?
         })
 
         // Make sure to disconnect the producer after we've finished consuming.
         this.batchConsumer.join().finally(async () => {
             if (this.producer && this.producer.isConnected()) {
-                status.debug('🔁', 'disconnecting kafka producer in session recordings batchConsumer finally')
+                status.debug(
+                    '🔁',
+                    'blob_ingester_consumer disconnecting kafka producer in session recordings batchConsumer finally'
+                )
                 await disconnectProducer(this.producer)
             }
         })
@@ -270,7 +268,7 @@ export class SessionRecordingBlobIngester {
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', 'Blob ingestion consumer disconnected, cleaning up', { err })
+            status.info('🔁', 'blob_ingester_consumer Blob ingestion consumer disconnected, cleaning up', { err })
             await this.stop()
         })
 
@@ -283,14 +281,17 @@ export class SessionRecordingBlobIngester {
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', 'Stopping session recordings consumer')
+        status.info('🔁', 'blob_ingester_consumer Stopping session recordings consumer')
 
         if (this.flushInterval) {
             clearInterval(this.flushInterval)
         }
 
         if (this.producer && this.producer.isConnected()) {
-            status.info('🔁', 'disconnecting kafka producer in session recordings batchConsumer stop')
+            status.info(
+                '🔁',
+                'blob_ingester_consumer disconnecting kafka producer in session recordings batchConsumer stop'
+            )
             await disconnectProducer(this.producer)
         }
         await this.batchConsumer?.stop()
