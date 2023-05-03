@@ -8,20 +8,13 @@ import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { onFilterChange, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isCohortBreakdown } from './taxonomicBreakdownFilterUtils'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
     setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
     useMultiBreakdown?: boolean
 }
-
-export const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'
-
-export const isCohort = (t: number | string): t is number => typeof t === 'number'
-
-export const isCohortBreakdown = (t: number | string): t is number | string => isAllCohort(t) || isCohort(t)
-
-export const isPersonEventOrGroup = (t: number | string): t is string => typeof t === 'string' && t !== 'all'
 
 export function TaxonomicBreakdownFilter({
     filters,
