@@ -29,7 +29,7 @@ function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
 }
 
 function hogQLToFilterValue(value?: string): { groupIndex?: number; aggregationQuery?: string } {
-    if (value?.match(/^\$group_$/)) {
+    if (value?.match(/^\$group_[0-9]+$/)) {
         return { groupIndex: parseInt(value.replace('$group_', '')) }
     } else if (value === 'person_id') {
         return {}
