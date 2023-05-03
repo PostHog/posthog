@@ -194,57 +194,64 @@ export class SessionRecordingBlobIngester {
 
         this.offsetManager = new OffsetManager(this.batchConsumer.consumer)
 
-        this.batchConsumer.consumer.on('rebalance', async (err, assignments) => {
+        this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
              * This event is received when the consumer group starts _or_ finishes rebalancing.
              *
-             * Also, see https://docs.confluent.io/platform/current/clients/librdkafka/html/classRdKafka_1_1RebalanceCb.html
-             * For eager/non-cooperative partition.assignment.strategy assignors, such as range and roundrobin,
-             * the application must use assign() to set and unassign() to clear the entire assignment.
-             * For the cooperative assignors, such as cooperative-sticky, the application must use
-             * incremental_assign() for ERR__ASSIGN_PARTITIONS and incremental_unassign() for ERR__REVOKE_PARTITIONS.
+             * NB if the partition assignment strategy changes then this code may need to change too.
+             * e.g. round-robin and cooperative strategies will assign partitions differently
              */
-            const partitions = assignments.map((assignment) => assignment.partition).sort()
-
             if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
+                /**
+                 * The assign_partitions indicates that the consumer group has new assignments.
+                 * We don't need to do anything, but it is useful to log for debugging.
+                 */
+                const assignedPartitions = topicPartitions.map((c) => c.partition).sort()
+
+                if (!assignedPartitions.length) {
+                    return
+                }
+
+                status.info('⚖️', 'blob_ingester_consumer - assigned partitions', {
+                    assignedPartitions: assignedPartitions,
+                })
+                return
+            }
+
+            if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+                /**
+                 * The revoke_partitions indicates that the consumer group has had partitions revoked.
+                 * As a result, we need to drop all sessions currently managed for the revoked partitions
+                 */
+
+                const revokedPartitions = topicPartitions.map((x) => x.partition).sort()
+                if (!revokedPartitions.length) {
+                    return
+                }
+
                 const currentPartitions = [...this.sessions.values()].map((session) => session.partition).sort()
 
-                const sessions = [...this.sessions.values()].filter(
-                    (session) => !partitions.includes(session.partition)
+                const sessionsToDrop = [...this.sessions.values()].filter((session) =>
+                    revokedPartitions.includes(session.partition)
                 )
 
-                status.info('⚖️', 'blob_ingester_consumer - partitions assigned', {
-                    assignedPartitions: partitions,
-                    currentPartitions: currentPartitions,
-                    droppedSessions: sessions.map((s) => s.sessionId),
-                })
+                this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
 
-                this.offsetManager?.cleanPartitions(KAFKA_SESSION_RECORDING_EVENTS, partitions)
+                await Promise.all(sessionsToDrop.map((session) => session.destroy()))
 
-                await Promise.all(sessions.map((session) => session.destroy()))
-            } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                /**
-                 * The revoke_partitions event occurs when the Kafka Consumer is part of a consumer group and the group rebalances.
-                 * As a result, some partitions previously assigned to a consumer might be taken away (revoked) and reassigned to another consumer.
-                 * After the revoke_partitions event is handled, the consumer will receive an assign_partitions event,
-                 * which will inform the consumer of the new set of partitions it is responsible for processing.
-                 *
-                 * Depending on why the rebalancing is occurring and the partition.assignment.strategy,
-                 * A partition revoked here, may be assigned back to the same consumer.
-                 *
-                 * This is where we could act to reduce raciness/duplication when partitions are reassigned to different consumers
-                 * e.g. stop the `flushInterval` and wait for the `assign_partitions` event to start it again.
-                 */
                 status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
-                    revokedPartitions: partitions,
+                    currentPartitions: currentPartitions,
+                    revokedPartitions: revokedPartitions,
+                    droppedSessions: sessionsToDrop.map((s) => s.sessionId),
                 })
-            } else {
-                // We had a "real" error
-                status.error('🔥', 'blob_ingester_consumer Blob ingestion consumer rebalancing error', { err })
-                // TODO: immediately die? or just keep going?
+                return
             }
+
+            // We had a "real" error
+            status.error('🔥', 'blob_ingester_consumer - rebalancing error', { err })
+            // TODO: immediately die? or just keep going?
         })
 
         // Make sure to disconnect the producer after we've finished consuming.
