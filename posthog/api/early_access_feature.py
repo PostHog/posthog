@@ -82,7 +82,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
         feature_flag_id = validated_data.get("feature_flag_id", None)
 
-        super_filter_groups = lambda feature_flag_key: [
+        super_conditions = lambda feature_flag_key: [
             {
                 "properties": [
                     {
@@ -127,20 +127,22 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 key=feature_flag_key,
                 name=f"Feature Flag for Feature {validated_data['name']}",
                 created_by=self.context["request"].user,
-                super_filters={
-                    "groups": super_filter_groups(feature_flag_key),
+                filters={
+                    "groups": [],
                     "payloads": {},
                     "multivariate": None,
+                    "super_groups": super_conditions(feature_flag_key),
                 },
             )
             feature_flag_key = feature_flag.key
         validated_data["feature_flag_id"] = feature_flag.id
 
         feature: EarlyAccessFeature = super().create(validated_data)
-        feature_flag.super_filters = {
-            "groups": super_filter_groups(feature_flag_key),
+        feature_flag.filters = {
+            "groups": [],
             "payloads": {},
             "multivariate": None,
+            "super_groups": super_conditions(feature_flag_key),
         }
         feature_flag.save()
         return feature

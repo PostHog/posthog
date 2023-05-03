@@ -10,6 +10,7 @@ from django.db import DatabaseError, IntegrityError, OperationalError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
+from django.db.models import F
 from sentry_sdk.api import capture_exception
 
 from posthog.models.filters import Filter
@@ -134,16 +135,17 @@ class FeatureFlagMatcher:
         highest_priority_index = 0
 
         # Match for boolean super condition first
-        for index, condition in enumerate(feature_flag.super_conditions):
-            is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, index)
-            if is_match:
-                payload = self.get_matching_payload(is_match, None, feature_flag)
-                return FeatureFlagMatch(
-                    match=True,
-                    reason=FeatureFlagMatchReason.SUPER_CONDITION_MATCHH,
-                    condition_index=index,
-                    payload=payload,
-                )
+
+        super_condition_value = self._super_condition_value(feature_flag)
+
+        if super_condition_value is not None:
+            payload = self.get_matching_payload(super_condition_value, None, feature_flag)
+            return FeatureFlagMatch(
+                match=super_condition_value,
+                reason=FeatureFlagMatchReason.SUPER_CONDITION_MATCHH,
+                condition_index=0,
+                payload=payload,
+            )
 
         # Stable sort conditions with variant overrides to the top. This ensures that if overrides are present, they are
         # evaluated first, and the variant override is applied to the first matching condition.
@@ -256,6 +258,11 @@ class FeatureFlagMatcher:
 
         return True, FeatureFlagMatchReason.CONDITION_MATCH
 
+    def _super_condition_value(self, feature_flag: FeatureFlag) -> bool:
+        if self.failed_to_fetch_conditions:
+            raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
+        return self.query_conditions.get(f"flag_{feature_flag.pk}_super_condition", None)
+
     def _condition_matches(self, feature_flag: FeatureFlag, condition_index: int) -> bool:
         if self.failed_to_fetch_conditions:
             raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
@@ -298,7 +305,18 @@ class FeatureFlagMatcher:
 
                 person_fields = []
 
+                # release conditions
                 for feature_flag in self.feature_flags:
+
+                    # super release conditions
+                    if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
+                        key = f"flag_{feature_flag.pk}_super_condition"
+                        expr: Any = None
+                        condition = feature_flag.super_conditions[0].get("properties", [])
+                        if len(condition) > 0:
+                            person_query = person_query.annotate(**{key: F("properties__" + condition[0]["key"])})
+                            person_fields.append(key)
+
                     for index, condition in enumerate(feature_flag.conditions):
                         key = f"flag_{feature_flag.pk}_condition_{index}"
                         expr: Any = None
@@ -326,7 +344,7 @@ class FeatureFlagMatcher:
                         else:
                             if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
                                 # ignore flags that didn't have the right groups passed in
-                                continue
+                                return
                             group_query, group_fields = group_query_per_group_type_mapping[
                                 feature_flag.aggregation_group_type_index
                             ]

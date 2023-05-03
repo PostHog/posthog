@@ -28,7 +28,6 @@ class FeatureFlag(models.Model):
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
     filters: models.JSONField = models.JSONField(default=dict)
-    super_filters: models.JSONField = models.JSONField(default=dict, blank=True, null=True)
     rollout_percentage: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -68,7 +67,7 @@ class FeatureFlag(models.Model):
     @property
     def super_conditions(self):
         "Each feature flag can have multiple super conditions to match, they are OR-ed together."
-        return self.super_filters.get("groups", []) or []
+        return self.get_filters().get("super_groups", []) or []
 
     @property
     def _payloads(self):

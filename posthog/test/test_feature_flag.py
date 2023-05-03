@@ -780,11 +780,19 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_super_condition(self):
-        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+        Person.objects.create(
+            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
+        )
 
         feature_flag = self.create_feature_flag(
             filters={
                 "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 0,
+                    },
                     {
                         "properties": [
                             {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
@@ -792,17 +800,13 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                         "rollout_percentage": 100,
                     },
                     {"rollout_percentage": 50},
-                ]
-            },
-            super_filters={
-                "groups": [
+                ],
+                "super_groups": [
                     {
-                        "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
-                        ],
+                        "properties": [{"key": "is_enabled", "type": "person", "operator": "is_set"}],
                         "rollout_percentage": 100,
                     },
-                ]
+                ],
             },
         )
 
@@ -812,11 +816,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
-            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
         )
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
-            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
         )
 
     def test_flag_with_variant_overrides(self):
