@@ -44,14 +44,14 @@ FLAG_EVALUATION_ERROR_COUNTER = Counter(
 
 
 class FeatureFlagMatchReason(str, Enum):
-    SUPER_CONDITION_MATCHH = "super_condition_match"
+    SUPER_CONDITION_MATCH = "super_condition_match"
     CONDITION_MATCH = "condition_match"
     NO_CONDITION_MATCH = "no_condition_match"
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
     NO_GROUP_TYPE = "no_group_type"
 
     def score(self):
-        if self == FeatureFlagMatchReason.SUPER_CONDITION_MATCHH:
+        if self == FeatureFlagMatchReason.SUPER_CONDITION_MATCH:
             return 4
         if self == FeatureFlagMatchReason.CONDITION_MATCH:
             return 3
@@ -142,7 +142,7 @@ class FeatureFlagMatcher:
             payload = self.get_matching_payload(super_condition_value, None, feature_flag)
             return FeatureFlagMatch(
                 match=super_condition_value,
-                reason=FeatureFlagMatchReason.SUPER_CONDITION_MATCHH,
+                reason=FeatureFlagMatchReason.SUPER_CONDITION_MATCH,
                 condition_index=0,
                 payload=payload,
             )

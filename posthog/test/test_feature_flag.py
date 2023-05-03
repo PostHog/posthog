@@ -812,7 +812,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
-            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_MATCHH, 0),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_MATCH, 0),
         )
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
