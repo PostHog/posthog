@@ -54,7 +54,7 @@ services:
         ports:
             - '9092:9092'
 
-    object_storage:
+    object-storage:
         extends:
             file: docker-compose.base.yml
             service: object_storage

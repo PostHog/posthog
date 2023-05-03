@@ -12,7 +12,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.temporal.workflows.base import CommandableWorkflow
+from posthog.temporal.workflows.base import PostHogWorkflow
 
 EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
 
@@ -628,7 +628,7 @@ class SquashPersonOverridesInputs:
 
 
 @workflow.defn(name="squash-person-overrides")
-class SquashPersonOverridesWorkflow(CommandableWorkflow):
+class SquashPersonOverridesWorkflow(PostHogWorkflow):
     """Workflow to squash outstanding person overrides into events.
 
     Squashing refers to the process of updating the person_id associated with an event
