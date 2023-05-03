@@ -11,6 +11,7 @@ import {
     InsightVizNode,
     Node,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema'
 
 import { insightLogic } from './insightLogic'
@@ -182,7 +183,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 ? values.querySource
                 : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
             if (isInsightQueryNode(localQuerySource)) {
-                const newQuerySource = { ...localQuerySource, breakdown }
+                const newQuerySource = {
+                    ...localQuerySource,
+                    breakdown: { ...(localQuerySource as TrendsQuery).breakdown, ...breakdown },
+                }
                 actions.updateQuerySource(newQuerySource)
             }
         },
