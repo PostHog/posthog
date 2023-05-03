@@ -83,7 +83,11 @@ export const supportLogic = kea<supportLogicType>([
             kind,
             target_area,
         }),
-        submitZendeskTicket: (kind: SupportTicketKind, target_area: SupportTicketTargetArea, message: string) => ({
+        submitZendeskTicket: (
+            kind: SupportTicketKind | null,
+            target_area: SupportTicketTargetArea | null,
+            message: string
+        ) => ({
             kind,
             target_area,
             message,
