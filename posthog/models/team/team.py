@@ -320,9 +320,10 @@ def check_is_feature_available_for_team(team_id: int, feature_key: str, current_
     )
     if available_product_features is None:
         return False
+
     for feature in available_product_features:
-        if "key" in feature and feature["key"] == feature_key:
-            if current_usage is not None and "limit" in feature:
+        if feature.get("key") == feature_key:
+            if current_usage is not None and feature.get("limit") is not None:
                 return current_usage < int(feature["limit"])
             return True
     return False

@@ -163,9 +163,9 @@ export function Seekbar(): JSX.Element {
                     onTouchStart={handleDown}
                 >
                     <div className="PlayerSeekbar__segments">
-                        {sessionPlayerData?.metadata?.segments?.map((segment: RecordingSegment) => (
+                        {sessionPlayerData.segments?.map((segment: RecordingSegment) => (
                             <div
-                                key={`${segment.windowId}-${segment.startTimeEpochMs}`}
+                                key={`${segment.windowId}-${segment.startTimestamp}`}
                                 className={clsx(
                                     'PlayerSeekbar__segments__item',
                                     segment.isActive && 'PlayerSeekbar__segments__item--active'
@@ -173,9 +173,7 @@ export function Seekbar(): JSX.Element {
                                 title={!segment.isActive ? 'Inactive period' : 'Active period'}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    width: `${
-                                        (100 * segment.durationMs) / sessionPlayerData.metadata.recordingDurationMs
-                                    }%`,
+                                    width: `${(100 * segment.durationMs) / sessionPlayerData.durationMs}%`,
                                 }}
                             />
                         ))}
@@ -192,7 +190,7 @@ export function Seekbar(): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.metadata.recordingDurationMs} />
+                    <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.durationMs} />
                 </div>
 
                 <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />

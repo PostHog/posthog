@@ -561,11 +561,6 @@ export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGr
 
 export type SessionRecordingId = SessionRecordingType['id']
 
-export interface PlayerPosition {
-    time: number
-    windowId: string
-}
-
 export interface RRWebRecordingConsoleLogPayload {
     level: LogLevel
     payload: (string | null)[]
@@ -600,41 +595,41 @@ export type RecordingConsoleLogV2 = {
 }
 
 export interface RecordingSegment {
-    startPlayerPosition: PlayerPosition // Player time (for the specific window_id's player) that the segment starts. If the segment starts 10 seconds into a recording, this would be 10000
-    endPlayerPosition: PlayerPosition // Player time (for the specific window_id' player) that the segment ends
-    startTimeEpochMs: number // Epoch time that the segment starts
-    endTimeEpochMs: number // Epoch time that the segment ends
+    kind: 'window' | 'buffer' | 'gap'
+    startTimestamp: number // Epoch time that the segment starts
+    endTimestamp: number // Epoch time that the segment ends
     durationMs: number
-    windowId: string
+    windowId?: string
     isActive: boolean
-}
-
-export interface RecordingStartAndEndTime {
-    startTimeEpochMs: number
-    endTimeEpochMs: number
 }
 
 export interface SessionRecordingMeta {
     pinnedCount: number
     segments: RecordingSegment[]
-    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
     startTimestamp: Dayjs
     endTimestamp: Dayjs
 }
 
+export type RecordingSnapshot = eventWithTime & {
+    windowId: string
+}
+
 export interface SessionPlayerSnapshotData {
-    snapshotsByWindowId: Record<string, eventWithTime[]>
+    snapshots: RecordingSnapshot[]
     next?: string
+    blob_keys?: string[]
 }
 
-export interface SessionPlayerMetaData {
+export interface SessionPlayerData {
+    pinnedCount: number
     person: PersonType | null
-    metadata: SessionRecordingMeta
-}
-
-export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {
-    bufferedTo: PlayerPosition | null
+    segments: RecordingSegment[]
+    bufferedToTime: number | null
+    snapshotsByWindowId: Record<string, eventWithTime[]>
+    durationMs: number
+    start?: Dayjs
+    end?: Dayjs
 }
 
 export enum SessionRecordingUsageType {

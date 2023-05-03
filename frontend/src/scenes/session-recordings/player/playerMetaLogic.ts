@@ -8,7 +8,6 @@ import {
 import { eventWithTime } from '@rrweb/types'
 import { PersonType } from '~/types'
 import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
-import { getEpochTimeFromPlayerPosition } from './playerUtils'
 
 export const playerMetaLogic = kea<playerMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),
@@ -19,7 +18,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingDataLogic(props),
             ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerPosition', 'scale', 'currentPlayerTime'],
+            ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment'],
         ],
         actions: [sessionRecordingDataLogic(props), ['loadRecordingMetaSuccess']],
     })),
@@ -31,24 +30,19 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         resolution: [
-            (selectors) => [selectors.sessionPlayerData, selectors.currentPlayerPosition],
-            (sessionPlayerData, currentPlayerPosition): { width: number; height: number } | null => {
+            (selectors) => [selectors.sessionPlayerData, selectors.currentTimestamp, selectors.currentSegment],
+            (sessionPlayerData, currentTimestamp, currentSegment): { width: number; height: number } | null => {
                 // Find snapshot to pull resolution from
-                if (!currentPlayerPosition) {
+                if (!currentTimestamp) {
                     return null
                 }
-                const snapshots = sessionPlayerData.snapshotsByWindowId[currentPlayerPosition.windowId] ?? []
-
-                const currentEpochTime =
-                    getEpochTimeFromPlayerPosition(
-                        currentPlayerPosition,
-                        sessionPlayerData.metadata.startAndEndTimesByWindowId
-                    ) ?? 0
+                const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment?.windowId ?? ''] ?? []
 
                 const currIndex = findLastIndex(
                     snapshots,
-                    (s: eventWithTime) => s.timestamp < currentEpochTime && (s.data as any).width
+                    (s: eventWithTime) => s.timestamp < currentTimestamp && (s.data as any).width
                 )
+
                 if (currIndex === -1) {
                     return null
                 }
@@ -66,17 +60,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 },
             },
         ],
-        recordingStartTime: [
+        startTime: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
-                const startTimeFromMeta = sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
-                return startTimeFromMeta ?? null
+                return sessionPlayerData.start ?? null
             },
         ],
         currentWindowIndex: [
-            (selectors) => [selectors.windowIds, selectors.currentPlayerPosition],
-            (windowIds, currentPlayerPosition) => {
-                return windowIds.findIndex((windowId) => windowId === currentPlayerPosition?.windowId ?? -1)
+            (selectors) => [selectors.windowIds, selectors.currentSegment],
+            (windowIds, currentSegment) => {
+                return windowIds.findIndex((windowId) => windowId === currentSegment?.windowId ?? -1)
             },
         ],
         lastPageviewEvent: [

@@ -1,5 +1,6 @@
+import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 from urllib.parse import urlencode
 
 from dateutil.parser import parse
@@ -329,7 +330,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.headers.get("Content-Encoding", None), "gzip")
 
-    def test_get_snapshots_for_chunked_session_recording(self):
+    def _test_body_for_chunked_session_recording(self, include_feature_flag_param: bool):
         chunked_session_id = "chunk_id"
         expected_num_requests = 3
         num_chunks = 60
@@ -346,7 +347,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     window_id="1" if index % 2 == 0 else "2",
                 )
 
-            next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots"
+            blob_flag = "?blob_loading_enabled=false" if include_feature_flag_param else ""
+            next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots{blob_flag}"
 
             for i in range(expected_num_requests):
                 response = self.client.get(next_url)
@@ -366,6 +368,68 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     self.assertIsNotNone(response_data["next"])
 
                 next_url = response_data["next"]
+
+    def test_get_snapshots_for_chunked_session_recording_with_blob_flag_included_and_off(self):
+        self._test_body_for_chunked_session_recording(include_feature_flag_param=True)
+
+    def test_get_snapshots_for_chunked_session_recording_with_blob_flag_not_included(self):
+        self._test_body_for_chunked_session_recording(include_feature_flag_param=False)
+
+    @patch("posthog.api.session_recording.object_storage.list_objects")
+    def test_get_snapshots_can_load_blobs_when_available(self, mock_list_objects) -> None:
+        blob_objects = ["session_recordings/something/data", "session_recordings/something_else/data"]
+        mock_list_objects.return_value = blob_objects
+        chunked_session_id = "chunk_id"
+        # only needs enough data so that the test fails if the blobs aren't loaded
+        num_chunks = 2
+        snapshots_per_chunk = 2
+
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            start_time = now()
+            for index, s in enumerate(range(num_chunks)):
+                self.create_chunked_snapshots(
+                    snapshots_per_chunk,
+                    "user",
+                    chunked_session_id,
+                    start_time + relativedelta(minutes=s),
+                    window_id="1" if index % 2 == 0 else "2",
+                )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots?blob_loading_enabled=true"
+        )
+        response_data = response.json()
+        assert response_data == {"snapshot_data_by_window_id": [], "next": None, "blob_keys": blob_objects}
+
+    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
+    @patch("posthog.api.session_recording.requests")
+    def test_can_get_session_recording_blob(self, _mock_requests, mock_presigned_url) -> None:
+        session_id = str(uuid.uuid4())
+        """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
+        blob_key = f"data/1682608337071"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshot_file/?blob_key={blob_key}"
+
+        def presigned_url_sideeffect(key: str, **kwargs):
+            if key == f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/{blob_key}":
+                return f"https://test.com/"
+            else:
+                return None
+
+        mock_presigned_url.side_effect = presigned_url_sideeffect
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
+    def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
+        session_id = str(uuid.uuid4())
+        blob_key = f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/1682608337071"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshot_file/?blob_key={blob_key}"
+
+        mock_presigned_url.return_value = None
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_get_metadata_for_chunked_session_recording(self):
 
