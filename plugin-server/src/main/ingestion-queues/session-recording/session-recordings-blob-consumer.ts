@@ -213,14 +213,14 @@ export class SessionRecordingBlobIngester {
                 /**
                  * The assign_partitions indicates that the consumer group has new assignments. We don't need to do anything but it is useful to log for debugging.
                  */
-                const partitions = topicPartitions.map((x) => x.partition)
+                const assignedPartitions = topicPartitions.map((x) => x.partition)
 
-                if (!partitions.length) {
+                if (!assignedPartitions.length) {
                     return
                 }
 
                 status.info('⚖️', 'Blob ingestion consumer was assigned partitions', {
-                    assignedPartitions: partitions,
+                    assignedPartitions,
                 })
                 return
             }
@@ -231,25 +231,25 @@ export class SessionRecordingBlobIngester {
                  * As a result, we need to drop all sessions currently managed for the revoked partitions
                  */
 
-                const partitions = topicPartitions.map((x) => x.partition)
+                const revokedPartitions = topicPartitions.map((x) => x.partition)
                 const currentPartitions = [...this.sessions.values()].map((session) => session.partition)
 
-                const sessions = [...this.sessions.values()].filter(
-                    (session) => !partitions.includes(session.partition)
+                const sessionsToDrop = [...this.sessions.values()].filter((session) =>
+                    revokedPartitions.includes(session.partition)
                 )
 
-                if (!partitions.length) {
+                if (!revokedPartitions.length) {
                     return
                 }
 
-                this.offsetManager?.cleanPartitions(KAFKA_SESSION_RECORDING_EVENTS, partitions)
+                this.offsetManager?.cleanPartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
 
-                await Promise.all(sessions.map((session) => session.destroy()))
+                await Promise.all(sessionsToDrop.map((session) => session.destroy()))
 
                 status.info('⚖️', 'Blob ingestion consumer has partitions revoked', {
                     currentPartitions: currentPartitions,
-                    revokedPartitions: partitions,
-                    droppedSessions: sessions.map((s) => s.sessionId),
+                    revokedPartitions: revokedPartitions,
+                    droppedSessions: sessionsToDrop.map((s) => s.sessionId),
                 })
                 return
             }
