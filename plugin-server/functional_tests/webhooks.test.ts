@@ -46,7 +46,8 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
                 updated_at: new Date().toISOString(),
                 deleted: false,
                 post_to_slack: true,
-                slack_message_format: 'default',
+                slack_message_format:
+                    '[event.name] with [event.properties.name] was triggered by [person.properties.email]',
                 created_by_id: user.id,
                 is_calculating: false,
                 last_calculated_at: new Date().toISOString(),
@@ -78,6 +79,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
                 uuid: new UUIDT().toString(),
                 $current_url: 'http://localhost:8000',
                 $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
+                $set: { email: 't@t.com' },
             },
         })
 
@@ -88,7 +90,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
             await new Promise((resolve) => setTimeout(resolve, 1000))
         }
 
-        expect(webHookCalledWith).toEqual({ text: 'default' })
+        expect(webHookCalledWith).toEqual({ text: `$autocapture with hehe was triggered by t@t.com` })
     } finally {
         server.close()
     }
