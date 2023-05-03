@@ -67,37 +67,45 @@
          1 AS sign,
          0 AS version
   FROM
-    (SELECT person.person_id AS id
+    (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.id) AS id
      FROM
-       (SELECT pdi.person_id AS person_id,
-               countIf(timestamp > now() - INTERVAL 2 year
-                       AND timestamp < now()
-                       AND event = '$pageview') > 0 AS performed_event_condition_21_level_level_0_level_0_level_0_0
-        FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
-          AND event IN ['$pageview']
-          AND timestamp <= now()
-          AND timestamp >= now() - INTERVAL 2 year
-        GROUP BY person_id) behavior_query
-     INNER JOIN
-       (SELECT *,
-               id AS person_id
+       (SELECT person.person_id AS id
         FROM
-          (SELECT id
-           FROM person
+          (SELECT pdi.person_id AS person_id,
+                  countIf(timestamp > now() - INTERVAL 2 year
+                          AND timestamp < now()
+                          AND event = '$pageview') > 0 AS performed_event_condition_21_level_level_0_level_0_level_0_0
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
-     WHERE 1 = 1
-       AND ((((performed_event_condition_21_level_level_0_level_0_level_0_0)))) ) as person
+             AND event IN ['$pageview']
+             AND timestamp <= now()
+             AND timestamp >= now() - INTERVAL 2 year
+           GROUP BY person_id) behavior_query
+        INNER JOIN
+          (SELECT *,
+                  id AS person_id
+           FROM
+             (SELECT id
+              FROM person
+              WHERE team_id = 2
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
+        WHERE 1 = 1
+          AND ((((performed_event_condition_21_level_level_0_level_0_level_0_0)))) ) AS e
+     LEFT OUTER JOIN
+       (SELECT argMax(override_person_id, version) as person_id,
+               old_person_id
+        FROM person_overrides
+        WHERE team_id = 2
+        GROUP BY old_person_id) AS overrides ON e.id = overrides.old_person_id) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -127,37 +135,45 @@
                GROUP BY distinct_id
                HAVING argMax(is_deleted, version) = 0)
             WHERE person_id IN
-                (SELECT person.person_id AS id
+                (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.id) AS id
                  FROM
-                   (SELECT pdi.person_id AS person_id,
-                           countIf(timestamp > now() - INTERVAL 2 year
-                                   AND timestamp < now()
-                                   AND event = '$pageview') > 0 AS performed_event_condition_23_level_level_0_level_0_level_0_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    WHERE team_id = 2
-                      AND event IN ['$pageview']
-                      AND timestamp <= now()
-                      AND timestamp >= now() - INTERVAL 2 year
-                    GROUP BY person_id) behavior_query
-                 INNER JOIN
-                   (SELECT *,
-                           id AS person_id
+                   (SELECT person.person_id AS id
                     FROM
-                      (SELECT id
-                       FROM person
+                      (SELECT pdi.person_id AS person_id,
+                              countIf(timestamp > now() - INTERVAL 2 year
+                                      AND timestamp < now()
+                                      AND event = '$pageview') > 0 AS performed_event_condition_23_level_level_0_level_0_level_0_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0
-                       AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
-                 WHERE 1 = 1
-                   AND ((((performed_event_condition_23_level_level_0_level_0_level_0_0)))) ) ))
+                         AND event IN ['$pageview']
+                         AND timestamp <= now()
+                         AND timestamp >= now() - INTERVAL 2 year
+                       GROUP BY person_id) behavior_query
+                    INNER JOIN
+                      (SELECT *,
+                              id AS person_id
+                       FROM
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
+                    WHERE 1 = 1
+                      AND ((((performed_event_condition_23_level_level_0_level_0_level_0_0)))) ) AS e
+                 LEFT OUTER JOIN
+                   (SELECT argMax(override_person_id, version) as person_id,
+                           old_person_id
+                    FROM person_overrides
+                    WHERE team_id = 2
+                    GROUP BY old_person_id) AS overrides ON e.id = overrides.old_person_id) ))
   '
 ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts
@@ -170,24 +186,32 @@
          1 AS sign,
          0 AS version
   FROM
-    (SELECT behavior_query.person_id AS id
+    (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.id) AS id
      FROM
-       (SELECT pdi.person_id AS person_id,
-               minIf(timestamp, event = 'signup') >= now() - INTERVAL 15 day
-        AND minIf(timestamp, event = 'signup') < now() as first_time_condition_24_level_level_0_level_0_0
-        FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
+       (SELECT behavior_query.person_id AS id
+        FROM
+          (SELECT pdi.person_id AS person_id,
+                  minIf(timestamp, event = 'signup') >= now() - INTERVAL 15 day
+           AND minIf(timestamp, event = 'signup') < now() as first_time_condition_24_level_level_0_level_0_0
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+             AND event IN ['signup']
+           GROUP BY person_id) behavior_query
+        WHERE 1 = 1
+          AND (((first_time_condition_24_level_level_0_level_0_0))) ) AS e
+     LEFT OUTER JOIN
+       (SELECT argMax(override_person_id, version) as person_id,
+               old_person_id
+        FROM person_overrides
         WHERE team_id = 2
-          AND event IN ['signup']
-        GROUP BY person_id) behavior_query
-     WHERE 1 = 1
-       AND (((first_time_condition_24_level_level_0_level_0_0))) ) as person
+        GROUP BY old_person_id) AS overrides ON e.id = overrides.old_person_id) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -211,28 +235,36 @@
          1 AS sign,
          0 AS version
   FROM
-    (SELECT behavior_query.person_id AS id
+    (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.id) AS id
      FROM
-       (SELECT pdi.person_id AS person_id,
-               countIf(timestamp > now() - INTERVAL 2 year
-                       AND timestamp < now()
-                       AND event = '$pageview') > 0 AS performed_event_condition_25_level_level_0_level_0_level_0_0,
-               minIf(timestamp, event = 'signup') >= now() - INTERVAL 15 day
-        AND minIf(timestamp, event = 'signup') < now() as first_time_condition_25_level_level_0_level_1_level_0_level_0_level_0_0
-        FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
+       (SELECT behavior_query.person_id AS id
+        FROM
+          (SELECT pdi.person_id AS person_id,
+                  countIf(timestamp > now() - INTERVAL 2 year
+                          AND timestamp < now()
+                          AND event = '$pageview') > 0 AS performed_event_condition_25_level_level_0_level_0_level_0_0,
+                  minIf(timestamp, event = 'signup') >= now() - INTERVAL 15 day
+           AND minIf(timestamp, event = 'signup') < now() as first_time_condition_25_level_level_0_level_1_level_0_level_0_level_0_0
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+             AND event IN ['$pageview', 'signup']
+           GROUP BY person_id) behavior_query
+        WHERE 1 = 1
+          AND ((((performed_event_condition_25_level_level_0_level_0_level_0_0))
+                AND ((((NOT first_time_condition_25_level_level_0_level_1_level_0_level_0_level_0_0)))))) ) AS e
+     LEFT OUTER JOIN
+       (SELECT argMax(override_person_id, version) as person_id,
+               old_person_id
+        FROM person_overrides
         WHERE team_id = 2
-          AND event IN ['$pageview', 'signup']
-        GROUP BY person_id) behavior_query
-     WHERE 1 = 1
-       AND ((((performed_event_condition_25_level_level_0_level_0_level_0_0))
-             AND ((((NOT first_time_condition_25_level_level_0_level_1_level_0_level_0_level_0_0)))))) ) as person
+        GROUP BY old_person_id) AS overrides ON e.id = overrides.old_person_id) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
