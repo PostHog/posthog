@@ -1,5 +1,5 @@
 import './SessionRecordingPlayer.scss'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import {
     ONE_FRAME_MS,
@@ -106,6 +106,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         1000: 'medium',
     })
 
+    const [inspectorFocus, setInspectorFocus] = useState(false)
+
     if (isNotFound) {
         return (
             <div className="text-center">
@@ -123,6 +125,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     'SessionRecordingPlayer--no-border': noBorder || embedded,
                     'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
                     'SessionRecordingPlayer--explorer-mode': !!explorerMode,
+                    'SessionRecordingPlayer--inspector-focus': inspectorFocus,
                 })}
             >
                 <div className="SessionRecordingPlayer__main">
@@ -134,11 +137,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     <LemonDivider className="my-0" />
                     <PlayerController />
                 </div>
-                {/* {!isFullScreen && ( */}
-                <div className="SessionRecordingPlayer__inspector">
-                    <PlayerInspector />
-                </div>
-                {/* )} */}
+                <PlayerInspector onFocusChange={setInspectorFocus} />
 
                 {explorerMode && <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />}
             </div>
