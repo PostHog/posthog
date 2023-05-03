@@ -3067,12 +3067,17 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "results": {
-                    "items": {},
+                "result": {
+                    "items": {
+                        "type": "object"
+                    },
                     "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
                 }
             },
-            "required": ["results"],
+            "required": ["result", "timezone"],
             "type": "object"
         }
     }

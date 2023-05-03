@@ -158,7 +158,8 @@ export interface NewEntityNode extends EntityNode {
 }
 
 export interface TrendsQueryResponse {
-    results: any[]
+    result: Record<string, any>[]
+    timezone: string
 }
 
 export interface EventsQueryResponse {

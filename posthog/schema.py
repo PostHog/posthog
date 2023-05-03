@@ -469,7 +469,8 @@ class TrendsQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    results: List
+    result: List[Dict[str, Any]]
+    timezone: str
 
 
 class Breakdown(BaseModel):

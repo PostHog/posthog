@@ -13,6 +13,8 @@ from posthog.schema import (
     HogQLQueryResponse,
     PersonPropertyFilter,
     PropertyOperator,
+    TrendsQuery,
+    TrendsQueryResponse,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -337,6 +339,42 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query = EventsQuery(select=["event"], before="2022-01-01", after="-4y")
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
+
+    @snapshot_clickhouse_queries
+    def test_trends_query(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:12:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:13:00"):
+            _create_event(
+                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            query = TrendsQuery(dateRange={"date_from": "2020-01-01"}, series=[])
+            api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            query.response = TrendsQueryResponse.parse_obj(api_response)
+
+            self.assertEqual(query.response.results and len(query.response.results), 4)
+            self.assertEqual(
+                query.response.results,
+                [
+                    ["sign up", "2", "test_val1"],
+                    ["sign out", "2", "test_val2"],
+                    ["sign out", "3", "test_val2"],
+                    ["sign out", "4", "test_val3"],
+                ],
+            )
 
     @also_test_with_materialized_columns(event_properties=["key"])
     @snapshot_clickhouse_queries
