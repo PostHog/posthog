@@ -36,12 +36,6 @@ describe('server', () => {
     }
 
     beforeEach(() => {
-        // We use procese.exit in a few places, which end up terminating tests
-        // if we don't mock it.
-        jest.spyOn(process, 'exit').mockImplementation((number) => {
-            throw new Error('process.exit: ' + number)
-        })
-
         jest.spyOn(Sentry, 'captureMessage')
 
         jest.useFakeTimers({ advanceTimers: true })
