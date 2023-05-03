@@ -12,7 +12,7 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
-from rest_framework import request, serializers, status, viewsets, authentication
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.parsers import JSONParser
@@ -36,7 +36,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
 from posthog.caching.insights_api import should_refresh_insight
 from posthog.client import sync_execute
@@ -536,12 +536,6 @@ class InsightViewSet(
         IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
-    ]
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        authentication.BasicAuthentication,
-        authentication.SessionAuthentication,
-        SharingAccessTokenAuthentication,
     ]
     throttle_classes = [
         ClickHouseBurstRateThrottle,

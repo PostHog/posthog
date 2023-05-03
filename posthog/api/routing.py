@@ -8,7 +8,7 @@ from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
-from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -44,6 +44,7 @@ class StructuredViewSetMixin(_GenericViewSet):
         PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
+        SharingAccessTokenAuthentication,
     ]
 
     def get_queryset(self):
