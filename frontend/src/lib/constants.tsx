@@ -63,6 +63,7 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
 
 // Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
+// Sync with api/person.py
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
     'Email',

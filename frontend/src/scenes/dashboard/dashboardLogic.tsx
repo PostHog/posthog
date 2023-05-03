@@ -1034,10 +1034,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             }
 
-            // run 2 item reloaders in parallel
-            for (let i = 0; i < 2; i++) {
-                void loadNextPromise()
-            }
+            void loadNextPromise()
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastRefreshed)
         },
