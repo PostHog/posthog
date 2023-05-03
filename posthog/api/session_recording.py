@@ -140,13 +140,18 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["GET"], detail=True)
     def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:
+        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
         blob_key = request.GET.get("blob_key")
 
         if not blob_key:
             raise exceptions.ValidationError("Must provide a snapshot file blob key")
 
         # very short-lived pre-signed URL
-        file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{self.kwargs['pk']}/{blob_key}"
+        file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{self.kwargs['pk']}/data/{blob_key}"
         url = object_storage.get_presigned_url(file_key, expiration=60)
         if not url:
             raise exceptions.NotFound("Snapshot file not found")
@@ -166,14 +171,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise exceptions.NotFound("Recording not found")
 
         if request.GET.get("blob_loading_enabled", "false") == "true":
-            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}"
+            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
             blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
                 return Response(
                     {
                         "snapshot_data_by_window_id": [],
-                        "blob_keys": [x.replace(blob_prefix + "/", "") for x in blob_keys],
+                        "blob_keys": [x.replace(blob_prefix, "") for x in blob_keys],
                         "next": None,
                     }
                 )
@@ -255,8 +260,10 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
 
     if all_session_ids:
         # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
+        sorted_session_ids = sorted(all_session_ids)
+
         persisted_recordings_queryset = (
-            SessionRecording.objects.filter(team=team, session_id__in=all_session_ids)
+            SessionRecording.objects.filter(team=team, session_id__in=sorted_session_ids)
             .exclude(object_storage_path=None)
             .annotate(pinned_count=Count("playlist_items"))
         )
@@ -296,7 +303,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     )
 
     # Get the related persons for all the recordings
-    distinct_ids = [x.distinct_id for x in recordings]
+    distinct_ids = sorted([x.distinct_id for x in recordings])
     person_distinct_ids = (
         PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
         .select_related("person")
