@@ -331,7 +331,8 @@
       first_url Nullable(VARCHAR),
       click_count Int64,
       keypress_count Int64,
-      mouse_activity_count Int64
+      mouse_activity_count Int64,
+      active_milliseconds Int64
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -911,7 +912,8 @@
       first_url Nullable(VARCHAR),
       click_count Int64,
       keypress_count Int64,
-      mouse_activity_count Int64
+      mouse_activity_count Int64,
+      active_milliseconds Int64
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -1322,7 +1324,8 @@
       first_url Nullable(VARCHAR),
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
-      mouse_activity_count SimpleAggregateFunction(sum, Int64)
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      active_milliseconds SimpleAggregateFunction(sum, Int64)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '
@@ -1341,7 +1344,8 @@
   any(first_url) AS first_url,
   sum(click_count) as click_count,
   sum(keypress_count) as keypress_count,
-  sum(mouse_activity_count) as mouse_activity_count
+  sum(mouse_activity_count) as mouse_activity_count,
+  sum(active_milliseconds) as active_milliseconds
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -1562,7 +1566,8 @@
       first_url Nullable(VARCHAR),
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
-      mouse_activity_count SimpleAggregateFunction(sum, Int64)
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      active_milliseconds SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(first_timestamp)
@@ -2160,7 +2165,8 @@
       first_url Nullable(VARCHAR),
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
-      mouse_activity_count SimpleAggregateFunction(sum, Int64)
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      active_milliseconds SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(first_timestamp)
