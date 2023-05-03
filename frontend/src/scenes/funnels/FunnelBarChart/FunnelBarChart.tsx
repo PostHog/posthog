@@ -29,7 +29,6 @@ export function FunnelBarChartDataExploration(props: ChartParams): JSX.Element {
 
 export function FunnelBarChart(props: ChartParams): JSX.Element {
     const { visibleStepsWithConversionMetrics, canOpenPersonModal } = useValues(funnelLogic)
-    console.log({ canOpenPersonModal })
     return (
         <FunnelBarChartComponent
             visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
@@ -54,7 +53,6 @@ export function FunnelBarChartComponent({
     isUsingDataExploration = false,
     visibleStepsWithConversionMetrics,
 }: FunnelBarChartComponent): JSX.Element {
-    console.log({ showPersonsModal })
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
 
