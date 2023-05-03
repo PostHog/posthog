@@ -1,6 +1,7 @@
 @import '../../../styles/mixins';
 
 .SessionRecordingPlayer {
+    position: relative;
     display: flex;
     flex-direction: row;
     overflow: hidden;
@@ -56,28 +57,44 @@
         overflow: hidden;
     }
 
-    .SessionRecordingPlayer__inspector {
-        min-width: 30%;
-        width: 40%;
-        max-width: 400px;
-        flex-shrink: 0;
-        border-left: 1px solid var(--border);
-    }
-
     .LemonModal & {
         .SessionRecordingPlayer__body {
             height: calc(90vh - 15rem);
         }
     }
 
-    // &--widescreen {
-
-    // }
-
     &--explorer-mode {
         .SessionRecordingPlayer__main,
         .SessionRecordingPlayer__inspector {
             display: none;
+        }
+    }
+
+    .SessionRecordingPlayer__inspector {
+        flex-shrink: 0;
+        border-left: 1px solid var(--border);
+
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 10;
+
+        transform: translateX(90%);
+        transition: transform 0.2s ease-in-out;
+
+        &:hover {
+            transform: translateX(0);
+        }
+    }
+
+    &--widescreen {
+        .SessionRecordingPlayer__inspector {
+            min-width: 30%;
+            width: 40%;
+            max-width: 400px;
+            position: relative;
+            transform: translateX(0);
         }
     }
 }
