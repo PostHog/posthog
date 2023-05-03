@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
-import { PlaylistPopover } from './playlist-popover/PlaylistPopover'
+import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -42,54 +42,59 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const commonProps: Partial<LemonButtonProps> = {
-        fullWidth: true,
+        fullWidth: false,
+        size: 'small',
     }
 
-    return (
-        <More
-            overlay={
-                <>
-                    <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" {...commonProps}>
-                        Share
-                    </LemonButton>
+    const showText = false
 
-                    <PlaylistPopover {...commonProps} />
+    // return (
+    //     <More
+    //         overlay={
+    //             <>
+    //                 <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" {...commonProps}>
+    //                     Share
+    //                 </LemonButton>
 
-                    {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                        <AddToNotebook
-                            node={NotebookNodeType.Recording}
-                            properties={{ sessionRecordingId }}
-                            {...commonProps}
-                        >
-                            Add to Notebook
-                        </AddToNotebook>
-                    )}
+    //                 <PlaylistPopoverButton {...commonProps} />
 
-                    {logicProps.playerKey !== 'modal' && (
-                        <LemonButton status="danger" icon={<IconDelete />} onClick={onDelete} {...commonProps}>
-                            Delete
-                        </LemonButton>
-                    )}
-                </>
-            }
-        />
-    )
+    //                 {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
+    //                     <AddToNotebook
+    //                         node={NotebookNodeType.Recording}
+    //                         properties={{ sessionRecordingId }}
+    //                         {...commonProps}
+    //                     >
+    //                         Add to Notebook
+    //                     </AddToNotebook>
+    //                 )}
+
+    //                 {logicProps.playerKey !== 'modal' && (
+    //                     <LemonButton status="danger" icon={<IconDelete />} onClick={onDelete} {...commonProps}>
+    //                         Delete
+    //                     </LemonButton>
+    //                 )}
+    //             </>
+    //         }
+    //     />
+    // )
 
     return (
         <div className="flex flex-row gap-1 items-center">
-            <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" size="small">
-                Share
+            <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" {...commonProps}>
+                {showText ? 'Share' : null}
             </LemonButton>
 
-            <PlaylistPopover />
+            <PlaylistPopoverButton {...commonProps}>{showText ? 'Pin to list' : null}</PlaylistPopoverButton>
 
             {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                <AddToNotebook node={NotebookNodeType.Recording} properties={{ sessionRecordingId }} />
+                <AddToNotebook node={NotebookNodeType.Recording} properties={{ sessionRecordingId }} {...commonProps}>
+                    {showText ? 'Add to Notebook' : null}
+                </AddToNotebook>
             )}
 
             {logicProps.playerKey !== 'modal' && (
-                <LemonButton status="danger" onClick={onDelete} size="small">
-                    <IconDelete className="text-lg" />
+                <LemonButton status="danger" icon={<IconDelete />} onClick={onDelete} {...commonProps}>
+                    {showText ? 'Delete' : null}
                 </LemonButton>
             )}
         </div>

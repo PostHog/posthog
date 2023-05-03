@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
 
-export function PlaylistPopover(props: LemonButtonProps): JSX.Element {
+export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
     const { sessionRecordingId, logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const logic = playlistPopoverLogic(logicProps)
     const {
@@ -123,10 +123,9 @@ export function PlaylistPopover(props: LemonButtonProps): JSX.Element {
                     icon={<IconPlus />}
                     active={showPlaylistPopover}
                     onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}
+                    sideIcon={null}
                     {...props}
-                >
-                    <span>Pin to list</span>
-                </LemonButton>
+                />
             </Popover>
         </IconWithCount>
     )

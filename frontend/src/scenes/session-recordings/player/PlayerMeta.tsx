@@ -1,7 +1,7 @@
 import './PlayerMeta.scss'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -80,13 +80,12 @@ export function PlayerMeta(): JSX.Element {
         currentWindowIndex,
         startTime,
         sessionPlayerMetaDataLoading,
-        windowIds,
     } = useValues(playerMetaLogic(logicProps))
 
-    const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
-    const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
-
-    const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
+    const { isFullScreen } = useValues(playerSettingsLogic)
+    // NOTE: The optimised event listing broke this as we don't have all the properties we need
+    // const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
+    const iconProperties = sessionPerson?.properties
 
     const { ref, size } = useResizeBreakpoints({
         0: 'compact',
@@ -112,7 +111,7 @@ export function PlayerMeta(): JSX.Element {
 
             <div
                 className={clsx(
-                    'PlayerMeta__top flex items-center gap-2 shrink-0 px-3 p-1',
+                    'PlayerMeta__top flex items-center gap-2 shrink-0 p-2',
                     isFullScreen ? ' text-xs' : 'border-b'
                 )}
             >
@@ -120,7 +119,7 @@ export function PlayerMeta(): JSX.Element {
                     {!sessionPerson ? (
                         <LemonSkeleton.Circle className="w-10 h-10" />
                     ) : (
-                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'md' : 'md'} />
+                        <ProfilePicture name={asDisplay(sessionPerson)} />
                     )}
                 </div>
                 <div className="overflow-hidden ph-no-capture flex-1">
@@ -129,7 +128,9 @@ export function PlayerMeta(): JSX.Element {
                             <LemonSkeleton className="w-1/3 my-1" />
                         ) : (
                             <div className="flex gap-1">
-                                <PersonHeader person={sessionPerson} withIcon={false} noEllipsis={true} />
+                                <span className="whitespace-nowrap truncate">
+                                    <PersonHeader person={sessionPerson} withIcon={false} noEllipsis={true} />
+                                </span>
                                 {'·'}
                                 <TZLabel
                                     time={dayjs(startTime)}
@@ -168,10 +169,17 @@ export function PlayerMeta(): JSX.Element {
                     <LemonSkeleton className="w-1/3 my-1" />
                 ) : (
                     <>
-                        <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
-                        {windowIds.length > 1 && !isSmallPlayer ? (
-                            <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>
-                        ) : null}
+                        <Tooltip
+                            title={
+                                <>
+                                    Window {currentWindowIndex + 1}.
+                                    <br />
+                                    Each recording window translates to a distinct browser tab or window.
+                                </>
+                            }
+                        >
+                            <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
+                        </Tooltip>
 
                         {lastPageviewEvent?.properties?.['$current_url'] && (
                             <span className="flex items-center gap-2 truncate">
@@ -209,16 +217,30 @@ export function PlayerMeta(): JSX.Element {
                 <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
                 {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3" />
-                ) : (
-                    <span className="text-muted-alt">
-                        {resolution && (
+                ) : resolution ? (
+                    <Tooltip
+                        placement="bottom"
+                        title={
                             <>
-                                Resolution: {resolution.width} x {resolution.height}{' '}
-                                {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
+                                The resolution of the page as it was captured was{' '}
+                                <b>
+                                    {resolution.width} x {resolution.height}
+                                </b>
+                                <br />
+                                You are viewing the replay at <b>{percentage(scale, 1, true)}</b> of the original size
                             </>
-                        )}
-                    </span>
-                )}
+                        }
+                    >
+                        <span className="text-muted-alt text-xs">
+                            {resolution && (
+                                <>
+                                    {resolution.width} x {resolution.height}{' '}
+                                    {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
+                                </>
+                            )}
+                        </span>
+                    </Tooltip>
+                ) : null}
             </div>
         </div>
     )
