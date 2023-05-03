@@ -1,3 +1,5 @@
+import { TaskQueue } from '@posthog/piscina/src/common'
+
 import { PluginsServerConfig } from '../types'
 
 // Copy From: node_modules/piscina/src/index.ts -- copied because it's not exported
@@ -14,6 +16,7 @@ export interface PiscinaOptions {
     execArgv?: string[]
     env?: any
     workerData?: any
+    taskQueue?: TaskQueue
     niceIncrement?: number
     trackUnmanagedFds?: boolean
     atomicsTimeout?: number

@@ -1,3 +1,4 @@
+import Piscina from '@posthog/piscina'
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 import { IngestionConsumer } from 'main/ingestion-queues/kafka-queue'
 import * as prometheus from 'prom-client'
@@ -10,7 +11,8 @@ prometheus.collectDefaultMetrics()
 
 export function createHttpServer(
     healthChecks: { [service: string]: () => Promise<boolean> | boolean },
-    analyticsEventsIngestionConsumer?: IngestionConsumer
+    analyticsEventsIngestionConsumer?: IngestionConsumer,
+    piscina?: Piscina
 ): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {
@@ -86,8 +88,7 @@ export function createHttpServer(
                 res.end(JSON.stringify(responseBody))
             }
         } else if (req.url === '/_metrics' && req.method === 'GET') {
-            prometheus.register
-                .metrics()
+            collectMetrics(piscina)
                 .then((metrics) => {
                     res.end(metrics)
                 })
@@ -107,4 +108,26 @@ export function createHttpServer(
     })
 
     return server
+}
+
+/**
+ * Collects the prometheus metrics to be exposed.
+ * If piscina is disabled, the global registry from the main thread is passed through.
+ * If piscina is enabled, metrics from all the workers are retrieved, then aggregated
+ * with the main thread's metrics before being returned.
+ *
+ * Metrics are summed by default, which is good for counters and histograms.
+ * For gauges, you should set each gauge's aggregator config to one of average, min, max, sum.
+ */
+async function collectMetrics(piscina?: Piscina): Promise<string> {
+    if (piscina) {
+        // Get metrics from worker threads through piscina
+        const metrics = await piscina.broadcastTask({ task: 'getPrometheusMetrics' })
+        // Add metrics from main thread
+        metrics.push(await prometheus.register.getMetricsAsJSON())
+        // Return aggregated result
+        return prometheus.AggregatorRegistry.aggregate(metrics).metrics()
+    } else {
+        return prometheus.register.metrics()
+    }
 }

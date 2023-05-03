@@ -1,9 +1,9 @@
+import Piscina from '@posthog/piscina'
 import * as schedule from 'node-schedule'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
-import Piscina from '../../worker/piscina'
 import { makeHealthCheck } from './analytics-events-ingestion-consumer'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { IngestionConsumer } from './kafka-queue'

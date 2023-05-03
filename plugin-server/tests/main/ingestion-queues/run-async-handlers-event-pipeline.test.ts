@@ -14,7 +14,7 @@
 //     DependencyUnavailableError Error being thrown.
 //  2. the KafkaQueue consumer handler will let the error bubble up to the
 //     KafkaJS consumer runner, which we assume will handle retries.
-
+import Piscina from '@posthog/piscina'
 import { RetryError } from '@posthog/plugin-scaffold'
 import Redis from 'ioredis'
 import { KafkaJSError } from 'kafkajs'
@@ -26,7 +26,7 @@ import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
-import Piscina, { makePiscina } from '../../../src/worker/piscina'
+import { makePiscina } from '../../../src/worker/piscina'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
 import { createTaskRunner } from '../../../src/worker/worker'
 import {
@@ -243,10 +243,11 @@ describe('eachBatchAsyncHandlers', () => {
 
     afterEach(async () => {
         await closeHub?.()
+        await piscina.destroy()
     })
 
     test('rejections from piscina are bubbled up to the consumer', async () => {
-        piscina = await makePiscina(defaultConfig, hub)
+        piscina = makePiscina(defaultConfig)
         const ingestionConsumer = buildOnEventIngestionConsumer({ hub, piscina })
 
         jest.spyOn(ingestionConsumer, 'eachBatch').mockRejectedValue(

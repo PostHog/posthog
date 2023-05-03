@@ -1,8 +1,10 @@
+import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { LogLevel } from '../../src/types'
-import Piscina, { makePiscina } from '../../src/worker/piscina'
+import { delay } from '../../src/utils/utils'
+import { makePiscina } from '../../src/worker/piscina'
 import { pluginConfig39 } from '../helpers/plugins'
 import { getErrorForPluginConfig, resetTestDatabase } from '../helpers/sql'
 
@@ -43,16 +45,15 @@ describe('teardown', () => {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
             },
-            makePiscina,
-            undefined
+            makePiscina
         )
 
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
 
-        await processEvent(piscina!, defaultEvent)
+        await processEvent(piscina, defaultEvent)
 
-        await stop?.()
+        await stop()
 
         // verify the teardownPlugin code runs
         const error2 = await getErrorForPluginConfig(pluginConfig39.id)
@@ -75,18 +76,58 @@ describe('teardown', () => {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
             },
-            makePiscina,
-            undefined
+            makePiscina
         )
 
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
 
-        await stop?.()
+        await stop()
 
         // verify the teardownPlugin code doesn't run, because processEvent was never called
         // and thus the plugin was never setup - see LazyVM
         const error2 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error2).toBe(null)
+    })
+
+    test('teardown code runs when reloading', async () => {
+        await resetTestDatabase(`
+            async function processEvent (event, meta) {
+                event.properties.storage = await meta.storage.get('storage', 'nope')
+                return event
+            }
+            async function teardownPlugin(meta) {
+                await meta.storage.set('storage', 'tore down')
+            }
+        `)
+        const { piscina, stop, hub } = await startPluginsServer(
+            {
+                WORKER_CONCURRENCY: 2,
+                LOG_LEVEL: LogLevel.Log,
+            },
+            makePiscina
+        )
+
+        const error1 = await getErrorForPluginConfig(pluginConfig39.id)
+        expect(error1).toBe(null)
+
+        await delay(100)
+
+        await hub.db.postgresQuery(
+            'update posthog_pluginconfig set updated_at = now() where id = $1',
+            [pluginConfig39.id],
+            'testTag'
+        )
+        const event1 = await processEvent(piscina, defaultEvent)
+        expect(event1.properties.storage).toBe('nope')
+
+        await piscina!.broadcastTask({ task: 'reloadPlugins' })
+        await delay(10000)
+
+        // const event2 = await piscina!.run({ task: 'runEventPipeline', args: { event: { ...defaultEvent } } })
+        const event2 = await processEvent(piscina, defaultEvent)
+        expect(event2.properties.storage).toBe('tore down')
+
+        await stop()
     })
 })

@@ -1,3 +1,4 @@
+import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka } from 'kafkajs'
@@ -7,7 +8,6 @@ import { runBufferEventPipeline } from '../../main/graphile-worker/buffer'
 import { Hub } from '../../types'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { status } from '../../utils/status'
-import Piscina from '../../worker/piscina'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
 export const startAnonymousEventBufferConsumer = async ({
