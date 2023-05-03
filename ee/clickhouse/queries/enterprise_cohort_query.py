@@ -75,7 +75,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         person_override_join = PERSON_OVERRIDES_JOIN_SQL.format(
             person_overrides_table_alias="overrides",
             event_table_alias="e",
-            person_id_alias="person_id",
+            person_id_alias="id",
         )
 
         inner_query = f"""
