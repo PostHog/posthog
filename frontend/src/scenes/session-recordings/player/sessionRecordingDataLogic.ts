@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
@@ -100,7 +100,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
-        loadEntireRecording: true,
+        loadRecording: (full: boolean = false) => ({ full }),
         loadRecordingMeta: true,
         addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
@@ -111,16 +111,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         reportUsageIfFullyLoaded: true,
     }),
     reducers(() => ({
+        fullLoad: [
+            false as boolean,
+            {
+                loadRecording: (_, { full }) => full,
+            },
+        ],
         filters: [
             {} as Partial<RecordingEventsFilters>,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
-            },
-        ],
-        sessionRecordingId: [
-            null as SessionRecordingId | null,
-            {
-                loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
             },
         ],
         chunkPaginationIndex: [
@@ -142,15 +142,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     listeners(({ values, actions, cache }) => ({
-        loadEntireRecording: () => {
-            actions.loadRecordingMeta()
-        },
-        loadRecordingMetaSuccess: () => {
+        loadRecording: ({ full }) => {
+            // If we don't have metadata then we load that first, which will trigger this again
+            if (!values.sessionPlayerMetaData) {
+                actions.loadRecordingMeta()
+                return
+            }
+
+            if (!full) {
+                return
+            }
+
             if (!values.sessionPlayerSnapshotData?.snapshots) {
                 actions.loadRecordingSnapshots()
             }
             actions.loadEvents()
             actions.loadPerformanceEvents()
+        },
+        loadRecordingMetaSuccess: () => {
+            if (values.fullLoad) {
+                actions.loadRecording(true)
+            }
         },
         loadRecordingBlobSnapshotsSuccess: () => {
             if (values.sessionPlayerSnapshotData?.blob_keys?.length) {
@@ -571,10 +583,5 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return Object.keys(snapshotsByWindowId)
             },
         ],
-    }),
-    afterMount(({ props, actions }) => {
-        if (props.sessionRecordingId) {
-            actions.loadEntireRecording()
-        }
     }),
 ])

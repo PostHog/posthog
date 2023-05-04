@@ -10,9 +10,9 @@ import { urls } from 'scenes/urls'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const recordingLogicProps: SessionRecordingPlayerProps = {
-        embedded: true,
         sessionRecordingId: props.node.attrs.sessionRecordingId,
         playerKey: `notebook-${props.node.attrs.sessionRecordingId}`,
+        autoPlay: false,
     }
 
     return (

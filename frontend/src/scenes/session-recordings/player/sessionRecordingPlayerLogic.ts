@@ -48,8 +48,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicP
     playlistShortId?: string
     matching?: MatchedRecording[]
     recordingStartTime?: string
-    embedded?: boolean // hides unimportant meta information and no border
     nextSessionRecording?: Partial<SessionRecordingType>
+    autoPlay?: boolean
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
@@ -59,7 +59,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
-            ['sessionPlayerData', 'sessionPlayerSnapshotDataLoading', 'sessionPlayerMetaDataLoading'],
+            ['fullLoad', 'sessionPlayerData', 'sessionPlayerSnapshotDataLoading', 'sessionPlayerMetaDataLoading'],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'isFullScreen'],
             userLogic,
@@ -67,7 +67,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         actions: [
             sessionRecordingDataLogic(props),
-            ['loadRecordingSnapshotsSuccess', 'loadRecordingSnapshotsFailure', 'loadRecordingMetaSuccess'],
+            [
+                'loadRecording',
+                'loadRecordingSnapshotsSuccess',
+                'loadRecordingSnapshotsFailure',
+                'loadRecordingMetaSuccess',
+            ],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
             eventUsageLogic,
@@ -196,11 +201,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
 
         currentPlayerState: [
-            (s) => [s.playingState, s.isBuffering, s.isErrored, s.isScrubbing, s.isSkippingInactivity],
-            (playingState, isBuffering, isErrored, isScrubbing, isSkippingInactivity) => {
+            (s) => [s.playingState, s.fullLoad, s.isBuffering, s.isErrored, s.isScrubbing, s.isSkippingInactivity],
+            (playingState, fullLoad, isBuffering, isErrored, isScrubbing, isSkippingInactivity) => {
                 if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
                     return playingState
+                }
+                if (!fullLoad) {
+                    return SessionPlayerState.READY
                 }
                 if (isErrored) {
                     return SessionPlayerState.ERROR
@@ -490,8 +498,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setCurrentSegment(segment)
             }
 
-            // If not currently loading anything and part of the recording hasn't loaded, set error state
-            if (!values.sessionPlayerSnapshotDataLoading && segment?.kind === 'buffer') {
+            if (values.currentPlayerState === SessionPlayerState.READY) {
+                // We haven't started properly loading yet so nothigng to do
+            } else if (!values.sessionPlayerSnapshotDataLoading && segment?.kind === 'buffer') {
+                // If not currently loading anything and part of the recording hasn't loaded, set error state
                 values.player?.replayer?.pause()
                 actions.endBuffer()
                 console.error("Error: Player tried to seek to a position that hasn't loaded yet")
@@ -547,6 +557,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
 
         togglePlayPause: () => {
+            if (values.currentPlayerState === SessionPlayerState.READY) {
+                actions.loadRecording(true)
+                return
+            }
             // If buffering, toggle is a noop
             if (values.currentPlayerState === SessionPlayerState.BUFFER) {
                 return
@@ -687,7 +701,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     windowValues({
         isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
     }),
-    events(({ values, actions, cache }) => ({
+    events(({ props, values, actions, cache }) => ({
         beforeUnmount: () => {
             cache.resetConsoleWarn?.()
             clearTimeout(cache.consoleWarnDebounceTimer)
@@ -706,10 +720,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             })
         },
         afterMount: () => {
-            if (!values.sessionPlayerSnapshotDataLoading || !values.sessionPlayerMetaDataLoading) {
-                // If either value is not loading that indicates we have already loaded and should trigger it
-                actions.updateFromMetadata()
+            if (props.sessionRecordingId) {
+                actions.loadRecording(props.autoPlay)
             }
+            // if (!values.sessionPlayerSnapshotDataLoading || !values.sessionPlayerMetaDataLoading) {
+            //     // If either value is not loading that indicates we have already loaded and should trigger it
+            //     actions.updateFromMetadata()
+            // }
 
             cache.openTime = performance.now()
 
