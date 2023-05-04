@@ -92,7 +92,8 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                     {
                         "key": f"$feature_enrollment/{feature_flag_key}",
                         "type": "person",
-                        "operator": "is_set",
+                        "operator": "exact",
+                        "value": ["true"],
                     },
                 ],
                 "rollout_percentage": 100,
