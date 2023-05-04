@@ -405,6 +405,43 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
+        def test_stickiness_all_events(self):
+            self._create_multiple_people()
+            base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
+            person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
+            p4_person_id = str(uuid.uuid4())
+            event_factory(
+                team=self.team,
+                event="another type of event",
+                distinct_id="person4",
+                timestamp=base_time.replace(tzinfo=timezone.utc).isoformat(),
+                properties={"$browser": "Chrome"},
+                person_id=p4_person_id,
+            )
+
+            with freeze_time("2020-01-08T13:01:01Z"):
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-08",
+                        "events": [{"id": None}],
+                    },
+                )
+                response = stickiness_response["result"]
+
+            self.assertEqual(response[0]["count"], 4)
+            self.assertEqual(response[0]["labels"][0], "1 day")
+            self.assertEqual(response[0]["data"][0], 2)
+            self.assertEqual(response[0]["labels"][1], "2 days")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 days")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 days")
+            self.assertEqual(response[0]["data"][6], 0)
+
         def test_stickiness_entity_person_filter(self):
             self._create_multiple_people()
 
