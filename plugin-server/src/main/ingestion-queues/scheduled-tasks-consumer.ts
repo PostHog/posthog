@@ -147,10 +147,10 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
     // In any one batch, we only want to run one task per plugin config id.
     // Hence here we dedupe the tasks by plugin config id and task type.
     const tasksbyTypeAndPluginConfigId = {} as Record<
-        typeof taskTypes[number],
+        (typeof taskTypes)[number],
         Record<
             number,
-            { taskType: typeof taskTypes[number]; pluginConfigId: number; message: typeof batch.messages[number] }
+            { taskType: (typeof taskTypes)[number]; pluginConfigId: number; message: (typeof batch.messages)[number] }
         >
     >
 
@@ -167,7 +167,7 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
         }
 
         let task: {
-            taskType: typeof taskTypes[number]
+            taskType: (typeof taskTypes)[number]
             pluginConfigId: number
         }
 
