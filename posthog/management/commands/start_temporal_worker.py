@@ -22,9 +22,11 @@ class Command(BaseCommand):
         )
         parser.add_argument("--namespace", default=settings.TEMPORAL_NAMESPACE, help="Namespace to connect to")
         parser.add_argument("--task-queue", default=settings.TEMPORAL_TASK_QUEUE, help="Task queue to service")
-        parser.add_argument("--server-root-ca-cert", help="Optional root server CA cert")
-        parser.add_argument("--client-cert", help="Optional client cert")
-        parser.add_argument("--client-key", help="Optional client key")
+        parser.add_argument(
+            "--server-root-ca-cert", default=settings.TEMPORAL_CLIENT_ROOT_CA, help="Optional root server CA cert"
+        )
+        parser.add_argument("--client-cert", default=settings.TEMPORAL_CLIENT_CERT, help="Optional client cert")
+        parser.add_argument("--client-key", default=settings.TEMPORAL_CLIENT_KEY, help="Optional client key")
 
     def handle(self, *args, **options):
         logging.info(f"Starting Temporal Worker with options: {options}")
