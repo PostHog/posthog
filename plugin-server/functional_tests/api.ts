@@ -19,7 +19,7 @@ import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
 import { waitForExpect } from './expectations'
-import { produceAndFlush } from './kafka'
+import { produce } from './kafka'
 
 let clickHouseClient: ClickHouse
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
@@ -81,7 +81,7 @@ export const capture = async ({
     // WARNING: this capture method is meant to simulate the ingestion of events
     // from the capture endpoint, but there is no guarantee that is is 100%
     // accurate.
-    return await produceAndFlush({
+    return await produce({
         topic,
         message: Buffer.from(
             JSON.stringify({

@@ -3,7 +3,7 @@ import SnappyCodec from 'kafkajs-snappy'
 import { HighLevelProducer } from 'node-rdkafka-acosom'
 
 import { defaultConfig } from '../src/config/config'
-import { flushProducer, produce } from '../src/kafka/producer'
+import { produce as defaultProduce } from '../src/kafka/producer'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
@@ -24,6 +24,7 @@ afterAll(async () => {
 export async function createKafkaProducer() {
     producer = new HighLevelProducer({
         'metadata.broker.list': defaultConfig.KAFKA_HOSTS,
+        'linger.ms': 0,
     })
 
     await new Promise((resolve, reject) =>
@@ -35,8 +36,7 @@ export async function createKafkaProducer() {
     return producer
 }
 
-export async function produceAndFlush({ topic, message, key }: { topic: string; message: Buffer | null; key: string }) {
+export async function produce({ topic, message, key }: { topic: string; message: Buffer | null; key: string }) {
     producer = producer ?? (await createKafkaProducer())
-    await produce({ producer, topic, value: message, key: Buffer.from(key) })
-    await flushProducer(producer)
+    await defaultProduce({ producer, topic, value: message, key: Buffer.from(key) })
 }

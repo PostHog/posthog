@@ -49,9 +49,7 @@ export class KafkaProducerWrapper {
     }
 
     async queueMessages(kafkaMessages: ProducerRecord[]): Promise<void> {
-        for (const message of kafkaMessages) {
-            await this.queueMessage(message)
-        }
+        await Promise.all(kafkaMessages.map((message) => this.queueMessage(message)))
     }
 
     async queueSingleJsonMessage(topic: string, key: Message['key'], object: Record<string, any>): Promise<void> {

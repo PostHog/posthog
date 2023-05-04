@@ -4,7 +4,7 @@ import { createServer, Server } from 'http'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam, getMetric } from './api'
 import { waitForExpect } from './expectations'
-import { produceAndFlush } from './kafka'
+import { produce } from './kafka'
 
 // Exports are coordinated by a scheduled task that runs every minute, so we
 // increase the wait time to give us a bit of leeway.
@@ -276,7 +276,7 @@ const createHistoricalExportJob = async ({ teamId, pluginConfigId, dateRange }) 
     // adds directly to PostgreSQL using the graphile-worker stored
     // procedure `add_job`. I'd rather keep these tests graphile
     // unaware.
-    await produceAndFlush({
+    await produce({
         topic: 'jobs',
         message: Buffer.from(
             JSON.stringify({
