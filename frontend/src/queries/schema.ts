@@ -492,7 +492,6 @@ export interface DateRange {
 }
 
 export interface BreakdownFilter {
-    // TODO: unclutter
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
