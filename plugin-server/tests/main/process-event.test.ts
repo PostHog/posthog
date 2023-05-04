@@ -11,6 +11,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
+import { RRWebEventSummary } from '../../src/main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
     ClickHouseEvent,
     Database,
@@ -31,7 +32,6 @@ import {
     createSessionRecordingEvent,
     createSessionReplayEvent,
     EventsProcessor,
-    RRWebEventSummary,
     SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -1215,11 +1215,17 @@ const sessionReplayEventTestCases: {
     snapshotData: { events_summary: RRWebEventSummary[] }
     expected: Pick<
         SummarizedSessionRecordingEvent,
-        'click_count' | 'keypress_count' | 'mouse_activity_count' | 'first_url' | 'first_timestamp' | 'last_timestamp'
+        | 'click_count'
+        | 'keypress_count'
+        | 'mouse_activity_count'
+        | 'first_url'
+        | 'first_timestamp'
+        | 'last_timestamp'
+        | 'active_milliseconds'
     >
 }[] = [
     {
-        snapshotData: { events_summary: [{ timestamp: 1682449093469, type: 3, data: { source: 2 } }] },
+        snapshotData: { events_summary: [{ timestamp: 1682449093469, type: 3, data: { source: 2 }, windowId: '1' }] },
         expected: {
             click_count: 1,
             keypress_count: 0,
@@ -1227,10 +1233,11 @@ const sessionReplayEventTestCases: {
             first_url: undefined,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
+            active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
         },
     },
     {
-        snapshotData: { events_summary: [{ timestamp: 1682449093469, type: 3, data: { source: 5 } }] },
+        snapshotData: { events_summary: [{ timestamp: 1682449093469, type: 3, data: { source: 5 }, windowId: '1' }] },
         expected: {
             click_count: 0,
             keypress_count: 1,
@@ -1238,6 +1245,7 @@ const sessionReplayEventTestCases: {
             first_url: undefined,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
+            active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
         },
     },
     {
@@ -1252,6 +1260,7 @@ const sessionReplayEventTestCases: {
                             href: 'http://127.0.0.1:8000/home',
                         },
                     },
+                    windowId: '1',
                 },
                 {
                     timestamp: 1682449093469,
@@ -1259,6 +1268,7 @@ const sessionReplayEventTestCases: {
                     data: {
                         href: 'http://127.0.0.1:8000/second/url',
                     },
+                    windowId: '1',
                 },
             ],
         },
@@ -1269,6 +1279,30 @@ const sessionReplayEventTestCases: {
             first_url: 'http://127.0.0.1:8000/second/url',
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.693',
+            active_milliseconds: 0, // no data.source, so no activity
+        },
+    },
+    {
+        snapshotData: {
+            events_summary: [
+                // three windows with 1 second, 2 seconds, and 3 seconds of activity
+                // even though they overlap they should be summed separately
+                { timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' },
+                { timestamp: 1682449094000, type: 3, data: { source: 2 }, windowId: '1' },
+                { timestamp: 1682449095000, type: 3, data: { source: 2 }, windowId: '2' },
+                { timestamp: 1682449097000, type: 3, data: { source: 2 }, windowId: '2' },
+                { timestamp: 1682449096000, type: 3, data: { source: 2 }, windowId: '3' },
+                { timestamp: 1682449099000, type: 3, data: { source: 2 }, windowId: '3' },
+            ],
+        },
+        expected: {
+            click_count: 6,
+            keypress_count: 0,
+            mouse_activity_count: 6,
+            first_url: undefined,
+            first_timestamp: '2023-04-25 18:58:13.000',
+            last_timestamp: '2023-04-25 18:58:19.000',
+            active_milliseconds: 6000, // can sum up the activity across windows
         },
     },
 ]
