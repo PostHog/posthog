@@ -121,7 +121,8 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 1024 * 50, // ~50MB after compression in prod
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
 
-        // NB set to all so that this feature is enabled in the PR deploy
+        // NB set to all so that this feature is enabled
+        // in the PR deploy
         SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS: 'all', // TODO: Change this to 'all' when we release it fully
     }
 }
