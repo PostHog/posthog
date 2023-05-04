@@ -4,6 +4,7 @@ import { funnelLogic } from '../funnelLogic'
 import { FunnelStepWithConversionMetrics } from '~/types'
 import { percentage } from 'lib/utils'
 import { getSeriesColor } from 'lib/colors'
+import clsx from 'clsx'
 
 export interface StepBarProps {
     step: FunnelStepWithConversionMetrics
@@ -16,7 +17,7 @@ interface StepBarCSSProperties extends React.CSSProperties {
 }
 export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
     const { openPersonsModalForSeries, showTooltip, hideTooltip } = useActions(funnelLogic)
-    const { disableFunnelBreakdownBaseline } = useValues(funnelLogic)
+    const { disableFunnelBreakdownBaseline, canOpenPersonModal } = useValues(funnelLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
@@ -24,7 +25,7 @@ export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element 
 
     return (
         <div
-            className="StepBar"
+            className={clsx('StepBar', !canOpenPersonModal && 'StepBar__unclickable')}
             /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {
@@ -43,11 +44,15 @@ export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element 
         >
             <div
                 className="StepBar__backdrop"
-                onClick={() => openPersonsModalForSeries({ step, series, converted: false })}
+                onClick={
+                    canOpenPersonModal ? () => openPersonsModalForSeries({ step, series, converted: false }) : undefined
+                }
             />
             <div
                 className="StepBar__fill"
-                onClick={() => openPersonsModalForSeries({ step, series, converted: true })}
+                onClick={
+                    canOpenPersonModal ? () => openPersonsModalForSeries({ step, series, converted: true }) : undefined
+                }
             />
         </div>
     )
