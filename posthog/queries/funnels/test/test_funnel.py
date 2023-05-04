@@ -273,6 +273,43 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["name"], "watched movie")
             self.assertEqual(result[1]["count"], 1)
 
+        def test_funnel_with_any_event(self):
+            action_play_movie = Action.objects.create(team=self.team, name="watched movie")
+            ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
+
+            funnel = self._basic_funnel(
+                filters={
+                    "events": [{"id": None, "type": "events", "order": 0}, {"id": None, "type": "events", "order": 1}],
+                    "funnel_window_days": 14,
+                }
+            )
+
+            # events
+            person_factory(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
+            self._signup_event(distinct_id="stopped_after_signup")
+
+            person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
+            self._signup_event(distinct_id="stopped_after_pay")
+            self._movie_event(distinct_id="completed_movie")
+
+            person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
+            self._signup_event(distinct_id="had_anonymous_id")
+            self._movie_event(distinct_id="completed_movie")
+
+            person_factory(distinct_ids=["just_did_movie"], team_id=self.team.pk)
+            self._movie_event(distinct_id="just_did_movie")
+
+            person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
+            self._movie_event(distinct_id="wrong_order")
+            self._signup_event(distinct_id="wrong_order")
+
+            result = funnel.run()
+            self.assertEqual(result[0]["name"], "")
+            self.assertEqual(result[0]["count"], 4)
+
+            self.assertEqual(result[1]["name"], "")
+            self.assertEqual(result[1]["count"], 1)
+
         def test_funnel_with_new_entities_that_mess_up_order(self):
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")
             ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
