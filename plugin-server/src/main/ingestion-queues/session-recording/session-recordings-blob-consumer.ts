@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
+import { Gauge } from 'prom-client'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
@@ -20,6 +21,26 @@ const sessionTimeout = 30000
 const fetchBatchSize = 500
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
+
+export const gaugeSessionsHandled = new Gauge({
+    name: 'recording_blob_ingestion_session_manager_count',
+    help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
+})
+
+export const gaugePartitionsRevoked = new Gauge({
+    name: 'recording_blob_ingestion_partitions_revoked',
+    help: 'A gauge of the number of partitions being revoked when a re-balance occurs',
+})
+
+export const gaugSessionsRevoked = new Gauge({
+    name: 'recording_blob_ingestion_sessions_revoked',
+    help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
+})
+
+export const gaugePartitionsAssigned = new Gauge({
+    name: 'recording_blob_ingestion_partitions_assigned',
+    help: 'A gauge of the number of partitions being assigned when a re-balance occurs',
+})
 
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
@@ -217,6 +238,7 @@ export class SessionRecordingBlobIngester {
                 status.info('⚖️', 'blob_ingester_consumer - assigned partitions', {
                     assignedPartitions: assignedPartitions,
                 })
+                gaugePartitionsAssigned.set(assignedPartitions.length)
                 return
             }
 
@@ -246,6 +268,8 @@ export class SessionRecordingBlobIngester {
                     revokedPartitions: revokedPartitions,
                     droppedSessions: sessionsToDrop.map((s) => s.sessionId),
                 })
+                gaugSessionsRevoked.set(sessionsToDrop.length)
+                gaugePartitionsRevoked.set(revokedPartitions.length)
                 return
             }
 
@@ -290,6 +314,8 @@ export class SessionRecordingBlobIngester {
                 chunksSize: sessionManagerChunksSizes,
                 buffersSize: sessionManagerBufferSizes,
             })
+
+            gaugeSessionsHandled.set(this.sessions.size)
         }, 10000)
     }
 
