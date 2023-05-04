@@ -52,7 +52,7 @@ def produce_replay_summary(
     click_count: int,
     keypress_count: int,
     mouse_activity_count: int,
-    active_milliseconds: Optional[int] = None,
+    active_milliseconds: Optional[float] = None,
 ):
 
     data = {
