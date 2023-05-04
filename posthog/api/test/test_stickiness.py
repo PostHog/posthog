@@ -407,17 +407,6 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
 
         def test_stickiness_any_event(self):
             self._create_multiple_people()
-            base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
-            person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
-            p4_person_id = str(uuid.uuid4())
-            event_factory(
-                team=self.team,
-                event="another type of event",
-                distinct_id="person4",
-                timestamp=base_time.replace(tzinfo=timezone.utc).isoformat(),
-                properties={"$browser": "Chrome"},
-                person_id=p4_person_id,
-            )
 
             with freeze_time("2020-01-08T13:01:01Z"):
                 stickiness_response = get_stickiness_ok(
