@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
@@ -21,16 +21,19 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 
 export function DashboardsTable(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
+    const { dashboards, filters } = useValues(dashboardsLogic)
+    const { setFilters } = useActions(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { meFirstMembers } = useValues(membersLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -174,37 +177,71 @@ export function DashboardsTable(): JSX.Element {
     ]
 
     return (
-        <LemonTable
-            data-attr="dashboards-table"
-            pagination={{ pageSize: 100 }}
-            dataSource={dashboards as DashboardType[]}
-            rowKey="id"
-            rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
-            columns={columns}
-            loading={dashboardsLoading}
-            defaultSorting={{ columnKey: 'name', order: 1 }}
-            emptyState={
-                searchTerm ? (
-                    `No ${
-                        currentTab === DashboardsTab.Pinned
-                            ? 'pinned '
-                            : currentTab === DashboardsTab.Shared
-                            ? 'shared '
-                            : ''
-                    }dashboards matching "${searchTerm}"!`
-                ) : currentTab === DashboardsTab.Pinned ? (
-                    <>
-                        No dashboards have been pinned for quick access yet.{' '}
-                        <Link onClick={() => setCurrentTab(DashboardsTab.All)}>Go to All Dashboards to pin one.</Link>
-                    </>
-                ) : currentTab === DashboardsTab.Shared ? (
-                    <>
-                        No dashboards have been shared yet.{' '}
-                        <Link onClick={() => setCurrentTab(DashboardsTab.All)}>Go to All Dashboards to share one.</Link>
-                    </>
-                ) : undefined
-            }
-            nouns={['dashboard', 'dashboards']}
-        />
+        <>
+            <div className="flex justify-between gap-2 flex-wrap mb-4">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for dashboards"
+                    onChange={(x) => setFilters({ search: x })}
+                    value={filters.search}
+                />
+                <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            active={filters.pinned}
+                            type="secondary"
+                            status="stealth"
+                            size="small"
+                            onClick={() => setFilters({ pinned: !filters.pinned })}
+                            icon={<IconPinOutline />}
+                        >
+                            Pinned
+                        </LemonButton>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            active={filters.shared}
+                            type="secondary"
+                            status="stealth"
+                            size="small"
+                            onClick={() => setFilters({ shared: !filters.shared })}
+                            icon={<IconShare />}
+                        >
+                            Shared
+                        </LemonButton>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span>Created by:</span>
+                        <LemonSelect
+                            options={[
+                                { value: 'All users' as number | 'All users', label: 'All Users' },
+                                ...meFirstMembers.map((x) => ({
+                                    value: x.user.uuid,
+                                    label: x.user.first_name,
+                                })),
+                            ]}
+                            size="small"
+                            value={filters.createdBy}
+                            onChange={(v: any): void => {
+                                setFilters({ createdBy: v })
+                            }}
+                            dropdownMatchSelectWidth={false}
+                        />
+                    </div>
+                </div>
+            </div>
+            <LemonTable
+                data-attr="dashboards-table"
+                pagination={{ pageSize: 100 }}
+                dataSource={dashboards as DashboardType[]}
+                rowKey="id"
+                rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
+                columns={columns}
+                loading={dashboardsLoading}
+                defaultSorting={{ columnKey: 'name', order: 1 }}
+                emptyState={`No dashboards matching your filters!`}
+                nouns={['dashboard', 'dashboards']}
+            />
+        </>
     )
 }
