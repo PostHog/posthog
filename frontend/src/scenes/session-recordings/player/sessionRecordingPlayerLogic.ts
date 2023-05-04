@@ -420,6 +420,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await values.player?.replayer?.addEvent(event)
                 }
             }
+
+            // TODO: We should only do this if we have once played (i.e. we should not base this on the underlying data)
+
             if (!values.currentTimestamp) {
                 actions.initializePlayerFromStart()
             }
