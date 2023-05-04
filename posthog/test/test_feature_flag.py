@@ -780,7 +780,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1),
         )
 
-    def test_SUPER_CONDITION_VALUEes(self):
+    def test_super_condition_matches(self):
         Person.objects.create(
             team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
         )
@@ -824,7 +824,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
         )
 
-    def test_SUPER_CONDITION_VALUEes_and_false(self):
+    def test_super_condition_matches_and_false(self):
         Person.objects.create(
             team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
         )

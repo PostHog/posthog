@@ -137,12 +137,12 @@ class FeatureFlagMatcher:
         # Match for boolean super condition first
         if feature_flag.filters.get("super_groups", None):
             super_condition_value_is_set = self._super_condition_is_set(feature_flag)
-            SUPER_CONDITION_VALUEes = self._SUPER_CONDITION_VALUEes(feature_flag)
+            super_condition_value = self._super_condition_matches(feature_flag)
 
             if super_condition_value_is_set:
-                payload = self.get_matching_payload(SUPER_CONDITION_VALUEes, None, feature_flag)
+                payload = self.get_matching_payload(super_condition_value, None, feature_flag)
                 return FeatureFlagMatch(
-                    match=SUPER_CONDITION_VALUEes,
+                    match=super_condition_value,
                     reason=FeatureFlagMatchReason.SUPER_CONDITION_VALUE,
                     condition_index=0,
                     payload=payload,
@@ -259,7 +259,7 @@ class FeatureFlagMatcher:
 
         return True, FeatureFlagMatchReason.CONDITION_MATCH
 
-    def _SUPER_CONDITION_VALUEes(self, feature_flag: FeatureFlag) -> Optional[bool]:
+    def _super_condition_matches(self, feature_flag: FeatureFlag) -> Optional[bool]:
         if self.failed_to_fetch_conditions:
             raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
         return self.query_conditions.get(f"flag_{feature_flag.pk}_super_condition", False)
@@ -310,7 +310,7 @@ class FeatureFlagMatcher:
                             [],
                         )
 
-                person_fields = []
+                person_fields: List[str] = []
 
                 def condition_eval(key, condition):
                     expr = None
