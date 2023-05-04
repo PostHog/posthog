@@ -3,7 +3,6 @@ import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import {
-    RecordingsLists,
     SessionRecordingsPlaylist,
     SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -13,6 +12,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = {
         filters: props.node.attrs.filters,
         updateSearchParams: false,
+        autoPlay: false,
     }
 
     return (
@@ -21,7 +21,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             className={NotebookNodeType.RecordingPlaylist}
             title="Playlist"
             edit={<SessionRecordingsPlaylistFilters {...recordingPlaylistLogicProps} />}
-            preview={<RecordingsLists {...recordingPlaylistLogicProps} />}
+            // preview={<RecordingsLists {...recordingPlaylistLogicProps} />}
         >
             {/* TODO: replace hardcoded height, 32 (top) + 500 (player) + 16 (margins) + 88 (seekbar) = 620 */}
             <div style={{ maxHeight: 636 }} contentEditable={false}>

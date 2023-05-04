@@ -1,5 +1,5 @@
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
-import { ReactNode, useState } from 'react'
+import { ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -9,21 +9,10 @@ export interface NodeWrapperProps extends NodeViewProps {
     className: string
     children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     preview?: ReactNode // Minified preview mode to show in small screen situations and unexpanded modes. If not defined, children are mounted and rendered.
-    edit?: ReactNode // TODO: This will be replaced with a separate query sidebar outside of the context of a notebook
     href?: string
 }
 
-export function NodeWrapper({
-    title,
-    className,
-    children,
-    preview,
-    selected,
-    edit,
-    href,
-}: NodeWrapperProps): JSX.Element {
-    const [isEdit, setIsEdit] = useState<boolean>(false)
-
+export function NodeWrapper({ title, className, children, preview, selected, href }: NodeWrapperProps): JSX.Element {
     const content = selected ? children : preview ?? children
 
     return (
@@ -34,7 +23,7 @@ export function NodeWrapper({
                     <span>{title}</span>
                 </div>
                 <div className="shrink-0 flex gap-4">
-                    {!!edit && (
+                    {/* {!!edit && (
                         <span
                             className="cursor-pointer"
                             onClick={() => {
@@ -43,7 +32,7 @@ export function NodeWrapper({
                         >
                             {isEdit ? 'Done' : 'Edit'}
                         </span>
-                    )}
+                    )} */}
 
                     {href && (
                         <Link to={href}>
@@ -53,19 +42,11 @@ export function NodeWrapper({
                 </div>
             </div>
             <div className="flex flex-row gap-4">
-                {!!edit && isEdit && (
-                    <div
-                        className={clsx('relative border bg-white rounded-lg mb-2 overflow-y-auto flex-1 max-w-60', {
-                            'border-primary border-2': selected,
-                        })}
-                    >
-                        {edit}
-                    </div>
-                )}
                 <div
-                    className={clsx('relative border bg-white rounded-lg mb-2 overflow-y-auto flex-1', {
-                        'border-primary border-2': selected,
-                    })}
+                    className={clsx('relative mb-2 flex-1 overflow-y-auto')}
+                    // className={clsx('relative border bg-white rounded-lg mb-2 overflow-y-auto flex-1', {
+                    //     'border-primary border-2': selected,
+                    // })}
                 >
                     {content}
                 </div>

@@ -190,15 +190,24 @@ export type SessionRecordingsPlaylistProps = {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
+    autoPlay?: boolean
 }
 
 export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps): JSX.Element {
-    const { playlistShortId, personUUID, filters: defaultFilters, updateSearchParams, onFiltersChange } = props
+    const {
+        playlistShortId,
+        personUUID,
+        filters: defaultFilters,
+        updateSearchParams,
+        onFiltersChange,
+        autoPlay = true,
+    } = props
     const logicProps = {
         playlistShortId,
         personUUID,
         filters: defaultFilters,
         updateSearchParams,
+        autoPlay,
     }
     const logic = sessionRecordingsListLogic(logicProps)
     const { activeSessionRecording, nextSessionRecording, filters, showFilters } = useValues(logic)
