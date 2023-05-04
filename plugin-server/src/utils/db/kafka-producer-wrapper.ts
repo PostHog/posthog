@@ -17,7 +17,7 @@ import { DependencyUnavailableError } from './error'
  */
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
-    private producer: HighLevelProducer
+    public producer: HighLevelProducer
 
     constructor(producer: HighLevelProducer) {
         this.producer = producer
@@ -27,12 +27,12 @@ export class KafkaProducerWrapper {
         try {
             return await Promise.all(
                 kafkaMessage.messages.map((message) =>
-                    produce(
-                        this.producer,
-                        kafkaMessage.topic,
-                        message.key ? Buffer.from(message.key) : null,
-                        message.value ? Buffer.from(message.value) : null
-                    )
+                    produce({
+                        producer: this.producer,
+                        topic: kafkaMessage.topic,
+                        key: message.key ? Buffer.from(message.key) : null,
+                        value: message.value ? Buffer.from(message.value) : null,
+                    })
                 )
             )
         } catch (error) {

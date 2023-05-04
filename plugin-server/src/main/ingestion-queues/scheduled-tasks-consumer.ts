@@ -1,5 +1,6 @@
 import { StatsD } from 'hot-shots'
-import { Batch, EachBatchHandler, Kafka, Producer } from 'kafkajs'
+import { Batch, EachBatchHandler, Kafka } from 'kafkajs'
+import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/kafka-topics'
 import { DependencyUnavailableError } from '../../utils/db/error'
@@ -15,11 +16,13 @@ const taskTypes = ['runEveryMinute', 'runEveryHour', 'runEveryDay'] as const
 
 export const startScheduledTasksConsumer = async ({
     kafka,
+    producer,
     piscina,
     partitionConcurrency = 3,
     statsd,
 }: {
     kafka: Kafka
+    producer: KafkaProducerWrapper
     piscina: Piscina
     partitionConcurrency: number
     statsd?: StatsD
@@ -48,8 +51,6 @@ export const startScheduledTasksConsumer = async ({
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting scheduled tasks consumer')
-
-    const producer = kafka.producer()
 
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
@@ -138,12 +139,11 @@ export const startScheduledTasksConsumer = async ({
         ...consumer,
         stop: async () => {
             await consumer.stop()
-            await producer.disconnect()
         },
     }
 }
 
-const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
+const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) => {
     // In any one batch, we only want to run one task per plugin config id.
     // Hence here we dedupe the tasks by plugin config id and task type.
     const tasksbyTypeAndPluginConfigId = {} as Record<
@@ -159,7 +159,10 @@ const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
             status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                 value: message.value,
             })
-            await producer.send({ topic: KAFKA_SCHEDULED_TASKS_DLQ, messages: [message] })
+            await producer.queueMessage({
+                topic: KAFKA_SCHEDULED_TASKS_DLQ,
+                messages: [{ value: message.value, key: message.key }],
+            })
             continue
         }
 
@@ -174,13 +177,19 @@ const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
             status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                 error: error.stack ?? error,
             })
-            await producer.send({ topic: KAFKA_SCHEDULED_TASKS_DLQ, messages: [message] })
+            await producer.queueMessage({
+                topic: KAFKA_SCHEDULED_TASKS_DLQ,
+                messages: [{ value: message.value, key: message.key }],
+            })
             continue
         }
 
         if (!taskTypes.includes(task.taskType) || isNaN(task.pluginConfigId)) {
             status.warn('⚠️', `Invalid schema for partition ${batch.partition} offset ${message.offset}.`, task)
-            await producer.send({ topic: KAFKA_SCHEDULED_TASKS_DLQ, messages: [message] })
+            await producer.queueMessage({
+                topic: KAFKA_SCHEDULED_TASKS_DLQ,
+                messages: [{ value: message.value, key: message.key }],
+            })
             continue
         }
 

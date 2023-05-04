@@ -1,6 +1,7 @@
 import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka } from 'kafkajs'
 import { Counter } from 'prom-client'
+import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
 import { EnqueuedPluginJob, JobName } from '../../types'
@@ -21,10 +22,12 @@ const jobsConsumerFailuresCounter = new Counter({
 
 export const startJobsConsumer = async ({
     kafka,
+    producer,
     graphileWorker,
     statsd,
 }: {
     kafka: Kafka
+    producer: KafkaProducerWrapper
     graphileWorker: GraphileWorker
     statsd?: StatsD
 }) => {
@@ -39,8 +42,6 @@ export const startJobsConsumer = async ({
 
     status.info('🔁', 'Starting jobs consumer')
 
-    const producer = kafka.producer()
-
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
         for (const message of batch.messages) {
@@ -49,7 +50,10 @@ export const startJobsConsumer = async ({
                     value: message.value,
                 })
                 // TODO: handle resolving offsets asynchronously
-                await producer.send({ topic: KAFKA_JOBS_DLQ, messages: [message] })
+                await producer.queueMessage({
+                    topic: KAFKA_JOBS_DLQ,
+                    messages: [{ value: message.value, key: message.key }],
+                })
                 resolveOffset(message.offset)
                 continue
             }
@@ -63,7 +67,10 @@ export const startJobsConsumer = async ({
                     error,
                 })
                 // TODO: handle resolving offsets asynchronously
-                await producer.send({ topic: KAFKA_JOBS_DLQ, messages: [message] })
+                await producer.queueMessage({
+                    topic: KAFKA_JOBS_DLQ,
+                    messages: [{ value: message.value, key: message.key }],
+                })
                 resolveOffset(message.offset)
                 continue
             }
@@ -115,7 +122,6 @@ export const startJobsConsumer = async ({
         ...consumer,
         stop: async () => {
             await consumer.stop()
-            await producer.disconnect()
         },
     }
 }

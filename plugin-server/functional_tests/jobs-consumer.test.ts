@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { defaultConfig } from '../src/config/config'
 import { getMetric } from './api'
 import { waitForExpect } from './expectations'
-import { produce } from './kafka'
+import { produceAndFlush } from './kafka'
 
 let kafka: Kafka
 
@@ -38,7 +38,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles empty messages`, async () => {
         const key = uuidv4()
 
-        await produce({ topic: 'jobs', message: null, key })
+        await produceAndFlush({ topic: 'jobs', message: null, key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -49,7 +49,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles invalid JSON`, async () => {
         const key = uuidv4()
 
-        await produce({ topic: 'jobs', message: Buffer.from('invalid json'), key })
+        await produceAndFlush({ topic: 'jobs', message: Buffer.from('invalid json'), key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -67,7 +67,7 @@ describe('dlq handling', () => {
             labels: { topic: 'jobs', partition: '0', groupId: 'jobs-inserter' },
         })
 
-        await produce({ topic: 'jobs', message: Buffer.from(''), key: '' })
+        await produceAndFlush({ topic: 'jobs', message: Buffer.from(''), key: '' })
 
         await waitForExpect(async () => {
             const metricAfter = await getMetric({
