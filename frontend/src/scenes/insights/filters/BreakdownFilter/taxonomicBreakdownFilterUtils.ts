@@ -1,4 +1,4 @@
-import { BreakdownType, FilterType, PropertyDefinition, TrendsFilterType } from '~/types'
+import { BreakdownPropertyCohort, BreakdownType, FilterType, PropertyDefinition, TrendsFilterType } from '~/types'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -10,7 +10,7 @@ export const isURLNormalizeable = (propertyName: string): boolean => {
     return ['$current_url', '$pathname'].includes(propertyName)
 }
 interface FilterChange {
-    breakdownParts: (string | number)[]
+    breakdownParts: BreakdownPropertyCohort
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
     getPropertyDefinition: (propertyName: string | number) => PropertyDefinition | null
 }
@@ -35,8 +35,8 @@ export function onFilterChange({ breakdownParts, setFilters, getPropertyDefiniti
 
             newFilters.breakdown =
                 taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
-                    ? [...breakdownParts, changedBreakdown].filter((b): b is string | number => !!b)
-                    : changedBreakdown
+                    ? [...breakdownParts, changedBreakdown as number | 'all'].filter((b): b is 'all' | number => !!b)
+                    : (changedBreakdown as string)
 
             setFilters(newFilters, true)
         }

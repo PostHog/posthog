@@ -499,7 +499,6 @@ export interface BreakdownFilter {
      */
     breakdown?: BreakdownProperty
     breakdown_normalize_url?: boolean
-    breakdown_value?: string | number
     breakdown_group_type_index?: number | null
 }
 

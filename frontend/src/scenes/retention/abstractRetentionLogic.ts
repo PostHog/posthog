@@ -85,8 +85,6 @@ export const abstractRetentionLogic = kea<abstractRetentionLogicType>({
                     breakdown_type: filters.breakdown_type,
                     breakdown: filters.breakdown,
                     breakdown_normalize_url: filters.breakdown_normalize_url,
-                    breakdowns: filters.breakdowns,
-                    breakdown_value: filters.breakdown_value,
                     breakdown_group_type_index: filters.breakdown_group_type_index,
                 }
             },

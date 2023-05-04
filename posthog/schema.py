@@ -611,11 +611,13 @@ class BreakdownFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    breakdown: Optional[Union[str, List[Union[str, float]]]] = None
+    breakdown: Optional[Union[str, List[Union[str, float]]]] = Field(
+        None,
+        description='The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal "all".',
+    )
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -1078,7 +1080,6 @@ class AnyPartialFilterTypeItem(BaseModel):
     breakdown_histogram_bin_count: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     compare: Optional[bool] = None
     date_from: Optional[str] = None
@@ -1135,7 +1136,6 @@ class AnyPartialFilterTypeItem1(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     compare: Optional[bool] = None
     date_from: Optional[str] = None
@@ -1194,7 +1194,6 @@ class AnyPartialFilterTypeItem2(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1261,7 +1260,6 @@ class AnyPartialFilterTypeItem3(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1327,7 +1325,6 @@ class AnyPartialFilterTypeItem4(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1382,7 +1379,6 @@ class AnyPartialFilterTypeItem5(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1434,7 +1430,6 @@ class AnyPartialFilterTypeItem6(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None

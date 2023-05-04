@@ -1473,7 +1473,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
@@ -1517,7 +1517,9 @@ export enum RetentionPeriod {
 
 export type BreakdownPropertyCohort = ('all' | number)[]
 
-export type BreakdownProperty = string | BreakdownPropertyCohort | null
+export type BreakdownProperty = string | BreakdownPropertyCohort
+
+export type BreakdownValue = string | number | (string | number)[]
 
 export interface LegacyMultiBreakdown {
     property: string | number
@@ -1557,7 +1559,6 @@ export interface FilterType {
     breakdown?: BreakdownProperty
     breakdown_normalize_url?: boolean
     breakdowns?: LegacyMultiBreakdown[]
-    breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
 }
@@ -1826,9 +1827,9 @@ export interface FunnelStep {
     people?: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: BreakdownProperty
-    breakdowns?: BreakdownProperty[]
-    breakdown_value?: BreakdownProperty
+    breakdown?: BreakdownValue | null
+    breakdowns?: BreakdownValue | null
+    breakdown_value?: BreakdownValue | null
     data?: number[]
     days?: string[]
 
@@ -1902,9 +1903,9 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
 export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
-    breakdown?: BreakdownProperty
+    breakdown?: BreakdownValue
     // :KLUDGE: Data transforms done in `getBreakdownStepValues`
-    breakdown_value?: Array<string | number>
+    breakdown_value?: BreakdownValue
     breakdownIndex?: number
     conversionRates?: {
         total: number

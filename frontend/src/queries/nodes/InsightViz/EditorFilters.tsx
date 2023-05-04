@@ -151,7 +151,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
         },
         {
             title: 'Breakdown',
-            count: breakdown?.breakdowns?.length || (breakdown?.breakdown ? 1 : 0),
+            count: breakdown?.breakdown ? 1 : 0,
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {

@@ -134,9 +134,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/LegacyMultiBreakdown"
@@ -267,9 +264,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -409,9 +403,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -599,9 +590,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/LegacyMultiBreakdown"
@@ -764,9 +752,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/LegacyMultiBreakdown"
@@ -885,9 +870,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/LegacyMultiBreakdown"
@@ -998,9 +980,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -1129,7 +1108,8 @@
             "additionalProperties": false,
             "properties": {
                 "breakdown": {
-                    "$ref": "#/definitions/BreakdownProperty"
+                    "$ref": "#/definitions/BreakdownProperty",
+                    "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
                 },
                 "breakdown_group_type_index": {
                     "type": ["number", "null"]
@@ -1146,9 +1126,6 @@
                             "type": "null"
                         }
                     ]
-                },
-                "breakdown_value": {
-                    "type": ["string", "number"]
                 }
             },
             "type": "object"

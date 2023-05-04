@@ -18,6 +18,7 @@ import {
     PropertyFilterType,
     FunnelCorrelationResultsType,
     CorrelationConfigType,
+    BreakdownValue,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
@@ -161,7 +162,7 @@ export function isValidBreakdownParameter(
 }
 
 /** String identifier for breakdowns used when determining visibility. */
-export function getVisibilityKey(breakdownValue?: BreakdownProperty): string {
+export function getVisibilityKey(breakdownValue?: BreakdownValue): string {
     const breakdownValues = getBreakdownStepValues(
         { breakdown: breakdownValue, breakdown_value: breakdownValue },
         -1
