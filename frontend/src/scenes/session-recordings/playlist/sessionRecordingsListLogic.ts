@@ -137,6 +137,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         loadPinnedRecordings: true,
         getSessionRecordings: true,
         loadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
         loadPrev: true,
     }),
@@ -320,6 +321,16 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             actions.setFilters({
                 offset: Math.max((values.filters?.offset || 0) - RECORDINGS_LIMIT, 0),
             })
+        },
+
+        maybeLoadSessionRecordings: ({ direction }) => {
+            if (direction === 'older' && !values.hasNext) {
+                return // Nothing more to load
+            }
+            if (values.sessionRecordingsResponseLoading) {
+                return // We don't want to load if we are currently loading
+            }
+            actions.loadSessionRecordings(direction)
         },
     })),
     selectors({

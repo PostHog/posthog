@@ -51,7 +51,7 @@ export function RecordingsLists({
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
     } = useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev, setFilters, loadSessionRecordings } = useActions(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev, setFilters, maybeLoadSessionRecordings } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const infiniteScroller = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
 
@@ -175,29 +175,23 @@ export function RecordingsLists({
                 loadingSkeletonCount={RECORDINGS_LIMIT}
                 empty={<>No matching recordings found</>}
                 activeRecordingId={activeSessionRecording?.id}
-                onScrollToEnd={
-                    infiniteScroller
-                        ? () => !sessionRecordingsResponseLoading && hasNext && loadSessionRecordings('older')
-                        : undefined
-                }
-                onScrollToStart={
-                    infiniteScroller
-                        ? () => !sessionRecordingsResponseLoading && loadSessionRecordings('newer')
-                        : undefined
-                }
+                onScrollToEnd={infiniteScroller ? () => maybeLoadSessionRecordings('older') : undefined}
+                onScrollToStart={infiniteScroller ? () => maybeLoadSessionRecordings('newer') : undefined}
                 footer={
-                    <>
-                        <LemonDivider />
-                        <div className="m-4 flex items-center justify-center gap-2 text-muted-alt">
-                            {sessionRecordingsResponseLoading ? (
-                                <>
-                                    <Spinner monocolor /> Loading older recordings
-                                </>
-                            ) : (
-                                'You reached the end!'
-                            )}
-                        </div>
-                    </>
+                    infiniteScroller ? (
+                        <>
+                            <LemonDivider />
+                            <div className="m-4 flex items-center justify-center gap-2 text-muted-alt">
+                                {sessionRecordingsResponseLoading ? (
+                                    <>
+                                        <Spinner monocolor /> Loading older recordings
+                                    </>
+                                ) : (
+                                    'No more results'
+                                )}
+                            </div>
+                        </>
+                    ) : null
                 }
             />
         </>
