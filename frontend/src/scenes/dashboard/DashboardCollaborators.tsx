@@ -27,12 +27,7 @@ export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrict
 ]
 
 export function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element | null {
-    const {
-        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
-        allItemsLoading: dashboardLoading,
-        canEditDashboard,
-        canRestrictDashboard,
-    } = useValues(dashboardLogic)
+    const { dashboard, dashboardLoading, canEditDashboard, canRestrictDashboard } = useValues(dashboardLogic)
     const { triggerDashboardUpdate } = useActions(dashboardLogic)
     const { allCollaborators, explicitCollaboratorsLoading, addableMembers, explicitCollaboratorsToBeAdded } =
         useValues(dashboardCollaboratorsLogic({ dashboardId }))
