@@ -29,10 +29,9 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 export function FunnelStepsTableDataExploration(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
     const { breakdown } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const { steps, flattenedBreakdowns, funnelsFilter, canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelLogic(insightProps))
-    const { canOpenPersonModal } = useValues(funnelLogic(insightProps))
 
     return (
         <FunnelStepsTableComponent

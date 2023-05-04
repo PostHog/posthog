@@ -11,6 +11,8 @@ import { ValueInspectorButton } from '../ValueInspectorButton'
 import { FunnelStepMore, FunnelStepMoreDataExploration } from '../FunnelStepMore'
 import { userLogic } from 'scenes/userLogic'
 import { Noun } from '~/models/groupsModel'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 type StepLegendProps = {
     step: FunnelStepWithConversionMetrics
@@ -20,12 +22,27 @@ type StepLegendProps = {
 
 export function StepLegendDataExploration(props: StepLegendProps): JSX.Element {
     const { aggregationTargetLabel } = useValues(funnelLogic)
-    return <StepLegendComponent aggregationTargetLabel={aggregationTargetLabel} isUsingDataExploration {...props} />
+    const { insightProps } = useValues(insightLogic)
+    const { canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
+    return (
+        <StepLegendComponent
+            aggregationTargetLabel={aggregationTargetLabel}
+            isUsingDataExploration
+            {...props}
+            showPersonsModal={props.showPersonsModal && canOpenPersonModal}
+        />
+    )
 }
 
 export function StepLegend(props: StepLegendProps): JSX.Element {
-    const { aggregationTargetLabel } = useValues(funnelLogic)
-    return <StepLegendComponent aggregationTargetLabel={aggregationTargetLabel} {...props} />
+    const { aggregationTargetLabel, canOpenPersonModal } = useValues(funnelLogic)
+    return (
+        <StepLegendComponent
+            aggregationTargetLabel={aggregationTargetLabel}
+            {...props}
+            showPersonsModal={props.showPersonsModal && canOpenPersonModal}
+        />
+    )
 }
 
 type StepLegendComponentProps = StepLegendProps & { aggregationTargetLabel: Noun; isUsingDataExploration?: boolean }
@@ -39,7 +56,6 @@ export function StepLegendComponent({
     isUsingDataExploration,
 }: StepLegendComponentProps): JSX.Element {
     const { openPersonsModalForStep } = useActions(funnelLogic)
-    const { canOpenPersonModal } = useValues(funnelLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const convertedCountPresentation = pluralize(
@@ -94,7 +110,7 @@ export function StepLegendComponent({
                 style={{ color: 'unset' }} // Prevent status color from affecting text
                 title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} who completed this step`}
             >
-                {canOpenPersonModal && showPersonsModal ? (
+                {showPersonsModal ? (
                     <ValueInspectorButton
                         onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
                         style={{ padding: 0 }}
@@ -113,7 +129,7 @@ export function StepLegendComponent({
                         style={{ color: 'unset' }} // Prevent status color from affecting text
                         title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} who didn't complete this step`}
                     >
-                        {canOpenPersonModal && showPersonsModal && stepIndex ? (
+                        {showPersonsModal && stepIndex ? (
                             <ValueInspectorButton
                                 onClick={() => openPersonsModalForStep({ step, stepIndex, converted: false })}
                                 style={{ padding: 0 }}

@@ -44,6 +44,7 @@ import {
     generateBaselineConversionUrl,
     parseBreakdownValue,
     parseEventAndProperty,
+    aggregationLabelForHogQL,
 } from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -649,12 +650,3 @@ export const funnelLogic = kea<funnelLogicType>({
         },
     }),
 })
-function aggregationLabelForHogQL(funnel_aggregate_by_hogql: string): Noun {
-    if (funnel_aggregate_by_hogql === 'person_id') {
-        return { singular: 'person', plural: 'persons' }
-    }
-    if (funnel_aggregate_by_hogql === 'properties.$session_id') {
-        return { singular: 'session', plural: 'sessions' }
-    }
-    return { singular: 'result', plural: 'results' }
-}

@@ -15,8 +15,7 @@ import { funnelDataLogic } from '../funnelDataLogic'
 
 export function FunnelBarChartDataExploration(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { canOpenPersonModal } = useValues(funnelLogic)
-    const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
+    const { visibleStepsWithConversionMetrics, canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
     return (
         <FunnelBarChartComponent
             isUsingDataExploration
