@@ -204,9 +204,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                     <LemonLabel
                                         info={
                                             predictUsageWillBeLimited
-                                                ? `This is roughly calculated based on your current bill, the remaining time left in this billing period, and your billing limit.
-                                            
-                                            Without a limit you could expect to pay $${product.projected_amount_usd} for this billing period.`
+                                                ? `This is roughly calculated based on your current bill, the remaining time left in this billing period, and your billing limit. Without a limit you could expect to pay $${product.projected_amount_usd} for this billing period.`
                                                 : `This is roughly calculated based on your current bill and the remaining time left in this billing period.`
                                         }
                                     >
