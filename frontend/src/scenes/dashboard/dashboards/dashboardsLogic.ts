@@ -1,11 +1,12 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import Fuse from 'fuse.js'
+import FuseClass from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 import { userLogic } from 'scenes/userLogic'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
+import { DashboardType } from '~/types'
 
 export enum DashboardsTab {
     Dashboards = 'dashboards',
@@ -15,7 +16,7 @@ export enum DashboardsTab {
 
 export interface DashboardsFilters {
     search: string
-    createdBy: number | 'All users'
+    createdBy: string
     pinned: boolean
     shared: boolean
 }
@@ -26,6 +27,10 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     pinned: false,
     shared: false,
 }
+
+// Helping kea-typegen navigate the exported default class for Fuse
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface Fuse extends FuseClass<DashboardType> {}
 
 export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
@@ -80,8 +85,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
         fuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
-            (dashboards) => {
-                return new Fuse(dashboards, {
+            (dashboards): Fuse => {
+                return new FuseClass<DashboardType>(dashboards, {
                     keys: ['key', 'name', 'description', 'tags'],
                     threshold: 0.3,
                 })

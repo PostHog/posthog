@@ -214,7 +214,7 @@ export function DashboardsTable(): JSX.Element {
                         <span>Created by:</span>
                         <LemonSelect
                             options={[
-                                { value: 'All users' as number | 'All users', label: 'All Users' },
+                                { value: 'All users' as string, label: 'All Users' },
                                 ...meFirstMembers.map((x) => ({
                                     value: x.user.uuid,
                                     label: x.user.first_name,

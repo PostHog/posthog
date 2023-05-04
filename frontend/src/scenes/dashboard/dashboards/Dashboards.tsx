@@ -71,6 +71,8 @@ export function Dashboards(): JSX.Element {
             <LemonTabs activeKey={currentTab} onChange={(newKey) => setCurrentTab(newKey)} tabs={enabledTabs} />
             {currentTab === DashboardsTab.Templates ? (
                 <DashboardTemplatesTable />
+            ) : currentTab === DashboardsTab.Notebooks ? (
+                <div>Coming soon...</div>
             ) : dashboardsLoading || dashboards.length > 0 || filters.search ? (
                 <DashboardsTable />
             ) : (
