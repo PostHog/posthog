@@ -28,6 +28,7 @@ import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import Piscina, { makePiscina } from '../../../src/worker/piscina'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
+import { teardownPlugins } from '../../../src/worker/plugins/teardown'
 import { createTaskRunner } from '../../../src/worker/worker'
 import {
     createOrganization,
@@ -74,6 +75,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
 
     afterAll(async () => {
         await hub.redisPool.release(redis)
+        await teardownPlugins(hub)
         await closeHub()
     })
 
@@ -132,8 +134,6 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
                 },
             })
         ).rejects.toEqual(new DependencyUnavailableError('Failed to produce', 'Kafka', error))
-
-        jest.runAllTimers()
     })
 
     test('retry on RetryError', async () => {
@@ -181,7 +181,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
             eventUuid: new UUIDT().toString(),
         }
 
-        await expect(
+        const expectPromise = expect(
             piscinaTaskRunner({
                 task: 'runAsyncHandlersEventPipeline',
                 args: { event },
@@ -191,10 +191,15 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
             lastStep: 'runAsyncHandlersStep',
         })
 
-        // Ensure the retry call is made.
-        jest.runAllTimers()
+        // Ensure the retry call is made. Retries are handled without with
+        // orphaned promises via the promiseManager, so we need to wait for that
+        // to finish otherwise we have dangling promises running at unpredictable
+        // times.
+        jest.advanceTimersByTime(6000000)
+        await Promise.allSettled(hub.promiseManager.pendingPromises)
+        await expectPromise
 
-        expect(produceMock).toHaveBeenCalledTimes(5)
+        expect(produceMock).toHaveBeenCalledTimes(2)
     })
 
     test(`doesn't throw on arbitrary failures`, async () => {
@@ -236,8 +241,6 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
             args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
             lastStep: 'runAsyncHandlersStep',
         })
-
-        jest.runAllTimers()
     })
 })
 
@@ -252,11 +255,13 @@ describe('eachBatchAsyncHandlers', () => {
     let piscina: Piscina
 
     beforeEach(async () => {
+        jest.useFakeTimers({ advanceTimers: true })
         ;[hub, closeHub] = await createHub()
     })
 
     afterEach(async () => {
         await closeHub?.()
+        jest.useRealTimers()
     })
 
     test('rejections from piscina are bubbled up to the consumer', async () => {
@@ -310,7 +315,5 @@ describe('eachBatchAsyncHandlers', () => {
                 pause: jest.fn(),
             })
         ).rejects.toEqual(new DependencyUnavailableError('Failed to produce', 'Kafka', error))
-
-        jest.runAllTimers()
     })
 })
