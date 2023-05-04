@@ -492,6 +492,11 @@ export interface DateRange {
 
 export interface BreakdownFilter {
     breakdown_type?: BreakdownType | null
+    /** The property or cohorts by which to break down.
+     *
+     * When breaking down by property `breakdown` is a string.
+     * When breaking down by cohort `breakdown` is an array of numbers and the literal "all".
+     */
     breakdown?: BreakdownProperty
     breakdown_normalize_url?: boolean
     breakdown_value?: string | number

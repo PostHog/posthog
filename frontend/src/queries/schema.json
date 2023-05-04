@@ -113,8 +113,7 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownProperty",
-                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
+                            "$ref": "#/definitions/BreakdownProperty"
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -251,8 +250,7 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownProperty",
-                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
+                            "$ref": "#/definitions/BreakdownProperty"
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -388,8 +386,7 @@
                             "$ref": "#/definitions/BinCountValue"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownProperty",
-                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
+                            "$ref": "#/definitions/BreakdownProperty"
                         },
                         "breakdown_attribution_type": {
                             "$ref": "#/definitions/BreakdownAttributionType"
@@ -584,8 +581,7 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownProperty",
-                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
+                            "$ref": "#/definitions/BreakdownProperty"
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -750,8 +746,7 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownProperty",
-                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
+                            "$ref": "#/definitions/BreakdownProperty"
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -872,8 +867,7 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownProperty",
-                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
+                            "$ref": "#/definitions/BreakdownProperty"
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -987,8 +981,7 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownProperty",
-                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
+                            "$ref": "#/definitions/BreakdownProperty"
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -1175,7 +1168,15 @@
         },
         "BreakdownPropertyCohort": {
             "items": {
-                "type": ["string", "number"]
+                "anyOf": [
+                    {
+                        "const": "all",
+                        "type": "string"
+                    },
+                    {
+                        "type": "number"
+                    }
+                ]
             },
             "type": "array"
         },

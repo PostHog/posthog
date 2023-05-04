@@ -1515,7 +1515,7 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
-export type BreakdownPropertyCohort = (string | number)[]
+export type BreakdownPropertyCohort = ('all' | number)[]
 
 export type BreakdownProperty = string | BreakdownPropertyCohort | null
 
@@ -1554,12 +1554,6 @@ export interface FilterType {
     interval?: IntervalType
     // TODO: extract into TrendsFunnelsCommonFilterType
     breakdown_type?: BreakdownType | null
-
-    /** The property or cohorts by which to break down.
-     *
-     * When breaking down by property `breakdown` is a string.
-     * When breaking down by cohort `breakdown` is an array of numbers and the literal "all".
-     */
     breakdown?: BreakdownProperty
     breakdown_normalize_url?: boolean
     breakdowns?: LegacyMultiBreakdown[]
