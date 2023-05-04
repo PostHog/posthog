@@ -77,9 +77,7 @@ function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
 }
 
 export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
-    const {
-        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
-    } = useValues(dashboardLogic)
+    const { dashboard } = useValues(dashboardLogic)
 
     return (
         <div className="EmptyDashboard">
