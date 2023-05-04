@@ -761,6 +761,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
         partition_ids=["202001"],
         person_overrides_to_delete=persons_to_delete,
         database=settings.CLICKHOUSE_DATABASE,
+        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
     )
 
     not_overriden_id = uuid4()
@@ -1166,6 +1167,9 @@ async def test_squash_person_overrides_workflow(events_to_override, person_overr
         )
 
     assert_events_have_been_overriden(events_to_override, person_overrides_data)
+
+    rows = sync_execute("SELECT team_id, old_person_id FROM person_overrides")
+    assert len(rows) == 0
 
 
 @pytest.mark.django_db

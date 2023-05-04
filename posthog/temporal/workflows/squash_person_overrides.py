@@ -97,8 +97,7 @@ DELETE_SQUASHED_PERSON_OVERRIDES_QUERY = """
 ALTER TABLE
     {database}.person_overrides
 DELETE WHERE
-    team_id = %(team_id)s
-    AND old_person_id = %(old_person_id)s
+    old_person_id IN %(old_person_ids)s
     AND merged_at <= %(latest_created_at)s;
 """
 
@@ -409,16 +408,15 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs):
     """Execute the query to delete persons from ClickHouse that have been squashed."""
     activity.logger.info("Deleting squashed persons from ClickHouse")
 
-    for person_override_to_delete in inputs.iter_person_overides_to_delete():
-        activity.logger.debug("%s", person_override_to_delete)
-        sync_execute(
-            DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=inputs.database),
-            {
-                "team_id": person_override_to_delete.team_id,
-                "old_person_id": person_override_to_delete.old_person_id,
-                "latest_created_at": datetime.fromisoformat(person_override_to_delete.latest_created_at),
-            },
-        )
+    old_person_ids_to_delete = tuple(person.old_person_id for person in inputs.iter_person_overides_to_delete())
+    activity.logger.debug("%s", old_person_ids_to_delete)
+    sync_execute(
+        DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=inputs.database),
+        {
+            "old_person_ids": old_person_ids_to_delete,
+            "latest_created_at": inputs.latest_created_at,
+        },
+    )
 
 
 @activity.defn
@@ -681,6 +679,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
             QueryInputs(
                 person_overrides_to_delete=persons_to_delete,
                 database=inputs.clickhouse_database,
+                _latest_created_at=latest_created_at,
             ),
             start_to_close_timeout=timedelta(seconds=300),
             retry_policy=retry_policy,
