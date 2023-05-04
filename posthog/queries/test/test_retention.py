@@ -759,7 +759,6 @@ def retention_test_factory(retention):
             _create_person(team_id=self.team.pk, distinct_ids=["person3"])
             _create_person(team_id=self.team.pk, distinct_ids=["person4"])
 
-            first_event = "$some_event"
             _create_events(
                 self.team,
                 [
@@ -773,19 +772,18 @@ def retention_test_factory(retention):
                     ("person2", _date(3)),
                     ("person3", _date(5)),
                 ],
-                first_event,
+                "$some_event",
             )
 
             _create_events(
                 self.team, [("person1", _date(5)), ("person1", _date(6)), ("person2", _date(5))], "$pageview"
             )
 
-            target_entity = json.dumps({"id": None, "type": TREND_FILTER_TYPE_EVENTS})
             result = retention().run(
                 RetentionFilter(
                     data={
                         "date_to": _date(6, hour=6),
-                        "target_entity": target_entity,
+                        "target_entity": json.dumps({"id": None, "type": "events"}),
                         "returning_entity": {"id": None, "type": "events"},
                         "total_intervals": 7,
                     }
@@ -797,7 +795,7 @@ def retention_test_factory(retention):
 
             self.assertEqual(
                 pluck(result, "values", "count"),
-                [[2, 0, 0, 0, 0, 2, 1], [2, 0, 0, 0, 2, 1], [2, 0, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [1, 0], [0]],
+                [[2, 2, 2, 2, 0, 2, 1], [2, 2, 2, 0, 2, 1], [2, 2, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [3, 1], [1]],
             )
 
         @snapshot_clickhouse_queries
