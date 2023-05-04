@@ -59,12 +59,17 @@ export const createKafkaProducer = async (config: ProducerGlobalConfig) => {
 
     return producer
 }
-export const produce = async (
-    producer: RdKafkaProducer,
-    topic: string,
-    value: Buffer | null,
+export const produce = async ({
+    producer,
+    topic,
+    value,
+    key,
+}: {
+    producer: RdKafkaProducer
+    topic: string
+    value: Buffer | null
     key: Buffer | null
-): Promise<number | null | undefined> => {
+}): Promise<number | null | undefined> => {
     status.debug('📤', 'Producing message', { topic: topic })
     return await new Promise((resolve, reject) =>
         producer.produce(topic, null, value, key, Date.now(), (error: any, offset: NumberNullUndefined) => {
