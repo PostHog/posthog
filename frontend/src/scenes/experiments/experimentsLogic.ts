@@ -9,6 +9,15 @@ import { userLogic } from 'scenes/userLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { loaders } from 'kea-loaders'
 
+export function getExperimentStatus(experiment: Experiment): ExperimentStatus {
+    if (!experiment.start_date) {
+        return ExperimentStatus.Draft
+    } else if (!experiment.end_date) {
+        return ExperimentStatus.Running
+    }
+    return ExperimentStatus.Complete
+}
+
 export const experimentsLogic = kea<experimentsLogicType>([
     path(['scenes', 'experiments', 'experimentsLogic']),
     connect({ values: [teamLogic, ['currentTeamId'], userLogic, ['user', 'hasAvailableFeature']] }),
@@ -57,27 +66,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     })),
     selectors(({ values }) => ({
-        getExperimentStatus: [
-            (s) => [s.experiments],
-            () =>
-                (experiment: Experiment): ExperimentStatus => {
-                    if (!experiment.start_date) {
-                        return ExperimentStatus.Draft
-                    } else if (!experiment.end_date) {
-                        return ExperimentStatus.Running
-                    }
-                    return ExperimentStatus.Complete
-                },
-        ],
         filteredExperiments: [
-            (selectors) => [
-                selectors.experiments,
-                selectors.searchTerm,
-                selectors.searchStatus,
-                selectors.tab,
-                selectors.getExperimentStatus,
-            ],
-            (experiments, searchTerm, searchStatus, tab, getExperimentStatus) => {
+            (selectors) => [selectors.experiments, selectors.searchTerm, selectors.searchStatus, selectors.tab],
+            (experiments, searchTerm, searchStatus, tab) => {
                 let filteredExperiments: Experiment[] = experiments
 
                 if (tab === ExperimentsTabs.Archived) {
@@ -108,8 +99,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
         hasExperimentAvailableFeature: [
-            () => [],
-            (): boolean => values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.EXPERIMENTATION),
         ],
     })),
     events(({ actions }) => ({

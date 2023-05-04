@@ -237,12 +237,17 @@ def property_to_Q(
 
     # short circuit query if key exists in override_property_values
     if property.key in override_property_values and property.operator != "is_not_set":
-        # if match found, do nothing to Q
-        # if not found, return empty Q
+        # if match found, add an explicit match-all Q object
+        # if not found, return falsy Q
         if not match_property(property, override_property_values):
             return Q(pk__isnull=True)
         else:
-            return Q()
+            # TRICKY: We need to return an explicit match-all Q object, instead of an empty Q object,
+            # because the empty Q object,  when OR'ed with other Q objects, results in removing the empty Q object.
+            # This isn't what we want here, because this is an explicit true match, which when OR'ed with others,
+            # should not be removed, and return True.
+            # See https://code.djangoproject.com/ticket/32554 for gotcha explanation
+            return Q(pk__isnull=False)
 
     # if no override matches, return a true Q object
 

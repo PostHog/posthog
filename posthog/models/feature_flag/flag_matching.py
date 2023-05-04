@@ -9,6 +9,7 @@ from prometheus_client import Counter
 from django.db import DatabaseError, IntegrityError, OperationalError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
+from django.db.models import Q
 from django.db.models.query import QuerySet
 from sentry_sdk.api import capture_exception
 
@@ -289,6 +290,7 @@ class FeatureFlagMatcher:
                     for index, condition in enumerate(feature_flag.conditions):
                         key = f"flag_{feature_flag.pk}_condition_{index}"
                         expr: Any = None
+                        annotate_query = True
                         if len(condition.get("properties", {})) > 0:
                             # Feature Flags don't support OR filtering yet
                             target_properties = self.property_value_overrides
@@ -302,39 +304,47 @@ class FeatureFlagMatcher:
                                 cohorts_cache=self.cohorts_cache,
                             )
 
-                            # TRICKY: Due to property overrides, we sometimes shortcircuit the condition check.
-                            # In that case, the expression is empty, and we can assume the condition is a match.
-                            if not expr:
-                                all_conditions[key] = True
+                            # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.
+                            # In that case, the expression is either an explicit True or explicit False, or multiple conditions.
+                            # We can skip going to the database in explicit True|False conditions. This is important
+                            # as it allows resolving flags correctly for non-ingested persons.
+                            # However, this doesn't work for the multiple condition case (when expr has multiple Q objects),
+                            # but it's better than nothing.
+                            # TODO: A proper fix would be to handle cohorts with property overrides before we get to this point.
+                            # Unskip test test_complex_cohort_filter_with_override_properties when we fix this.
+                            if expr == Q(pk__isnull=False) or expr == Q(pk__isnull=True):
+                                all_conditions[key] = False if expr == Q(pk__isnull=True) else True
+                                annotate_query = False
 
-                        if feature_flag.aggregation_group_type_index is None:
-                            person_query = person_query.annotate(
-                                **{
-                                    key: ExpressionWrapper(
-                                        expr if expr else RawSQL("true", []), output_field=BooleanField()
-                                    )
-                                }
-                            )
-                            person_fields.append(key)
-                        else:
-                            if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
-                                # ignore flags that didn't have the right groups passed in
-                                continue
-                            group_query, group_fields = group_query_per_group_type_mapping[
-                                feature_flag.aggregation_group_type_index
-                            ]
-                            group_query = group_query.annotate(
-                                **{
-                                    key: ExpressionWrapper(
-                                        expr if expr else RawSQL("true", []), output_field=BooleanField()
-                                    )
-                                }
-                            )
-                            group_fields.append(key)
-                            group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index] = (
-                                group_query,
-                                group_fields,
-                            )
+                        if annotate_query:
+                            if feature_flag.aggregation_group_type_index is None:
+                                person_query = person_query.annotate(
+                                    **{
+                                        key: ExpressionWrapper(
+                                            expr if expr else RawSQL("true", []), output_field=BooleanField()
+                                        )
+                                    }
+                                )
+                                person_fields.append(key)
+                            else:
+                                if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
+                                    # ignore flags that didn't have the right groups passed in
+                                    continue
+                                group_query, group_fields = group_query_per_group_type_mapping[
+                                    feature_flag.aggregation_group_type_index
+                                ]
+                                group_query = group_query.annotate(
+                                    **{
+                                        key: ExpressionWrapper(
+                                            expr if expr else RawSQL("true", []), output_field=BooleanField()
+                                        )
+                                    }
+                                )
+                                group_fields.append(key)
+                                group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index] = (
+                                    group_query,
+                                    group_fields,
+                                )
 
                 if len(person_fields) > 0:
                     person_query = person_query.values(*person_fields)

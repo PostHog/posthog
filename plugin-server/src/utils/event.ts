@@ -5,7 +5,11 @@ import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent 
 import { convertDatabaseElementsToRawElements } from '../worker/vm/upgrades/utils/fetchEventsForInterval'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
-import { clickHouseTimestampToDateTime, clickHouseTimestampToISO } from './utils'
+import {
+    clickHouseTimestampSecondPrecisionToISO,
+    clickHouseTimestampToDateTime,
+    clickHouseTimestampToISO,
+} from './utils'
 
 export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
@@ -68,6 +72,11 @@ export function convertToIngestionEvent(event: RawClickHouseEvent): PostIngestio
         properties,
         timestamp: clickHouseTimestampToISO(event.timestamp),
         elementsList: event.elements_chain ? chainToElements(event.elements_chain) : [],
+        person_id: event.person_id,
+        person_created_at: event.person_created_at
+            ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)
+            : null,
+        person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
     }
 }
 

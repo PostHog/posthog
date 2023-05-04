@@ -841,6 +841,15 @@
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
   '
   
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '
+---
+# name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter.1
+  '
+  
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,

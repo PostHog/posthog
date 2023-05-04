@@ -18,6 +18,7 @@ import {
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { groupsModel } from '~/models/groupsModel'
+import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
@@ -128,6 +129,18 @@ export function CodeInstructions({
             setShowLocalEvalCode(false)
         }
     }, [selectedLanguage, featureFlag])
+
+    const groups = featureFlag?.filters?.groups || []
+    // return first non-instant property in group
+    const firstNonInstantProperty = groups
+        .find(
+            (group) =>
+                group.properties?.length &&
+                group.properties.some((property) => !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || ''))
+        )
+        ?.properties?.find((property) => !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || ''))?.key
+
+    const randomProperty = groups.find((group) => group.properties?.length)?.properties?.[0]?.key
 
     return (
         <div>
@@ -242,6 +255,8 @@ export function CodeInstructions({
                     multivariant={multivariantFlag}
                     groupType={groupType}
                     localEvaluation={showLocalEvalCode}
+                    instantlyAvailableProperties={!firstNonInstantProperty}
+                    samplePropertyName={firstNonInstantProperty || randomProperty}
                 />
                 {showPayloadCode && (
                     <>

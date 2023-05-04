@@ -19,12 +19,17 @@
 import { KafkaConsumer } from 'node-rdkafka-acosom'
 
 import { status } from '../../../../utils/status'
+import { getMapByteSize } from '../shonky-ram-measurement'
 
 export class OffsetManager {
     // We have to track every message's offset so that we can commit them only after they've been written to S3
     offsetsByPartitionTopic: Map<string, number[]> = new Map()
 
     constructor(private consumer: KafkaConsumer) {}
+
+    public estimateSize(): number {
+        return getMapByteSize(this.offsetsByPartitionTopic)
+    }
 
     public addOffset(topic: string, partition: number, offset: number): void {
         const key = `${topic}-${partition}`
