@@ -26,7 +26,7 @@ def create_action(**kwargs):
 
 
 class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
-    def _create_events(self, data):
+    def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
             with freeze_time(timestamps[0]):
@@ -38,7 +38,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                     )
                 )
             for timestamp in timestamps:
-                _create_event(team=self.team, event="$pageview", distinct_id=id, timestamp=timestamp)
+                _create_event(team=self.team, event=event, distinct_id=id, timestamp=timestamp)
         return person_result
 
     def test_lifecycle_trend(self):
@@ -85,6 +85,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
     def test_lifecycle_trend_any_event(self):
         self._create_events(
+            event="$pageview",
             data=[
                 (
                     "p1",
@@ -98,9 +99,14 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                     ],
                 ),
                 ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+            ],
+        )
+        self._create_events(
+            event="$other",
+            data=[
                 ("p3", ["2020-01-12T12:00:00Z"]),
                 ("p4", ["2020-01-15T12:00:00Z"]),
-            ]
+            ],
         )
 
         result = Trends().run(
