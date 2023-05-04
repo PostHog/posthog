@@ -7,7 +7,7 @@ import {
     LemonButtonWithSideAction,
 } from './LemonButton'
 import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
-import { More, MoreProps } from './More'
+import { More } from './More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
