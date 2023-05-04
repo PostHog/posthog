@@ -102,28 +102,49 @@ export function Sidebar(): JSX.Element {
     )
 }
 
+const KEY_PART_SEPARATOR = '::'
+
 function SidebarContent({
     activeSidebarLogic,
 }: {
     activeSidebarLogic: LogicWrapper<SidebarLogic>
 }): JSX.Element | null {
+    const { accordionCollapseMapping } = useValues(navigation3000Logic)
+    const { toggleAccordion } = useActions(navigation3000Logic)
     const { contents, activeListItemKey, isLoading } = useValues(activeSidebarLogic)
+
+    const normalizedActiveItemKey = Array.isArray(activeListItemKey)
+        ? activeListItemKey.join(KEY_PART_SEPARATOR)
+        : activeListItemKey
 
     return contents.length > 0 ? (
         'items' in contents[0] ? (
             <>
                 {(contents as Accordion[]).map((accordion) => (
                     <SidebarAccordion
-                        key={accordion.title}
+                        key={accordion.key}
                         title={accordion.title}
-                        items={accordion.items}
-                        // TODO loading={accordion.loading}
-                        activeItemKey={activeListItemKey}
+                        items={accordion.items.map((item) => ({
+                            ...item,
+                            // Normalize keys in-place so that item refs can be injected later during rendering
+                            key: Array.isArray(item.key)
+                                ? item.key.map((keyPart) => `${accordion.key}${KEY_PART_SEPARATOR}${keyPart}`)
+                                : `${accordion.key}${KEY_PART_SEPARATOR}${item.key}`,
+                        }))}
+                        loadMore={accordion.loadMore}
+                        loading={accordion.loading}
+                        collapsed={accordionCollapseMapping[accordion.key]}
+                        toggle={() => toggleAccordion(accordion.key)}
+                        activeItemKey={normalizedActiveItemKey}
                     />
                 ))}
             </>
         ) : (
-            <SidebarList items={contents as BasicListItem[] | ExtendedListItem[]} activeItemKey={activeListItemKey} />
+            <SidebarList
+                items={contents as BasicListItem[] | ExtendedListItem[]}
+                activeItemKey={normalizedActiveItemKey}
+                loadMore={undefined}
+            />
         )
     ) : isLoading ? (
         <SpinnerOverlay />

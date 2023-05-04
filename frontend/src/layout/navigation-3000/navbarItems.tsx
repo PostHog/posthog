@@ -18,6 +18,7 @@ import { NavbarItem } from './types'
 import { dashboardsSidebarLogic } from './sidebars/dashboardsSidebarLogic'
 import { featureFlagsSidebarLogic } from './sidebars/featureFlagsSidebarLogic'
 import { cohortsSidebarLogic } from './sidebars/cohortsSidebarLogic'
+import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroupsSidebarLogic'
 
 /** A list of navbar sections with items. */
 export const NAVBAR_ITEMS: NavbarItem[][] = [
@@ -42,8 +43,9 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         },
         {
             identifier: Scene.Persons,
-            label: 'Persons',
+            label: 'Persons and groups',
             icon: <IconPerson />,
+            pointer: personsAndGroupsSidebarLogic,
         },
         {
             identifier: Scene.Events,

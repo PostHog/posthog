@@ -4,31 +4,41 @@ import { isDayjs } from 'lib/dayjs'
 import { IconChevronRight, IconEllipsis } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import React, { useState } from 'react'
-import { BasicListItem, ExtendedListItem, ExtraListItemContext } from '../types'
+import { BasicListItem, ExtendedListItem, ExtraListItemContext, Accordion } from '../types'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonButton } from '@posthog/lemon-ui'
 import { navigation3000Logic } from '../navigationLogic'
 
 interface SidebarAccordionProps {
-    title: string
-    items: BasicListItem[] | ExtendedListItem[]
-    activeItemKey: BasicListItem['key'] | null
-    loading?: boolean
+    title: Accordion['title']
+    items: Accordion['items']
+    loadMore: Accordion['loadMore']
+    loading: Accordion['loading']
+    collapsed: boolean
+    toggle: () => void
+    activeItemKey: string | number | null
 }
 
-export function SidebarAccordion({ title, items, activeItemKey, loading = false }: SidebarAccordionProps): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState(false)
-
+export function SidebarAccordion({
+    title,
+    items,
+    activeItemKey,
+    collapsed,
+    toggle,
+    loadMore,
+    loading = false,
+}: SidebarAccordionProps): JSX.Element {
     const isEmpty = items.length === 0
     const isEmptyDefinitively = !loading && isEmpty
-    const isDisabled = isEmpty && !isExpanded
+    const isExpanded = !collapsed && !isEmpty
 
     return (
-        <section className={clsx('Accordion', isExpanded && 'Accordion--expanded')} aria-disabled={isDisabled}>
-            <div
-                className="Accordion__header"
-                onClick={isExpanded || items.length > 0 ? () => setIsExpanded(!isExpanded) : undefined}
-            >
+        <section
+            className={clsx('Accordion', isExpanded && 'Accordion--expanded')}
+            aria-busy={loading}
+            aria-disabled={isEmpty}
+        >
+            <div className="Accordion__header" onClick={isExpanded || items.length > 0 ? () => toggle() : undefined}>
                 {!loading ? <IconChevronRight /> : <Spinner />}
                 <h4>
                     {title}
@@ -42,8 +52,7 @@ export function SidebarAccordion({ title, items, activeItemKey, loading = false 
             </div>
             {isExpanded && (
                 <div className="Accordion__content">
-                    <div className="Accordion__meta">Name</div>
-                    <SidebarList items={items} activeItemKey={activeItemKey} />
+                    <SidebarList items={items} activeItemKey={activeItemKey} loadMore={loadMore} />
                 </div>
             )}
         </section>
@@ -53,34 +62,53 @@ export function SidebarAccordion({ title, items, activeItemKey, loading = false 
 export function SidebarList({
     items,
     activeItemKey,
+    loadMore,
 }: {
     items: BasicListItem[] | ExtendedListItem[]
-    activeItemKey: BasicListItem['key'] | null
+    activeItemKey: string | number | null
+    loadMore: Accordion['loadMore']
 }): JSX.Element {
     return (
         <ul className="SidebarList">
-            {items.map((item) => (
-                <SidebarListItem key={item.key} item={item} active={item.key === activeItemKey} />
-            ))}
+            {items.map((item) => {
+                let elementKey: React.Key
+                let active: boolean
+                if (Array.isArray(item.key)) {
+                    elementKey = item.key[0]
+                    active = typeof activeItemKey === 'string' ? item.key.includes(activeItemKey) : false
+                } else {
+                    elementKey = item.key
+                    active = item.key === activeItemKey
+                }
+                return <SidebarListItem key={elementKey} item={item} active={active} />
+            })}
+            {loadMore && (
+                <SidebarListItem
+                    item={{
+                        key: 'load-more',
+                        name: 'Load more',
+                        url: null,
+                    }}
+                />
+            )}
         </ul>
     )
 }
 
-function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListItem; active: boolean }): JSX.Element {
+function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListItem; active?: boolean }): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-    const formattedName = item.searchMatch?.nameHighlightRanges?.length ? (
+    const formattedName = !item.url ? (
+        <i>{item.name}</i>
+    ) : item.searchMatch?.nameHighlightRanges?.length ? (
         <TextWithHighlights ranges={item.searchMatch.nameHighlightRanges}>{item.name}</TextWithHighlights>
     ) : (
         item.name
     )
 
-    if (!item.ref) {
-        item.ref = React.createRef()
-    }
-
     return (
         <li
+            id={`sidebar-${item.key}`}
             title={item.name}
             className={clsx(
                 'SidebarListItem',
@@ -93,7 +121,7 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
             aria-current={active ? 'page' : undefined}
         >
             <Link
-                to={item.url}
+                to={item.url || undefined}
                 className="SidebarListItem__link"
                 ref={item.ref}
                 onKeyDown={(e) => {
@@ -106,7 +134,9 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
                     }
                 }}
                 onFocus={() => {
-                    navigation3000Logic.actions.setLastFocusedItemByKey(item.key)
+                    navigation3000Logic.actions.setLastFocusedItemByKey(
+                        Array.isArray(item.key) ? item.key[0] : item.key
+                    )
                 }}
             >
                 {'summary' in item ? (
@@ -119,7 +149,7 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
                         </div>
                         <div className="flex space-between gap-1">
                             <div className="flex-1 overflow-hidden text-ellipsis">
-                                {item.searchMatch
+                                {item.searchMatch?.matchingFields
                                     ? `Matching fields: ${item.searchMatch.matchingFields
                                           .map((field) => field.replace(/_/g, ' '))
                                           .join(', ')}`
