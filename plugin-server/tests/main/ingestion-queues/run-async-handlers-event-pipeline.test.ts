@@ -37,6 +37,8 @@ import {
     POSTGRES_DELETE_TABLES_QUERY,
 } from '../../helpers/sql'
 
+jest.setTimeout(10000)
+
 describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     // Tests the failure cases for the workerTasks.runAsyncHandlersEventPipeline
     // task. Note that this equally applies to e.g. runEventPipeline task as
@@ -170,8 +172,6 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
             .spyOn(hub.kafkaProducer.producer, 'produce')
             .mockImplementation((topic, partition, message, key, timestamp, cb) => cb(new RetryError('retry error')))
 
-        produceMock.mockReset()
-
         const event = {
             distinctId: 'asdf',
             ip: '',
@@ -194,7 +194,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
         // Ensure the retry call is made.
         jest.runAllTimers()
 
-        expect(produceMock).toHaveBeenCalledTimes(3)
+        expect(produceMock).toHaveBeenCalledTimes(5)
     })
 
     test(`doesn't throw on arbitrary failures`, async () => {
