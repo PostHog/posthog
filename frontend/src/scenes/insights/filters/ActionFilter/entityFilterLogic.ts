@@ -161,10 +161,10 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     i === index
                         ? {
                               ...filter,
-                              id: id ?? filter.id,
-                              name: name ?? filter.name,
-                              type: type ?? filter.type,
-                              custom_name: custom_name ?? filter.custom_name,
+                              id: typeof id === 'undefined' ? filter.id : id,
+                              name: typeof name === 'undefined' ? filter.name : name,
+                              type: typeof type === 'undefined' ? filter.type : type,
+                              custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
                           }
                         : filter
                 )

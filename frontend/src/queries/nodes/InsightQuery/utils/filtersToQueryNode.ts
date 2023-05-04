@@ -67,12 +67,6 @@ export const actionsAndEventsToSeries = ({
                     event: f.id,
                     ...shared,
                 }
-            } else if (f.type === 'new_entity') {
-                return {
-                    kind: NodeKind.NewEntityNode,
-                    event: f.id,
-                    ...shared,
-                }
             }
         })
 

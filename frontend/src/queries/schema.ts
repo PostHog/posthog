@@ -37,7 +37,6 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
-    NewEntityNode = 'NewEntityNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
@@ -150,11 +149,6 @@ export interface EventsNode extends EntityNode {
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
-}
-
-export interface NewEntityNode extends EntityNode {
-    kind: NodeKind.NewEntityNode
-    event?: string | null
 }
 
 export interface EventsQueryResponse {
@@ -311,7 +305,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -329,7 +323,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -363,7 +357,7 @@ export interface StickinessQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
 }
@@ -379,7 +373,7 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
 }

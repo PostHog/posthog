@@ -2011,9 +2011,6 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -2252,9 +2249,6 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -2267,67 +2261,6 @@
         "LifecycleToggle": {
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
-        },
-        "NewEntityNode": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "type": "string"
-                },
-                "event": {
-                    "type": ["string", "null"]
-                },
-                "fixedProperties": {
-                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "kind": {
-                    "const": "NewEntityNode",
-                    "type": "string"
-                },
-                "math": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/BaseMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/CountPerActorMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/GroupMathType"
-                        }
-                    ]
-                },
-                "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
-                    "type": "number"
-                },
-                "math_property": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "properties": {
-                    "description": "Properties configurable in the interface",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "response": {
-                    "description": "Cached query response",
-                    "type": "object"
-                }
-            },
-            "required": ["kind"],
-            "type": "object"
         },
         "PathCleaningFilter": {
             "additionalProperties": false,
@@ -2894,9 +2827,6 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -3044,9 +2974,6 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },

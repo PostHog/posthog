@@ -183,7 +183,7 @@ export function ActionFilterRow({
             onChange={(changedValue, taxonomicGroupType, item) => {
                 updateFilter({
                     type: taxonomicFilterGroupTypeToEntityType(taxonomicGroupType) || undefined,
-                    id: `${changedValue}`,
+                    id: changedValue ? String(changedValue) : null,
                     name: item?.name ?? '',
                     index,
                 })

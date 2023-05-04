@@ -1,12 +1,4 @@
-import {
-    ActionsNode,
-    BreakdownFilter,
-    EventsNode,
-    InsightNodeKind,
-    InsightQueryNode,
-    NewEntityNode,
-    NodeKind,
-} from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightNodeKind, InsightQueryNode, NodeKind } from '~/queries/schema'
 import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 import {
     isActionsNode,
@@ -24,7 +16,7 @@ import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
 export const seriesToActionsAndEvents = (
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []

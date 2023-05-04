@@ -289,14 +289,6 @@ class LifecycleToggle(str, Enum):
     dormant = "dormant"
 
 
-class MathGroupTypeIndex2(float, Enum):
-    number_0 = 0
-    number_1 = 1
-    number_2 = 2
-    number_3 = 3
-    number_4 = 4
-
-
 class PathCleaningFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -734,55 +726,6 @@ class EventsQuery(BaseModel):
     where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
 
 
-class NewEntityNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    custom_name: Optional[str] = None
-    event: Optional[str] = None
-    fixedProperties: Optional[
-        List[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-            ]
-        ]
-    ] = Field(
-        None,
-        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
-    )
-    kind: str = Field("NewEntityNode", const=True)
-    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str]] = None
-    math_group_type_index: Optional[MathGroupTypeIndex2] = None
-    math_property: Optional[str] = None
-    name: Optional[str] = None
-    properties: Optional[
-        List[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-            ]
-        ]
-    ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
-
-
 class PersonsNode(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -1018,9 +961,7 @@ class StickinessQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
     stickinessFilter: Optional[StickinessFilter] = Field(
         None, description="Properties specific to the stickiness insight"
     )
@@ -1060,9 +1001,7 @@ class TrendsQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
     trendsFilter: Optional[TrendsFilter] = Field(None, description="Properties specific to the trends insight")
 
 
@@ -1510,9 +1449,7 @@ class FunnelsQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
 
 
 class LegacyQuery(BaseModel):
@@ -1565,9 +1502,7 @@ class LifecycleQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
 
 
 class PathsQuery(BaseModel):

@@ -282,7 +282,7 @@ function TypeSwitcher({
         if (type === '$autocapture') {
             sendStep({ ...step, event: '$autocapture' })
         } else if (type === 'event') {
-            sendStep({ ...step, event: '' })
+            sendStep({ ...step, event: null })
         } else if (type === '$pageview') {
             sendStep({
                 ...step,
