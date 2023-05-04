@@ -139,7 +139,12 @@ function SidebarKeyboardShortcut(): JSX.Element {
             <span className="truncate">
                 <i>Tip:</i> Press <KeyboardShortcut command b /> to toggle this sidebar
             </span>
-            <LemonButton icon={<IconClose />} size="small" onClick={() => acknowledgeSidebarKeyboardShortcut()} />
+            <LemonButton
+                icon={<IconClose />}
+                size="small"
+                onClick={() => acknowledgeSidebarKeyboardShortcut()}
+                noPadding
+            />
         </div>
     )
 }
