@@ -1,4 +1,5 @@
 import operator
+import random
 from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta
 from typing import TypedDict
@@ -105,7 +106,7 @@ def person_overrides_data(person_overrides_table):
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_prepare_dictionary(activity_environment, person_overrides_data):
-    """Test a DICTIONARY is created by the prepare_join_table activity."""
+    """Test a DICTIONARY is created by the prepare_dictionary activity."""
     query_inputs = QueryInputs(
         database=settings.CLICKHOUSE_DATABASE,
         dictionary_name="fancy_dictionary",
@@ -139,6 +140,86 @@ async def test_prepare_dictionary(activity_environment, person_overrides_data):
 
             assert result[0][0] == person_override.old_person_id
             assert result[0][1] == person_override.override_person_id
+
+    await activity_environment.run(drop_dictionary, query_inputs)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_prepare_dictionary_with_team_ids(activity_environment, person_overrides_data):
+    """Test a DICTIONARY is created by the prepare_dictionary activity excluding team_ids."""
+    existing_team_id = max(person_overrides_data.keys())
+    new_team_id = existing_team_id + 1
+    new_old_person_id = uuid4()
+    new_override_person_id = uuid4()
+
+    values: PersonOverrideValues = {
+        "team_id": new_team_id,
+        "old_person_id": new_old_person_id,
+        "override_person_id": new_override_person_id,
+        "merged_at": OVERRIDES_CREATED_AT,
+        "oldest_event": OLDEST_EVENT_AT,
+        "created_at": OVERRIDES_CREATED_AT,
+        "version": 1,
+    }
+
+    sync_execute("INSERT INTO person_overrides (*) VALUES", [values])
+
+    query_inputs = QueryInputs(
+        database=settings.CLICKHOUSE_DATABASE,
+        dictionary_name="fancy_dictionary",
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster_name=settings.CLICKHOUSE_CLUSTER,
+        team_ids=[new_team_id],
+    )
+
+    latest_merge_at = await activity_environment.run(prepare_dictionary, query_inputs)
+
+    assert latest_merge_at == OVERRIDES_CREATED_AT.isoformat()
+
+    for team_id, person_overrides in person_overrides_data.items():
+        for person_override in person_overrides:
+            result = sync_execute(
+                f"""
+                SELECT
+                    old_person_id,
+                    dictGetOrNull(
+                        '{settings.CLICKHOUSE_DATABASE}.fancy_dictionary',
+                        'override_person_id',
+                        (toInt32(team_id), old_person_id)
+                    ) AS override_person_id
+                FROM (
+                    SELECT
+                        {team_id} AS team_id,
+                        '{person_override.old_person_id}'::UUID AS old_person_id
+                )
+                """
+            )
+            # Check that team_ids that we haven't specified are not included in the result.
+            # This is in direct contrast to previous test.
+            assert result[0][0] == person_override.old_person_id
+            assert result[0][1] is None
+
+    result = sync_execute(
+        f"""
+        SELECT
+            old_person_id,
+            dictGet(
+                '{settings.CLICKHOUSE_DATABASE}.fancy_dictionary',
+                'override_person_id',
+                (toInt32(team_id), old_person_id)
+            ) AS override_person_id
+        FROM (
+            SELECT
+                {new_team_id} AS team_id,
+                '{new_old_person_id}'::UUID AS old_person_id
+        )
+        """
+    )
+    # The new_team_id should be in the dictionary.
+    assert result[0][0] == new_old_person_id
+    assert result[0][1] == new_override_person_id
 
     await activity_environment.run(drop_dictionary, query_inputs)
 
@@ -516,6 +597,7 @@ def assert_events_have_been_overriden(overriden_events, person_overrides):
         }
 
         assert event["uuid"] == new_event["uuid"]  # Sanity check
+        assert event["team_id"] == new_event["team_id"]  # Sanity check
         assert event["person_id"] != new_event["person_id"]
 
         # If all is well, we should have overriden old_person_id with an override_person_id.
@@ -525,7 +607,6 @@ def assert_events_have_been_overriden(overriden_events, person_overrides):
             for person_override in person_overrides[new_event["team_id"]]
             if person_override.old_person_id == event["person_id"]
         ][0]
-
         assert new_event["person_id"] == new_person_id
 
 
@@ -547,6 +628,7 @@ async def test_squash_events_partition(activity_environment, person_overrides_da
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
+        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -576,6 +658,7 @@ async def test_squash_events_partition_with_older_overrides(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
+        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -605,6 +688,7 @@ async def test_squash_events_partition_with_newer_overrides(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
+        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -613,6 +697,40 @@ async def test_squash_events_partition_with_newer_overrides(
     await activity_environment.run(drop_dictionary, query_inputs)
 
     assert_events_have_been_overriden(events_to_override, newer_overrides)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_squash_events_partition_with_limited_team_ids(
+    activity_environment, person_overrides_data, events_to_override
+):
+    """Test events are properly squashed when we specify team_ids."""
+    dictionary_name = "exciting_limited_dictionary"
+    random_team = random.choice(list(person_overrides_data.keys()))
+
+    query_inputs = QueryInputs(
+        partition_ids=["202001"],
+        database=settings.CLICKHOUSE_DATABASE,
+        dictionary_name=dictionary_name,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster_name=settings.CLICKHOUSE_CLUSTER,
+        team_ids=[random_team],
+    )
+    latest_created_at = await activity_environment.run(prepare_dictionary, query_inputs)
+    query_inputs._latest_created_at = latest_created_at
+
+    await activity_environment.run(squash_events_partition, query_inputs)
+
+    await activity_environment.run(drop_dictionary, query_inputs)
+
+    with pytest.raises(AssertionError):
+        # Some checks will fail as we have limited the teams overriden.
+        assert_events_have_been_overriden(events_to_override, person_overrides_data)
+
+    # But if we only check the limited teams, there shouldn't be any issues.
+    limited_events = [event for event in events_to_override if event["team_id"] == random_team]
+    assert_events_have_been_overriden(limited_events, person_overrides_data)
 
 
 @pytest.mark.django_db
@@ -1021,9 +1139,9 @@ async def test_squash_person_overrides_workflow(events_to_override, person_overr
 
     workflow_id = str(uuid4())
     inputs = SquashPersonOverridesInputs(
-        settings.CLICKHOUSE_DATABASE,
-        settings.DATABASES["default"]["NAME"],
-        ["202001"],
+        clickhouse_database=settings.CLICKHOUSE_DATABASE,
+        postgres_database=settings.DATABASES["default"]["NAME"],
+        partition_ids=["202001"],
     )
 
     async with Worker(
@@ -1063,9 +1181,9 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
 
     workflow_id = str(uuid4())
     inputs = SquashPersonOverridesInputs(
-        settings.CLICKHOUSE_DATABASE,
-        settings.DATABASES["default"]["NAME"],
-        ["202001"],
+        clickhouse_database=settings.CLICKHOUSE_DATABASE,
+        postgres_database=settings.DATABASES["default"]["NAME"],
+        partition_ids=["202001"],
     )
 
     async with Worker(
@@ -1090,3 +1208,53 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         )
 
     assert_events_have_been_overriden(events_to_override, newer_overrides)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_squash_person_overrides_workflow_with_limited_team_ids(
+    events_to_override, person_overrides_data, person_overrides
+):
+    """Test the squash_person_overrides workflow end-to-end."""
+    client = await Client.connect(
+        f"{settings.TEMPORAL_SCHEDULER_HOST}:{settings.TEMPORAL_SCHEDULER_PORT}",
+        namespace=settings.TEMPORAL_NAMESPACE,
+    )
+
+    workflow_id = str(uuid4())
+    random_team = random.choice(list(person_overrides_data.keys()))
+    inputs = SquashPersonOverridesInputs(
+        clickhouse_database=settings.CLICKHOUSE_DATABASE,
+        postgres_database=settings.DATABASES["default"]["NAME"],
+        partition_ids=["202001"],
+        team_ids=[random_team],
+    )
+
+    async with Worker(
+        client,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        workflows=[SquashPersonOverridesWorkflow],
+        activities=[
+            prepare_dictionary,
+            select_persons_to_delete,
+            squash_events_partition,
+            drop_dictionary,
+            delete_squashed_person_overrides_from_clickhouse,
+            delete_squashed_person_overrides_from_postgres,
+        ],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        await client.execute_workflow(
+            SquashPersonOverridesWorkflow.run,
+            inputs,
+            id=workflow_id,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+        )
+
+    with pytest.raises(AssertionError):
+        # Some checks will fail as we have limited the teams overriden.
+        assert_events_have_been_overriden(events_to_override, person_overrides_data)
+
+    # But if we only check the limited teams, there shouldn't be any issues.
+    limited_events = [event for event in events_to_override if event["team_id"] == random_team]
+    assert_events_have_been_overriden(limited_events, person_overrides_data)
