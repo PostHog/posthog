@@ -262,10 +262,11 @@
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM events e
                        LEFT OUTER JOIN
-                         (SELECT override_person_id as person_id,
+                         (SELECT argMax(override_person_id, version) as person_id,
                                  old_person_id
                           FROM person_overrides
-                          WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
+                          WHERE team_id = 2
+                          GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
                        WHERE team_id = 2
                          AND event IN ['$autocapture', 'user signed up', '$autocapture', '$autocapture']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
@@ -838,6 +839,15 @@
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '
+---
+# name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter.1
   '
   
   SELECT countIf(steps = 1) step_1,

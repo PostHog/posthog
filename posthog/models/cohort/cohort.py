@@ -236,8 +236,9 @@ class Cohort(models.Model):
         """
         Items can be distinct_id or email
         """
+
         batchsize = 1000
-        from posthog.models.cohort.util import insert_static_cohort
+        from posthog.models.cohort.util import insert_static_cohort, get_static_cohort_size
 
         if TEST:
             from posthog.test.base import flush_persons_and_events
@@ -263,6 +264,10 @@ class Cohort(models.Model):
                     ),
                 )
                 cursor.execute(query, params)
+
+            count = get_static_cohort_size(self)
+            self.count = count
+
             self.is_calculating = False
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
@@ -277,6 +282,8 @@ class Cohort(models.Model):
 
     def insert_users_list_by_uuid(self, items: List[str]) -> None:
         batchsize = 1000
+        from posthog.models.cohort.util import get_static_cohort_size
+
         try:
             cursor = connection.cursor()
             for i in range(0, len(items), batchsize):
@@ -292,6 +299,9 @@ class Cohort(models.Model):
                     ),
                 )
                 cursor.execute(query, params)
+
+            count = get_static_cohort_size(self)
+            self.count = count
 
             self.is_calculating = False
             self.last_calculation = timezone.now()

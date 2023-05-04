@@ -1,3 +1,4 @@
+import React from 'react'
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
@@ -95,11 +96,11 @@ export const PlanComparisonModal = ({
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const { redirectPath } = useValues(billingLogic)
+    const { redirectPath, billing } = useValues(billingLogic)
 
     const upgradeButtons = plans?.map((plan) => {
         return (
-            <td key={`${plan.key}-cta`}>
+            <td key={`${plan.key}-cta`} className="PlanTable__td__upgradeButton">
                 <LemonButton
                     to={
                         includeAddons
@@ -223,15 +224,40 @@ export const PlanComparisonModal = ({
                             <tr>
                                 <th
                                     colSpan={3}
-                                    className="PlanTable__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
+                                    className="PlanTable__th__section bg-muted-light justify-left rounded text-left mb-2"
                                 >
-                                    <span>Features</span>
+                                    <div className="flex items-center gap-x-2 my-2">
+                                        {product.image_url && (
+                                            <img
+                                                className="w-6 h-6"
+                                                alt={`Logo for PostHog ${product.name}`}
+                                                src={product.image_url}
+                                            />
+                                        )}
+                                        <Tooltip title={product.description}>
+                                            <span className="font-bold">{product.name}</span>
+                                        </Tooltip>
+                                    </div>
                                 </th>
                             </tr>
 
-                            {fullyFeaturedPlan?.features?.map((feature) => (
-                                <tr key={`tr-${feature.key}`}>
-                                    <th>
+                            {fullyFeaturedPlan?.features?.map((feature, i) => (
+                                <tr
+                                    key={`tr-${feature.key}`}
+                                    className={
+                                        i == fullyFeaturedPlan?.features?.length - 1 &&
+                                        !billing?.has_active_subscription
+                                            ? 'PlanTable__tr__border'
+                                            : ''
+                                    }
+                                >
+                                    <th
+                                        className={`text-muted PlanTable__th__feature ${
+                                            i == fullyFeaturedPlan?.features?.length - 1
+                                                ? 'PlanTable__th__last-feature'
+                                                : ''
+                                        }`}
+                                    >
                                         <Tooltip title={feature.description}>{feature.name}</Tooltip>
                                     </th>
                                     {plans?.map((plan) => (
@@ -246,6 +272,83 @@ export const PlanComparisonModal = ({
                                     ))}
                                 </tr>
                             ))}
+
+                            {!billing?.has_active_subscription && (
+                                <>
+                                    <tr>
+                                        <th colSpan={3} className="PlanTable__th__section rounded text-left">
+                                            <p className="mt-6 mb-2 italic text-center text-muted">
+                                                <Tooltip title="Organizations with any paid subscription get access to additional features.">
+                                                    Included platform features:
+                                                </Tooltip>
+                                            </p>
+                                        </th>
+                                    </tr>
+                                    {billing?.products
+                                        .filter((product) => product.inclusion_only)
+                                        .map((includedProduct) => (
+                                            <React.Fragment
+                                                key={`inclusion-only-product-features-${includedProduct.type}`}
+                                            >
+                                                <tr>
+                                                    <th
+                                                        colSpan={3}
+                                                        className="PlanTable__th__section bg-muted-light justify-left rounded text-left mb-2"
+                                                    >
+                                                        <div className="flex items-center gap-x-2 my-2">
+                                                            {includedProduct.image_url && (
+                                                                <img
+                                                                    className="w-6 h-6"
+                                                                    alt={`Logo for PostHog ${includedProduct.name}`}
+                                                                    src={includedProduct.image_url}
+                                                                />
+                                                            )}
+                                                            <Tooltip title={includedProduct.description}>
+                                                                <span className="font-bold">
+                                                                    {includedProduct.name}
+                                                                </span>
+                                                            </Tooltip>
+                                                        </div>
+                                                    </th>
+                                                </tr>
+                                                {includedProduct.plans
+                                                    .find((plan) => plan.included_if == 'has_subscription')
+                                                    ?.features?.map((feature, i) => (
+                                                        <tr key={`tr-${feature.key}`}>
+                                                            <th
+                                                                className={`text-muted PlanTable__th__feature ${
+                                                                    // If this is the last feature in the list, add a class to add padding to the bottom of
+                                                                    // the cell (which makes the whole row have the padding)
+                                                                    i ==
+                                                                    (includedProduct.plans.find(
+                                                                        (plan) => plan.included_if == 'has_subscription'
+                                                                    )?.features?.length || 0) -
+                                                                        1
+                                                                        ? 'PlanTable__th__last-feature'
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                <Tooltip title={feature.description}>
+                                                                    {feature.name}
+                                                                </Tooltip>
+                                                            </th>
+                                                            {includedProduct.plans?.map((plan) => (
+                                                                <td key={`${plan.plan_key}-${feature.key}`}>
+                                                                    <PlanIcon
+                                                                        feature={plan.features?.find(
+                                                                            (thisPlanFeature) =>
+                                                                                feature.key === thisPlanFeature.key
+                                                                        )}
+                                                                        className={'text-base'}
+                                                                    />
+                                                                </td>
+                                                            ))}
+                                                        </tr>
+                                                    ))}
+                                            </React.Fragment>
+                                        ))}
+                                </>
+                            )}
                         </tbody>
                     </table>
                 </div>

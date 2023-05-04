@@ -92,7 +92,6 @@ def sync_execute(
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
-
         query_id = validated_client_query_id()
         core_settings = {**default_settings(), **(settings or {})}
         tags["query_settings"] = core_settings

@@ -1,6 +1,6 @@
 import re
-from typing import Optional
 import sys
+from typing import List, Optional
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
@@ -25,7 +25,19 @@ class Command(BaseCommand):
                 sql = call_command("sqlmigrate", results[0], results[1])
                 new_tables = self._get_new_tables(sql)
                 operations = sql.split("\n")
+                tables_created_so_far: List[str] = []
                 for operation_sql in operations:
+                    # Extract table name from queries of this format: ALTER TABLE TABLE "posthog_feature"
+                    table_being_altered: Optional[str] = (
+                        re.findall(r"ALTER TABLE \"([a-z_]+)\"", operation_sql)[0]
+                        if "ALTER TABLE" in operation_sql
+                        else None
+                    )
+                    # Extract table name from queries of this format: CREATE TABLE "posthog_feature"
+                    if "CREATE TABLE" in operation_sql:
+                        table_name = re.findall(r"CREATE TABLE \"([a-z_]+)\"", operation_sql)[0]
+                        tables_created_so_far.append(table_name)
+
                     if (
                         re.findall(r"(?<!DROP) (NOT NULL|DEFAULT)", operation_sql, re.M & re.I)
                         and "CREATE TABLE" not in operation_sql
@@ -53,11 +65,10 @@ class Command(BaseCommand):
                             f"\n\n\033[91mFound a DROP TABLE command. This could lead to unsafe states for the app. Please avoid dropping tables.\nSource: `{operation_sql}`"
                         )
                         sys.exit(1)
-
-                    if (
-                        "CONSTRAINT" in operation_sql
-                        and self._get_table("ALTER TABLE", operation_sql) not in new_tables
-                    ):
+                    if "CONSTRAINT" in operation_sql and (
+                        table_being_altered not in tables_created_so_far
+                        or self._get_table("ALTER TABLE", operation_sql) not in new_tables
+                    ):  # Ignore for brand new tables
                         print(
                             f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables.\nSource: `{operation_sql}`"
                         )

@@ -105,7 +105,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 }
                             />
                         </>
-                    ) : addon.included ? (
+                    ) : addon.included_with_main_product ? (
                         <LemonTag type="purple" icon={<IconCheckmark />}>
                             Included with plan
                         </LemonTag>
@@ -353,8 +353,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     </p>
                                 )}
                                 <p className="m-0">
-                                    Need additional platform and support (aka enterprise) features like SSO and advanced
-                                    permissioning?{' '}
+                                    Need additional platform and support (aka enterprise) features like <b>SAML SSO</b>,{' '}
+                                    <b>advanced permissioning</b>, and more?{' '}
                                     <Link to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request">
                                         Get in touch
                                     </Link>{' '}
