@@ -135,7 +135,7 @@ class FeatureFlagMatcher:
         highest_priority_index = 0
 
         # Match for boolean super condition first
-        if feature_flag.filters.get("suoer_groups", None):
+        if feature_flag.filters.get("super_groups", None):
             super_condition_value = self._super_condition_value(feature_flag)
 
             if super_condition_value is not None:
