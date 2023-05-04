@@ -36,33 +36,6 @@ type SessionBuffer = {
     offsets: number[]
 }
 
-async function deleteFile(file: string, context: string) {
-    try {
-        await unlink(file)
-        status.info('🗑️', `blob_ingester_session_manager deleted file ${context}`, { file, context })
-    } catch (err) {
-        if (err && err.code === 'ENOENT') {
-            status.warn(
-                '🤷‍♀️',
-                `blob_ingester_session_manager failed deleting file ${context} path: ${file}, file not found. That's probably fine 🤷‍♀️`,
-                {
-                    err,
-                    file,
-                    context,
-                }
-            )
-            return
-        }
-        status.error('🧨', `blob_ingester_session_manager failed deleting file ${context}path: ${file}`, {
-            err,
-            file,
-            context,
-        })
-        captureException(err)
-        throw err
-    }
-}
-
 export class SessionManager {
     chunks: Map<string, IncomingRecordingMessage[]> = new Map()
     buffer: SessionBuffer
@@ -81,6 +54,33 @@ export class SessionManager {
         this.buffer = this.createBuffer()
 
         // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
+    }
+
+    private async deleteFile(file: string, context: string) {
+        try {
+            await unlink(file)
+            status.info('🗑️', `blob_ingester_session_manager deleted file ${context}`, { file, context })
+        } catch (err) {
+            if (err && err.code === 'ENOENT') {
+                status.warn(
+                    '🤷‍♀️',
+                    `blob_ingester_session_manager failed deleting file ${context} path: ${file}, file not found. That's probably fine 🤷‍♀️`,
+                    {
+                        err,
+                        file,
+                        context,
+                    }
+                )
+                return
+            }
+            status.error('🧨', `blob_ingester_session_manager failed deleting file ${context}path: ${file}`, {
+                err,
+                file,
+                context,
+            })
+            captureException(err)
+            throw err
+        }
     }
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
@@ -204,7 +204,7 @@ export class SessionManager {
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
-            await deleteFile(this.flushBuffer.file, 'on s3 flush')
+            await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
@@ -325,7 +325,7 @@ export class SessionManager {
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
             .map((x) =>
-                deleteFile(x, 'on destroy').catch((error) => {
+                this.deleteFile(x, 'on destroy').catch((error) => {
                     status.error('🧨', 'blob_ingester_session_manager failed deleting session recording buffer', {
                         error,
                         sessionId: this.sessionId,

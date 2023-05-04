@@ -679,7 +679,7 @@ export class DB {
                     continue
                 }
             } catch (error) {
-                captureException(error)
+                captureException(error, { tags: { team_id: teamId } })
             }
 
             this.statsd?.increment('group_info_cache.miss')
@@ -705,7 +705,7 @@ export class DB {
                         created_at: createdAt,
                     })
                 } catch (error) {
-                    captureException(error)
+                    captureException(error, { tags: { team_id: teamId } })
                 }
             } else {
                 // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
@@ -1277,7 +1277,7 @@ export class DB {
         try {
             await this.kafkaProducer.queueSingleJsonMessage(KAFKA_PLUGIN_LOG_ENTRIES, parsedEntry.id, parsedEntry)
         } catch (e) {
-            captureException(e)
+            captureException(e, { tags: { team_id: entry.pluginConfig.team_id } })
             console.error('Failed to produce message', e, parsedEntry)
         }
     }
