@@ -26,7 +26,7 @@ export function EntityFilterInfo({
     style,
 }: EntityFilterInfoProps): JSX.Element {
     // No filter
-    if (filter.type === EntityTypes.EVENTS && (filter.id === '' || filter.id === null) && !filter.name) {
+    if (filter.type === EntityTypes.EVENTS && filter.id === null && !filter.name) {
         return (
             <TextWrapper title="Select filter" className="text-muted-alt">
                 Any event

@@ -102,7 +102,7 @@ class StickinessEventsQuery(EventQuery):
                 person_id_joined_alias=f"{self.aggregation_target()}",
                 hogql_context=self._filter.hogql_context,
             )
-        elif self._entity.id is None or self._entity.id == "":
+        elif self._entity.id is None:
             return "1 = 1", {}
         else:
             return "event = %(event)s", {"event": self._entity.id}

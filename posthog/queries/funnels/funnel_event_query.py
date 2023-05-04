@@ -134,7 +134,7 @@ class FunnelEventQuery(EventQuery):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
                 events.update(action.get_step_events())
-            elif entity.type == TREND_FILTER_TYPE_EVENTS and entity.id is None or entity.id == "":
+            elif entity.type == TREND_FILTER_TYPE_EVENTS and entity.id is None:
                 return "AND 1 = 1", {}
             else:
                 events.add(entity.id)

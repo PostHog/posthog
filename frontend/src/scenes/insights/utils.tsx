@@ -37,7 +37,7 @@ export const getDisplayNameFromEntityFilter = (
     if (name && name in keyMapping.event) {
         name = keyMapping.event[name].label
     }
-    if (filter?.type === 'events' && (filter.id === '' || filter.id === null)) {
+    if (filter?.type === 'events' && filter.id === null) {
         name = 'Any event'
     }
 
@@ -59,7 +59,7 @@ export const getDisplayNameFromEntityNode = (
     if (name && name in keyMapping.event) {
         name = keyMapping.event[name].label
     }
-    if (isEventsNode(node) && node.event === '') {
+    if (isEventsNode(node) && node.event === null) {
         name = 'Any event'
     }
 

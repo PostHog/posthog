@@ -181,7 +181,7 @@ class TrendsBreakdown:
             "parsed_date_to": parsed_date_to,
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s"
-            if self.entity.type == TREND_FILTER_TYPE_EVENTS and self.entity.id is not None and self.entity.id != ""
+            if self.entity.type == TREND_FILTER_TYPE_EVENTS and self.entity.id is not None
             else "",
             "filters": prop_filters,
             "null_person_filter": f"AND notEmpty(e.person_id)"

@@ -195,10 +195,9 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const precedingEntity = values.localFilters[previousLength - 1] as LocalFilter | undefined
             const order = precedingEntity ? precedingEntity.order + 1 : 0
             const newFilter = {
-                id: '',
+                id: null,
                 type: EntityTypes.EVENTS,
                 order: order,
-                name: '',
                 ...props.addFilterDefaultOptions,
             }
             actions.setFilters([...values.localFilters, newFilter])
@@ -239,7 +238,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     events(({ actions, props, values }) => ({
         afterMount: () => {
             if (props.singleMode) {
-                const filter = { id: '', name: '', type: EntityTypes.EVENTS, order: values.localFilters.length }
+                const filter = { id: null, type: EntityTypes.EVENTS, order: values.localFilters.length }
                 actions.setLocalFilters({ [`${EntityTypes.EVENTS}`]: [filter] })
                 actions.selectFilter({ ...filter, index: 0 })
             }

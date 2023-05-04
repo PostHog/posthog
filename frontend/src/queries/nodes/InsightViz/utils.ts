@@ -20,7 +20,7 @@ export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType
     const { actions, events } = seriesToActionsAndEvents((query as TrendsQuery).series || [])
 
     // If there's a "any event" entity, don't filter by event names.
-    if (events.find((e) => e.id === null || e.id === '')) {
+    if (events.find((e) => e.id === null)) {
         return []
     }
 

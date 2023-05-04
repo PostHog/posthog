@@ -220,7 +220,7 @@ class RetentionEventsQuery(EventQuery):
             )
             condition = action_query
         elif entity.type == TREND_FILTER_TYPE_EVENTS:
-            if entity.id is None or entity.id == "":
+            if entity.id is None:
                 condition = f"1 = 1"
                 params = {}
             else:
