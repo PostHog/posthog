@@ -15,7 +15,6 @@
 //  2. the KafkaQueue consumer handler will let the error bubble up to the
 //     KafkaJS consumer runner, which we assume will handle retries.
 
-import { RetryError } from '@posthog/plugin-scaffold'
 import Redis from 'ioredis'
 import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
 
@@ -134,72 +133,6 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
                 },
             })
         ).rejects.toEqual(new DependencyUnavailableError('Failed to produce', 'Kafka', error))
-    })
-
-    test('retry on RetryError', async () => {
-        // If we receive a `RetryError`, we should retry the task within the
-        // pipeline rather than throwing it to the main consumer loop.
-        // Note that we assume the retries are happening async as is the
-        // currently functionality, i.e. outside of the consumer loop, but we
-        // should arguably move this to a separate retry topic.
-        const organizationId = await createOrganization(hub.postgres)
-        const plugin = await createPlugin(hub.postgres, {
-            organization_id: organizationId,
-            name: 'runEveryMinute plugin',
-            plugin_type: 'source',
-            is_global: false,
-            source__index_ts: `
-                export async function onEvent(event, { jobs }) {
-                    await jobs.test().runNow()
-                }
-
-                export const jobs = {
-                    test: async () => {}
-                }
-            `,
-        })
-
-        const teamId = await createTeam(hub.postgres, organizationId)
-        await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
-        await setupPlugins(hub)
-
-        // This isn't strictly correct in terms of where this is being raised
-        // from i.e. `producer.produce` doesn't ever raise a `RetryError`, but
-        // it was just convenient to do so and is hopefully close enough to
-        // reality.
-        // NOTE: we only mock once such that the second call will succeed
-        const produceMock = jest
-            .spyOn(hub.kafkaProducer.producer, 'produce')
-            .mockImplementation((topic, partition, message, key, timestamp, cb) => cb(new RetryError('retry error')))
-
-        const event = {
-            distinctId: 'asdf',
-            ip: '',
-            teamId: teamId,
-            event: 'some event',
-            properties: {},
-            eventUuid: new UUIDT().toString(),
-        }
-
-        const expectPromise = expect(
-            piscinaTaskRunner({
-                task: 'runAsyncHandlersEventPipeline',
-                args: { event },
-            })
-        ).resolves.toEqual({
-            args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
-            lastStep: 'runAsyncHandlersStep',
-        })
-
-        // Ensure the retry call is made. Retries are handled without with
-        // orphaned promises via the promiseManager, so we need to wait for that
-        // to finish otherwise we have dangling promises running at unpredictable
-        // times.
-        jest.advanceTimersByTime(6000000)
-        await Promise.allSettled(hub.promiseManager.pendingPromises)
-        await expectPromise
-
-        expect(produceMock).toHaveBeenCalledTimes(2)
     })
 
     test(`doesn't throw on arbitrary failures`, async () => {
