@@ -1697,13 +1697,13 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(5):
             self.assertEqual(
                 FeatureFlagMatcher([feature_flag1], "example_id", property_value_overrides={}).get_match(feature_flag1),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(5):
             # no local computation because cohort lookup is required
             self.assertEqual(
                 FeatureFlagMatcher(
