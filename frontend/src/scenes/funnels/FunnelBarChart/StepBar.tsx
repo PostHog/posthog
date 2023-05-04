@@ -10,14 +10,15 @@ export interface StepBarProps {
     step: FunnelStepWithConversionMetrics
     series: FunnelStepWithConversionMetrics
     stepIndex: number
+    showPersonsModal: boolean
 }
 interface StepBarCSSProperties extends React.CSSProperties {
     '--series-color': string
     '--conversion-rate': string
 }
-export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
+export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarProps): JSX.Element {
     const { openPersonsModalForSeries, showTooltip, hideTooltip } = useActions(funnelLogic)
-    const { disableFunnelBreakdownBaseline, canOpenPersonModal } = useValues(funnelLogic)
+    const { disableFunnelBreakdownBaseline } = useValues(funnelLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
@@ -25,7 +26,7 @@ export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element 
 
     return (
         <div
-            className={clsx('StepBar', !canOpenPersonModal && 'StepBar__unclickable')}
+            className={clsx('StepBar', !showPersonsModal && 'StepBar__unclickable')}
             /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {
@@ -45,13 +46,13 @@ export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element 
             <div
                 className="StepBar__backdrop"
                 onClick={
-                    canOpenPersonModal ? () => openPersonsModalForSeries({ step, series, converted: false }) : undefined
+                    showPersonsModal ? () => openPersonsModalForSeries({ step, series, converted: false }) : undefined
                 }
             />
             <div
                 className="StepBar__fill"
                 onClick={
-                    canOpenPersonModal ? () => openPersonsModalForSeries({ step, series, converted: true }) : undefined
+                    showPersonsModal ? () => openPersonsModalForSeries({ step, series, converted: true }) : undefined
                 }
             />
         </div>

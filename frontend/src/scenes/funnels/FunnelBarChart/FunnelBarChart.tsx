@@ -111,7 +111,7 @@ export function FunnelBarChartComponent({
                         </td>
                         {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                             <td key={stepIndex}>
-                                <StepBars step={step} stepIndex={stepIndex} />
+                                <StepBars step={step} stepIndex={stepIndex} showPersonsModal={showPersonsModal} />
                             </td>
                         ))}
                     </tr>
