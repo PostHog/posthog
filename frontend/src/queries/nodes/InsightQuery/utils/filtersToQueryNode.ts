@@ -27,6 +27,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
+import * as Sentry from '@sentry/react'
 
 const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
@@ -100,6 +101,13 @@ export const cleanHiddenLegendSeries = (
 }
 
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
+    const captureException = (message: string): void => {
+        Sentry.captureException(new Error(message), {
+            tags: { DataExploration: true },
+            extra: { filters },
+        })
+    }
+
     if (!filters.insight) {
         throw new Error('filtersToQueryNode expects "insight"')
     }
@@ -127,6 +135,29 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // breakdown
     if (isInsightQueryWithBreakdown(query)) {
+        // handle multi-breakdowns
+        if (filters.breakdowns != null) {
+            if (filters.breakdowns.length === 1) {
+                filters.breakdown_type = filters.breakdowns[0].type
+                filters.breakdown = filters.breakdowns[0].property as string
+            } else {
+                captureException(
+                    'Could not convert multi-breakdown property `breakdowns` - found more than one breakdown'
+                )
+            }
+        }
+
+        // handle missing breakdown_type
+        if (filters.breakdown != null && filters.breakdown_type == null) {
+            if (Array.isArray(filters.breakdown)) {
+                filters.breakdown_type = 'cohort'
+            } else if (filters.breakdown.startsWith('$initial_')) {
+                filters.breakdown_type = 'person'
+            } else {
+                filters.breakdown_type = 'event'
+            }
+        }
+
         query.breakdown = objectCleanWithEmpty({
             breakdown_type: filters.breakdown_type,
             breakdown: filters.breakdown,
