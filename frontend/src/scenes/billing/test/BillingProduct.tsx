@@ -250,6 +250,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
         })
 
+    const predictUsageWillBeLimited =
+        parseInt(billing?.custom_limits_usd?.[product.type] || '') < parseInt(product.projected_amount_usd || '')
+
     return (
         <div
             className={clsx('flex flex-wrap max-w-xl pb-12', {
@@ -395,12 +398,20 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     {product.tiers && (
                                                         <Tooltip
                                                             title={
-                                                                'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
+                                                                predictUsageWillBeLimited
+                                                                    ? `This is roughly calculated based on your current bill, the remaining time left in this billing period, and your billing limit. Without a limit you could expect to pay $${product.projected_amount_usd} for this billing period.`
+                                                                    : `This is roughly calculated based on your current bill and the remaining time left in this billing period.`
                                                             }
                                                             className="flex flex-col items-center justify-end"
                                                         >
                                                             <div className="font-bold text-muted text-lg leading-5">
-                                                                ${product.projected_amount_usd || '0.00'}
+                                                                $
+                                                                {
+                                                                    // if we predict the usage will be limited, show the limit instead
+                                                                    predictUsageWillBeLimited
+                                                                        ? billing?.custom_limits_usd?.[product.type]
+                                                                        : product.projected_amount_usd || '0.00'
+                                                                }
                                                             </div>
                                                             <span className="text-xs text-muted">Predicted</span>
                                                         </Tooltip>

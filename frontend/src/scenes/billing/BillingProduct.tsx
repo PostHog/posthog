@@ -163,6 +163,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         { label: `Per ${productType.singular}`, value: 'individual' },
     ]
 
+    const predictUsageWillBeLimited =
+        parseInt(billing?.custom_limits_usd?.[product.type] || '') < parseInt(product.projected_amount_usd || '')
+
     if (billing?.has_active_subscription) {
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
@@ -200,13 +203,23 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                 <div className="space-y-2">
                                     <LemonLabel
                                         info={
-                                            'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
+                                            predictUsageWillBeLimited
+                                                ? `This is roughly calculated based on your current bill, the remaining time left in this billing period, and your billing limit.
+                                            
+                                            Without a limit you could expect to pay $${product.projected_amount_usd} for this billing period.`
+                                                : `This is roughly calculated based on your current bill and the remaining time left in this billing period.`
                                         }
                                     >
                                         Predicted bill
                                     </LemonLabel>
                                     <div className="font-bold text-muted text-2xl">
-                                        ${product.projected_amount_usd || '0.00'}
+                                        $
+                                        {
+                                            // if the billing limit for the product is less than the projected amount, show the limit instead
+                                            predictUsageWillBeLimited
+                                                ? billing?.custom_limits_usd?.[product.type]
+                                                : product.projected_amount_usd || '0.00'
+                                        }
                                     </div>
                                 </div>
                                 {billing?.billing_period?.interval == 'month' && (
