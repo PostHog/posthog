@@ -179,8 +179,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         version: values.featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2] ? '2' : '1',
                     }
 
-                    console.log('loadSessionRecordings', direction, currentResults.length)
-
                     if (direction === 'older') {
                         paramsDict['date_to'] = currentResults[currentResults.length - 1]?.start_time
                     }
@@ -191,7 +189,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
                     const params = toParams(paramsDict)
 
-                    await new Promise((r) => setTimeout(r, 2000))
                     await breakpoint(100) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
