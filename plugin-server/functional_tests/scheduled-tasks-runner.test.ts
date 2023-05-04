@@ -1,38 +1,34 @@
-import { Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
+import { Message } from 'node-rdkafka-acosom'
 import { v4 as uuidv4 } from 'uuid'
 
 import { defaultConfig } from '../src/config/config'
+import { BatchConsumer, startBatchConsumer } from '../src/kafka/batch-consumer'
 import { getMetric } from './api'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
-
-let kafka: Kafka
-
-beforeAll(() => {
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
-})
 
 describe('dlq handling', () => {
     // Test out some error cases that we wouldn't be able to handle without
     // producing to the jobs queue directly.
 
-    let dlq: KafkaMessage[]
-    let dlqConsumer: Consumer
+    let dlq: Message[]
+    let dlqConsumer: BatchConsumer
 
     beforeAll(async () => {
         dlq = []
-        dlqConsumer = kafka.consumer({ groupId: 'scheduled-tasks-consumer-test' })
-        await dlqConsumer.subscribe({ topic: 'scheduled_tasks_dlq' })
-        await dlqConsumer.run({
-            eachMessage: ({ message }) => {
-                dlq.push(message)
+        dlqConsumer = await startBatchConsumer({
+            connectionConfig: { 'metadata.broker.list': defaultConfig.KAFKA_HOSTS },
+            groupId: 'scheduled-tasks-consumer-test',
+            topic: 'scheduled_tasks_dlq',
+            eachBatch: (messages) => {
+                dlq.push(...messages)
                 return Promise.resolve()
             },
         })
     })
 
     afterAll(async () => {
-        await dlqConsumer.disconnect()
+        await dlqConsumer.stop()
     })
 
     test.concurrent(`handles empty messages`, async () => {

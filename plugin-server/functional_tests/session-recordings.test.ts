@@ -1,7 +1,8 @@
-import { Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
+import { Message } from 'node-rdkafka-acosom'
 import { v4 as uuidv4 } from 'uuid'
 
 import { defaultConfig } from '../src/config/config'
+import { BatchConsumer, startBatchConsumer } from '../src/kafka/batch-consumer'
 import { UUIDT } from '../src/utils/utils'
 import {
     capture,
@@ -14,21 +15,19 @@ import {
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
-let kafka: Kafka
 let organizationId: string
 
-let dlq: KafkaMessage[]
-let dlqConsumer: Consumer
+let dlq: Message[]
+let dlqConsumer: BatchConsumer
 
 beforeAll(async () => {
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
-
     dlq = []
-    dlqConsumer = kafka.consumer({ groupId: 'session_recording_events_test' })
-    await dlqConsumer.subscribe({ topic: 'session_recording_events_dlq' })
-    await dlqConsumer.run({
-        eachMessage: ({ message }) => {
-            dlq.push(message)
+    dlqConsumer = await startBatchConsumer({
+        connectionConfig: { 'metadata.broker.list': defaultConfig.KAFKA_HOSTS },
+        groupId: 'session_recording_events_test',
+        topic: 'session_recording_events_dlq',
+        eachBatch: (messages) => {
+            dlq.push(...messages)
             return Promise.resolve()
         },
     })
@@ -37,7 +36,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-    await Promise.all([await dlqConsumer.disconnect()])
+    await dlqConsumer.stop()
 })
 
 test.concurrent(

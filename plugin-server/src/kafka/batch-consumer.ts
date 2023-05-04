@@ -22,22 +22,22 @@ export const startBatchConsumer = async ({
     connectionConfig,
     groupId,
     topic,
-    sessionTimeout,
-    consumerMaxBytesPerPartition,
-    consumerMaxBytes,
-    consumerMaxWaitMs,
-    fetchBatchSize,
+    sessionTimeout = undefined,
+    consumerMaxBytesPerPartition = undefined,
+    consumerMaxBytes = undefined,
+    consumerMaxWaitMs = undefined,
+    fetchBatchSize = 500,
     eachBatch,
     autoCommit = true,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
     topic: string
-    sessionTimeout: number
-    consumerMaxBytesPerPartition: number
-    consumerMaxBytes: number
-    consumerMaxWaitMs: number
-    fetchBatchSize: number
+    sessionTimeout?: number
+    consumerMaxBytesPerPartition?: number
+    consumerMaxBytes?: number
+    consumerMaxWaitMs?: number
+    fetchBatchSize?: number
     eachBatch: (messages: Message[]) => Promise<void>
     autoCommit?: boolean
 }): Promise<BatchConsumer> => {
@@ -61,38 +61,44 @@ export const startBatchConsumer = async ({
     //
     // We also instrument the consumer with Prometheus metrics, which are
     // exposed on the /_metrics endpoint by the global prom-client registry.
-    const consumer = await createKafkaConsumer({
-        ...connectionConfig,
-        'group.id': groupId,
-        'session.timeout.ms': sessionTimeout,
-        // We disable auto commit and rather we commit after one batch has
-        // completed.
-        'enable.auto.commit': false,
-        'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
-        'fetch.message.max.bytes': consumerMaxBytes,
-        'fetch.wait.max.ms': consumerMaxWaitMs,
-        'enable.partition.eof': true,
-        'queued.min.messages': 100000, // 100000 is the default
-        'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
-        // Use cooperative-sticky rebalancing strategy, which is the
-        // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
-        // in the Java Kafka Client. There its actually
-        // RangeAssignor,CooperativeStickyAssignor i.e. it mixes eager and
-        // cooperative strategies. This is however explicitly mentioned to not
-        // be supported in the [librdkafka library config
-        // docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md#partitionassignmentstrategy)
-        // so we just use cooperative-sticky. If there are other consumer
-        // members with other strategies already running, you'll need to delete
-        // e.g. the replicaset for them if on k8s.
-        //
-        // See
-        // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
-        // for details on the advantages of this rebalancing strategy as well as
-        // how it works.
-        'partition.assignment.strategy': 'cooperative-sticky',
-        rebalance_cb: true,
-        offset_commit_cb: true,
-    })
+    const configWithoutUndefineds = Object.fromEntries(
+        Object.entries({
+            ...connectionConfig,
+            'group.id': groupId,
+            'session.timeout.ms': sessionTimeout,
+            // We disable auto commit and rather we commit after one batch has
+            // completed.
+            'enable.auto.commit': false,
+            'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
+            'fetch.message.max.bytes': consumerMaxBytes,
+            'fetch.wait.max.ms': consumerMaxWaitMs,
+            'enable.partition.eof': true,
+            'queued.min.messages': 100000, // 100000 is the default
+            'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
+            // Use cooperative-sticky rebalancing strategy, which is the
+            // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
+            // in the Java Kafka Client. There its actually
+            // RangeAssignor,CooperativeStickyAssignor i.e. it mixes eager and
+            // cooperative strategies. This is however explicitly mentioned to not
+            // be supported in the [librdkafka library config
+            // docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md#partitionassignmentstrategy)
+            // so we just use cooperative-sticky. If there are other consumer
+            // members with other strategies already running, you'll need to delete
+            // e.g. the replicaset for them if on k8s.
+            //
+            // See
+            // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
+            // for details on the advantages of this rebalancing strategy as well as
+            // how it works.
+            'partition.assignment.strategy': 'cooperative-sticky',
+            rebalance_cb: true,
+            offset_commit_cb: true,
+        })
+            .filter(([_, value]) => value !== undefined)
+            .map(([key, value]) => [key, value])
+    )
+
+    const consumer = await createKafkaConsumer(configWithoutUndefineds)
 
     instrumentConsumerMetrics(consumer, groupId)
 
@@ -112,7 +118,9 @@ export const startBatchConsumer = async ({
     await ensureTopicExists(adminClient, topic)
     adminClient.disconnect()
 
-    consumer.setDefaultConsumeTimeout(consumerMaxWaitMs)
+    if (consumerMaxWaitMs != null) {
+        consumer.setDefaultConsumeTimeout(consumerMaxWaitMs)
+    }
     consumer.subscribe([topic])
 
     const startConsuming = async () => {
