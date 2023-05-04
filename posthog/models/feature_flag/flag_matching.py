@@ -259,7 +259,7 @@ class FeatureFlagMatcher:
 
         return True, FeatureFlagMatchReason.CONDITION_MATCH
 
-    def _super_condition_matches(self, feature_flag: FeatureFlag) -> Optional[bool]:
+    def _super_condition_matches(self, feature_flag: FeatureFlag) -> bool:
         if self.failed_to_fetch_conditions:
             raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
         return self.query_conditions.get(f"flag_{feature_flag.pk}_super_condition", False)
