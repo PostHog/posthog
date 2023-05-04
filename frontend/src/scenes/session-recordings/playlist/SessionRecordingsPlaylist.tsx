@@ -23,7 +23,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
-    <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold">{children}</span>
+    <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
 )
 
 export function RecordingsLists({
