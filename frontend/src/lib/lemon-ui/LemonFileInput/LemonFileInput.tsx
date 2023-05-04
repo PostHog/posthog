@@ -179,6 +179,7 @@ export const LemonFileInput = ({
                         onChange={onInputChange}
                     />
                     <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
+                    {accept ? ` ${acceptToDisplayName(accept)}` : ''}
                 </label>
                 <div className={'flex flex-row gap-2'}>
                     {files.map((x, i) => (
@@ -195,4 +196,15 @@ export const LemonFileInput = ({
 const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
     const blobReducer = (await import('image-blob-reduce')).default()
     return blobReducer.toBlob(blob, { max: 2000 })
+}
+
+function acceptToDisplayName(accept: string): string {
+    const match = accept.match(/(\w+)\/\*/)
+    if (match) {
+        return `${match[1]}s`
+    }
+    if (accept.startsWith('.')) {
+        return `${accept.slice(1).toUpperCase()} files`
+    }
+    return `files`
 }

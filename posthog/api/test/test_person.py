@@ -513,7 +513,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 3)
         self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
         self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
-        self.assertDictContainsSubset({"id": cohort4.id, "count": None, "name": cohort4.name}, response["results"][2])
+        self.assertDictContainsSubset({"id": cohort4.id, "count": 1, "name": cohort4.name}, response["results"][2])
 
     def test_split_person_clickhouse(self):
         person = _create_person(

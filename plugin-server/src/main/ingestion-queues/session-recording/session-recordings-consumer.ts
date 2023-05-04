@@ -164,12 +164,12 @@ const eachMessage =
                 partition: message.partition,
             })
             return [
-                produce(
+                produce({
                     producer,
-                    KAFKA_SESSION_RECORDING_EVENTS_DLQ,
-                    message.value,
-                    message.key ? Buffer.from(message.key) : null
-                ),
+                    topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ,
+                    value: message.value,
+                    key: message.key ? Buffer.from(message.key) : null,
+                }),
             ]
         }
 
@@ -191,12 +191,12 @@ const eachMessage =
                 partition: message.partition,
             })
             return [
-                produce(
+                produce({
                     producer,
-                    KAFKA_SESSION_RECORDING_EVENTS_DLQ,
-                    message.value,
-                    message.key ? Buffer.from(message.key) : null
-                ),
+                    topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ,
+                    value: message.value,
+                    key: message.key ? Buffer.from(message.key) : null,
+                }),
             ]
         }
 
@@ -253,12 +253,12 @@ const eachMessage =
                     )
 
                     return [
-                        produce(
+                        produce({
                             producer,
-                            KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
-                            Buffer.from(JSON.stringify(clickHouseRecord)),
-                            message.key ? Buffer.from(message.key) : null
-                        ),
+                            topic: KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
+                            value: Buffer.from(JSON.stringify(clickHouseRecord)),
+                            key: message.key ? Buffer.from(message.key) : null,
+                        }),
                     ]
                 } else if (event.event === '$performance_event') {
                     const clickHouseRecord = createPerformanceEvent(
@@ -269,12 +269,12 @@ const eachMessage =
                     )
 
                     return [
-                        produce(
+                        produce({
                             producer,
-                            KAFKA_PERFORMANCE_EVENTS,
-                            Buffer.from(JSON.stringify(clickHouseRecord)),
-                            message.key ? Buffer.from(message.key) : null
-                        ),
+                            topic: KAFKA_PERFORMANCE_EVENTS,
+                            value: Buffer.from(JSON.stringify(clickHouseRecord)),
+                            key: message.key ? Buffer.from(message.key) : null,
+                        }),
                     ]
                 } else {
                     status.warn('⚠️', 'invalid_message', {

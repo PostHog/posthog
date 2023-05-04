@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import * as fetch from 'node-fetch'
 
-import { Action, Person, PreIngestionEvent } from '../../../src/types'
+import { Action, PostIngestionEvent } from '../../../src/types'
 import { UUIDT } from '../../../src/utils/utils'
 import {
     determineWebhookType,
@@ -37,28 +37,20 @@ describe('hooks', () => {
     })
 
     describe('getUserDetails', () => {
-        const event = { distinctId: 'WALL-E' } as unknown as PreIngestionEvent
-        const person = { properties: { email: 'test@posthog.com' } } as unknown as Person
+        const event = {
+            distinctId: 'WALL-E',
+            person_properties: { email: 'test@posthog.com' },
+        } as unknown as PostIngestionEvent
 
         test('Slack', () => {
-            const [userDetails, userDetailsMarkdown] = getUserDetails(
-                event,
-                person,
-                'http://localhost:8000',
-                WebhookType.Slack
-            )
+            const [userDetails, userDetailsMarkdown] = getUserDetails(event, 'http://localhost:8000', WebhookType.Slack)
 
             expect(userDetails).toBe('test@posthog.com')
             expect(userDetailsMarkdown).toBe('<http://localhost:8000/person/WALL-E|test@posthog.com>')
         })
 
         test('Teams', () => {
-            const [userDetails, userDetailsMarkdown] = getUserDetails(
-                event,
-                person,
-                'http://localhost:8000',
-                WebhookType.Teams
-            )
+            const [userDetails, userDetailsMarkdown] = getUserDetails(event, 'http://localhost:8000', WebhookType.Teams)
 
             expect(userDetails).toBe('test@posthog.com')
             expect(userDetailsMarkdown).toBe('[test@posthog.com](http://localhost:8000/person/WALL-E)')
@@ -104,8 +96,11 @@ describe('hooks', () => {
 
     describe('getValueOfToken', () => {
         const action = { id: 1, name: 'action1' } as Action
-        const event = { distinctId: 'WALL-E', properties: { $browser: 'Chrome' } } as unknown as PreIngestionEvent
-        const person = { properties: { enjoys_broccoli_on_pizza: false } } as unknown as Person
+        const event = {
+            distinctId: 'WALL-E',
+            properties: { $browser: 'Chrome' },
+            person_properties: { enjoys_broccoli_on_pizza: false },
+        } as unknown as PostIngestionEvent
 
         test('person with just distinct ID', () => {
             const tokenUserName = ['person']
@@ -113,7 +108,6 @@ describe('hooks', () => {
             const [text, markdown] = getValueOfToken(
                 action,
                 event,
-                person,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserName
@@ -128,8 +122,7 @@ describe('hooks', () => {
 
             const [text, markdown] = getValueOfToken(
                 action,
-                event,
-                { ...person, properties: { ...person.properties, email: 'wall-e@buynlarge.com' } },
+                { ...event, person_properties: { ...event.person_properties, email: 'wall-e@buynlarge.com' } },
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserName
@@ -145,7 +138,6 @@ describe('hooks', () => {
             const [text, markdown] = getValueOfToken(
                 action,
                 event,
-                person,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserPropString
@@ -161,7 +153,6 @@ describe('hooks', () => {
             const [text, markdown] = getValueOfToken(
                 action,
                 event,
-                person,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserName
@@ -177,7 +168,6 @@ describe('hooks', () => {
             const [text, markdown] = getValueOfToken(
                 action,
                 event,
-                person,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserPropString
@@ -193,7 +183,6 @@ describe('hooks', () => {
             const [text, markdown] = getValueOfToken(
                 action,
                 event,
-                person,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserPropMissing
@@ -208,8 +197,7 @@ describe('hooks', () => {
         const event = {
             distinctId: 2,
             properties: { $browser: 'Chrome', page_title: 'Pricing' },
-        } as unknown as PreIngestionEvent
-        const person = {} as Person
+        } as unknown as PostIngestionEvent
 
         test('custom format', () => {
             const action = {
@@ -219,13 +207,7 @@ describe('hooks', () => {
                     '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit]',
             } as Action
 
-            const [text, markdown] = getFormattedMessage(
-                action,
-                event,
-                person,
-                'https://localhost:8000',
-                WebhookType.Slack
-            )
+            const [text, markdown] = getFormattedMessage(action, event, 'https://localhost:8000', WebhookType.Slack)
             expect(text).toBe('2 from Chrome on Pricing page with undefined')
             expect(markdown).toBe('<https://localhost:8000/person/2|2> from Chrome on Pricing page with undefined')
         })
@@ -233,13 +215,7 @@ describe('hooks', () => {
         test('default format', () => {
             const action = { id: 1, name: 'action1', slack_message_format: '' } as Action
 
-            const [text, markdown] = getFormattedMessage(
-                action,
-                event,
-                person,
-                'https://localhost:8000',
-                WebhookType.Slack
-            )
+            const [text, markdown] = getFormattedMessage(action, event, 'https://localhost:8000', WebhookType.Slack)
             expect(text).toBe('action1 was triggered by 2')
             expect(markdown).toBe(
                 '<https://localhost:8000/action/1|action1> was triggered by <https://localhost:8000/person/2|2>'
@@ -253,13 +229,7 @@ describe('hooks', () => {
                 slack_message_format: '[user.name] did thing from browser [user.brauzer]',
             } as Action
 
-            const [text, markdown] = getFormattedMessage(
-                action,
-                event,
-                person,
-                'https://localhost:8000',
-                WebhookType.Slack
-            )
+            const [text, markdown] = getFormattedMessage(action, event, 'https://localhost:8000', WebhookType.Slack)
             expect(text).toBe('2 did thing from browser undefined')
             expect(markdown).toBe('<https://localhost:8000/person/2|2> did thing from browser undefined')
         })
@@ -284,7 +254,7 @@ describe('hooks', () => {
         })
 
         test('person = undefined', async () => {
-            await hookCommander.postRestHook(hook, { event: 'foo' } as any, undefined)
+            await hookCommander.postRestHook(hook, { event: 'foo' } as any)
 
             expect(fetch).toHaveBeenCalledWith('foo.bar', {
                 body: JSON.stringify(
@@ -308,17 +278,16 @@ describe('hooks', () => {
             })
         })
 
-        test('person instanceof IngestionPersonData', async () => {
+        test('person data from the event', async () => {
             const now = new Date().toISOString()
             const uuid = new UUIDT().toString()
-            const person = {
-                uuid: uuid,
-                properties: { foo: 'bar' },
-                team_id: 1,
-                id: 1,
-                created_at: DateTime.fromISO(now).toUTC(),
-            }
-            await hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
+            await hookCommander.postRestHook(hook, {
+                event: 'foo',
+                teamId: 1,
+                person_id: uuid,
+                person_properties: { foo: 'bar' },
+                person_created_at: DateTime.fromISO(now).toUTC(),
+            } as any)
             expect(fetch).toHaveBeenCalledWith('foo.bar', {
                 body: JSON.stringify(
                     {
@@ -329,56 +298,11 @@ describe('hooks', () => {
                         },
                         data: {
                             event: 'foo',
+                            teamId: 1,
                             person: {
                                 uuid: uuid,
                                 properties: { foo: 'bar' },
-                                team_id: 1,
-                                id: 1,
                                 created_at: now,
-                            },
-                        },
-                    },
-                    undefined,
-                    4
-                ),
-                headers: { 'Content-Type': 'application/json' },
-                method: 'POST',
-                timeout: 10000,
-            })
-        })
-
-        test('person instanceof Person', async () => {
-            const now = DateTime.now()
-            const uuid = new UUIDT().toString()
-            const person = {
-                uuid: uuid,
-                properties: { foo: 'bar' },
-                team_id: 1,
-                id: 1,
-                created_at: now,
-                is_user_id: 1,
-                is_identified: false,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
-                version: 15,
-            }
-            await hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
-            expect(fetch).toHaveBeenCalledWith('foo.bar', {
-                body: JSON.stringify(
-                    {
-                        hook: {
-                            id: 'id',
-                            event: 'foo',
-                            target: 'foo.bar',
-                        },
-                        data: {
-                            event: 'foo',
-                            person: {
-                                uuid: uuid,
-                                properties: { foo: 'bar' },
-                                team_id: 1,
-                                id: 1,
-                                created_at: now.toISO(),
                             },
                         },
                     },

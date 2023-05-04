@@ -52,7 +52,7 @@ export async function runScheduledTasks(
     if (server.USE_KAFKA_FOR_SCHEDULED_TASKS) {
         for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
             status.info('⏲️', 'queueing_schedule_task', { taskType, pluginConfigId })
-            await server.kafkaProducer.producer.send({
+            await server.kafkaProducer.queueMessage({
                 topic: KAFKA_SCHEDULED_TASKS,
                 messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
             })
