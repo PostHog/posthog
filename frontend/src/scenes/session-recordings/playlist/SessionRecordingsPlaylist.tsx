@@ -15,7 +15,6 @@ import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { SessionRecordingsPlaylistFilters } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistFilters'
-import { PLAYLIST_PREVIEW_RECORDINGS_LIMIT } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -31,7 +30,6 @@ export function RecordingsLists({
     personUUID,
     filters: defaultFilters,
     updateSearchParams,
-    embedded,
 }: SessionRecordingsPlaylistProps): JSX.Element {
     const logicProps = {
         playlistShortId,
@@ -53,7 +51,7 @@ export function RecordingsLists({
     } = useValues(logic)
     const { setSelectedRecordingId, loadNext, loadPrev, setFilters, maybeLoadSessionRecordings } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const infiniteScroller = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
+    const infiniteScrollerEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
 
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
     const offset = filters.offset ?? 0
@@ -86,22 +84,6 @@ export function RecordingsLists({
             />
         </div>
     ) : null
-
-    if (embedded) {
-        return (
-            <SessionRecordingsList
-                listKey="other"
-                embedded
-                title={'Recordings in playlist'}
-                onRecordingClick={() => console.log('TODO')}
-                onPropertyClick={() => console.log('TODO')}
-                recordings={sessionRecordings.slice(0, PLAYLIST_PREVIEW_RECORDINGS_LIMIT)}
-                loading={sessionRecordingsResponseLoading}
-                loadingSkeletonCount={PLAYLIST_PREVIEW_RECORDINGS_LIMIT}
-                empty={<>No matching recordings found</>}
-            />
-        )
-    }
 
     return (
         <>
@@ -144,7 +126,7 @@ export function RecordingsLists({
                 listKey="other"
                 title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                 titleRight={
-                    infiniteScroller ? (
+                    infiniteScrollerEnabled ? (
                         sessionRecordings.length ? (
                             <Tooltip
                                 placement="bottom"
@@ -175,17 +157,21 @@ export function RecordingsLists({
                 loadingSkeletonCount={RECORDINGS_LIMIT}
                 empty={<>No matching recordings found</>}
                 activeRecordingId={activeSessionRecording?.id}
-                onScrollToEnd={infiniteScroller ? () => maybeLoadSessionRecordings('older') : undefined}
-                onScrollToStart={infiniteScroller ? () => maybeLoadSessionRecordings('newer') : undefined}
+                onScrollToEnd={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('older') : undefined}
+                onScrollToStart={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('newer') : undefined}
                 footer={
-                    infiniteScroller ? (
+                    infiniteScrollerEnabled ? (
                         <>
                             <LemonDivider />
-                            <div className="m-4 flex items-center justify-center gap-2 text-muted-alt">
+                            <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
                                 {sessionRecordingsResponseLoading ? (
                                     <>
                                         <Spinner monocolor /> Loading older recordings
                                     </>
+                                ) : hasNext ? (
+                                    <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
+                                        Load more
+                                    </LemonButton>
                                 ) : (
                                     'No more results'
                                 )}
@@ -204,18 +190,10 @@ export type SessionRecordingsPlaylistProps = {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
-    embedded?: boolean
 }
 
 export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps): JSX.Element {
-    const {
-        playlistShortId,
-        personUUID,
-        filters: defaultFilters,
-        updateSearchParams,
-        onFiltersChange,
-        embedded = false,
-    } = props
+    const { playlistShortId, personUUID, filters: defaultFilters, updateSearchParams, onFiltersChange } = props
     const logicProps = {
         playlistShortId,
         personUUID,
@@ -248,7 +226,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
 
     return (
         <>
-            {!embedded && <SessionRecordingsPlaylistFilters {...props} />}
+            <SessionRecordingsPlaylistFilters {...props} />
             <div
                 ref={playlistRef}
                 data-attr="session-recordings-playlist"
@@ -256,9 +234,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                     'SessionRecordingsPlaylist--wide': size !== 'small',
                 })}
             >
-                <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4', embedded && '-mr-4')}>
-                    {lists}
-                </div>
+                <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>{lists}</div>
                 <div className="SessionRecordingsPlaylist__right-column">
                     {activeSessionRecording?.id ? (
                         <SessionRecordingPlayer
@@ -268,7 +244,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                             matching={activeSessionRecording?.matching_events}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                             nextSessionRecording={nextSessionRecording}
-                            embedded={embedded}
                         />
                     ) : (
                         <div className="mt-20">

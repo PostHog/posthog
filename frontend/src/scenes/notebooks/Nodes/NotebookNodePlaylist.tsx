@@ -5,14 +5,12 @@ import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylist,
+    SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { SessionRecordingsPlaylistFilters } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistFilters'
 
-export const PLAYLIST_PREVIEW_RECORDINGS_LIMIT = 5
-
 const Component = (props: NodeViewProps): JSX.Element => {
-    const recordingPlaylistLogicProps = {
-        embedded: true,
+    const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = {
         filters: props.node.attrs.filters,
         updateSearchParams: false,
     }

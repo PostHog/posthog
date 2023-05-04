@@ -7,6 +7,7 @@
     align-items: flex-start;
     gap: 1rem;
     overflow: hidden;
+    padding-bottom: 1rem;
 
     .SessionRecordingsPlaylist__left-column {
         flex-shrink: 0;
@@ -54,7 +55,6 @@
         flex-direction: row;
         justify-content: flex-start;
         height: calc(100vh - 3.5rem);
-        padding-bottom: 1rem;
 
         .SessionRecordingsPlaylist__left-column {
             max-width: 350px;
