@@ -11,7 +11,6 @@ import {
     IngestionPersonData,
     ISOTimestamp,
     PerformanceEventReverseMapping,
-    PostIngestionEvent,
     PreIngestionEvent,
     RawClickHouseEvent,
     RawPerformanceEvent,
@@ -165,10 +164,7 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(
-        preIngestionEvent: PreIngestionEvent,
-        personContainer: LazyPersonContainer
-    ): Promise<PostIngestionEvent> {
+    async createEvent(preIngestionEvent: PreIngestionEvent, personContainer: LazyPersonContainer): Promise<void> {
         const {
             eventUuid: uuid,
             event,
@@ -231,8 +227,6 @@ export class EventsProcessor {
                 },
             ],
         })
-
-        return preIngestionEvent
     }
 
     private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {

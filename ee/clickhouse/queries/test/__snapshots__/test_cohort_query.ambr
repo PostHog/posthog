@@ -495,6 +495,15 @@
 # name: TestCohortQuery.test_static_cohort_filter
   '
   
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '
+---
+# name: TestCohortQuery.test_static_cohort_filter.1
+  '
+  
   SELECT person.person_id AS id
   FROM
     (SELECT *,
@@ -514,6 +523,15 @@
   '
 ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '
+---
+# name: TestCohortQuery.test_static_cohort_filter_with_extra.1
   '
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
@@ -553,7 +571,7 @@
           AND (performed_event_condition_None_level_level_0_level_1_0)))
   '
 ---
-# name: TestCohortQuery.test_static_cohort_filter_with_extra.1
+# name: TestCohortQuery.test_static_cohort_filter_with_extra.2
   '
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
@@ -594,6 +612,15 @@
   '
 ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '
+---
+# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.1
   '
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id

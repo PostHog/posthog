@@ -10,18 +10,17 @@ export const isURLNormalizeable = (propertyName: string): boolean => {
     return ['$current_url', '$pathname'].includes(propertyName)
 }
 interface FilterChange {
-    useMultiBreakdown: string | boolean | undefined
     breakdownParts: (string | number)[]
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
     getPropertyDefinition: (propertyName: string | number) => PropertyDefinition | null
 }
 
-export function onFilterChange({ useMultiBreakdown, breakdownParts, setFilters, getPropertyDefinition }: FilterChange) {
+export function onFilterChange({ breakdownParts, setFilters, getPropertyDefinition }: FilterChange) {
     return (changedBreakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup): void => {
         const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
 
         if (changedBreakdownType) {
-            const isHistogramable = !useMultiBreakdown && !!getPropertyDefinition(changedBreakdown)?.is_numerical
+            const isHistogramable = !!getPropertyDefinition(changedBreakdown)?.is_numerical
 
             const newFilters: Partial<TrendsFilterType> = {
                 breakdown_type: changedBreakdownType,
@@ -34,20 +33,10 @@ export function onFilterChange({ useMultiBreakdown, breakdownParts, setFilters, 
                 ),
             }
 
-            if (useMultiBreakdown) {
-                newFilters.breakdowns = [...breakdownParts, changedBreakdown]
-                    .filter((b): b is string | number => !!b)
-                    .map((b) => ({
-                        property: b,
-                        type: changedBreakdownType,
-                        normalize_url: isURLNormalizeable(b.toString()),
-                    }))
-            } else {
-                newFilters.breakdown =
-                    taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
-                        ? [...breakdownParts, changedBreakdown].filter((b): b is string | number => !!b)
-                        : changedBreakdown
-            }
+            newFilters.breakdown =
+                taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
+                    ? [...breakdownParts, changedBreakdown].filter((b): b is string | number => !!b)
+                    : changedBreakdown
 
             setFilters(newFilters, true)
         }

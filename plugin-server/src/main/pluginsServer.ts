@@ -1,6 +1,9 @@
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
 import { Consumer, KafkaJSProtocolError } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes } from 'kafkajs'
+// @ts-expect-error no type definitions
+import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
@@ -31,6 +34,8 @@ import { SessionRecordingBlobIngester } from './ingestion-queues/session-recordi
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
+
+CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
 const { version } = require('../../package.json')
 
@@ -242,8 +247,8 @@ export async function startPluginsServer(
             if (capabilities.pluginScheduledTasks) {
                 schedulerTasksConsumer = await startScheduledTasksConsumer({
                     piscina: piscina,
+                    producer: hub.kafkaProducer,
                     kafka: hub.kafka,
-                    producer: hub.kafkaProducer.producer,
                     partitionConcurrency: serverConfig.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                     statsd: hub.statsd,
                 })
@@ -252,7 +257,7 @@ export async function startPluginsServer(
             if (capabilities.processPluginJobs) {
                 jobsConsumer = await startJobsConsumer({
                     kafka: hub.kafka,
-                    producer: hub.kafkaProducer.producer,
+                    producer: hub.kafkaProducer,
                     graphileWorker: graphileWorker,
                     statsd: hub.statsd,
                 })

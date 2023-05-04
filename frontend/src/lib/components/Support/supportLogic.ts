@@ -8,6 +8,7 @@ import { forms } from 'kea-forms'
 import { UserType } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { captureException } from '@sentry/react'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -28,24 +29,24 @@ function getDjangoAdminLink(user: UserType | null): string {
     return `\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`
 }
 
-export const TargetAreaToName = {
-    analytics: 'Analytics',
+export const TARGET_AREA_TO_NAME = {
     app_performance: 'App Performance',
     apps: 'Apps',
+    login: 'Authentication (Login / Sign-up / Invites)',
     billing: 'Billing',
     cohorts: 'Cohorts',
-    data_management: 'Data Management',
     data_integrity: 'Data Integrity',
-    ingestion: 'Events Ingestion',
+    data_management: 'Data Management',
+    ingestion: 'Event Ingestion',
     experiments: 'Experiments',
     feature_flags: 'Feature Flags',
-    login: 'Login / Sign up / Invites',
-    session_replay: 'Session Replay',
+    analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
+    session_replay: 'Session Replay (Recordings)',
 }
-export type supportTicketTargetArea = keyof typeof TargetAreaToName | null
-export type supportTicketKind = 'bug' | 'feedback' | null
+export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
+export type SupportTicketKind = 'bug' | 'feedback' | 'support'
 
-export const URLPathToTargetArea: Record<string, supportTicketTargetArea> = {
+export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
     insights: 'analytics',
     recordings: 'session_replay',
     replay: 'session_replay',
@@ -63,9 +64,9 @@ export const URLPathToTargetArea: Record<string, supportTicketTargetArea> = {
     toolbar: 'analytics',
 }
 
-export function getURLPathToTargetArea(pathname: string): supportTicketTargetArea | null {
+export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const first_part = pathname.split('/')[1]
-    return URLPathToTargetArea[first_part] ?? null
+    return URL_PATH_TO_TARGET_AREA[first_part] ?? null
 }
 
 export const supportLogic = kea<supportLogicType>([
@@ -75,11 +76,18 @@ export const supportLogic = kea<supportLogicType>([
     })),
     actions(() => ({
         closeSupportForm: () => true,
-        openSupportForm: (kind: supportTicketKind = null, target_area: supportTicketTargetArea = null) => ({
+        openSupportForm: (
+            kind: SupportTicketKind | null = null,
+            target_area: SupportTicketTargetArea | null = null
+        ) => ({
             kind,
             target_area,
         }),
-        submitZendeskTicket: (kind: supportTicketKind, target_area: supportTicketTargetArea, message: string) => ({
+        submitZendeskTicket: (
+            kind: SupportTicketKind | null,
+            target_area: SupportTicketTargetArea | null,
+            message: string
+        ) => ({
             kind,
             target_area,
             message,
@@ -97,8 +105,8 @@ export const supportLogic = kea<supportLogicType>([
     forms(({ actions }) => ({
         sendSupportRequest: {
             defaults: {} as unknown as {
-                kind: supportTicketKind
-                target_area: supportTicketTargetArea
+                kind: SupportTicketKind | null
+                target_area: SupportTicketTargetArea | null
                 message: string
             },
             errors: ({ message, kind, target_area }) => {
@@ -162,12 +170,13 @@ export const supportLogic = kea<supportLogicType>([
                     }
                     posthog.capture('support_ticket', properties)
                     lemonToast.success(
-                        'Got it! The relevant team will check it out and aim to respond via email if necessary.'
+                        "Got the message! If we have follow-up information for you, we'll reply via email."
                     )
                 })
                 .catch((err) => {
+                    captureException(err)
                     console.log(err)
-                    lemonToast.error('Failed to submit form.')
+                    lemonToast.error(`There was an error sending the message.`)
                 })
         },
     })),
@@ -179,7 +188,7 @@ export const supportLogic = kea<supportLogicType>([
 
                 actions.openSupportForm(
                     ['bug', 'feedback'].includes(kind) ? kind : null,
-                    Object.keys(TargetAreaToName).includes(area) ? area : null
+                    Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
                 )
             }
         },

@@ -111,7 +111,6 @@ export const FEATURE_FLAGS = {
     // Cloud-only
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     // Experiments / beta features
-    BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
