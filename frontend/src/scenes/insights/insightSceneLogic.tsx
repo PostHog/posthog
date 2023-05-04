@@ -194,7 +194,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         {
                             ...createEmptyInsight('new', teamFilterTestAccounts),
                             ...(filters
-                                ? { filters: cleanFilters(filters || {}, undefined, undefined, teamFilterTestAccounts) }
+                                ? { filters: cleanFilters(filters || {}, undefined, teamFilterTestAccounts) }
                                 : {}),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                             ...(q ? { query: JSON.parse(q) } : {}),
