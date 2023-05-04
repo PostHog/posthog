@@ -62,7 +62,7 @@ class Database(BaseModel):
         raise HogQLException(f'Table "{table_name}" not found in database')
 
 
-def create_hogql_database(team_id: Optional[int]) -> Database:
+def create_hogql_database(team_id: int) -> Database:
     from posthog.models import Team
 
     team = Team.objects.get(pk=team_id)

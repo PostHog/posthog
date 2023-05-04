@@ -31,7 +31,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
 import { canViewPlugins } from '~/scenes/plugins/access'
 import { Scene } from '~/scenes/sceneTypes'
-import { teamLogic } from '~/scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import { AvailableFeature } from '~/types'
 import './SideBar.scss'
@@ -74,7 +74,7 @@ function Pages(): JSX.Element {
             <div className="SideBar__heading">Project</div>
             <PageButton
                 title={
-                    currentTeam?.name ? (
+                    isAuthenticatedTeam(currentTeam) ? (
                         <>
                             <span>
                                 <ProjectName team={currentTeam} />
@@ -282,7 +282,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
 
 function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state: boolean) => void }): JSX.Element {
     const { authorizedUrls, launchUrl, suggestionsLoading } = useValues(
-        authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS })
+        authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS, actionId: null })
     )
     return (
         <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">

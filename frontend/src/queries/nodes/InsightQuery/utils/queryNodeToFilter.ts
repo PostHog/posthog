@@ -44,14 +44,6 @@ export const seriesToActionsAndEvents = (
         }
     })
 
-    if (actions.length + events.length + new_entity.length === 1) {
-        actions.length > 0
-            ? delete actions[0].order
-            : events.length > 0
-            ? delete events[0].order
-            : delete new_entity[0].order
-    }
-
     return { actions, events, new_entity }
 }
 
@@ -89,6 +81,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_from: query.dateRange?.date_from,
         entity_type: 'events',
         sampling_factor: query.samplingFactor,
+        aggregation_group_type_index: query.aggregation_group_type_index,
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {
@@ -109,7 +102,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdown))
     }
 
-    if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query)) {
+    if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query) || isFunnelsQuery(query)) {
         filters.interval = query.interval
     }
 

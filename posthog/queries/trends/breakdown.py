@@ -66,6 +66,7 @@ from posthog.queries.trends.util import (
 )
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
+from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 
 
 class TrendsBreakdown:
@@ -634,13 +635,11 @@ class TrendsBreakdown:
 
         if self.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
             return (
-                f"""LEFT OUTER JOIN (
-                SELECT override_person_id as person_id, old_person_id
-                FROM person_overrides
-                WHERE team_id = %(team_id)s
-            ) AS {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}
-            ON {self.EVENT_TABLE_ALIAS}.person_id = {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.old_person_id""",
-                {},
+                PERSON_OVERRIDES_JOIN_SQL.format(
+                    person_overrides_table_alias=self.PERSON_ID_OVERRIDES_TABLE_ALIAS,
+                    event_table_alias=self.EVENT_TABLE_ALIAS,
+                ),
+                {"team_id": self.team_id},
             )
 
         person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)

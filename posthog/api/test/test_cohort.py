@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from django.utils import timezone
+from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -151,6 +152,9 @@ email@example.org,
         self.assertFalse(response.json()["is_calculating"], False)
         self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
 
+        calculate_cohort_from_list(response.json()["id"], ["email@example.org", "123"])
+        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).count, 1)
+
         csv = SimpleUploadedFile(
             "example.csv",
             str.encode(
@@ -175,6 +179,9 @@ User ID,
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
         self.assertFalse(response.json()["is_calculating"], False)
         self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+
+        calculate_cohort_from_list(response.json()["id"], ["456"])
+        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).count, 2)
 
         # Only change name without updating CSV
         response = client.patch(

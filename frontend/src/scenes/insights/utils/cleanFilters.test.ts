@@ -8,7 +8,7 @@ import {
     InsightType,
     TrendsFilterType,
 } from '~/types'
-import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
+import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, ShownAsValue } from 'lib/constants'
 
 describe('cleanFilters', () => {
     it('removes shownas if moving from stickiness to trends', () => {
@@ -285,31 +285,6 @@ describe('cleanFilters', () => {
 
         expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
         expect(cleanedFilters).toHaveProperty('breakdown', 'one thing')
-        expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
-        expect(cleanedFilters).toHaveProperty('breakdown_group_type_index', undefined)
-    })
-
-    it('adds the first multi property filter when switching from trends', () => {
-        const featureFlags = {}
-        featureFlags[`${FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES}`] = true
-
-        const cleanedFilters = cleanFilters(
-            {
-                breakdowns: [{ property: 'one thing', type: 'event' }],
-                breakdown_type: 'event',
-                insight: InsightType.FUNNELS,
-                funnel_viz_type: FunnelVizType.Steps,
-            },
-            {
-                breakdown: 'one thing',
-                breakdown_type: 'event',
-                insight: InsightType.TRENDS,
-            },
-            featureFlags
-        )
-
-        expect(cleanedFilters).toHaveProperty('breakdowns', [{ property: 'one thing', type: 'event' }])
-        expect(cleanedFilters).toHaveProperty('breakdown', undefined)
         expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
         expect(cleanedFilters).toHaveProperty('breakdown_group_type_index', undefined)
     })

@@ -81,7 +81,7 @@ export function Billing(): JSX.Element {
         }
         let url = '/api/billing-v2/activation?products='
         for (const product of products) {
-            if (product.subscribed || product.contact_support) {
+            if (product.subscribed || product.contact_support || product.inclusion_only) {
                 continue
             }
             const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
@@ -228,11 +228,13 @@ export function Billing(): JSX.Element {
             </div>
             <LemonDivider className="mt-2 mb-8" />
 
-            {products?.map((x) => (
-                <div key={x.type}>
-                    <BillingProduct product={x} />
-                </div>
-            ))}
+            {products
+                ?.filter((product) => !product.inclusion_only || product.contact_support)
+                ?.map((x) => (
+                    <div key={x.type}>
+                        <BillingProduct product={x} />
+                    </div>
+                ))}
         </div>
     )
 }

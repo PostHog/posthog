@@ -183,6 +183,7 @@ export interface PluginsServerConfig {
     CLOUD_DEPLOYMENT: string
 
     SESSION_RECORDING_BLOB_PROCESSING_TEAMS: string
+    // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
@@ -614,7 +615,11 @@ interface BaseIngestionEvent {
 export type PreIngestionEvent = BaseIngestionEvent
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export type PostIngestionEvent = BaseIngestionEvent
+export interface PostIngestionEvent extends BaseIngestionEvent {
+    person_id?: string // This is not optional, but BaseEvent needs to be fixed first
+    person_created_at: ISOTimestamp | null
+    person_properties: Properties
+}
 
 export interface DeadLetterQueueEvent {
     id: string

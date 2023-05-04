@@ -3,7 +3,7 @@ import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/Property
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { Breakdown, ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
+import { ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { onFilterChange, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
@@ -12,7 +12,6 @@ import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
     setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
-    useMultiBreakdown?: boolean
 }
 
 export const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'
@@ -23,12 +22,8 @@ export const isCohortBreakdown = (t: number | string): t is number | string => i
 
 export const isPersonEventOrGroup = (t: number | string): t is string => typeof t === 'string' && t !== 'all'
 
-export function TaxonomicBreakdownFilter({
-    filters,
-    setFilters,
-    useMultiBreakdown = false,
-}: TaxonomicBreakdownFilterProps): JSX.Element {
-    const { breakdown, breakdowns, breakdown_type } = filters
+export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
+    const { breakdown, breakdown_type } = filters
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
@@ -38,9 +33,7 @@ export function TaxonomicBreakdownFilter({
 
     const hasSelectedBreakdown = breakdown && typeof breakdown === 'string'
 
-    const breakdownArray = useMultiBreakdown
-        ? (breakdowns || []).map((b) => b.property)
-        : (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b)
+    const breakdownArray = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b)
 
     const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b)))
 
@@ -55,35 +48,17 @@ export function TaxonomicBreakdownFilter({
                           setFilters({ breakdown: newParts, breakdown_type: 'cohort' })
                       }
                   } else {
-                      if (useMultiBreakdown) {
-                          if (!breakdown_type) {
-                              console.error(new Error(`Unknown breakdown_type: "${breakdown_type}"`))
-                          } else {
-                              const newParts = breakdownParts.filter((_, i) => i !== index)
-                              setFilters({
-                                  breakdowns: newParts.map(
-                                      (np): Breakdown => ({
-                                          property: np,
-                                          type: breakdown_type,
-                                          normalize_url: isURLNormalizeable(np.toString()),
-                                      })
-                                  ),
-                                  breakdown_type: breakdown_type,
-                              })
-                          }
-                      } else {
-                          const newFilters: Partial<TrendsFilterType> = {
-                              breakdown: undefined,
-                              breakdown_type: undefined,
-                              breakdown_histogram_bin_count: undefined,
-                              // Make sure we are no longer in map view after removing the Country Code breakdown
-                              display:
-                                  isTrendsFilter(filters) && filters.display !== ChartDisplayType.WorldMap
-                                      ? filters.display
-                                      : undefined,
-                          }
-                          setFilters(newFilters)
+                      const newFilters: Partial<TrendsFilterType> = {
+                          breakdown: undefined,
+                          breakdown_type: undefined,
+                          breakdown_histogram_bin_count: undefined,
+                          // Make sure we are no longer in map view after removing the Country Code breakdown
+                          display:
+                              isTrendsFilter(filters) && filters.display !== ChartDisplayType.WorldMap
+                                  ? filters.display
+                                  : undefined,
                       }
+                      setFilters(newFilters)
                   }
               }
           }
@@ -94,7 +69,7 @@ export function TaxonomicBreakdownFilter({
         : breakdownArray.map((t, index) => {
               const key = `${t}-${index}`
               const propertyDefinition = getPropertyDefinition(t)
-              const isPropertyHistogramable = !useMultiBreakdown && !!propertyDefinition?.is_numerical
+              const isPropertyHistogramable = !!propertyDefinition?.is_numerical
 
               return (
                   <BreakdownTag
@@ -112,7 +87,6 @@ export function TaxonomicBreakdownFilter({
 
     const onChange = setFilters
         ? onFilterChange({
-              useMultiBreakdown,
               breakdownParts,
               setFilters,
               getPropertyDefinition: getPropertyDefinition,
@@ -122,7 +96,7 @@ export function TaxonomicBreakdownFilter({
     return (
         <div className="flex flex-wrap gap-2 items-center">
             {tags}
-            {onChange && (!hasSelectedBreakdown || useMultiBreakdown) ? (
+            {onChange && !hasSelectedBreakdown ? (
                 <TaxonomicBreakdownButton
                     breakdownType={breakdownType}
                     onChange={onChange}
