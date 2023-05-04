@@ -274,8 +274,21 @@ export class SessionRecordingBlobIngester {
 
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
+            const offsetSize = this.offsetManager?.estimateSize()
+            status.info('🚛', 'blob_ingester_consumer - offsets size_estimate', { offsetSize })
+
+            let sessionManagerChunksSizes = 0
+            let sessionManagerBufferSizes = 0
             this.sessions.forEach((sessionManager) => {
+                const guesstimates = sessionManager.guesstimateSizes()
+                sessionManagerChunksSizes += guesstimates.chunks
+                sessionManagerBufferSizes += guesstimates.buffer
                 void sessionManager.flushIfNecessary()
+            })
+
+            status.info('🚛', 'blob_ingester_consumer - session manager size_estimate', {
+                chunksSize: sessionManagerChunksSizes,
+                buffersSize: sessionManagerBufferSizes,
             })
         }, 10000)
     }
