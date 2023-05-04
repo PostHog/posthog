@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { defaultConfig } from '../src/config/config'
 import { getMetric } from './api'
 import { waitForExpect } from './expectations'
-import { produce } from './kafka'
+import { produceAndFlush } from './kafka'
 
 let kafka: Kafka
 
@@ -38,7 +38,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles empty messages`, async () => {
         const key = uuidv4()
 
-        await produce({ topic: 'scheduled_tasks', message: null, key })
+        await produceAndFlush({ topic: 'scheduled_tasks', message: null, key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -49,7 +49,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles invalid JSON`, async () => {
         const key = uuidv4()
 
-        await produce({ topic: 'scheduled_tasks', message: Buffer.from('invalid json'), key })
+        await produceAndFlush({ topic: 'scheduled_tasks', message: Buffer.from('invalid json'), key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -60,7 +60,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles invalid taskType`, async () => {
         const key = uuidv4()
 
-        await produce({
+        await produceAndFlush({
             topic: 'scheduled_tasks',
             message: Buffer.from(JSON.stringify({ taskType: 'invalidTaskType', pluginConfigId: 1 })),
             key,
@@ -75,7 +75,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles invalid pluginConfigId`, async () => {
         const key = uuidv4()
 
-        await produce({
+        await produceAndFlush({
             topic: 'scheduled_tasks',
             message: Buffer.from(JSON.stringify({ taskType: 'runEveryMinute', pluginConfigId: 'asdf' })),
             key,
@@ -99,7 +99,7 @@ describe('dlq handling', () => {
 
         // NOTE: we don't actually care too much about the contents of the
         // message, just that it triggeres the consumer to try to process it.
-        await produce({ topic: 'scheduled_tasks', message: Buffer.from(''), key: '' })
+        await produceAndFlush({ topic: 'scheduled_tasks', message: Buffer.from(''), key: '' })
 
         await waitForExpect(async () => {
             const metricAfter = await getMetric({

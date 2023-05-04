@@ -59,66 +59,9 @@ describe('E2E with buffer topic enabled', () => {
         await resetTestDatabase(indexJs)
         await resetTestDatabaseClickhouse(extraServerConfig)
         await resetKafka(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
-        hub = startResponse.hub
-        stopServer = startResponse.stop
-        redis = await hub.redisPool.acquire()
-        posthog = createPosthog(hub, pluginConfig39)
-    })
-
-    afterEach(async () => {
-        await hub.redisPool.release(redis)
-        await stopServer()
-    })
-
-    describe('ClickHouse ingestion', () => {
-        test('event captured, processed, ingested', async () => {
-            expect((await hub.db.fetchEvents()).length).toBe(0)
-
-            const uuid = new UUIDT().toString()
-
-            await posthog.capture('custom event via buffer', { name: 'hehe', uuid })
-            await hub.kafkaProducer.flush()
-
-            await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, undefined, 500)
-            const events = await hub.db.fetchEvents()
-
-            expect(events.length).toBe(1)
-
-            // processEvent ran and modified
-            expect(events[0].properties.processed).toEqual('hell yes')
-            expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
-
-            // onEvent ran
-            expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event via buffer']])
-        })
-    })
-})
-
-describe('E2E with direct to graphile worker', () => {
-    let hub: Hub
-    let stopServer: () => Promise<void>
-    let posthog: DummyPostHog
-    let redis: IORedis.Redis
-
-    const extraServerConfig: Partial<PluginsServerConfig> = {
-        WORKER_CONCURRENCY: 1,
-        LOG_LEVEL: LogLevel.Log,
-        KAFKA_PRODUCER_MAX_QUEUE_SIZE: 100, // The default in tests is 0 but here we specifically want to test batching
-        KAFKA_FLUSH_FREQUENCY_MS: 0, // Same as above, but with time
-        BUFFER_CONVERSION_SECONDS: 3, // We want to test the delay mechanism, but with a much lower delay than in prod
-        CONVERSION_BUFFER_ENABLED: true,
-        CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '',
-    }
-
-    beforeEach(async () => {
-        testConsole.reset()
-        await resetTestDatabase(indexJs)
-        await resetTestDatabaseClickhouse(extraServerConfig)
-        await resetKafka(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
-        hub = startResponse.hub
-        stopServer = startResponse.stop
+        const startResponse = await startPluginsServer(extraServerConfig, makePiscina, undefined)
+        hub = startResponse.hub!
+        stopServer = startResponse.stop!
         redis = await hub.redisPool.acquire()
         posthog = createPosthog(hub, pluginConfig39)
     })

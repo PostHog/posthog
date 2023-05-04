@@ -12,7 +12,7 @@ import {
     getMetric,
 } from './api'
 import { waitForExpect } from './expectations'
-import { produce } from './kafka'
+import { produceAndFlush } from './kafka'
 
 let kafka: Kafka
 let organizationId: string
@@ -176,7 +176,7 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     })
 
     // NOTE: we're assuming that we have a single partition for the Kafka topic,
-    // and that the consumer produces messages in the order they are consumed.
+    // and that the consumer produceAndFlushs messages in the order they are consumed.
     // TODO: add some side-effect we can assert on rather than relying on the
     // partitioning / ordering setup e.g. an ingestion warning.
     const events = await fetchSessionRecordingsEvents(teamOptedOutId, uuidOptedOut)
@@ -318,7 +318,7 @@ test.concurrent(
     async () => {
         const key = uuidv4()
 
-        await produce({ topic: 'session_recording_events', message: null, key })
+        await produceAndFlush({ topic: 'session_recording_events', message: null, key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -338,7 +338,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         labels: { topic: 'session_recording_events', partition: '0', groupId: 'session-recordings' },
     })
 
-    await produce({ topic: 'session_recording_events', message: Buffer.from(''), key: '' })
+    await produceAndFlush({ topic: 'session_recording_events', message: Buffer.from(''), key: '' })
 
     await waitForExpect(async () => {
         const metricAfter = await getMetric({
@@ -355,7 +355,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
 test.concurrent(`handles invalid JSON`, async () => {
     const key = uuidv4()
 
-    await produce({ topic: 'session_recording_events', message: Buffer.from('invalid json'), key })
+    await produceAndFlush({ topic: 'session_recording_events', message: Buffer.from('invalid json'), key })
 
     await waitForExpect(() => {
         const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -379,12 +379,12 @@ test.concurrent(`handles message with no token or with token and no associated t
     const noAssociatedTeamUuid = uuidv4()
     const uuid = uuidv4()
 
-    await produce({
+    await produceAndFlush({
         topic: 'session_recording_events',
         message: Buffer.from(JSON.stringify({ uuid: noTokenUuid, data: JSON.stringify({}) })),
         key: noTokenKey,
     })
-    await produce({
+    await produceAndFlush({
         topic: 'session_recording_events',
         message: Buffer.from(
             JSON.stringify({ uuid: noAssociatedTeamUuid, token: 'no associated team', data: JSON.stringify({}) })

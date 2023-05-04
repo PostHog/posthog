@@ -3,7 +3,7 @@ import { createServer, Server } from 'http'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam } from './api'
 import { waitForExpect } from './expectations'
-import { produce } from './kafka'
+import { produceAndFlush } from './kafka'
 
 let organizationId: string
 let server: Server
@@ -215,7 +215,7 @@ test.concurrent(`exports: historical exports`, async () => {
     // adds directly to PostgreSQL using the graphile-worker stored
     // procedure `add_job`. I'd rather keep these tests graphile
     // unaware.
-    await produce({
+    await produceAndFlush({
         topic: 'jobs',
         message: Buffer.from(
             JSON.stringify({
