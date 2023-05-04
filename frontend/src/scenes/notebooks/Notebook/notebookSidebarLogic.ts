@@ -3,6 +3,7 @@ import { NotebookNodeType } from '../Nodes/types'
 import { notebookLogic } from './notebookLogic'
 
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
+import { urlToAction } from 'kea-router'
 
 export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookSidebarLogic']),
@@ -66,6 +67,12 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
             //         attrs: props,
             //     })
             //     .run()
+        },
+    })),
+
+    urlToAction(({ actions }) => ({
+        '/*': () => {
+            actions.setFullScreen(false)
         },
     })),
 ])

@@ -41,50 +41,17 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const commonProps: Partial<LemonButtonProps> = {
-        fullWidth: false,
         size: 'small',
     }
 
-    const showText = false
-
-    // return (
-    //     <More
-    //         overlay={
-    //             <>
-    //                 <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" {...commonProps}>
-    //                     Share
-    //                 </LemonButton>
-
-    //                 <PlaylistPopoverButton {...commonProps} />
-
-    //                 {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-    //                     <AddToNotebook
-    //                         node={NotebookNodeType.Recording}
-    //                         properties={{ sessionRecordingId }}
-    //                         {...commonProps}
-    //                     >
-    //                         Add to Notebook
-    //                     </AddToNotebook>
-    //                 )}
-
-    //                 {logicProps.playerKey !== 'modal' && (
-    //                     <LemonButton status="danger" icon={<IconDelete />} onClick={onDelete} {...commonProps}>
-    //                         Delete
-    //                     </LemonButton>
-    //                 )}
-    //             </>
-    //         }
-    //     />
-    // )
-
     return (
         <div className="flex flex-row gap-1 items-center flex-1 justify-end">
-            <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" {...commonProps}>
-                {showText ? 'Share' : null}
+            <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
+                <span>Share</span>
             </LemonButton>
 
-            <PlaylistPopoverButton tooltip="Pin to list" {...commonProps}>
-                {showText ? 'Pin to list' : null}
+            <PlaylistPopoverButton {...commonProps}>
+                <span>Pin</span>
             </PlaylistPopoverButton>
 
             {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
@@ -93,15 +60,17 @@ export function PlayerMetaLinks(): JSX.Element {
                     node={NotebookNodeType.Recording}
                     properties={{ sessionRecordingId }}
                     {...commonProps}
-                >
-                    {showText ? 'Add to Notebook' : null}
-                </AddToNotebook>
+                />
             )}
 
             {logicProps.playerKey !== 'modal' && (
-                <LemonButton tooltip="Delete" status="danger" icon={<IconDelete />} onClick={onDelete} {...commonProps}>
-                    {showText ? 'Delete' : null}
-                </LemonButton>
+                <LemonButton
+                    tooltip="Delete"
+                    icon={<IconDelete />}
+                    onClick={onDelete}
+                    {...commonProps}
+                    status="danger"
+                />
             )}
         </div>
     )
