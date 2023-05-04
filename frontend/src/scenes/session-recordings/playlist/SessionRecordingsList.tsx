@@ -59,14 +59,8 @@ export function SessionRecordingsList({
     embedded = false,
 }: SessionRecordingsListProps): JSX.Element {
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
-
     const lastScrollPositionRef = useRef(0)
-
-    const logic = sessionRecordingsListPropertiesLogic({
-        key: listKey,
-        sessionIds: recordings?.map((r) => r.id) ?? [],
-    })
-    const { sessionRecordingIdToProperties, sessionRecordingsPropertiesResponseLoading } = useValues(logic)
+    const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
 
     const titleContent = (
         <span className="font-bold uppercase text-xs my-1 tracking-wide flex-1 flex gap-1 items-center">
@@ -138,8 +132,10 @@ export function SessionRecordingsList({
                                 {i > 0 && <div className="border-t" />}
                                 <SessionRecordingPlaylistItem
                                     recording={rec}
-                                    recordingProperties={sessionRecordingIdToProperties[rec.id]}
-                                    recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
+                                    recordingProperties={recordingPropertiesById[rec.id]}
+                                    recordingPropertiesLoading={
+                                        !recordingPropertiesById[rec.id] && recordingPropertiesLoading
+                                    }
                                     onClick={() => onRecordingClick(rec)}
                                     onPropertyClick={onPropertyClick}
                                     isActive={activeRecordingId === rec.id}

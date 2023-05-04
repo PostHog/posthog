@@ -17,6 +17,7 @@ import equal from 'fast-deep-equal'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 
 export type PersonUUID = string
 interface Params {
@@ -123,7 +124,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     props({} as SessionRecordingListLogicProps),
     key(generateSessionRecordingListLogicKey),
     connect({
-        actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
+        actions: [
+            eventUsageLogic,
+            ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
+            sessionRecordingsListPropertiesLogic,
+            ['maybeLoadPropertiesForSessions'],
+        ],
         values: [featureFlagLogic, ['featureFlags']],
     }),
     actions({
@@ -328,6 +334,14 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 return // We don't want to load if we are currently loading
             }
             actions.loadSessionRecordings(direction)
+        },
+
+        loadSessionRecordingsSuccess: () => {
+            actions.maybeLoadPropertiesForSessions(values.sessionRecordings.map((s) => s.id))
+        },
+
+        getSessionRecordingsSuccess: () => {
+            actions.maybeLoadPropertiesForSessions(values.sessionRecordings.map((s) => s.id))
         },
     })),
     selectors({
