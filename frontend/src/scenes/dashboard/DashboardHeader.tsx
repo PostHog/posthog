@@ -37,8 +37,8 @@ export const DASHBOARD_CANNOT_EDIT_MESSAGE =
 
 export function DashboardHeader(): JSX.Element | null {
     const {
-        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
-        allItemsLoading: dashboardLoading,
+        dashboard,
+        dashboardLoading,
         dashboardMode,
         canEditDashboard,
         showSubscriptions,
