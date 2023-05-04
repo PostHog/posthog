@@ -17,16 +17,9 @@ import {
 } from '~/types'
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import {
-    BIN_COUNT_AUTO,
-    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
-    FEATURE_FLAGS,
-    RETENTION_FIRST_TIME,
-    ShownAsValue,
-} from 'lib/constants'
+import { BIN_COUNT_AUTO, NON_VALUES_ON_SERIES_DISPLAY_TYPES, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
 import {
@@ -74,11 +67,7 @@ function cleanBreakdownNormalizeURL(
         : undefined
 }
 
-const cleanBreakdownParams = (
-    cleanedParams: Partial<FilterType>,
-    filters: Partial<FilterType>,
-    featureFlags: Record<string, any>
-): void => {
+const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
     const isStepsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Steps
     const isTrends = isTrendsFilter(filters)
     const canBreakdown = isStepsFunnel || isTrends
@@ -111,23 +100,6 @@ const cleanBreakdownParams = (
                 cleanedParams['breakdown'] as string,
                 filters.breakdown_normalize_url
             )
-        } else if (
-            filters.breakdown &&
-            isStepsFunnel &&
-            featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES] &&
-            ['string', 'number'].includes(typeof filters.breakdown) &&
-            cleanedParams['breakdown_type']
-        ) {
-            cleanedParams['breakdowns'] = [
-                {
-                    property: filters.breakdown as string | number,
-                    type: cleanedParams['breakdown_type'],
-                    normalize_url: cleanBreakdownNormalizeURL(
-                        filters.breakdown as string,
-                        filters.breakdown_normalize_url
-                    ),
-                },
-            ]
         } else if (filters.breakdown) {
             cleanedParams['breakdown'] = filters.breakdown
             cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
@@ -157,7 +129,6 @@ export function cleanFilters(
     filters: Partial<AnyFilterType>,
     // @ts-expect-error
     oldFilters?: Partial<AnyFilterType>,
-    featureFlags?: FeatureFlagsSet,
     teamFilterTestAccounts?: boolean
 ): Partial<FilterType> {
     const commonFilters: Partial<CommonFiltersType> = {
@@ -246,7 +217,7 @@ export function cleanFilters(
             ...commonFilters,
         }
 
-        cleanBreakdownParams(funnelsFilter, filters, featureFlags || {})
+        cleanBreakdownParams(funnelsFilter, filters)
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`
         if (isStepsUndefined(funnelsFilter)) {
@@ -328,7 +299,7 @@ export function cleanFilters(
             trendLikeFilter.show_values_on_series = true
         }
 
-        cleanBreakdownParams(trendLikeFilter, filters, featureFlags || {})
+        cleanBreakdownParams(trendLikeFilter, filters)
 
         // TODO: Deprecated; should be removed once backend is updated
         trendLikeFilter['shown_as'] = isStickinessFilter(filters)
