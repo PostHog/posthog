@@ -312,8 +312,11 @@ class FeatureFlagMatcher:
                             # but it's better than nothing.
                             # TODO: A proper fix would be to handle cohorts with property overrides before we get to this point.
                             # Unskip test test_complex_cohort_filter_with_override_properties when we fix this.
-                            if expr == Q(pk__isnull=False) or expr == Q(pk__isnull=True):
-                                all_conditions[key] = False if expr == Q(pk__isnull=True) else True
+                            if expr == Q(pk__isnull=False):
+                                all_conditions[key] = True
+                                annotate_query = False
+                            elif expr == Q(pk__isnull=True):
+                                all_conditions[key] = False
                                 annotate_query = False
 
                         if annotate_query:
