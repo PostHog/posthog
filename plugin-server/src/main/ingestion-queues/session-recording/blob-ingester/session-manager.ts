@@ -73,8 +73,12 @@ export class SessionManager {
         // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
-    public guesstimateSizes = (): { chunks: number; buffer: number } => {
-        return { chunks: getMapByteSize(this.chunks), buffer: getArrayBytesSize(this.buffer.offsets, 'buffer') }
+    public guesstimateSizes = (): { chunks: number; buffer: number; bufferOffsets: number } => {
+        return {
+            chunks: getMapByteSize(this.chunks),
+            bufferOffsets: getArrayBytesSize(this.buffer.offsets, 'buffer'),
+            buffer: this.buffer.size,
+        }
     }
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
