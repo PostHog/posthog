@@ -343,7 +343,6 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[
         cohort.errors_calculating = 0
         cohort.save(update_fields=["errors_calculating", "last_calculation", "is_calculating"])
     except Exception as err:
-
         if settings.DEBUG:
             raise err
         cohort.is_calculating = False
