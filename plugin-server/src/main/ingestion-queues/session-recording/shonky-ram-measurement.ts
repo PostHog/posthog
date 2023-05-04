@@ -10,6 +10,20 @@ function getStringByteSize(str: string): number {
     return size
 }
 
+export function getArrayBytesSize(value: any, key: any) {
+    if (!Array.isArray(value)) {
+        return value.reduce((acc: number, val: any) => {
+            return acc + guesstimateValueSize(val, key)
+        }, 0)
+    } else {
+        status.warn(
+            '💾',
+            `Not an array: ${typeof value} for key: ${key} when estimating array size. using 64 as a size guess`
+        )
+        return 64
+    }
+}
+
 function guesstimateValueSize(value: any, key: any) {
     let guesstimate = 0
     if (typeof value === 'string') {
@@ -17,9 +31,7 @@ function guesstimateValueSize(value: any, key: any) {
     } else if (typeof value === 'number') {
         guesstimate += 8 // 64-bit floating point
     } else if (Array.isArray(value)) {
-        guesstimate += value.reduce((acc, val) => {
-            return acc + guesstimateValueSize(val, key)
-        }, 0)
+        guesstimate += getArrayBytesSize(value, key)
     } else {
         status.warn(
             '💾',

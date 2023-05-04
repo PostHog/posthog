@@ -11,7 +11,7 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
-import { getMapByteSize } from '../shonky-ram-measurement'
+import { getArrayBytesSize, getMapByteSize } from '../shonky-ram-measurement'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
@@ -73,8 +73,8 @@ export class SessionManager {
         // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
-    public getChunksSize = (): number => {
-        return getMapByteSize(this.chunks)
+    public guesstimateSizes = (): { chunks: number; buffer: number } => {
+        return { chunks: getMapByteSize(this.chunks), buffer: getArrayBytesSize(this.buffer.offsets, 'buffer') }
     }
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
