@@ -93,15 +93,26 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         <>
                             <More
                                 overlay={
-                                    <>
+                                    // If there are no plans, they are on a custom plan and should contact support to unsubscribe
+                                    addon.plans?.length > 0 ? (
+                                        <>
+                                            <LemonButton
+                                                status="stealth"
+                                                fullWidth
+                                                onClick={() => deactivateProduct(addon.type)}
+                                            >
+                                                Remove addon
+                                            </LemonButton>
+                                        </>
+                                    ) : (
                                         <LemonButton
                                             status="stealth"
                                             fullWidth
-                                            onClick={() => deactivateProduct(addon.type)}
+                                            to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
                                         >
-                                            Remove addon
+                                            Contact support to unsubscribe
                                         </LemonButton>
-                                    </>
+                                    )
                                 }
                             />
                         </>
