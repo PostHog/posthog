@@ -64,13 +64,13 @@ export const produce = async ({
     topic,
     value,
     key,
-    headers,
+    headers = [],
 }: {
     producer: RdKafkaProducer
     topic: string
     value: Buffer | null
     key: Buffer | null
-    headers: { [key: string]: Buffer }[]
+    headers?: { [key: string]: Buffer }[]
 }): Promise<number | null | undefined> => {
     status.debug('📤', 'Producing message', { topic: topic })
     return await new Promise((resolve, reject) =>
