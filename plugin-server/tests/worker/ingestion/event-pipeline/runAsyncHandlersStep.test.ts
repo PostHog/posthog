@@ -5,7 +5,6 @@ import { runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
 
-const testPerson: any = { id: 'testid' }
 const testElements: any = ['element1', 'element2']
 const ingestionEvent: PostIngestionEvent = {
     eventUuid: 'uuid1',
@@ -16,16 +15,15 @@ const ingestionEvent: PostIngestionEvent = {
     event: '$pageview',
     properties: {},
     elementsList: testElements,
+    person_id: 'testid',
+    person_created_at: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
+    person_properties: {},
 }
 
 describe('runAsyncHandlersStep()', () => {
     let runner: any
-    let personContainer: any
 
     beforeEach(() => {
-        personContainer = {
-            get: jest.fn().mockResolvedValue(testPerson),
-        }
         runner = {
             nextStep: (...args: any[]) => args,
             hub: {
@@ -43,23 +41,20 @@ describe('runAsyncHandlersStep()', () => {
     })
 
     it('stops processing', async () => {
-        const response = await runAsyncHandlersStep(runner, ingestionEvent, personContainer)
+        const response = await runAsyncHandlersStep(runner, ingestionEvent)
 
         expect(response).toEqual(null)
     })
 
     it('does action matching and fires webhooks', async () => {
-        await runAsyncHandlersStep(runner, ingestionEvent, personContainer)
+        await runAsyncHandlersStep(runner, ingestionEvent)
 
         expect(runner.hub.actionMatcher.match).toHaveBeenCalled()
-        expect(runner.hub.hookCannon.findAndFireHooks).toHaveBeenCalledWith(ingestionEvent, testPerson, [
-            'action1',
-            'action2',
-        ])
+        expect(runner.hub.hookCannon.findAndFireHooks).toHaveBeenCalledWith(ingestionEvent, ['action1', 'action2'])
     })
 
     it('calls onEvent plugin methods', async () => {
-        await runAsyncHandlersStep(runner, ingestionEvent, personContainer)
+        await runAsyncHandlersStep(runner, ingestionEvent)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
         expect(runOnSnapshot).not.toHaveBeenCalled()
@@ -69,7 +64,7 @@ describe('runAsyncHandlersStep()', () => {
         const error = new Error('Event matching failed')
         jest.mocked(runner.hub.actionMatcher.match).mockRejectedValue(error)
 
-        await expect(runAsyncHandlersStep(runner, ingestionEvent, personContainer)).rejects.toThrow(error)
+        await expect(runAsyncHandlersStep(runner, ingestionEvent)).rejects.toThrow(error)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
     })

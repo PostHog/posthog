@@ -175,7 +175,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
                 args: { event },
             })
         ).resolves.toEqual({
-            args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
+            args: [expect.objectContaining(event)],
             lastStep: 'runAsyncHandlersStep',
         })
 
@@ -221,7 +221,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
                 args: { event },
             })
         ).resolves.toEqual({
-            args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
+            args: [expect.objectContaining(event)],
             lastStep: 'runAsyncHandlersStep',
         })
     })
