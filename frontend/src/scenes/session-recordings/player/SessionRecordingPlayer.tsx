@@ -43,14 +43,16 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
         matching,
         noBorder = false,
+        nextSessionRecording,
     } = props
 
-    const logicProps = {
+    const logicProps: SessionRecordingPlayerLogicProps = {
         sessionRecordingId,
         playerKey,
         matching,
         sessionRecordingData,
         recordingStartTime,
+        nextSessionRecording,
     }
     const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed, closeExplorer } =
         useActions(sessionRecordingPlayerLogic(logicProps))
