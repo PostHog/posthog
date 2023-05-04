@@ -4,6 +4,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, autoCaptureEventToDescription, insightUrlForEvent } from 'lib/utils'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -60,7 +61,14 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                         </>
                     ) : null}
 
-                    <SimpleKeyValueList item={item.data.properties} />
+                    {item.data.fullyLoaded ? (
+                        <SimpleKeyValueList item={item.data.properties} />
+                    ) : (
+                        <div className="text-muted-alt flex gap-1 items-center">
+                            <Spinner monocolor />
+                            Loading...
+                        </div>
+                    )}
                 </div>
             )}
         </div>

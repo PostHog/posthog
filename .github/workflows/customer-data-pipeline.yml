@@ -81,9 +81,10 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Install PNPM
-              run: |
-                  npm install -g pnpm
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 8.x.x
 
             - name: Setup node
               uses: actions/setup-node@v3

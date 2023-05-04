@@ -15,7 +15,7 @@
     "engines": {
         "node": ">=18 <19"
     },
-    "packageManager": "pnpm@7.14.2",
+    "packageManager": "pnpm@8.3.1",
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && ./bin/copy-posthog-js",
         "test": "pnpm test:unit && pnpm test:visual-regression",
@@ -101,6 +101,7 @@
         "expr-eval": "^2.0.2",
         "express": "^4.17.1",
         "fast-deep-equal": "^3.1.3",
+        "fflate": "^0.7.4",
         "fs-extra": "^10.0.0",
         "fuse.js": "^6.6.2",
         "husky": "^7.0.4",
@@ -116,9 +117,9 @@
         "kea-window-values": "^3.0.0",
         "md5": "^2.3.0",
         "monaco-editor": "^0.23.0",
-        "posthog-js": "1.54.0",
+        "posthog-js": "1.55.1",
         "posthog-js-lite": "2.0.0-alpha5",
-        "prettier": "^2.3.1",
+        "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
         "query-selector-shadow-dom": "^1.0.0",
         "rc-field-form": "~1.21.0",

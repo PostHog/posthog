@@ -116,7 +116,6 @@ class DashboardTile(models.Model):
 def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> List[DashboardTile]:
     tiles = list(
         dashboard.tiles.select_related("insight", "text")
-        .exclude(deleted=True)
         .exclude(insight__deleted=True)
         .order_by("insight__order")
         .all()

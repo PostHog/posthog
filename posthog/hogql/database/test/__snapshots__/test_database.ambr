@@ -46,6 +46,56 @@
               ]
           },
           {
+              "key": "goe_0",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_1",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_2",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_3",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_4",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
               "key": "person",
               "type": "field_traverser",
               "chain": [
@@ -73,6 +123,10 @@
           },
           {
               "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "updated_at",
               "type": "datetime"
           },
           {
@@ -206,14 +260,6 @@
               "type": "integer"
           },
           {
-              "key": "sign",
-              "type": "integer"
-          },
-          {
-              "key": "version",
-              "type": "integer"
-          },
-          {
               "key": "person",
               "type": "lazy_table",
               "table": "persons"
@@ -276,6 +322,51 @@
           {
               "key": "version",
               "type": "integer"
+          }
+      ],
+      "raw_groups": [
+          {
+              "key": "index",
+              "type": "integer"
+          },
+          {
+              "key": "key",
+              "type": "string"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "updated_at",
+              "type": "datetime"
+          },
+          {
+              "key": "properties",
+              "type": "json"
+          }
+      ],
+      "raw_cohort_people": [
+          {
+              "key": "person_id",
+              "type": "string"
+          },
+          {
+              "key": "cohort_id",
+              "type": "integer"
+          },
+          {
+              "key": "sign",
+              "type": "integer"
+          },
+          {
+              "key": "version",
+              "type": "integer"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
           }
       ]
   }
@@ -329,6 +420,56 @@
               ]
           },
           {
+              "key": "goe_0",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_1",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_2",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_3",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_4",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
               "key": "person",
               "type": "field_traverser",
               "chain": [
@@ -351,6 +492,10 @@
           },
           {
               "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "updated_at",
               "type": "datetime"
           },
           {
@@ -484,14 +629,6 @@
               "type": "integer"
           },
           {
-              "key": "sign",
-              "type": "integer"
-          },
-          {
-              "key": "version",
-              "type": "integer"
-          },
-          {
               "key": "person",
               "type": "lazy_table",
               "table": "persons"
@@ -554,6 +691,51 @@
           {
               "key": "version",
               "type": "integer"
+          }
+      ],
+      "raw_groups": [
+          {
+              "key": "index",
+              "type": "integer"
+          },
+          {
+              "key": "key",
+              "type": "string"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "updated_at",
+              "type": "datetime"
+          },
+          {
+              "key": "properties",
+              "type": "json"
+          }
+      ],
+      "raw_cohort_people": [
+          {
+              "key": "person_id",
+              "type": "string"
+          },
+          {
+              "key": "cohort_id",
+              "type": "integer"
+          },
+          {
+              "key": "sign",
+              "type": "integer"
+          },
+          {
+              "key": "version",
+              "type": "integer"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
           }
       ]
   }

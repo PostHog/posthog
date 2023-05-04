@@ -1540,10 +1540,6 @@
         "EventType": {
             "additionalProperties": false,
             "properties": {
-                "colonTimestamp": {
-                    "description": "Used in session recording events list",
-                    "type": "string"
-                },
                 "distinct_id": {
                     "type": "string"
                 },

@@ -1,4 +1,4 @@
-import { KafkaConsumer } from 'node-rdkafka'
+import { KafkaConsumer } from 'node-rdkafka-acosom'
 
 import { OffsetManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/offset-manager'
 
@@ -84,7 +84,7 @@ describe('offset-manager', () => {
         offsetManager.addOffset(TOPIC, 2, 2)
         offsetManager.addOffset(TOPIC, 3, 3)
 
-        offsetManager.cleanPartitions(TOPIC, [2, 3])
+        offsetManager.revokePartitions(TOPIC, [1])
 
         const resultOne = offsetManager.removeOffsets(TOPIC, 1, [1])
         expect(resultOne).toEqual(undefined)

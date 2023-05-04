@@ -72,6 +72,7 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
                                 hideCompare
                                 hideIcon
                                 allowWrap
+                                showEventName
                             />
                         </>
                     )

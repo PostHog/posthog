@@ -118,7 +118,7 @@ export function StaffUsersTab(): JSX.Element {
                             placeholder="Add staff users here…"
                             loading={allUsersLoading}
                             value={staffUsersToBeAdded}
-                            onChange={(newValues) => setStaffUsersToBeAdded(newValues)}
+                            onChange={(newValues: string[]) => setStaffUsersToBeAdded(newValues)}
                             filterOption={true}
                             mode="multiple"
                             data-attr="subscribed-emails"

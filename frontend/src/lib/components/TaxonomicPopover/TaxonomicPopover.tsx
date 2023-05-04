@@ -78,7 +78,7 @@ export function TaxonomicPopover({
             type={'secondary'}
             {...buttonProps}
         >
-            <span className="TaxonomicPopover__button__label text-overflow">
+            <span className="TaxonomicPopover__button__label truncate">
                 {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
             </span>
             <div style={{ flexGrow: 1 }} />

@@ -1,10 +1,10 @@
-import Piscina from '@posthog/piscina'
 import { StatsD } from 'hot-shots'
 import { Batch, EachBatchHandler, Kafka, Producer } from 'kafkajs'
 
 import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/kafka-topics'
 import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
+import Piscina from '../../worker/piscina'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 import { latestOffsetTimestampGauge } from './metrics'
 
@@ -63,26 +63,13 @@ export const startScheduledTasksConsumer = async ({
             })
             const startTime = performance.now()
 
-            // Make sure tasks can't run forever, according to `taskTimeouts`.
-            const abortController = new AbortController()
-            const timeout = setTimeout(() => {
-                abortController.abort()
-                status.warn('⚠️', 'scheduled_task_timed_out', {
-                    taskType,
-                    pluginConfigId,
-                })
-            }, taskTimeouts[taskType])
-
             // Make sure we keep the heartbeat going while the tasks is
             // running.
             const heartbeatInterval = setInterval(() => heartbeat(), 1000)
 
             try {
                 // The part that actually runs the task.
-                await piscina.run(
-                    { task: taskType, args: { pluginConfigId: pluginConfigId } },
-                    { signal: abortController.signal }
-                )
+                await piscina.run({ task: taskType, args: { pluginConfigId: pluginConfigId } })
 
                 resolveOffset(message.offset)
                 status.info('⏲️', 'finished_scheduled_task', {
@@ -118,7 +105,6 @@ export const startScheduledTasksConsumer = async ({
                 resolveOffset(message.offset)
                 statsd?.increment('failed_scheduled_tasks', { taskType })
             } finally {
-                clearTimeout(timeout)
                 clearInterval(heartbeatInterval)
             }
 
@@ -155,10 +141,10 @@ const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
     // In any one batch, we only want to run one task per plugin config id.
     // Hence here we dedupe the tasks by plugin config id and task type.
     const tasksbyTypeAndPluginConfigId = {} as Record<
-        typeof taskTypes[number],
+        (typeof taskTypes)[number],
         Record<
             number,
-            { taskType: typeof taskTypes[number]; pluginConfigId: number; message: typeof batch.messages[number] }
+            { taskType: (typeof taskTypes)[number]; pluginConfigId: number; message: (typeof batch.messages)[number] }
         >
     >
 
@@ -172,7 +158,7 @@ const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
         }
 
         let task: {
-            taskType: typeof taskTypes[number]
+            taskType: (typeof taskTypes)[number]
             pluginConfigId: number
         }
 
@@ -207,9 +193,3 @@ const getTasksFromBatch = async (batch: Batch, producer: Producer) => {
         .flat()
         .sort((a, b) => Number.parseInt(a.message.offset) - Number.parseInt(b.message.offset))
 }
-
-const taskTimeouts = {
-    runEveryMinute: 1000 * 60,
-    runEveryHour: 1000 * 60 * 5,
-    runEveryDay: 1000 * 60 * 5,
-} as const

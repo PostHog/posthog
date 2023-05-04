@@ -16,7 +16,7 @@
  * track everything in this single process
  */
 
-import { KafkaConsumer } from 'node-rdkafka'
+import { KafkaConsumer } from 'node-rdkafka-acosom'
 
 import { status } from '../../../../utils/status'
 
@@ -40,16 +40,13 @@ export class OffsetManager {
     /**
      * When a rebalance occurs we need to remove all in-flight offsets for partitions that are no longer
      * assigned to this consumer.
-     *
-     * @param topic
-     * @param assignedPartitions The partitions that are still assigned to this consumer after a rebalance
      */
-    public cleanPartitions(topic: string, assignedPartitions: number[]): void {
-        const assignedKeys = assignedPartitions.map((partition) => `${topic}-${partition}`)
+    public revokePartitions(topic: string, revokedPartitions: number[]): void {
+        const assignedKeys = revokedPartitions.map((partition) => `${topic}-${partition}`)
 
         const keysToDelete = new Set<string>()
         for (const [key] of this.offsetsByPartitionTopic) {
-            if (!assignedKeys.includes(key)) {
+            if (assignedKeys.includes(key)) {
                 keysToDelete.add(key)
             }
         }
@@ -76,14 +73,13 @@ export class OffsetManager {
         const key = `${topic}-${partition}`
         const inFlightOffsets = this.offsetsByPartitionTopic.get(key)
 
-        status.info('💾', `Current offsets: ${inFlightOffsets}`)
-        status.info('💾', `Removing offsets: ${offsets}`)
-
         if (!inFlightOffsets) {
             // TODO: Add a metric so that we can see if and when this happens
-            status.warn('💾', `No inflight offsets found for key: ${key}.`)
+            status.warn('💾', `No inflight offsets found to remove for key: ${key}.`)
             return
         }
+
+        status.info('💾', `Removing offsets`, { removing: offsetsToRemove, current: inFlightOffsets, partition })
 
         offsetsToRemove.forEach((offset) => {
             // Remove from the list. If it is the lowest value - set it
