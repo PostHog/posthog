@@ -1,61 +1,35 @@
-import {
-    TaxonomicFilterGroup,
-    TaxonomicFilterGroupType,
-    TaxonomicFilterValue,
-} from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { useValues } from 'kea'
-import { groupsModel } from '~/models/groupsModel'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
-import { BreakdownFilter } from '~/queries/schema'
-import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
-export interface TaxonomicBreakdownButtonProps {
-    breakdownFilter?: BreakdownFilter
-    onChange: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => void
-    onlyCohorts?: boolean
-    includeSessions?: boolean
-}
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
-export function TaxonomicBreakdownButton({
-    breakdownFilter,
-    onChange,
-    onlyCohorts,
-    includeSessions,
-}: TaxonomicBreakdownButtonProps): JSX.Element {
+export function TaxonomicBreakdownButton(): JSX.Element | null {
     const [open, setOpen] = useState(false)
-    const { allEventNames } = useValues(insightLogic)
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { allEventNames } = useValues(insightLogic) // TODO: Convert to data exploration (see GlobalAndOrFilters)
 
-    let taxonomicBreakdownType = propertyFilterTypeToTaxonomicFilterType(breakdownFilter?.breakdown_type)
-    if (taxonomicBreakdownType === TaxonomicFilterGroupType.Cohorts) {
-        taxonomicBreakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
+    const { canAddBreakdown, taxonomicGroupType, taxonomicGroupTypes } = useValues(taxonomicBreakdownFilterLogic)
+    const { addBreakdown } = useActions(taxonomicBreakdownFilterLogic)
+
+    if (!canAddBreakdown) {
+        return null
     }
-
-    const taxonomicGroupTypes = onlyCohorts
-        ? [TaxonomicFilterGroupType.CohortsWithAllUsers]
-        : [
-              TaxonomicFilterGroupType.EventProperties,
-              TaxonomicFilterGroupType.PersonProperties,
-              TaxonomicFilterGroupType.EventFeatureFlags,
-              ...groupsTaxonomicTypes,
-              TaxonomicFilterGroupType.CohortsWithAllUsers,
-              ...(includeSessions ? [TaxonomicFilterGroupType.Sessions] : []),
-              TaxonomicFilterGroupType.HogQLExpression,
-          ]
 
     return (
         <Popover
             overlay={
                 <TaxonomicFilter
-                    groupType={taxonomicBreakdownType}
+                    groupType={taxonomicGroupType}
                     onChange={(taxonomicGroup, value) => {
                         if (value) {
-                            onChange(value, taxonomicGroup)
+                            addBreakdown(value, taxonomicGroup)
                             setOpen(false)
                         }
                     }}
@@ -67,7 +41,7 @@ export function TaxonomicBreakdownButton({
             onClickOutside={() => setOpen(false)}
         >
             <LemonButton
-                type={'secondary'}
+                type="secondary"
                 icon={<IconPlusMini color="var(--primary)" />}
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
@@ -76,7 +50,7 @@ export function TaxonomicBreakdownButton({
             >
                 <PropertyKeyInfo
                     value={
-                        taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
+                        taxonomicGroupType === TaxonomicFilterGroupType.CohortsWithAllUsers
                             ? 'Add cohort'
                             : 'Add breakdown'
                     }

@@ -24,7 +24,7 @@ interface FilterChange {
     getPropertyDefinition: (propertyName: string | number) => PropertyDefinition | null
 }
 
-export function onFilterChange({ useMultiBreakdown, breakdownParts, setFilters, getPropertyDefinition }: FilterChange) {
+export function onAddBreakdown({ useMultiBreakdown, breakdownParts, setFilters, getPropertyDefinition }: FilterChange) {
     return (changedBreakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup): void => {
         const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
 
