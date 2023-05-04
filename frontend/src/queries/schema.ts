@@ -1,8 +1,7 @@
 import {
     AnyPartialFilterType,
     AnyPropertyFilter,
-    Breakdown,
-    BreakdownKeyType,
+    BreakdownProperty,
     BreakdownType,
     PropertyGroupFilter,
     EventType,
@@ -493,12 +492,10 @@ export interface DateRange {
 
 export interface BreakdownFilter {
     breakdown_type?: BreakdownType | null
-    breakdown?: BreakdownKeyType
+    breakdown?: BreakdownProperty
     breakdown_normalize_url?: boolean
-    breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    breakdown_histogram_bin_count?: number | null
 }
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */

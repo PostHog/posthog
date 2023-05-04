@@ -113,7 +113,8 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
+                            "$ref": "#/definitions/BreakdownProperty",
+                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -139,7 +140,7 @@
                         },
                         "breakdowns": {
                             "items": {
-                                "$ref": "#/definitions/Breakdown"
+                                "$ref": "#/definitions/LegacyMultiBreakdown"
                             },
                             "type": "array"
                         },
@@ -250,7 +251,8 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
+                            "$ref": "#/definitions/BreakdownProperty",
+                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -273,7 +275,7 @@
                         },
                         "breakdowns": {
                             "items": {
-                                "$ref": "#/definitions/Breakdown"
+                                "$ref": "#/definitions/LegacyMultiBreakdown"
                             },
                             "type": "array"
                         },
@@ -386,7 +388,8 @@
                             "$ref": "#/definitions/BinCountValue"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
+                            "$ref": "#/definitions/BreakdownProperty",
+                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
                         },
                         "breakdown_attribution_type": {
                             "$ref": "#/definitions/BreakdownAttributionType"
@@ -415,7 +418,7 @@
                         },
                         "breakdowns": {
                             "items": {
-                                "$ref": "#/definitions/Breakdown"
+                                "$ref": "#/definitions/LegacyMultiBreakdown"
                             },
                             "type": "array"
                         },
@@ -581,7 +584,8 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
+                            "$ref": "#/definitions/BreakdownProperty",
+                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -604,7 +608,7 @@
                         },
                         "breakdowns": {
                             "items": {
-                                "$ref": "#/definitions/Breakdown"
+                                "$ref": "#/definitions/LegacyMultiBreakdown"
                             },
                             "type": "array"
                         },
@@ -746,7 +750,8 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
+                            "$ref": "#/definitions/BreakdownProperty",
+                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -769,7 +774,7 @@
                         },
                         "breakdowns": {
                             "items": {
-                                "$ref": "#/definitions/Breakdown"
+                                "$ref": "#/definitions/LegacyMultiBreakdown"
                             },
                             "type": "array"
                         },
@@ -867,7 +872,8 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
+                            "$ref": "#/definitions/BreakdownProperty",
+                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -890,7 +896,7 @@
                         },
                         "breakdowns": {
                             "items": {
-                                "$ref": "#/definitions/Breakdown"
+                                "$ref": "#/definitions/LegacyMultiBreakdown"
                             },
                             "type": "array"
                         },
@@ -981,7 +987,8 @@
                             "type": "number"
                         },
                         "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
+                            "$ref": "#/definitions/BreakdownProperty",
+                            "description": "The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal \"all\"."
                         },
                         "breakdown_group_type_index": {
                             "type": ["number", "null"]
@@ -1004,7 +1011,7 @@
                         },
                         "breakdowns": {
                             "items": {
-                                "$ref": "#/definitions/Breakdown"
+                                "$ref": "#/definitions/LegacyMultiBreakdown"
                             },
                             "type": "array"
                         },
@@ -1121,22 +1128,6 @@
                 }
             ]
         },
-        "Breakdown": {
-            "additionalProperties": false,
-            "properties": {
-                "normalize_url": {
-                    "type": "boolean"
-                },
-                "property": {
-                    "type": ["string", "number"]
-                },
-                "type": {
-                    "$ref": "#/definitions/BreakdownType"
-                }
-            },
-            "required": ["property", "type"],
-            "type": "object"
-        },
         "BreakdownAttributionType": {
             "enum": ["first_touch", "last_touch", "all_events", "step"],
             "type": "string"
@@ -1145,12 +1136,9 @@
             "additionalProperties": false,
             "properties": {
                 "breakdown": {
-                    "$ref": "#/definitions/BreakdownKeyType"
+                    "$ref": "#/definitions/BreakdownProperty"
                 },
                 "breakdown_group_type_index": {
-                    "type": ["number", "null"]
-                },
-                "breakdown_histogram_bin_count": {
                     "type": ["number", "null"]
                 },
                 "breakdown_normalize_url": {
@@ -1168,34 +1156,28 @@
                 },
                 "breakdown_value": {
                     "type": ["string", "number"]
-                },
-                "breakdowns": {
-                    "items": {
-                        "$ref": "#/definitions/Breakdown"
-                    },
-                    "type": "array"
                 }
             },
             "type": "object"
         },
-        "BreakdownKeyType": {
+        "BreakdownProperty": {
             "anyOf": [
                 {
                     "type": "string"
                 },
                 {
-                    "type": "number"
-                },
-                {
-                    "items": {
-                        "type": ["string", "number"]
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/BreakdownPropertyCohort"
                 },
                 {
                     "type": "null"
                 }
             ]
+        },
+        "BreakdownPropertyCohort": {
+            "items": {
+                "type": ["string", "number"]
+            },
+            "type": "array"
         },
         "BreakdownType": {
             "enum": ["cohort", "person", "event", "group", "session"],
@@ -2164,6 +2146,22 @@
         "IntervalType": {
             "enum": ["hour", "day", "week", "month"],
             "type": "string"
+        },
+        "LegacyMultiBreakdown": {
+            "additionalProperties": false,
+            "properties": {
+                "normalize_url": {
+                    "type": "boolean"
+                },
+                "property": {
+                    "type": ["string", "number"]
+                },
+                "type": {
+                    "$ref": "#/definitions/BreakdownType"
+                }
+            },
+            "required": ["property", "type"],
+            "type": "object"
         },
         "LegacyQuery": {
             "additionalProperties": false,

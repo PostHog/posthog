@@ -282,6 +282,15 @@ class IntervalType(str, Enum):
     month = "month"
 
 
+class LegacyMultiBreakdown(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    normalize_url: Optional[bool] = None
+    property: Union[str, float]
+    type: BreakdownType
+
+
 class LifecycleToggle(str, Enum):
     new = "new"
     resurrecting = "resurrecting"
@@ -465,28 +474,6 @@ class TrendsFilter(BaseModel):
     smoothing_intervals: Optional[float] = None
 
 
-class Breakdown(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    normalize_url: Optional[bool] = None
-    property: Union[str, float]
-    type: BreakdownType
-
-
-class BreakdownFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
-    breakdown_histogram_bin_count: Optional[float] = None
-    breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
-    breakdowns: Optional[List[Breakdown]] = None
-
-
 class ElementPropertyFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -618,6 +605,17 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
     response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(None, description="Cached query response")
     teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
+
+
+class BreakdownFilter(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    breakdown: Optional[Union[str, List[Union[str, float]]]] = None
+    breakdown_group_type_index: Optional[float] = None
+    breakdown_normalize_url: Optional[bool] = None
+    breakdown_type: Optional[BreakdownType] = None
+    breakdown_value: Optional[Union[str, float]] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -1075,13 +1073,16 @@ class AnyPartialFilterTypeItem(BaseModel):
     aggregation_axis_postfix: Optional[str] = None
     aggregation_axis_prefix: Optional[str] = None
     aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
+    breakdown: Optional[Union[str, List[Union[str, float]]]] = Field(
+        None,
+        description='The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal "all".',
+    )
     breakdown_group_type_index: Optional[float] = None
     breakdown_histogram_bin_count: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdown_value: Optional[Union[str, float]] = None
-    breakdowns: Optional[List[Breakdown]] = None
+    breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     compare: Optional[bool] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1133,12 +1134,15 @@ class AnyPartialFilterTypeItem1(BaseModel):
 
     actions: Optional[List[Dict[str, Any]]] = None
     aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
+    breakdown: Optional[Union[str, List[Union[str, float]]]] = Field(
+        None,
+        description='The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal "all".',
+    )
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdown_value: Optional[Union[str, float]] = None
-    breakdowns: Optional[List[Breakdown]] = None
+    breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     compare: Optional[bool] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1190,14 +1194,17 @@ class AnyPartialFilterTypeItem2(BaseModel):
     actions: Optional[List[Dict[str, Any]]] = None
     aggregation_group_type_index: Optional[float] = None
     bin_count: Optional[Union[float, str]] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
+    breakdown: Optional[Union[str, List[Union[str, float]]]] = Field(
+        None,
+        description='The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal "all".',
+    )
     breakdown_attribution_type: Optional[BreakdownAttributionType] = None
     breakdown_attribution_value: Optional[float] = None
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdown_value: Optional[Union[str, float]] = None
-    breakdowns: Optional[List[Breakdown]] = None
+    breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     drop_off: Optional[bool] = None
@@ -1259,12 +1266,15 @@ class AnyPartialFilterTypeItem3(BaseModel):
 
     actions: Optional[List[Dict[str, Any]]] = None
     aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
+    breakdown: Optional[Union[str, List[Union[str, float]]]] = Field(
+        None,
+        description='The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal "all".',
+    )
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdown_value: Optional[Union[str, float]] = None
-    breakdowns: Optional[List[Breakdown]] = None
+    breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     edge_limit: Optional[float] = None
@@ -1325,12 +1335,15 @@ class AnyPartialFilterTypeItem4(BaseModel):
 
     actions: Optional[List[Dict[str, Any]]] = None
     aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
+    breakdown: Optional[Union[str, List[Union[str, float]]]] = Field(
+        None,
+        description='The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal "all".',
+    )
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdown_value: Optional[Union[str, float]] = None
-    breakdowns: Optional[List[Breakdown]] = None
+    breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     entity_id: Optional[Union[str, float]] = None
@@ -1380,12 +1393,15 @@ class AnyPartialFilterTypeItem5(BaseModel):
 
     actions: Optional[List[Dict[str, Any]]] = None
     aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
+    breakdown: Optional[Union[str, List[Union[str, float]]]] = Field(
+        None,
+        description='The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal "all".',
+    )
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdown_value: Optional[Union[str, float]] = None
-    breakdowns: Optional[List[Breakdown]] = None
+    breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     entity_id: Optional[Union[str, float]] = None
@@ -1432,12 +1448,15 @@ class AnyPartialFilterTypeItem6(BaseModel):
 
     actions: Optional[List[Dict[str, Any]]] = None
     aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
+    breakdown: Optional[Union[str, List[Union[str, float]]]] = Field(
+        None,
+        description='The property or cohorts by which to break down.\n\nWhen breaking down by property `breakdown` is a string. When breaking down by cohort `breakdown` is an array of numbers and the literal "all".',
+    )
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdown_value: Optional[Union[str, float]] = None
-    breakdowns: Optional[List[Breakdown]] = None
+    breakdowns: Optional[List[LegacyMultiBreakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     entity_id: Optional[Union[str, float]] = None

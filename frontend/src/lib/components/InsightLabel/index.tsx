@@ -1,5 +1,5 @@
 import { Space, Tag, Typography } from 'antd'
-import { ActionFilter, BreakdownKeyType } from '~/types'
+import { ActionFilter, BreakdownProperty } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
 import './InsightLabel.scss'
@@ -23,7 +23,7 @@ interface InsightsLabelProps {
     action?: ActionFilter
     value?: string
     className?: string
-    breakdownValue?: BreakdownKeyType
+    breakdownValue?: BreakdownProperty
     compareValue?: string
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
     hideCompare?: boolean // Whether to hide the compare detail in the label

@@ -1515,9 +1515,11 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
-export type BreakdownKeyType = string | number | (string | number)[] | null
+export type BreakdownPropertyCohort = (string | number)[]
 
-export interface Breakdown {
+export type BreakdownProperty = string | BreakdownPropertyCohort | null
+
+export interface LegacyMultiBreakdown {
     property: string | number
     type: BreakdownType
     normalize_url?: boolean
@@ -1552,9 +1554,15 @@ export interface FilterType {
     interval?: IntervalType
     // TODO: extract into TrendsFunnelsCommonFilterType
     breakdown_type?: BreakdownType | null
-    breakdown?: BreakdownKeyType
+
+    /** The property or cohorts by which to break down.
+     *
+     * When breaking down by property `breakdown` is a string.
+     * When breaking down by cohort `breakdown` is an array of numbers and the literal "all".
+     */
+    breakdown?: BreakdownProperty
     breakdown_normalize_url?: boolean
-    breakdowns?: Breakdown[]
+    breakdowns?: LegacyMultiBreakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
@@ -1570,7 +1578,7 @@ export interface PropertiesTimelineFilterType {
     aggregation_group_type_index?: number // GroupsAggregationMixin
     display?: ChartDisplayType // DisplayDerivedMixin
     breakdown_type?: BreakdownType | null
-    breakdown?: BreakdownKeyType
+    breakdown?: BreakdownProperty
 }
 
 export interface TrendsFilterType extends FilterType {
@@ -1824,9 +1832,9 @@ export interface FunnelStep {
     people?: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: BreakdownKeyType
-    breakdowns?: BreakdownKeyType[]
-    breakdown_value?: BreakdownKeyType
+    breakdown?: BreakdownProperty
+    breakdowns?: BreakdownProperty[]
+    breakdown_value?: BreakdownProperty
     data?: number[]
     days?: string[]
 
@@ -1900,7 +1908,7 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
 export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
-    breakdown?: BreakdownKeyType
+    breakdown?: BreakdownProperty
     // :KLUDGE: Data transforms done in `getBreakdownStepValues`
     breakdown_value?: Array<string | number>
     breakdownIndex?: number

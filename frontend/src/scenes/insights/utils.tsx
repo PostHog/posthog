@@ -1,7 +1,7 @@
 import {
     ActionFilter,
     AnyPartialFilterType,
-    BreakdownKeyType,
+    BreakdownProperty,
     BreakdownType,
     CohortType,
     EntityFilter,
@@ -199,8 +199,8 @@ export function formatAggregationValue(
 export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
-    breakdown_value: BreakdownKeyType | undefined,
-    breakdown: BreakdownKeyType | undefined,
+    breakdown_value: BreakdownProperty | undefined,
+    breakdown: BreakdownProperty | undefined,
     breakdown_type: BreakdownType | null | undefined,
     isHistogram?: boolean
 ): string {

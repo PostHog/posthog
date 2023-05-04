@@ -1,7 +1,7 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import api, { ApiMethodOptions } from 'lib/api'
 import {
-    BreakdownKeyType,
+    BreakdownProperty,
     PropertyDefinition,
     PropertyDefinitionState,
     PropertyFilterValue,
@@ -30,7 +30,7 @@ const localProperties: PropertyDefinitionStorage = {
 }
 
 export type FormatPropertyValueForDisplayFunction = (
-    propertyName?: BreakdownKeyType,
+    propertyName?: BreakdownProperty,
     valueToFormat?: PropertyFilterValue
 ) => string | string[] | null
 
@@ -55,7 +55,7 @@ export type Option = {
 
 /** Schedules an immediate background task, that fetches property definitions after a 10ms debounce */
 const checkOrLoadPropertyDefinition = (
-    propertyName: BreakdownKeyType | undefined,
+    propertyName: BreakdownProperty | undefined,
     propertyDefinitionStorage: PropertyDefinitionStorage
 ): void => {
     // first time we see this, schedule a fetch
@@ -280,7 +280,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         formatPropertyValueForDisplay: [
             (s) => [s.propertyDefinitionStorage],
             (propertyDefinitionStorage): FormatPropertyValueForDisplayFunction => {
-                return (propertyName?: BreakdownKeyType, valueToFormat?: PropertyFilterValue | undefined) => {
+                return (propertyName?: BreakdownProperty, valueToFormat?: PropertyFilterValue | undefined) => {
                     if (valueToFormat === null || valueToFormat === undefined) {
                         return null
                     }

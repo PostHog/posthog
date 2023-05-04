@@ -3,12 +3,12 @@ import {
     FunnelStepRangeEntityFilter,
     FunnelStep,
     FunnelStepWithNestedBreakdown,
-    BreakdownKeyType,
+    BreakdownProperty,
     FunnelResultType,
     FunnelStepReference,
     FunnelConversionWindow,
     FunnelsFilterType,
-    Breakdown,
+    LegacyMultiBreakdown,
     FunnelStepWithConversionMetrics,
     FlattenedFunnelStepByBreakdown,
     FunnelCorrelation,
@@ -95,7 +95,7 @@ export function getSeriesPositionName(
 
 export function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
-    breakdownProperty?: BreakdownKeyType
+    breakdownProperty?: BreakdownProperty
 ): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
         // Create mapping to determine breakdown ordering by first step counts
@@ -150,8 +150,8 @@ export function isBreakdownFunnelResults(results: FunnelResultType): results is 
 
 /** Breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids). */
 export function isValidBreakdownParameter(
-    breakdown: BreakdownKeyType | undefined,
-    breakdowns: Breakdown[] | undefined
+    breakdown: BreakdownProperty | undefined,
+    breakdowns: LegacyMultiBreakdown[] | undefined
 ): boolean {
     return (
         (Array.isArray(breakdowns) && breakdowns.length > 0) ||
@@ -161,7 +161,7 @@ export function isValidBreakdownParameter(
 }
 
 /** String identifier for breakdowns used when determining visibility. */
-export function getVisibilityKey(breakdownValue?: BreakdownKeyType): string {
+export function getVisibilityKey(breakdownValue?: BreakdownProperty): string {
     const breakdownValues = getBreakdownStepValues(
         { breakdown: breakdownValue, breakdown_value: breakdownValue },
         -1
