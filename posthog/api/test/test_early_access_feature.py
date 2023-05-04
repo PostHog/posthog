@@ -53,7 +53,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/early_access_feature/" + str(response_data["id"]) + "/promote/",
+            f"/api/projects/{self.team.id}/early_access_feature/{str(response_data["id"])}/promote/",
             format="json",
         )
         response_data = response.json()
