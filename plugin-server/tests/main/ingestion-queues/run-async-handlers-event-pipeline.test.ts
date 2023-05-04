@@ -115,7 +115,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
         })
 
         jest.spyOn(hub.kafkaProducer.producer, 'produce').mockImplementation(
-            (topic, partition, message, key, timestamp, cb) => cb(error)
+            (topic, partition, message, key, timestamp, headers, cb) => cb(error)
         )
 
         await expect(
