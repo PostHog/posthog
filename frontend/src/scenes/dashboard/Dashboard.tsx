@@ -51,8 +51,7 @@ export function Dashboard({ id, dashboard, placement, sharingAccessToken }: Dash
 function DashboardScene(): JSX.Element {
     const {
         placement,
-        // dashboard on dashboardLogic isn't the dashboard on dashboardLogic (╯°□°)╯︵ ┻━┻
-        allItems: dashboard,
+        dashboard,
         canEditDashboard,
         tiles,
         itemsLoading,

@@ -11,14 +11,15 @@ function getStringByteSize(str: string): number {
 }
 
 export function getArrayBytesSize(value: any, key: any) {
-    if (!Array.isArray(value)) {
+    if (Array.isArray(value)) {
         return value.reduce((acc: number, val: any) => {
             return acc + guesstimateValueSize(val, key)
         }, 0)
     } else {
         status.warn(
             '💾',
-            `Not an array: ${typeof value} for key: ${key} when estimating array size. using 64 as a size guess`
+            `Not an array: ${typeof value} for key: ${key} when estimating array size. using 64 as a size guess`,
+            { value }
         )
         return 64
     }
