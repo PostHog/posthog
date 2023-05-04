@@ -405,7 +405,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
-        def test_stickiness_all_events(self):
+        def test_stickiness_any_event(self):
             self._create_multiple_people()
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
             person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
