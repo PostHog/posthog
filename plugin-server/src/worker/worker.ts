@@ -120,7 +120,8 @@ export function processUnhandledException(error: Error, server: Hub, kind: strin
         },
     })
 
-    status.error('🤮', `${kind}!`, { error, stack: error.stack })
+    status.error('🤮', `${kind}!`)
+    status.error('🤮', error)
 }
 
 const jobDuration = new Histogram({

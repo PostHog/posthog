@@ -1,7 +1,6 @@
 import { StatsD } from 'hot-shots'
-import { EachBatchHandler, Kafka } from 'kafkajs'
+import { EachBatchHandler, Kafka, Producer } from 'kafkajs'
 import { Counter } from 'prom-client'
-import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
 import { EnqueuedPluginJob, JobName } from '../../types'
@@ -27,7 +26,7 @@ export const startJobsConsumer = async ({
     statsd,
 }: {
     kafka: Kafka
-    producer: KafkaProducerWrapper
+    producer: Producer // NOTE: not using KafkaProducerWrapper here to avoid buffering logic
     graphileWorker: GraphileWorker
     statsd?: StatsD
 }) => {
@@ -50,10 +49,7 @@ export const startJobsConsumer = async ({
                     value: message.value,
                 })
                 // TODO: handle resolving offsets asynchronously
-                await producer.queueMessage({
-                    topic: KAFKA_JOBS_DLQ,
-                    messages: [{ value: message.value, key: message.key }],
-                })
+                await producer.send({ topic: KAFKA_JOBS_DLQ, messages: [message] })
                 resolveOffset(message.offset)
                 continue
             }
@@ -67,10 +63,7 @@ export const startJobsConsumer = async ({
                     error,
                 })
                 // TODO: handle resolving offsets asynchronously
-                await producer.queueMessage({
-                    topic: KAFKA_JOBS_DLQ,
-                    messages: [{ value: message.value, key: message.key }],
-                })
+                await producer.send({ topic: KAFKA_JOBS_DLQ, messages: [message] })
                 resolveOffset(message.offset)
                 continue
             }
@@ -118,10 +111,5 @@ export const startJobsConsumer = async ({
         },
     })
 
-    return {
-        ...consumer,
-        stop: async () => {
-            await consumer.stop()
-        },
-    }
+    return consumer
 }

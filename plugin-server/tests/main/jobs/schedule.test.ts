@@ -1,3 +1,5 @@
+import { Producer } from 'kafkajs'
+
 import { KAFKA_SCHEDULED_TASKS } from '../../../src/config/kafka-topics'
 import { runScheduledTasks } from '../../../src/main/graphile-worker/schedule'
 import { Hub } from '../../../src/types'
@@ -29,8 +31,10 @@ describe('Graphile Worker schedule', () => {
                 runEveryDay: [7, 8, 9],
             },
             kafkaProducer: {
-                queueMessage: jest.fn(),
-            } as unknown as KafkaProducerWrapper,
+                producer: {
+                    send: jest.fn(),
+                } as unknown as Producer,
+            } as KafkaProducerWrapper,
             USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         }
 
@@ -38,7 +42,7 @@ describe('Graphile Worker schedule', () => {
             job: { run_at: new Date() },
         } as any)
 
-        expect(mockHubWithPluginSchedule.kafkaProducer.queueMessage).toHaveBeenNthCalledWith(1, {
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(1, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
@@ -50,7 +54,7 @@ describe('Graphile Worker schedule', () => {
                 },
             ],
         })
-        expect(mockHubWithPluginSchedule.kafkaProducer.queueMessage).toHaveBeenNthCalledWith(2, {
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(2, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
@@ -62,7 +66,7 @@ describe('Graphile Worker schedule', () => {
                 },
             ],
         })
-        expect(mockHubWithPluginSchedule.kafkaProducer.queueMessage).toHaveBeenNthCalledWith(3, {
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(3, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
@@ -78,7 +82,7 @@ describe('Graphile Worker schedule', () => {
         await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryHour', {
             job: { run_at: new Date() },
         } as any)
-        expect(mockHubWithPluginSchedule.kafkaProducer.queueMessage).toHaveBeenNthCalledWith(4, {
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(4, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
@@ -90,7 +94,7 @@ describe('Graphile Worker schedule', () => {
                 },
             ],
         })
-        expect(mockHubWithPluginSchedule.kafkaProducer.queueMessage).toHaveBeenNthCalledWith(5, {
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(5, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
@@ -102,7 +106,7 @@ describe('Graphile Worker schedule', () => {
                 },
             ],
         })
-        expect(mockHubWithPluginSchedule.kafkaProducer.queueMessage).toHaveBeenNthCalledWith(6, {
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(6, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
@@ -118,7 +122,7 @@ describe('Graphile Worker schedule', () => {
         await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryDay', {
             job: { run_at: new Date() },
         } as any)
-        expect(mockHubWithPluginSchedule.kafkaProducer.queueMessage).toHaveBeenNthCalledWith(7, {
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(7, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
@@ -130,7 +134,7 @@ describe('Graphile Worker schedule', () => {
                 },
             ],
         })
-        expect(mockHubWithPluginSchedule.kafkaProducer.queueMessage).toHaveBeenNthCalledWith(8, {
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(8, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
@@ -142,7 +146,7 @@ describe('Graphile Worker schedule', () => {
                 },
             ],
         })
-        expect(mockHubWithPluginSchedule.kafkaProducer.queueMessage).toHaveBeenNthCalledWith(9, {
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(9, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {

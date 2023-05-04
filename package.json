@@ -275,8 +275,8 @@
             "prettier --write"
         ],
         "(plugin-server/**).{js,jsx,mjs,ts,tsx}": [
-            "pnpm --dir plugin-server exec eslint --fix",
-            "pnpm --dir plugin-server exec prettier --write"
+            "eslint -c plugin-server/.eslintrc.js --fix",
+            "prettier --write"
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "black",

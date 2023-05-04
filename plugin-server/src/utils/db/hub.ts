@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, SASLOptions } from 'kafkajs'
+import { Kafka, KafkaJSError, Partitioners, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
 import * as path from 'path'
@@ -15,8 +15,6 @@ import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
-import { createKafkaProducer } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
@@ -41,6 +39,7 @@ import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-k
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DB } from './db'
+import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
@@ -131,10 +130,13 @@ export async function createHub(
 
     const kafka = createKafkaClient(serverConfig as KafkaConfig)
 
-    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig as KafkaConfig)
-    const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
+    const producer = kafka.producer({
+        retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
+        createPartitioner: Partitioners.LegacyPartitioner,
+    })
+    await producer.connect()
 
-    const kafkaProducer = new KafkaProducerWrapper(producer)
+    const kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
     status.info('👍', `Kafka ready`)
 
     status.info('🤔', `Connecting to Postgresql...`)
@@ -192,15 +194,31 @@ export async function createHub(
         // an acknowledgement as for instance there are some jobs that are
         // chained, and if we do not manage to produce then the chain will be
         // broken.
-        await kafkaProducer.queueMessage({
-            topic: KAFKA_JOBS,
-            messages: [
-                {
-                    value: Buffer.from(JSON.stringify(job)),
-                    key: Buffer.from(job.pluginConfigTeam.toString()),
-                },
-            ],
-        })
+        try {
+            await kafkaProducer.producer.send({
+                topic: KAFKA_JOBS,
+                messages: [
+                    {
+                        key: job.pluginConfigTeam.toString(),
+                        value: JSON.stringify(job),
+                    },
+                ],
+            })
+        } catch (error) {
+            if (error instanceof KafkaJSError) {
+                // If we get a retriable Kafka error (maybe it's down for
+                // example), rethrow the error as a generic `DependencyUnavailableError`
+                // passing through retriable such that we can decide if this is
+                // something we should retry at the consumer level.
+                if (error.retriable) {
+                    throw new DependencyUnavailableError(error.message, 'Kafka', error)
+                }
+            }
+
+            // Otherwise, just rethrow the error as is. E.g. if we fail to
+            // serialize then we don't want to retry.
+            throw error
+        }
     }
 
     const hub: Partial<Hub> = {
