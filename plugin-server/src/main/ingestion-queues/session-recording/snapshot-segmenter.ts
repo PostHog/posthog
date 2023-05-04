@@ -84,28 +84,6 @@ const createSegments = (snapshots: RRWebEventSummary[]): RecordingSegment[] => {
         segments.push(activeSegment as RecordingSegment)
     }
 
-    segments = segments.reduce((acc, segment, index) => {
-        const previousSegment = segments[index - 1]
-        const list = [...acc]
-
-        if (previousSegment && segment.startTimestamp - previousSegment.endTimestamp > 1) {
-            const startTimestamp = previousSegment.endTimestamp + 1
-            const endTimestamp = segment.startTimestamp - 1
-            const gapSegment: Partial<RecordingSegment> = {
-                kind: 'gap',
-                startTimestamp,
-                endTimestamp,
-                isActive: false,
-            }
-
-            list.push(gapSegment as RecordingSegment)
-        }
-
-        list.push(segment)
-
-        return list
-    }, [] as RecordingSegment[])
-
     segments = segments.map((segment) => {
         // These can all be done in a loop at the end...
         segment.durationMs = segment.endTimestamp - segment.startTimestamp
