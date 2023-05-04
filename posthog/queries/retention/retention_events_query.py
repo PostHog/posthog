@@ -207,7 +207,7 @@ class RetentionEventsQuery(EventQuery):
 
     def _get_entity_query(self, entity: Entity):
         prepend = self._event_query_type
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
+        if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
             action = Action.objects.get(pk=entity.id)
             action_query, params = format_action_filter(
                 team_id=self._team_id,

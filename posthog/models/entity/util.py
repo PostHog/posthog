@@ -28,7 +28,7 @@ def get_entity_filtering_params(
     events_already_included: Set[str] = set()  # Avoid duplicating event conditions
     for entity in allowed_entities:
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            if entity.id in action_ids_already_included:
+            if entity.id in action_ids_already_included or entity.id is None:
                 continue
             action_ids_already_included.add(int(entity.id))
             action = entity.get_action()

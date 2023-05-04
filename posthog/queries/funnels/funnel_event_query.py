@@ -136,7 +136,7 @@ class FunnelEventQuery(EventQuery):
                 events.update(action.get_step_events())
             elif entity.type == TREND_FILTER_TYPE_EVENTS and entity.id is None:
                 return "AND 1 = 1", {}
-            else:
+            elif entity.id is not None:
                 events.add(entity.id)
 
         return f"AND event IN %({entity_name})s", {entity_name: sorted(list(events))}

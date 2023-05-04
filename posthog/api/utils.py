@@ -70,7 +70,7 @@ def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[
 
 
 def retrieve_entity_from(
-    entity_id: str,
+    entity_id: Optional[str],
     entity_type: Optional[str],
     entity_math: MathType,
     events: List[Entity],
