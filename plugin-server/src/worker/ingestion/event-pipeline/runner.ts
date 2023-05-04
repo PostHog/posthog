@@ -131,10 +131,9 @@ export class EventPipelineRunner {
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
         try {
             this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'asyncHandlers' })
-            const personContainer = new LazyPersonContainer(event.teamId, event.distinctId, this.hub)
-            await this.runStep(runAsyncHandlersStep, [this, event, personContainer], false)
+            await this.runStep(runAsyncHandlersStep, [this, event], false)
             this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
-            return this.registerLastStep('runAsyncHandlersStep', event.teamId, [event, personContainer])
+            return this.registerLastStep('runAsyncHandlersStep', event.teamId, [event])
         } catch (error) {
             if (error instanceof DependencyUnavailableError) {
                 // If this is an error with a dependency that we control, we want to

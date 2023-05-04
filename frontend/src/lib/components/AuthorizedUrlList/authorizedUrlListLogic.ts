@@ -62,19 +62,18 @@ export const validateProposedURL = (
 }
 
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
-export function appEditorUrl(appUrl?: string, actionId?: number, defaultIntent?: boolean): string {
-    // See
-    // https://github.com/PostHog/posthog-js/blob/f7119c7542c940354719a9ba8120a08ba25b5ae8/src/extensions/toolbar.ts#L52
-    // for where these params are passed.
-    const params: ToolbarParams = {
+export function appEditorUrl(appUrl: string, actionId?: number | null, defaultIntent?: boolean): string {
+    // See https://github.com/PostHog/posthog-js/blob/f7119c/src/extensions/toolbar.ts#L52 for where these params
+    // are passed. `appUrl` is an extra `redirect_to_site` param.
+    const params: ToolbarParams & { appUrl: string } = {
         userIntent: defaultIntent ? undefined : actionId ? 'edit-action' : 'add-action',
         // Make sure to pass the app url, otherwise the api_host will be used by
         // the toolbar, which isn't correct when used behind a reverse proxy as
         // we require e.g. SSO login to the app, which will not work when placed
         // behind a proxy unless we register each domain with the OAuth2 client.
         apiURL: window.location.origin,
+        appUrl,
         ...(actionId ? { actionId } : {}),
-        ...(appUrl ? { appUrl } : {}),
     }
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
@@ -87,14 +86,14 @@ export interface KeyedAppUrl {
     originalIndex: number
 }
 
-export interface AuthorizedUrlListProps {
-    actionId?: number
+export interface AuthorizedUrlListLogicProps {
+    actionId: number | null
     type: AuthorizedUrlListType
 }
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
     key((props) => `${props.type}-${props.actionId}`),
-    props({} as AuthorizedUrlListProps),
+    props({} as AuthorizedUrlListLogicProps),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
         actions: [teamLogic, ['updateCurrentTeam']],
@@ -280,7 +279,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             actions.resetProposedUrl()
         },
     })),
-    selectors(({ props }) => ({
+    selectors({
         urlToEdit: [
             (s) => [s.authorizedUrls, s.editUrlIndex],
             (authorizedUrls, editUrlIndex) => {
@@ -319,10 +318,10 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     .map((result) => result.item)
             },
         ],
-        launchUrl: [() => [], () => (url: string) => appEditorUrl(url, props.actionId, !props.actionId)],
+        launchUrl: [(_, p) => [p.actionId], (actionId) => (url: string) => appEditorUrl(url, actionId, !actionId)],
         isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
-        onlyAllowDomains: [() => [], () => props.type === AuthorizedUrlListType.RECORDING_DOMAINS],
-    })),
+        onlyAllowDomains: [(_, p) => [p.type], (type) => type === AuthorizedUrlListType.RECORDING_DOMAINS],
+    }),
     urlToAction(({ actions }) => ({
         [urls.toolbarLaunch()]: (_, searchParams) => {
             if (searchParams.addNew) {

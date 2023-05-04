@@ -228,7 +228,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
         actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team.pk, actor_ids, distinct_id_limit=10)
+        actors, serialized_actors = get_people(team, actor_ids, distinct_id_limit=10)
 
         _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
@@ -343,7 +343,6 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[
         cohort.errors_calculating = 0
         cohort.save(update_fields=["errors_calculating", "last_calculation", "is_calculating"])
     except Exception as err:
-
         if settings.DEBUG:
             raise err
         cohort.is_calculating = False

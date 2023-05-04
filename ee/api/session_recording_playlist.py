@@ -208,7 +208,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
             {SESSION_RECORDINGS_FILTER_IDS: json.dumps([x.recording_id for x in playlist_items])}
         )
 
-        return response.Response(list_recordings(filter, request, self.team))
+        return response.Response(list_recordings(filter, request, context=self.get_serializer_context()))
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
     @action(methods=["POST", "DELETE"], detail=True, url_path="recordings/(?P<session_recording_id>[^/.]+)")

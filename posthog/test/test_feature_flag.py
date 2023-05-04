@@ -5,6 +5,7 @@ from django.core.cache import cache
 from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
+import pytest
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
@@ -1489,6 +1490,202 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatcher(
                     [feature_flag], "random_id", property_value_overrides={"email": "example@example.com"}
                 ).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+    def test_cohort_filters_with_override_properties(self):
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": r"@posthog\.com$",
+                            "negation": False,
+                            "operator": "regex",
+                        }
+                    ]
+                }
+            ],
+            name="cohort1",
+        )
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com",
+                            "negation": False,
+                            "operator": "icontains",
+                        }
+                    ]
+                }
+            ],
+            name="cohort2",
+        )
+
+        feature_flag1: FeatureFlag = self.create_feature_flag(
+            key="x1", filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
+        )
+        feature_flag2: FeatureFlag = self.create_feature_flag(
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]}]}
+        )
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        with self.assertNumQueries(6):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "example_id", property_value_overrides={}).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            # no local computation because cohort lookup is required
+            # no postgres person query required here to get the person, because email is sufficient
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "example_id", property_value_overrides={"email": "bzz"}).get_match(
+                    feature_flag1
+                ),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            # no postgres query required here to get the person
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1], "example_id", property_value_overrides={"email": "neil@posthog.com"}
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            # Random person doesn't yet exist, but still should resolve thanks to overrides
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag2], "random_id", property_value_overrides={"email": "xxx"}).get_match(
+                    feature_flag2
+                ),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag2], "random_id", property_value_overrides={"email": "example@posthog.com"}
+                ).get_match(feature_flag2),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+    @pytest.mark.skip("This case is not supported yet")
+    def test_complex_cohort_filter_with_override_properties(self):
+        # TODO: Currently we don't support this case for persons who haven't been ingested yet
+        # The case:
+        # - A cohort has multiple conditions
+        # - All of which are the _same_ / are true for the same property.
+        # Example: email contains .com ; email contains @ ; email contains posthog
+        # -> 3 different filters, all of which match neil@posthog.com.
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": r"@posthog\.com$",
+                            "negation": False,
+                            "operator": "regex",
+                        }
+                    ]
+                },
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com",
+                            "negation": False,
+                            "operator": "icontains",
+                        }
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+        feature_flag1: FeatureFlag = self.create_feature_flag(
+            key="x1", filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
+        )
+
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1], "example_id", property_value_overrides={"email": "neil@posthog.com"}
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            # no local computation because cohort lookup is required
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "example_id", property_value_overrides={"email": "bzz"}).get_match(
+                    feature_flag1
+                ),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+    def test_cohort_filters_with_multiple_OR_override_properties(self):
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": r"@posthog\.com$",
+                                    "negation": False,
+                                    "operator": "regex",
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": ["fuzion@xyz.com"], "operator": "exact"}
+                            ],
+                        },
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        feature_flag1: FeatureFlag = self.create_feature_flag(
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
+        )
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        with self.assertNumQueries(6):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "example_id", property_value_overrides={}).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(6):
+            # no local computation because cohort lookup is required
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1], "example_id", property_value_overrides={"email": "neil@posthog.com"}
+                ).get_match(feature_flag1),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 

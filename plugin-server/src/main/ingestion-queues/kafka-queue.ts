@@ -1,4 +1,3 @@
-import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Consumer, EachBatchHandler, EachBatchPayload, Kafka } from 'kafkajs'
@@ -7,6 +6,7 @@ import { Hub, PipelineEvent, PostIngestionEvent, WorkerMethods } from '../../typ
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
+import Piscina from '../../worker/piscina'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
