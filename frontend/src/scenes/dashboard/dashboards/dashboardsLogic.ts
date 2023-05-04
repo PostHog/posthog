@@ -58,8 +58,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
     selectors({
         dashboards: [
-            (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.user, s.fuse],
-            (dashboards, filters, user, fuse) => {
+            (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse],
+            (dashboards, filters, fuse) => {
                 dashboards = dashboards
                     .filter((d) => !d.deleted)
                     .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
@@ -68,7 +68,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 } else if (filters.shared) {
                     dashboards = dashboards.filter((d) => d.is_shared)
                 } else if (filters.createdBy !== 'All users') {
-                    dashboards = dashboards.filter((d) => d.created_by && user && d.created_by?.uuid === user.uuid)
+                    dashboards = dashboards.filter((d) => d.created_by && filters.createdBy)
                 }
                 if (!filters.search) {
                     return dashboards

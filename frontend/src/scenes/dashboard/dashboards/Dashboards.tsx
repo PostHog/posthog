@@ -103,7 +103,7 @@ export function Dashboards(): JSX.Element {
                             options={[
                                 { value: 'All users' as number | 'All users', label: 'All Users' },
                                 ...meFirstMembers.map((x) => ({
-                                    value: x.user.id,
+                                    value: x.user.uuid,
                                     label: x.user.first_name,
                                 })),
                             ]}
