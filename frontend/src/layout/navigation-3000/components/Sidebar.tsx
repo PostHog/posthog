@@ -48,6 +48,7 @@ export function Sidebar(): JSX.Element {
                         <LemonButton
                             icon={<IconMagnifier />}
                             size="small"
+                            noPadding
                             onClick={() => setIsSearchShown(!isSearchShown)}
                             active={isSearchShown}
                             tooltip={
