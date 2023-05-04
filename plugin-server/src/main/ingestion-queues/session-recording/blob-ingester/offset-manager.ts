@@ -40,16 +40,13 @@ export class OffsetManager {
     /**
      * When a rebalance occurs we need to remove all in-flight offsets for partitions that are no longer
      * assigned to this consumer.
-     *
-     * @param topic
-     * @param assignedPartitions The partitions that are still assigned to this consumer after a rebalance
      */
-    public cleanPartitions(topic: string, assignedPartitions: number[]): void {
-        const assignedKeys = assignedPartitions.map((partition) => `${topic}-${partition}`)
+    public revokePartitions(topic: string, revokedPartitions: number[]): void {
+        const assignedKeys = revokedPartitions.map((partition) => `${topic}-${partition}`)
 
         const keysToDelete = new Set<string>()
         for (const [key] of this.offsetsByPartitionTopic) {
-            if (!assignedKeys.includes(key)) {
+            if (assignedKeys.includes(key)) {
                 keysToDelete.add(key)
             }
         }
