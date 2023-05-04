@@ -295,24 +295,24 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     listeners(({ actions, values }) => ({
         loadAllRecordings: () => {
             if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {
-                actions.getSessionRecordings()
-            } else {
                 actions.loadSessionRecordings()
+            } else {
+                actions.getSessionRecordings()
             }
             actions.loadPinnedRecordings()
         },
         setFilters: () => {
             if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {
-                actions.getSessionRecordings()
-            } else {
                 actions.loadSessionRecordings()
+            } else {
+                actions.getSessionRecordings()
             }
         },
         replaceFilters: () => {
             if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {
-                actions.getSessionRecordings()
-            } else {
                 actions.loadSessionRecordings()
+            } else {
+                actions.getSessionRecordings()
             }
         },
         loadNext: () => {
@@ -435,8 +435,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     }),
 
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions }) => {
-        actions.getSessionRecordings()
+    afterMount(({ actions, values }) => {
+        if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {
+            actions.loadSessionRecordings()
+        } else {
+            actions.getSessionRecordings()
+        }
         actions.loadPinnedRecordings()
     }),
 ])
