@@ -28,7 +28,7 @@ export function EntityFilterInfo({
     // No filter
     if (filter.type === EntityTypes.EVENTS && filter.id === null && !filter.name) {
         return (
-            <TextWrapper title="Select filter" className="text-muted-alt">
+            <TextWrapper title="Any event" className="text-muted-alt">
                 Any event
             </TextWrapper>
         )
