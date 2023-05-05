@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { objectsEqual, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import {
     AvailableFeature,
     PerformanceEvent,
@@ -263,20 +263,42 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             fromBlobStorage: values.sessionPlayerSnapshotData?.snapshots,
                             fromAPI: comparisonData?.snapshots,
                         })
-                        const areExactlyTheSame =
-                            (values.sessionPlayerSnapshotData?.snapshots?.length || -1) >= 1 &&
-                            values.sessionPlayerSnapshotData?.snapshots?.every((snapshot, index) => {
+
+                        console.log(
+                            'blob storage returned ',
+                            values.sessionPlayerSnapshotData?.snapshots?.length,
+                            ' snapshots'
+                        )
+                        console.log('api returned ', comparisonData?.snapshots?.length, ' snapshots')
+
+                        const timestampsMatch = values.sessionPlayerSnapshotData?.snapshots?.every(
+                            (snapshot, index) => {
                                 const comparisonSnapshot = comparisonData?.snapshots?.[index]
                                 if (!comparisonSnapshot) {
                                     return false
                                 }
+                                return snapshot.timestamp === comparisonSnapshot.timestamp
+                            }
+                        )
 
-                                // object from blobStorage has a `delay` key that isn't on the API response so...
-                                const { delay, ...storageSnapshot } = snapshot
+                        if (values.sessionPlayerSnapshotData?.snapshots?.length === comparisonData?.snapshots?.length) {
+                            if (timestampsMatch) {
+                                console.log('🎉 storage and api have the same timestamps ✅')
+                            } else {
+                                console.error(
+                                    '🧨 storage and api snapshots are the same length but have different timestamps'
+                                )
+                            }
+                        } else {
+                            if (timestampsMatch) {
+                                console.error(
+                                    '⚠️ storage and api have the same timestamps but different lengths. If this is a recent recording then the ingester probably has not flushed the whole thing yet'
+                                )
+                            } else {
+                                console.error('🧨 storage and api have different lengths and different timestamps')
+                            }
+                        }
 
-                                return objectsEqual(storageSnapshot as RecordingSnapshot, comparisonSnapshot)
-                            })
-                        console.log('are they exactly equal?', areExactlyTheSame)
                         console.groupEnd()
                     },
                 }
