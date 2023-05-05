@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { captureException } from '@sentry/react'
 import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka-acosom'
 
 import {
@@ -290,25 +291,31 @@ const eachMessage =
                         }),
                     ]
 
-                    if (summaryEnabledTeams === null || summaryEnabledTeams?.includes(team.id)) {
-                        const replayRecord = createSessionReplayEvent(
-                            messagePayload.uuid,
-                            team.id,
-                            messagePayload.distinct_id,
-                            event.ip,
-                            event.properties || {}
-                        )
-                        if (replayRecord) {
-                            producePromises.push(
-                                produce({
-                                    producer,
-                                    topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-                                    value: Buffer.from(JSON.stringify(replayRecord)),
-                                    key: message.key ? Buffer.from(message.key) : null,
-                                })
+                    try {
+                        if (summaryEnabledTeams === null || summaryEnabledTeams?.includes(team.id)) {
+                            const replayRecord = createSessionReplayEvent(
+                                messagePayload.uuid,
+                                team.id,
+                                messagePayload.distinct_id,
+                                event.ip,
+                                event.properties || {}
                             )
+                            if (replayRecord) {
+                                producePromises.push(
+                                    produce({
+                                        producer,
+                                        topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+                                        value: Buffer.from(JSON.stringify(replayRecord)),
+                                        key: message.key ? Buffer.from(message.key) : null,
+                                    })
+                                )
+                            }
                         }
+                    } catch (e) {
+                        status.warn('??', 'session_replay_summarizer_error', { error: e })
+                        captureException(e)
                     }
+
                     return producePromises
                 } else if (event.event === '$performance_event') {
                     const clickHouseRecord = createPerformanceEvent(
