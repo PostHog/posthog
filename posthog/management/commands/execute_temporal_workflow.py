@@ -31,8 +31,6 @@ class Command(BaseCommand):
         parser.add_argument("--client-key", default=settings.TEMPORAL_CLIENT_KEY, help="Optional client key")
 
     def handle(self, *args, **options):
-        logging.info(f"Executing Temporal Workflow with options: {options}")
-
         temporal_host = options["temporal_host"]
         temporal_port = options["temporal_port"]
         namespace = options["namespace"]
@@ -42,6 +40,10 @@ class Command(BaseCommand):
         client_key = options.get("client_key", None)
         workflow_id = str(uuid4())
         workflow_name = options["workflow"]
+
+        if options["client_key"]:
+            options["client_key"] = "--SECRET--"
+        logging.info(f"Executing Temporal Workflow with options: {options}")
 
         client = asyncio.run(
             connect(
