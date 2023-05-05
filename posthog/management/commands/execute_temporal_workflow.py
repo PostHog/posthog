@@ -20,12 +20,8 @@ class Command(BaseCommand):
             nargs="*",
             help="Inputs for the workflow to execute",
         )
-        parser.add_argument(
-            "--temporal_host", default=settings.TEMPORAL_SCHEDULER_HOST, help="Hostname for Temporal Scheduler"
-        )
-        parser.add_argument(
-            "--temporal_port", default=settings.TEMPORAL_SCHEDULER_PORT, help="Port for Temporal Scheduler"
-        )
+        parser.add_argument("--temporal_host", default=settings.TEMPORAL_HOST, help="Hostname for Temporal Scheduler")
+        parser.add_argument("--temporal_port", default=settings.TEMPORAL_PORT, help="Port for Temporal Scheduler")
         parser.add_argument(
             "--task_queue", default=settings.TEMPORAL_TASK_QUEUE, help="Task queue to submit your workflow to"
         )
