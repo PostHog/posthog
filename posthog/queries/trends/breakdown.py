@@ -1,4 +1,5 @@
 import json
+import re
 import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -495,7 +496,9 @@ class TrendsBreakdown:
 
     def breakdown_sort_function(self, value):
         if self.filter.using_histogram:
-            return json.loads(value.get("breakdown_value"))[0]
+            breakdown_value = value.get("breakdown_value")
+            breakdown_value = re.sub(r"\bnan\b", "NaN", breakdown_value)  # fix NaN values for JSON loading
+            return json.loads(breakdown_value)[0]
         if value.get("breakdown_value") == "all":
             return (-1, "")
         if self.filter.breakdown_type == "session":
