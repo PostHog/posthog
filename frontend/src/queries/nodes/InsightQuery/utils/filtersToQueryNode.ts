@@ -151,7 +151,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         if (filters.breakdown != null && filters.breakdown_type == null) {
             if (Array.isArray(filters.breakdown)) {
                 filters.breakdown_type = 'cohort'
-            } else if (filters.breakdown.startsWith('$initial_')) {
+            } else if ((filters.breakdown as string).startsWith('$initial_')) {
                 filters.breakdown_type = 'person'
             } else {
                 filters.breakdown_type = 'event'
