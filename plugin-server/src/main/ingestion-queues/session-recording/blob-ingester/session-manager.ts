@@ -105,21 +105,18 @@ export class SessionManager {
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
-        const overCapacity = gzippedCapacity > 1
-
-        if (overCapacity) {
+        if (gzippedCapacity > 1) {
             // return the promise and let the caller decide whether to await
             return this.flush()
         }
     }
 
     public async flushIfSessionIsIdle(): Promise<void> {
-        const timeSinceLastEventTooLong =
+        if (
             this.buffer.lastMessageReceivedAt !== null &&
             Date.now() - this.buffer.lastMessageReceivedAt >=
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-
-        if (timeSinceLastEventTooLong) {
+        ) {
             // return the promise and let the caller decide whether to await
             return this.flush()
         }
