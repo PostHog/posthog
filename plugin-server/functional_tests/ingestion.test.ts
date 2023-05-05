@@ -619,6 +619,14 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
             $anon_distinct_id: secondDistinctId,
         },
     })
+
+    // This guarantees that we process them in order, which verifies the right overrides and
+    // makes sure we don't run into Merge refused errors if secondDistinctId is already identified if later completed first
+    await waitForExpect(async () => {
+        const persons = await fetchEvents(teamId)
+        expect(persons.length).toBe(4)
+    }, 10000)
+
     // Then we merge the third person
     await capture({
         teamId,
