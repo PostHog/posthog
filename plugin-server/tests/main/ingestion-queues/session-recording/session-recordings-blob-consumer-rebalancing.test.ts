@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingBlobIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
@@ -37,10 +39,12 @@ describe('ingester rebalancing tests', () => {
         await ingesterOne.start()
 
         await ingesterOne.consume(
-            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 })
+            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 }),
+            DateTime.local().toMillis()
         )
         await ingesterOne.consume(
-            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 })
+            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 }),
+            DateTime.local().toMillis()
         )
 
         await waitForExpect(() => {
@@ -51,6 +55,7 @@ describe('ingester rebalancing tests', () => {
         await ingesterTwo.start()
 
         await waitForExpect(() => {
+            // because the rebalancing strategy is cooperative sticky the partition stays on the same ingester
             assertIngesterHasExpectedPartitions(ingesterOne, [1])
 
             // only one partition so nothing for the new consumer to do

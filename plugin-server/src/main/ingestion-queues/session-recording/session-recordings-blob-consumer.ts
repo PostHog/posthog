@@ -66,7 +66,7 @@ export class SessionRecordingBlobIngester {
             enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
     }
 
-    public async consume(event: IncomingRecordingMessage): Promise<void> {
+    public async consume(event: IncomingRecordingMessage, kafkaMessageTimestamp: number | undefined): Promise<void> {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
@@ -102,7 +102,7 @@ export class SessionRecordingBlobIngester {
         }
 
         this.offsetManager?.addOffset(topic, partition, offset)
-        await this.sessions.get(key)?.add(event)
+        await this.sessions.get(key)?.add(event, kafkaMessageTimestamp)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
         // If it is recoverable, we probably want to retry?
@@ -182,7 +182,7 @@ export class SessionRecordingBlobIngester {
             events_summary: $snapshot_data.events_summary,
         }
 
-        await this.consume(recordingMessage)
+        await this.consume(recordingMessage, message.timestamp)
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
@@ -314,7 +314,7 @@ export class SessionRecordingBlobIngester {
                 sessionManagerChunksSizes += guesstimates.chunks
                 sessionManagerBufferOffsetsSizes += guesstimates.bufferOffsets
                 sessionManangerBufferSizes += guesstimates.buffer
-                void sessionManager.flushIfNecessary()
+                void sessionManager.flushIfSessionIsIdle()
             })
 
             status.info('🚛', 'blob_ingester_consumer - session manager size_estimate', {
