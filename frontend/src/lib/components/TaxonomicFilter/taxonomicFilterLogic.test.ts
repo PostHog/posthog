@@ -120,7 +120,7 @@ describe('taxonomicFilterLogic', () => {
             .clearHistory()
             .toMatchValues({
                 searchQuery: 'selector',
-                activeTab: TaxonomicFilterGroupType.Elements, // tab changed!
+                activeTab: TaxonomicFilterGroupType.Events, // no tab change
                 infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 0,
                     [TaxonomicFilterGroupType.Actions]: 0,
@@ -137,7 +137,7 @@ describe('taxonomicFilterLogic', () => {
             .clearHistory()
             .toMatchValues({
                 searchQuery: 'this is not found',
-                activeTab: TaxonomicFilterGroupType.Elements, // no change
+                activeTab: TaxonomicFilterGroupType.Events, // no change
                 infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 0,
                     [TaxonomicFilterGroupType.Actions]: 0,
@@ -154,7 +154,7 @@ describe('taxonomicFilterLogic', () => {
             .clearHistory()
             .toMatchValues({
                 searchQuery: '',
-                activeTab: TaxonomicFilterGroupType.Elements, // no change
+                activeTab: TaxonomicFilterGroupType.Events,
                 infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 56,
                     [TaxonomicFilterGroupType.Actions]: 0,
@@ -165,24 +165,24 @@ describe('taxonomicFilterLogic', () => {
 
         // move right, skipping Actions
         await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
+            activeTab: TaxonomicFilterGroupType.Elements,
+        })
+        await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
             activeTab: TaxonomicFilterGroupType.Sessions,
         })
         await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
             activeTab: TaxonomicFilterGroupType.Events,
-        })
-        await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
-            activeTab: TaxonomicFilterGroupType.Elements,
         })
 
         // move left, skipping Actions
         await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
-            activeTab: TaxonomicFilterGroupType.Events,
-        })
-        await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
             activeTab: TaxonomicFilterGroupType.Sessions,
         })
         await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
             activeTab: TaxonomicFilterGroupType.Elements,
+        })
+        await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
+            activeTab: TaxonomicFilterGroupType.Events,
         })
 
         // open remote items tab after loading
@@ -194,7 +194,7 @@ describe('taxonomicFilterLogic', () => {
             .clearHistory()
             .toMatchValues({
                 searchQuery: 'event',
-                activeTab: TaxonomicFilterGroupType.Events, // changed!
+                activeTab: TaxonomicFilterGroupType.Events,
                 infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 3,
                     [TaxonomicFilterGroupType.Actions]: 0,
