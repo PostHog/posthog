@@ -62,9 +62,13 @@ export function RetentionSummaryComponent({
                 Show
                 {showGroupsOptions ? (
                     isDataExploration ? (
-                        <AggregationSelectDataExploration className="mx-2" insightProps={insightProps} />
+                        <AggregationSelectDataExploration
+                            className="mx-2"
+                            insightProps={insightProps}
+                            hogqlAvailable={false}
+                        />
                     ) : (
-                        <AggregationSelect className="mx-2" insightProps={insightProps} />
+                        <AggregationSelect className="mx-2" insightProps={insightProps} hogqlAvailable={false} />
                     )
                 ) : (
                     <b> Unique users </b>

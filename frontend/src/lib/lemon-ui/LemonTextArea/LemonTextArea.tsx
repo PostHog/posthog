@@ -62,9 +62,10 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
 })
 
 interface LemonTextMarkdownProps {
-    'data-attr'?: string
     value?: string
     onChange?: (s: string) => void
+    placeholder?: string
+    'data-attr'?: string
 }
 
 export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {

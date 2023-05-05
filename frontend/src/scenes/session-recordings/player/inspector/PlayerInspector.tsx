@@ -1,4 +1,3 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import { PlayerInspectorList } from './PlayerInspectorList'
 import { PlayerInspectorControls } from './PlayerInspectorControls'
 import { useEffect, useRef, useState } from 'react'
@@ -55,7 +54,6 @@ export function PlayerInspector({ onFocusChange }: { onFocusChange: (focus: bool
             onMouseLeave={onInspectorLeave}
         >
             <PlayerInspectorControls />
-            <LemonDivider className="my-0" />
             <PlayerInspectorList />
             <PlayerInspectorPreview />
         </div>

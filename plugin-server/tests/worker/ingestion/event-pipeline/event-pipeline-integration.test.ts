@@ -20,8 +20,15 @@ describe('Event Pipeline integration test', () => {
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
-        const resultEvent = result.args[0]
-        return runner.runAsyncHandlersEventPipeline(resultEvent)
+        // TODO: update runEventPipeline to return ClickHouseRawEvent with all the person info
+        const person = await hub.db.fetchPerson(result.args[1].teamId, result.args[1].distinctId)
+        const postIngestionEvent = {
+            ...result.args[0],
+            person_id: person?.uuid,
+            person_properties: person?.properties,
+            person_created_at: person?.created_at,
+        }
+        return runner.runAsyncHandlersEventPipeline(postIngestionEvent)
     }
 
     beforeEach(async () => {
@@ -186,9 +193,7 @@ describe('Event Pipeline integration test', () => {
                 ip: null,
                 elementsList: [],
                 person: {
-                    id: expect.any(Number),
                     created_at: expect.any(String),
-                    team_id: 2,
                     properties: {
                         $creator_event_uuid: event.uuid,
                     },

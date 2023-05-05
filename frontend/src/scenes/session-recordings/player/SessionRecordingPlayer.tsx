@@ -43,6 +43,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         matching,
         noBorder = false,
         autoPlay = true,
+        nextSessionRecording,
     } = props
 
     const logicProps: SessionRecordingPlayerLogicProps = {
@@ -52,6 +53,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingData,
         recordingStartTime,
         autoPlay,
+        nextSessionRecording,
     }
     const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed, closeExplorer } =
         useActions(sessionRecordingPlayerLogic(logicProps))

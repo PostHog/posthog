@@ -15,19 +15,26 @@ import { funnelDataLogic } from '../funnelDataLogic'
 
 export function FunnelBarChartDataExploration(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
+    const { visibleStepsWithConversionMetrics, canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
     return (
         <FunnelBarChartComponent
             isUsingDataExploration
             visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
             {...props}
+            showPersonsModal={canOpenPersonModal && props.showPersonsModal}
         />
     )
 }
 
 export function FunnelBarChart(props: ChartParams): JSX.Element {
-    const { visibleStepsWithConversionMetrics } = useValues(funnelLogic)
-    return <FunnelBarChartComponent visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics} {...props} />
+    const { visibleStepsWithConversionMetrics, canOpenPersonModal } = useValues(funnelLogic)
+    return (
+        <FunnelBarChartComponent
+            visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
+            {...props}
+            showPersonsModal={canOpenPersonModal && props.showPersonsModal}
+        />
+    )
 }
 
 interface FunnelBarChartCSSProperties extends React.CSSProperties {
@@ -104,7 +111,7 @@ export function FunnelBarChartComponent({
                         </td>
                         {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                             <td key={stepIndex}>
-                                <StepBars step={step} stepIndex={stepIndex} />
+                                <StepBars step={step} stepIndex={stepIndex} showPersonsModal={showPersonsModal} />
                             </td>
                         ))}
                     </tr>

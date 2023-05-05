@@ -202,6 +202,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
         autoPlay = true,
     } = props
+
     const logicProps = {
         playlistShortId,
         personUUID,
