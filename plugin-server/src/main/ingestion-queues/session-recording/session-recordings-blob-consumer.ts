@@ -165,6 +165,7 @@ export class SessionRecordingBlobIngester {
                 partition: message.partition,
                 topic: message.topic,
                 offset: message.offset,
+                timestamp: message.timestamp,
             },
 
             team_id: team.id,
@@ -314,7 +315,7 @@ export class SessionRecordingBlobIngester {
                 sessionManagerChunksSizes += guesstimates.chunks
                 sessionManagerBufferOffsetsSizes += guesstimates.bufferOffsets
                 sessionManangerBufferSizes += guesstimates.buffer
-                void sessionManager.flushIfNecessary()
+                void sessionManager.flushIfSessionIsIdle()
             })
 
             status.info('🚛', 'blob_ingester_consumer - session manager size_estimate', {
