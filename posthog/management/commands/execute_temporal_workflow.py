@@ -20,42 +20,28 @@ class Command(BaseCommand):
             nargs="*",
             help="Inputs for the workflow to execute",
         )
-        parser.add_argument(
-            "--temporal_host", default=settings.TEMPORAL_SCHEDULER_HOST, help="Hostname for Temporal Scheduler"
-        )
-        parser.add_argument(
-            "--temporal_port", default=settings.TEMPORAL_SCHEDULER_PORT, help="Port for Temporal Scheduler"
-        )
-        parser.add_argument(
-            "--task_queue", default=settings.TEMPORAL_TASK_QUEUE, help="Task queue to submit your workflow to"
-        )
+        parser.add_argument("--temporal_host", default=settings.TEMPORAL_HOST, help="Hostname for Temporal Scheduler")
+        parser.add_argument("--temporal_port", default=settings.TEMPORAL_PORT, help="Port for Temporal Scheduler")
         parser.add_argument("--namespace", default=settings.TEMPORAL_NAMESPACE, help="Namespace to connect to")
-        parser.add_argument("--server-root-ca-cert", help="Optional path to root server CA cert")
-        parser.add_argument("--client-cert", help="Optional path to client cert")
-        parser.add_argument("--client-key", help="Optional path to client key")
+        parser.add_argument("--task-queue", default=settings.TEMPORAL_TASK_QUEUE, help="Task queue to service")
+        parser.add_argument(
+            "--server-root-ca-cert", default=settings.TEMPORAL_CLIENT_ROOT_CA, help="Optional root server CA cert"
+        )
+        parser.add_argument("--client-cert", default=settings.TEMPORAL_CLIENT_CERT, help="Optional client cert")
+        parser.add_argument("--client-key", default=settings.TEMPORAL_CLIENT_KEY, help="Optional client key")
 
     def handle(self, *args, **options):
         logging.info(f"Executing Temporal Workflow with options: {options}")
 
         temporal_host = options["temporal_host"]
         temporal_port = options["temporal_port"]
-        task_queue = options["task_queue"]
         namespace = options["namespace"]
-        server_root_ca_cert = None
-        client_cert = None
-        client_key = None
+        task_queue = options["task_queue"]
+        server_root_ca_cert = options.get("server_root_ca_cert", None)
+        client_cert = options.get("client_cert", None)
+        client_key = options.get("client_key", None)
         workflow_id = str(uuid4())
         workflow_name = options["workflow"]
-
-        if options.get("server_root_ca_cert", False):
-            with open(options["server_root_ca_cert"], "rb") as f:
-                server_root_ca_cert = f.read()
-        if options.get("client_cert", False):
-            with open(options["client_cert"], "rb") as f:
-                client_cert = f.read()
-        if options.get("client_key", False):
-            with open(options["client_key"], "rb") as f:
-                client_key = f.read()
 
         client = asyncio.run(
             connect(
