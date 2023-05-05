@@ -1600,7 +1600,7 @@
                     "type": "string"
                 },
                 "event": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
