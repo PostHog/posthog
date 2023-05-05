@@ -1134,7 +1134,7 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
 async def test_squash_person_overrides_workflow(events_to_override, person_overrides_data, person_overrides):
     """Test the squash_person_overrides workflow end-to-end."""
     client = await Client.connect(
-        f"{settings.TEMPORAL_SCHEDULER_HOST}:{settings.TEMPORAL_SCHEDULER_PORT}",
+        f"{settings.TEMPORAL_HOST}:{settings.TEMPORAL_PORT}",
         namespace=settings.TEMPORAL_NAMESPACE,
     )
 
@@ -1179,7 +1179,7 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
 ):
     """Test the squash_person_overrides workflow end-to-end with newer overrides."""
     client = await Client.connect(
-        f"{settings.TEMPORAL_SCHEDULER_HOST}:{settings.TEMPORAL_SCHEDULER_PORT}",
+        f"{settings.TEMPORAL_HOST}:{settings.TEMPORAL_PORT}",
         namespace=settings.TEMPORAL_NAMESPACE,
     )
 
@@ -1221,7 +1221,7 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
 ):
     """Test the squash_person_overrides workflow end-to-end."""
     client = await Client.connect(
-        f"{settings.TEMPORAL_SCHEDULER_HOST}:{settings.TEMPORAL_SCHEDULER_PORT}",
+        f"{settings.TEMPORAL_HOST}:{settings.TEMPORAL_PORT}",
         namespace=settings.TEMPORAL_NAMESPACE,
     )
 
