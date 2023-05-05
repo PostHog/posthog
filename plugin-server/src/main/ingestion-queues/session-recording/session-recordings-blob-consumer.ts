@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
+import { Gauge } from 'prom-client'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
@@ -20,6 +21,31 @@ const sessionTimeout = 30000
 const fetchBatchSize = 500
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
+
+export const gaugeSessionsHandled = new Gauge({
+    name: 'recording_blob_ingestion_session_manager_count',
+    help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
+})
+
+export const gaugePartitionsRevoked = new Gauge({
+    name: 'recording_blob_ingestion_partitions_revoked',
+    help: 'A gauge of the number of partitions being revoked when a re-balance occurs',
+})
+
+export const gaugeSessionsRevoked = new Gauge({
+    name: 'recording_blob_ingestion_sessions_revoked',
+    help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
+})
+
+export const gaugePartitionsAssigned = new Gauge({
+    name: 'recording_blob_ingestion_partitions_assigned',
+    help: 'A gauge of the number of partitions being assigned when a re-balance occurs',
+})
+
+export const gaugeBytesBuffered = new Gauge({
+    name: 'recording_blob_ingestion_bytes_buffered',
+    help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
+})
 
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
@@ -217,6 +243,7 @@ export class SessionRecordingBlobIngester {
                 status.info('⚖️', 'blob_ingester_consumer - assigned partitions', {
                     assignedPartitions: assignedPartitions,
                 })
+                gaugePartitionsAssigned.set(assignedPartitions.length)
                 return
             }
 
@@ -246,6 +273,8 @@ export class SessionRecordingBlobIngester {
                     revokedPartitions: revokedPartitions,
                     droppedSessions: sessionsToDrop.map((s) => s.sessionId),
                 })
+                gaugeSessionsRevoked.set(sessionsToDrop.length)
+                gaugePartitionsRevoked.set(revokedPartitions.length)
                 return
             }
 
@@ -278,18 +307,24 @@ export class SessionRecordingBlobIngester {
             status.info('🚛', 'blob_ingester_consumer - offsets size_estimate', { offsetSize })
 
             let sessionManagerChunksSizes = 0
-            let sessionManagerBufferSizes = 0
+            let sessionManagerBufferOffsetsSizes = 0
+            let sessionManangerBufferSizes = 0
             this.sessions.forEach((sessionManager) => {
                 const guesstimates = sessionManager.guesstimateSizes()
                 sessionManagerChunksSizes += guesstimates.chunks
-                sessionManagerBufferSizes += guesstimates.buffer
+                sessionManagerBufferOffsetsSizes += guesstimates.bufferOffsets
+                sessionManangerBufferSizes += guesstimates.buffer
                 void sessionManager.flushIfNecessary()
             })
 
             status.info('🚛', 'blob_ingester_consumer - session manager size_estimate', {
                 chunksSize: sessionManagerChunksSizes,
-                buffersSize: sessionManagerBufferSizes,
+                buffersOffsetsSize: sessionManagerBufferOffsetsSizes,
+                buffersSize: sessionManangerBufferSizes,
             })
+
+            gaugeSessionsHandled.set(this.sessions.size)
+            gaugeBytesBuffered.set(sessionManangerBufferSizes)
         }, 10000)
     }
 
