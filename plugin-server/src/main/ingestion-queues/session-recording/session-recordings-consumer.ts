@@ -20,6 +20,7 @@ import {
     createPerformanceEvent,
     createSessionRecordingEvent,
     createSessionReplayEvent,
+    SummarizedSessionRecordingEvent,
 } from '../../../worker/ingestion/process-event'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { parseEventTimestamp } from '../../../worker/ingestion/timestamps'
@@ -282,6 +283,22 @@ const eachMessage =
                         event.properties || {}
                     )
 
+                    let replayRecord: null | SummarizedSessionRecordingEvent
+                    try {
+                        if (summaryEnabledTeams === null || summaryEnabledTeams?.includes(team.id)) {
+                            replayRecord = createSessionReplayEvent(
+                                messagePayload.uuid,
+                                team.id,
+                                messagePayload.distinct_id,
+                                event.ip,
+                                event.properties || {}
+                            )
+                        }
+                    } catch (e) {
+                        status.warn('??', 'session_replay_summarizer_error', { error: e })
+                        captureException(e)
+                    }
+
                     const producePromises = [
                         produce({
                             producer,
@@ -291,31 +308,16 @@ const eachMessage =
                         }),
                     ]
 
-                    try {
-                        if (summaryEnabledTeams === null || summaryEnabledTeams?.includes(team.id)) {
-                            const replayRecord = createSessionReplayEvent(
-                                messagePayload.uuid,
-                                team.id,
-                                messagePayload.distinct_id,
-                                event.ip,
-                                event.properties || {}
-                            )
-                            if (replayRecord) {
-                                producePromises.push(
-                                    produce({
-                                        producer,
-                                        topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-                                        value: Buffer.from(JSON.stringify(replayRecord)),
-                                        key: message.key ? Buffer.from(message.key) : null,
-                                    })
-                                )
-                            }
-                        }
-                    } catch (e) {
-                        status.warn('??', 'session_replay_summarizer_error', { error: e })
-                        captureException(e)
+                    if (replayRecord) {
+                        producePromises.push(
+                            produce({
+                                producer,
+                                topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+                                value: Buffer.from(JSON.stringify(replayRecord)),
+                                key: message.key ? Buffer.from(message.key) : null,
+                            })
+                        )
                     }
-
                     return producePromises
                 } else if (event.event === '$performance_event') {
                     const clickHouseRecord = createPerformanceEvent(
