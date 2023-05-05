@@ -49,7 +49,7 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
             <LemonDivider className="my-6" />
             <AutocaptureSettings />
             <LemonDivider className="my-6" />
-            <p>Need test PostHog on a live site without changing any code?</p>
+            <p>Need to test PostHog on a live site without changing any code?</p>
             <p>
                 Just drag the bookmarklet below to your bookmarks bar, open the website you want to test PostHog on and
                 click it. This will enable our tracking, on the currently loaded page only. The data will show up in
