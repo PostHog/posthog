@@ -191,6 +191,7 @@ export type SessionRecordingsPlaylistProps = {
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
     autoPlay?: boolean
+    mode?: 'standard' | 'notebook'
 }
 
 export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps): JSX.Element {

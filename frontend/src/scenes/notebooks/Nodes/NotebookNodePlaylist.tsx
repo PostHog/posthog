@@ -6,13 +6,17 @@ import {
     SessionRecordingsPlaylist,
     SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { SessionRecordingsPlaylistFilters } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistFilters'
+import { useJsonNodeState } from './utils'
 
 const Component = (props: NodeViewProps): JSX.Element => {
+    const [filters, setFilters] = useJsonNodeState(props, 'filters')
+
     const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = {
-        filters: props.node.attrs.filters,
+        filters,
         updateSearchParams: false,
         autoPlay: false,
+        mode: 'notebook',
+        onFiltersChange: setFilters,
     }
 
     return (
@@ -20,11 +24,10 @@ const Component = (props: NodeViewProps): JSX.Element => {
             {...props}
             className={NotebookNodeType.RecordingPlaylist}
             title="Playlist"
-            edit={<SessionRecordingsPlaylistFilters {...recordingPlaylistLogicProps} />}
             // preview={<RecordingsLists {...recordingPlaylistLogicProps} />}
         >
             {/* TODO: replace hardcoded height, 32 (top) + 500 (player) + 16 (margins) + 88 (seekbar) = 620 */}
-            <div style={{ maxHeight: 636 }} contentEditable={false}>
+            <div style={{ maxHeight: 600 }} contentEditable={false}>
                 <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
             </div>
         </NodeWrapper>
