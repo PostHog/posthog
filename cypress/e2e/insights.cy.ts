@@ -159,6 +159,7 @@ describe('Insights', () => {
         cy.get('[data-attr=trend-element-subject-0] span').should('contain', 'Pageview')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.contains('Add graph series').click()
+        cy.contains('Any event').click()
         cy.get('[data-attr=trend-element-subject-1]').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
