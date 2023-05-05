@@ -71,7 +71,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic)
             .toMatchValues({
                 infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 0,
+                    [TaxonomicFilterGroupType.Events]: 1,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
                     [TaxonomicFilterGroupType.Sessions]: 1,
@@ -82,7 +82,7 @@ describe('taxonomicFilterLogic', () => {
             .clearHistory()
             .toMatchValues({
                 infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 56,
+                    [TaxonomicFilterGroupType.Events]: 57,
                     [TaxonomicFilterGroupType.Actions]: 0, // not mocked
                     [TaxonomicFilterGroupType.Elements]: 4,
                     [TaxonomicFilterGroupType.Sessions]: 1,
@@ -105,7 +105,7 @@ describe('taxonomicFilterLogic', () => {
                 searchQuery: 'event',
                 activeTab: TaxonomicFilterGroupType.Events,
                 infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 3,
+                    [TaxonomicFilterGroupType.Events]: 4,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
                     [TaxonomicFilterGroupType.Sessions]: 0,
@@ -156,7 +156,7 @@ describe('taxonomicFilterLogic', () => {
                 searchQuery: '',
                 activeTab: TaxonomicFilterGroupType.Elements, // no change
                 infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 56,
+                    [TaxonomicFilterGroupType.Events]: 57,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
                     [TaxonomicFilterGroupType.Sessions]: 1,
@@ -196,7 +196,7 @@ describe('taxonomicFilterLogic', () => {
                 searchQuery: 'event',
                 activeTab: TaxonomicFilterGroupType.Events, // changed!
                 infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 3,
+                    [TaxonomicFilterGroupType.Events]: 4,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
                     [TaxonomicFilterGroupType.Sessions]: 0,

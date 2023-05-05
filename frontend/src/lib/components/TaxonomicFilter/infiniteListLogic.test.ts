@@ -114,10 +114,15 @@ describe('infiniteListLogic', () => {
 
         it('can set the index up and down as a circular list', async () => {
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
-            expectLogic(logic).toMatchValues({ index: 0, remoteItems: partial({ count: 56 }) })
+            expectLogic(logic).toMatchValues({
+                index: 0,
+                remoteItems: partial({ count: 56 }),
+                localItems: partial({ count: 1 }),
+                items: partial({ count: 57 }),
+            })
+            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 56 })
             expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 55 })
-            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 54 })
-            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 55 })
+            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 56 })
             expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 0 })
             expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 1 })
             expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 0 })
@@ -163,9 +168,10 @@ describe('infiniteListLogic', () => {
         it('selects the selected item', async () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadRemoteItemsSuccess'])
-                .toMatchValues({ selectedItem: partial({ name: 'event1' }) })
+                .toMatchValues({ selectedItem: partial({ name: 'Any event', value: null }) })
 
             await expectLogic(logic, () => {
+                logic.actions.moveDown()
                 logic.actions.selectSelected()
             }).toDispatchActions([
                 logic.actionCreators.selectSelected(),
