@@ -588,26 +588,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             }
         },
 
-        setSearchQuery: () => {
-            const { activeTaxonomicGroup, infiniteListCounts } = values
-
-            // Taxonomic group with a local data source, zero results after searching.
-            // Open the next tab.
-            if (
-                activeTaxonomicGroup &&
-                !activeTaxonomicGroup.endpoint &&
-                infiniteListCounts[activeTaxonomicGroup.type] === 0
-            ) {
-                actions.tabRight()
-            }
-        },
-
         infiniteListResultsReceived: ({ groupType, results }) => {
-            // Open the next tab if no results on an active tab.
-            if (groupType === values.activeTab && !results.count && !results.expandedCount) {
-                actions.tabRight()
-            }
-
             // Update app-wide cached property metadata
             if (
                 results.count > 0 &&
