@@ -1147,9 +1147,6 @@
         "BreakdownFilter": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "type": "number"
-                },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownKeyType"
                 },

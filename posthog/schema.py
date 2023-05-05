@@ -470,7 +470,6 @@ class BreakdownFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    aggregation_group_type_index: Optional[float] = None
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
