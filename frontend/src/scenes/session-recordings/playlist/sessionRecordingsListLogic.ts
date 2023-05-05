@@ -17,6 +17,7 @@ import equal from 'fast-deep-equal'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 
 export type PersonUUID = string
 interface Params {
@@ -123,7 +124,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     props({} as SessionRecordingListLogicProps),
     key(generateSessionRecordingListLogicKey),
     connect({
-        actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
+        actions: [
+            eventUsageLogic,
+            ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
+            sessionRecordingsListPropertiesLogic,
+            ['maybeLoadPropertiesForSessions'],
+        ],
         values: [featureFlagLogic, ['featureFlags']],
     }),
     actions({
@@ -134,6 +140,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             id,
         }),
         loadAllRecordings: true,
+        loadPinnedRecordings: true,
+        getSessionRecordings: true,
+        loadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
         loadPrev: true,
     }),
@@ -163,6 +173,55 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
                     breakpoint()
                     return response
+                },
+
+                loadSessionRecordings: async ({ direction }, breakpoint) => {
+                    const currentResults = direction ? values.sessionRecordingsResponse?.results ?? [] : []
+
+                    const paramsDict = {
+                        ...values.filters,
+                        person_uuid: props.personUUID ?? '',
+                        limit: RECORDINGS_LIMIT,
+                        version: values.featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2] ? '2' : '1',
+                    }
+
+                    if (direction === 'older') {
+                        paramsDict['date_to'] = currentResults[currentResults.length - 1]?.start_time
+                    }
+
+                    if (direction === 'newer') {
+                        paramsDict['date_from'] = currentResults[0]?.start_time
+                    }
+
+                    const params = toParams(paramsDict)
+
+                    await breakpoint(100) // Debounce for lots of quick filter changes
+
+                    const startTime = performance.now()
+                    const response = await api.recordings.list(params)
+                    const loadTimeMs = performance.now() - startTime
+
+                    actions.reportRecordingsListFetched(loadTimeMs)
+
+                    breakpoint()
+
+                    const mergedResults: SessionRecordingType[] = [...currentResults]
+
+                    response.results.forEach((recording) => {
+                        if (!currentResults.find((r) => r.id === recording.id)) {
+                            mergedResults.push(recording)
+                        }
+                    })
+
+                    mergedResults.sort((a, b) => (a.start_time > b.start_time ? -1 : 1))
+
+                    return {
+                        has_next:
+                            direction === 'newer'
+                                ? values.sessionRecordingsResponse?.has_next ?? true
+                                : response.has_next,
+                        results: mergedResults,
+                    }
                 },
             },
         ],
@@ -210,6 +269,9 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 getSessionRecordingsSuccess: (_, { sessionRecordingsResponse }) => {
                     return [...(sessionRecordingsResponse?.results ?? [])]
                 },
+                loadSessionRecordingsSuccess: (_, { sessionRecordingsResponse }) => {
+                    return [...(sessionRecordingsResponse?.results ?? [])]
+                },
                 setSelectedRecordingId: (prevSessionRecordings, { id }) =>
                     prevSessionRecordings.map((s) => {
                         if (s.id === id) {
@@ -232,14 +294,26 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     })),
     listeners(({ actions, values }) => ({
         loadAllRecordings: () => {
-            actions.getSessionRecordings({})
-            actions.loadPinnedRecordings({})
+            if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {
+                actions.loadSessionRecordings()
+            } else {
+                actions.getSessionRecordings()
+            }
+            actions.loadPinnedRecordings()
         },
         setFilters: () => {
-            actions.getSessionRecordings({})
+            if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {
+                actions.loadSessionRecordings()
+            } else {
+                actions.getSessionRecordings()
+            }
         },
         replaceFilters: () => {
-            actions.getSessionRecordings({})
+            if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {
+                actions.loadSessionRecordings()
+            } else {
+                actions.getSessionRecordings()
+            }
         },
         loadNext: () => {
             actions.setFilters({
@@ -250,6 +324,24 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             actions.setFilters({
                 offset: Math.max((values.filters?.offset || 0) - RECORDINGS_LIMIT, 0),
             })
+        },
+
+        maybeLoadSessionRecordings: ({ direction }) => {
+            if (direction === 'older' && !values.hasNext) {
+                return // Nothing more to load
+            }
+            if (values.sessionRecordingsResponseLoading) {
+                return // We don't want to load if we are currently loading
+            }
+            actions.loadSessionRecordings(direction)
+        },
+
+        loadSessionRecordingsSuccess: () => {
+            actions.maybeLoadPropertiesForSessions(values.sessionRecordings.map((s) => s.id))
+        },
+
+        getSessionRecordingsSuccess: () => {
+            actions.maybeLoadPropertiesForSessions(values.sessionRecordings.map((s) => s.id))
         },
     })),
     selectors({
@@ -343,8 +435,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     }),
 
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions }) => {
-        actions.getSessionRecordings({})
-        actions.loadPinnedRecordings({})
+    afterMount(({ actions, values }) => {
+        if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {
+            actions.loadSessionRecordings()
+        } else {
+            actions.getSessionRecordings()
+        }
+        actions.loadPinnedRecordings()
     }),
 ])
