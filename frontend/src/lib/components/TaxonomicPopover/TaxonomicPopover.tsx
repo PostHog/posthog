@@ -21,6 +21,7 @@ export interface TaxonomicPopoverProps<ValueType = TaxonomicFilterValue>
     dataAttr?: string
     eventNames?: string[]
     placeholder?: React.ReactNode
+    placeholderClass?: string
     dropdownMatchSelectWidth?: boolean
     allowClear?: boolean
     style?: React.CSSProperties
@@ -107,6 +108,7 @@ export function LemonTaxonomicPopover({
     dataAttr,
     eventNames = [],
     placeholder = 'Please select',
+    placeholderClass = 'text-muted',
     allowClear = false,
     ...buttonProps
 }: TaxonomicPopoverProps): JSX.Element {
@@ -181,7 +183,7 @@ export function LemonTaxonomicPopover({
                 {...buttonProps}
             >
                 {(localValue && (renderValue?.(localValue) ?? String(localValue))) || (
-                    <span style={{ minWidth: '10rem' }} className="text-muted">
+                    <span style={{ minWidth: '10rem' }} className={placeholderClass ?? 'text-muted'}>
                         {placeholder}
                     </span>
                 )}

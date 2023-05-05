@@ -197,6 +197,7 @@ export function ActionFilterRow({
             type="secondary"
             status="stealth"
             placeholder="Any event"
+            placeholderClass=""
             allowClear
             disabled={disabled || readOnly}
         />
