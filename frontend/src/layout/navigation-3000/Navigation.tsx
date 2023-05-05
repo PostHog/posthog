@@ -28,11 +28,12 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
                 <Breadcrumbs />
                 <div className="Navigation3000__scene">
                     <div className="Navigation3000__content">{children}</div>
-                    <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                        <NotebookSideBar />
-                    </FlaggedFeature>
                 </div>
             </main>
+            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+                <NotebookSideBar />
+            </FlaggedFeature>
+
             <CommandPalette />
         </div>
     )

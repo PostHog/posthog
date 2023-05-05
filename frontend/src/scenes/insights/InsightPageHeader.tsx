@@ -304,7 +304,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     node={NotebookNodeType.Insight}
                                     properties={{ shortId: insight.short_id }}
                                     type="secondary"
-                                    size="medium"
                                 />
                             )}
 

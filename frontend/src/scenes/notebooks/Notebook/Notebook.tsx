@@ -1,17 +1,18 @@
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEffect } from 'react'
-import { QueryNode } from 'scenes/notebooks/Nodes/QueryNode'
-import { InsightNode } from 'scenes/notebooks/Nodes/InsightNode'
-import { RecordingNode } from 'scenes/notebooks/Nodes/RecordingNode'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { useActions, useValues } from 'kea'
-import './Notebook.scss'
-import { RecordingPlaylistNode } from 'scenes/notebooks/Nodes/RecordingPlaylistNode'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import MonacoEditor from '@monaco-editor/react'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { FeatureFlagNode } from '../Nodes/FeatureFlagNode'
+import './Notebook.scss'
+
+import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
+import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
+import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
+import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
+import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 
 export type NotebookProps = {
     id: string
@@ -25,7 +26,14 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
     const { setEditorRef, syncContent } = useActions(logic)
 
     const editor = useEditor({
-        extensions: [StarterKit, InsightNode, QueryNode, RecordingNode, RecordingPlaylistNode, FeatureFlagNode],
+        extensions: [
+            StarterKit,
+            NotebookNodeInsight,
+            NotebookNodeQuery,
+            NotebookNodeRecording,
+            NotebookNodePlaylist,
+            NotebookNodeFlag,
+        ],
         content,
         editorProps: {
             attributes: {
