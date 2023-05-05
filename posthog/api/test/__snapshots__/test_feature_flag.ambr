@@ -150,6 +150,15 @@
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts
   '
+  
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
@@ -174,7 +183,7 @@
      AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))))
   '
 ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
   '
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -186,16 +195,6 @@
      HAVING max(is_deleted) = 0)
   '
 ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = NULL
-  '
----
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
   '
   
@@ -203,7 +202,7 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = 0
+    AND version = NULL
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
@@ -213,7 +212,7 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = NULL
+    AND version = 0
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
@@ -223,10 +222,20 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = 0
+    AND version = NULL
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.7
   '
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)

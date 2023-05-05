@@ -124,9 +124,9 @@ export function FunnelsQueryStepsComponent({
                     <div className="flex items-center w-full gap-2">
                         <span>Aggregating by</span>
                         {isDataExploration ? (
-                            <AggregationSelectDataExploration insightProps={insightProps} />
+                            <AggregationSelectDataExploration insightProps={insightProps} hogqlAvailable />
                         ) : (
-                            <AggregationSelect insightProps={insightProps} />
+                            <AggregationSelect insightProps={insightProps} hogqlAvailable />
                         )}
                     </div>
                 )}

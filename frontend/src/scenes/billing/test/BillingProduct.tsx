@@ -105,7 +105,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 }
                             />
                         </>
-                    ) : addon.included ? (
+                    ) : addon.included_with_main_product ? (
                         <LemonTag type="purple" icon={<IconCheckmark />}>
                             Included with plan
                         </LemonTag>
@@ -216,16 +216,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         ?.map((tier, i) => {
             const addonPricesForTier = product.addons?.map((addon) => ({
                 [`${addon.type}-price`]: `${
-                    addon.tiers?.[i].unit_amount_usd !== '0' ? '$' + addon.tiers?.[i].unit_amount_usd : 'Free'
+                    addon.tiers?.[i]?.unit_amount_usd !== '0' ? '$' + addon.tiers?.[i]?.unit_amount_usd : 'Free'
                 }`,
             }))
             // take the tier.current_amount_usd and add it to the same tier level for all the addons
             const totalForTier =
                 parseFloat(tier.current_amount_usd || '') +
-                product.addons?.reduce((acc, addon) => acc + parseFloat(addon.tiers?.[i].current_amount_usd || ''), 0)
+                product.addons?.reduce((acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''), 0)
             const projectedTotalForTier =
                 (tier.projected_amount_usd || 0) +
-                product.addons?.reduce((acc, addon) => acc + (addon.tiers?.[i].projected_amount_usd || 0), 0)
+                product.addons?.reduce((acc, addon) => acc + (addon.tiers?.[i]?.projected_amount_usd || 0), 0)
 
             const tierData = {
                 volume: getTierDescription(tier, i, product, billing?.billing_period?.interval || ''),
@@ -353,8 +353,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     </p>
                                 )}
                                 <p className="m-0">
-                                    Need additional platform and support (aka enterprise) features like SSO and advanced
-                                    permissioning?{' '}
+                                    Need additional platform and support (aka enterprise) features like <b>SAML SSO</b>,{' '}
+                                    <b>advanced permissioning</b>, and more?{' '}
                                     <Link to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request">
                                         Get in touch
                                     </Link>{' '}

@@ -9,7 +9,7 @@ import {
     InsightShortId,
     ItemMode,
 } from '~/types'
-import { IconEvent, IconLock } from 'lib/lemon-ui/icons'
+import { IconDataObject, IconLock } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -37,7 +37,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { Tooltip } from 'antd'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { ThunderboltFilled } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -63,6 +63,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insight,
         insightChanged,
         insightSaving,
+        hasDashboardItemId,
         exporterResourceParams,
         isUsingDataExploration,
         isUsingDashboardQueries,
@@ -96,7 +97,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     return (
         <>
-            {insight.short_id !== 'new' && (
+            {hasDashboardItemId && (
                 <>
                     <SubscriptionsModal
                         isOpen={insightMode === ItemMode.Subscriptions}
@@ -143,7 +144,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {insightMode === ItemMode.Edit ? (
+                        {!hasDashboardItemId ? (
                             <>
                                 <More
                                     overlay={
@@ -162,8 +163,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 />
                                 <LemonDivider vertical />
                             </>
-                        ) : null}
-                        {insightMode !== ItemMode.Edit && (
+                        ) : (
                             <>
                                 <More
                                     overlay={
@@ -288,23 +288,24 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <LemonDivider vertical />
                             </>
                         ) : null}
-                        {insightMode === ItemMode.Edit && insight.saved && (
+                        {insightMode === ItemMode.Edit && hasDashboardItemId && (
                             <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
                                 Cancel
                             </LemonButton>
                         )}
-                        {insightMode !== ItemMode.Edit && insight.short_id && (
+                        {insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
 
-                        {insightMode !== ItemMode.Edit && insight.short_id && featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                            <AddToNotebook
-                                node={NotebookNodeType.Insight}
-                                properties={{ shortId: insight.short_id }}
-                                type="secondary"
-                                size="medium"
-                            />
-                        )}
+                        {insightMode !== ItemMode.Edit &&
+                            hasDashboardItemId &&
+                            featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
+                                <AddToNotebook
+                                    node={NotebookNodeType.Insight}
+                                    properties={{ shortId: insight.short_id }}
+                                    type="secondary"
+                                />
+                            )}
 
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
@@ -320,7 +321,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <InsightSaveButton
                                 saveAs={saveAs}
                                 saveInsight={saveQueryBasedInsight}
-                                isSaved={insight.saved}
+                                isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}
@@ -328,12 +329,41 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                         {isUsingDataExploration && isInsightVizNode(query) ? (
                             <LemonButton
-                                tooltip={showQueryEditor ? 'Hide JSON editor' : 'Edit as JSON'}
+                                tooltip={
+                                    showQueryEditor ? (
+                                        <>
+                                            Hide source
+                                            <LemonTag className="ml-2" type="warning">
+                                                BETA
+                                            </LemonTag>
+                                        </>
+                                    ) : (
+                                        <>
+                                            View source
+                                            <LemonTag className="ml-2" type="warning">
+                                                BETA
+                                            </LemonTag>
+                                        </>
+                                    )
+                                }
+                                aria-label={showQueryEditor ? 'Hide source (BETA)' : 'View source (BETA)'}
+                                tooltipPlacement="bottomRight"
                                 type={'secondary'}
-                                onClick={toggleQueryEditorPanel}
-                            >
-                                <IconEvent />
-                            </LemonButton>
+                                onClick={() => {
+                                    // for an existing insight in view mode
+                                    if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                        // enter edit mode
+                                        setInsightMode(ItemMode.Edit, null)
+
+                                        // exit early if query editor doesn't need to be toggled
+                                        if (showQueryEditor !== false) {
+                                            return
+                                        }
+                                    }
+                                    toggleQueryEditorPanel()
+                                }}
+                                icon={<IconDataObject fontSize="18" />}
+                            />
                         ) : null}
                     </div>
                 }

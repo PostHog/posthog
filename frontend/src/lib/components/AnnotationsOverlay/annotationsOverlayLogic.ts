@@ -8,8 +8,7 @@ import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotat
 import { teamLogic } from 'scenes/teamLogic'
 import { Tick } from 'chart.js'
 
-export interface AnnotationsOverlayLogicProps {
-    dashboardItemId: InsightLogicProps['dashboardItemId']
+export interface AnnotationsOverlayLogicProps extends InsightLogicProps {
     insightNumericId: InsightModel['id'] | 'new'
     dates: string[]
     ticks: Tick[]

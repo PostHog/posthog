@@ -4,7 +4,7 @@ import { Card } from 'antd'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
-import { IconFeedbackWarning } from 'lib/lemon-ui/icons'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { CloseOutlined } from '@ant-design/icons'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
@@ -40,8 +40,8 @@ const FunnelCorrelationSkewWarningComponent = ({
     return (
         <Card className="skew-warning">
             <h4>
-                <IconFeedbackWarning style={{ fontSize: 24, marginRight: 4, color: 'var(--warning)' }} /> Adjust your
-                funnel definition to improve correlation analysis
+                <IconFeedback style={{ fontSize: 24, marginRight: 4, color: 'var(--warning)' }} /> Adjust your funnel
+                definition to improve correlation analysis
                 <CloseOutlined className="close-button" onClick={hideSkewWarning} />
             </h4>
             <div>

@@ -46,11 +46,7 @@ export function SessionRecordingFilePlayback(): JSX.Element {
                     >
                         You are viewing a recording loaded from a file.
                     </LemonBanner>
-                    <SessionRecordingPlayer
-                        sessionRecordingId=""
-                        sessionRecordingData={sessionRecording}
-                        playerKey={playerKey}
-                    />
+                    <SessionRecordingPlayer sessionRecordingId="" playerKey={playerKey} />
                 </div>
             ) : (
                 <Dragger

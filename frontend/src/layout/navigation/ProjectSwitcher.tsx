@@ -6,7 +6,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
@@ -53,7 +53,9 @@ export function ProjectSwitcherOverlay(): JSX.Element {
                         AvailableFeature.ORGANIZATIONS_PROJECTS,
                         'multiple projects',
                         'Projects allow you to separate data and configuration for different products or environments.',
-                        showCreateProjectModal
+                        showCreateProjectModal,
+                        undefined,
+                        currentOrganization?.teams?.length
                     )
                 }}
             >
@@ -68,7 +70,7 @@ function CurrentProjectButton(): JSX.Element | null {
     const { push } = useActions(router)
     const { hideProjectSwitcher } = useActions(navigationLogic)
 
-    return currentTeam ? (
+    return isAuthenticatedTeam(currentTeam) ? (
         <LemonButtonWithSideAction
             active
             sideAction={{

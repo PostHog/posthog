@@ -24,13 +24,23 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@v2
               with:
-                  version: 7.x.x
+                  version: 8.x.x
 
             - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
                   node-version: 18
-                  cache: pnpm
+
+            - name: Get pnpm cache directory path
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@v3
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
 
             - name: Install package.json dependencies with pnpm
               run: pnpm install --frozen-lockfile
@@ -63,7 +73,7 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@v2
               with:
-                  version: 7.x.x
+                  version: 8.x.x
 
             - name: Set up Node.js
               uses: actions/setup-node@v3

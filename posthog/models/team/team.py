@@ -1,6 +1,6 @@
 import re
 from functools import lru_cache
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import posthoganalytics
 import pytz
@@ -254,7 +254,6 @@ class Team(UUIDClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
-
         from posthog.client import sync_execute
         from posthog.queries.person_query import PersonQuery
 
@@ -272,7 +271,6 @@ class Team(UUIDClassicModel):
 
     @lru_cache(maxsize=5)
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
-
         from posthog.client import sync_execute
 
         return sync_execute(
@@ -314,11 +312,18 @@ def groups_on_events_querying_enabled():
     return actor_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
 
 
-def get_available_features_for_team(team_id: int):
-    available_features: Optional[List[str]] = (
+def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):
+    available_product_features: Optional[List[Dict[str, str]]] = (
         Team.objects.select_related("organization")
-        .values_list("organization__available_features", flat=True)
+        .values_list("organization__available_product_features", flat=True)
         .get(id=team_id)
     )
+    if available_product_features is None:
+        return False
 
-    return available_features
+    for feature in available_product_features:
+        if feature.get("key") == feature_key:
+            if current_usage is not None and feature.get("limit") is not None:
+                return current_usage < int(feature["limit"])
+            return True
+    return False

@@ -27,6 +27,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                             session_recording_opt_in: checked,
                             capture_console_log_opt_in: checked,
                             capture_performance_opt_in: checked,
+                            session_recording_version: checked ? 'v2' : undefined,
                         })
                     }}
                     label="Record user sessions"

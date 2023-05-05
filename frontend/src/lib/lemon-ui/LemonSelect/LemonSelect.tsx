@@ -11,7 +11,6 @@ import {
     LemonMenuItemBase,
     LemonMenuItemLeaf,
     LemonMenuItemNode,
-    LemonMenuItems,
     LemonMenuProps,
     LemonMenuSection,
     isLemonMenuSection,
@@ -43,7 +42,16 @@ export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<
 export interface LemonSelectProps<T>
     extends Pick<
         LemonButtonProps,
-        'id' | 'className' | 'loading' | 'fullWidth' | 'disabled' | 'data-attr' | 'aria-label' | 'onClick' | 'tabIndex'
+        | 'id'
+        | 'className'
+        | 'loading'
+        | 'fullWidth'
+        | 'disabled'
+        | 'disabledReason'
+        | 'data-attr'
+        | 'aria-label'
+        | 'onClick'
+        | 'tabIndex'
     > {
     options: LemonSelectOptions<T>
     /** Null only is valid for clearable selects. */
@@ -110,7 +118,9 @@ export function LemonSelect<T>({
             actionable
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
-            activeItemIndex={items.flatMap((i) => (isLemonMenuSection(i) ? i.items : i)).findIndex((i) => i.active)}
+            activeItemIndex={items
+                .flatMap((i) => (isLemonMenuSection(i) ? i.items.filter(Boolean) : i))
+                .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
             <LemonButton
@@ -156,9 +166,9 @@ function convertSelectOptionsToMenuItems<T>(
     options: LemonSelectOptions<T>,
     activeValue: T | null,
     onSelect: OnSelect<T>
-): [LemonMenuItems, LemonSelectOptionLeaf<T>[]] {
+): [(LemonMenuItem | LemonMenuSection)[], LemonSelectOptionLeaf<T>[]] {
     const leafOptionsAccumulator: LemonSelectOptionLeaf<T>[] = []
-    const items: LemonMenuItems = options.map((option) =>
+    const items: (LemonMenuItem | LemonMenuSection)[] = options.map((option) =>
         convertToMenuSingle(option, activeValue, onSelect, leafOptionsAccumulator)
     )
     return [items, leafOptionsAccumulator]

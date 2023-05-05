@@ -29,7 +29,7 @@ describe('session-recordings-consumer', () => {
         const organizationId = await createOrganization(postgres)
         const teamId = await createTeam(postgres, organizationId)
         const error = new LibrdKafkaError({ message: 'test', code: 1, errno: 1, origin: 'test', isRetriable: true })
-        producer.produce.mockImplementation((topic, partition, message, key, timestamp, cb) => cb(error))
+        producer.produce.mockImplementation((topic, partition, message, key, timestamp, headers, cb) => cb(error))
         producer.flush.mockImplementation((timeout, cb) => cb(null))
         await expect(
             eachBachWithDependencies([
@@ -45,7 +45,7 @@ describe('session-recordings-consumer', () => {
         const organizationId = await createOrganization(postgres)
         const teamId = await createTeam(postgres, organizationId)
         const error = new LibrdKafkaError({ message: 'test', code: 1, errno: 1, origin: 'test', isRetriable: false })
-        producer.produce.mockImplementation((topic, partition, message, key, timestamp, cb) => cb(error))
+        producer.produce.mockImplementation((topic, partition, message, key, timestamp, headers, cb) => cb(error))
         producer.flush.mockImplementation((timeout, cb) => cb(null))
         await eachBachWithDependencies([
             {

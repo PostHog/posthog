@@ -13,7 +13,8 @@ from posthog.hogql.constants import (
     ADD_TIMEZONE_TO_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import Table, create_hogql_database
+from posthog.hogql.database.models import Table
+from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -576,8 +577,7 @@ class _Printer(Visitor):
             materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
-                if not self.context.within_non_hogql_query:
-                    property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
+                property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
                 materialized_property_sql = property_sql
         elif (
             self.context.within_non_hogql_query

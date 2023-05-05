@@ -63,6 +63,7 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
 
 // Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
+// Sync with api/person.py
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
     'Email',
@@ -110,7 +111,6 @@ export const FEATURE_FLAGS = {
     // Cloud-only
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     // Experiments / beta features
-    BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
@@ -142,12 +142,15 @@ export const FEATURE_FLAGS = {
     RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
     HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
+    EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
     ARUBUG: 'arubug', // owner: #team-arubug
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith
     RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     DATA_MANAGEMENT_HISTORY: 'data-management-history', // owner: @pauldambra
+    SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
+    SESSION_RECORDING_INFINITE_LIST: 'session-recording-infinite-list', // owner: #team-monitoring
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

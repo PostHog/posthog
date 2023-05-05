@@ -465,6 +465,9 @@
                         "funnel_advanced": {
                             "type": "boolean"
                         },
+                        "funnel_aggregate_by_hogql": {
+                            "type": "string"
+                        },
                         "funnel_correlation_person_converted": {
                             "enum": ["true", "false"],
                             "type": "string"
@@ -1540,10 +1543,6 @@
         "EventType": {
             "additionalProperties": false,
             "properties": {
-                "colonTimestamp": {
-                    "description": "Used in session recording events list",
-                    "type": "string"
-                },
                 "distinct_id": {
                     "type": "string"
                 },
@@ -1888,6 +1887,9 @@
                 },
                 "funnel_advanced": {
                     "type": "boolean"
+                },
+                "funnel_aggregate_by_hogql": {
+                    "type": "string"
                 },
                 "funnel_correlation_person_converted": {
                     "enum": ["true", "false"],

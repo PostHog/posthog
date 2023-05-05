@@ -40,7 +40,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 export const scene: SceneExport = {
     component: DefinitionView,
     logic: definitionLogic,
-    paramsToProps: ({ params: { id } }): typeof definitionLogic['props'] => ({
+    paramsToProps: ({ params: { id } }): (typeof definitionLogic)['props'] => ({
         id,
     }),
 }

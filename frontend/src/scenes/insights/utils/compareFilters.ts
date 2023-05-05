@@ -3,7 +3,20 @@ import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
 
 import { cleanFilters } from './cleanFilters'
 
-const clean = (f: Partial<AnyFilterType>): Partial<AnyFilterType> => objectCleanWithEmpty(cleanFilters(f))
+/** clean filters so that we can check for semantic equality with a deep equality check */
+const clean = (f: Partial<AnyFilterType>): Partial<AnyFilterType> => {
+    // remove undefined values, empty array and empty objects
+    const cleanedFilters = objectCleanWithEmpty(cleanFilters(f))
+
+    cleanedFilters.events = cleanedFilters.events?.map((e) => {
+        // event math `total` is the default
+        if (e.math === 'total') {
+            delete e.math
+        }
+        return e
+    })
+    return cleanedFilters
+}
 
 /** compares to filter objects for semantical equality */
 export function compareFilters(a: Partial<AnyFilterType>, b: Partial<AnyFilterType>): boolean {
