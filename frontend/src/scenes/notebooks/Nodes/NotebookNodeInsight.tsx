@@ -11,8 +11,10 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const logic = insightLogic({ dashboardItemId: props.node.attrs.shortId })
     const { insightProps } = useValues(logic)
 
+    const href = `/insights/${props.node.attrs.shortId}`
+
     return (
-        <NodeWrapper className={NotebookNodeType.Insight} title="Insight" {...props}>
+        <NodeWrapper className={NotebookNodeType.Insight} title="Insight" href={href} {...props}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer
@@ -28,7 +30,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const InsightNode = Node.create({
+export const NotebookNodeInsight = Node.create({
     name: NotebookNodeType.Insight,
     group: 'block',
     atom: true,

@@ -487,7 +487,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             node={NotebookNodeType.FeatureFlag}
                                                             properties={{ flag: id }}
                                                             type="secondary"
-                                                            size="medium"
                                                         />
                                                     </span>
                                                 </FlaggedFeature>
