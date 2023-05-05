@@ -18,6 +18,7 @@ import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
 export type PersonUUID = string
 interface Params {
@@ -130,7 +131,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
         ],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], playerSettingsLogic, ['autoplayDirection']],
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
@@ -343,6 +344,15 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         getSessionRecordingsSuccess: () => {
             actions.maybeLoadPropertiesForSessions(values.sessionRecordings.map((s) => s.id))
         },
+        setSelectedRecordingId: () => {
+            if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {
+                // If we are at the end of the list then try to load more
+                const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
+                if (recordingIndex === values.sessionRecordings.length - 1) {
+                    actions.maybeLoadSessionRecordings('older')
+                }
+            }
+        },
     })),
     selectors({
         activeSessionRecording: [
@@ -356,15 +366,21 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             },
         ],
         nextSessionRecording: [
-            (s) => [s.activeSessionRecording, s.sessionRecordings],
-            (activeSessionRecording, sessionRecordings): Partial<SessionRecordingType> | undefined => {
-                if (!activeSessionRecording) {
+            (s) => [s.activeSessionRecording, s.sessionRecordings, s.autoplayDirection],
+            (
+                activeSessionRecording,
+                sessionRecordings,
+                autoplayDirection
+            ): Partial<SessionRecordingType> | undefined => {
+                if (!activeSessionRecording || !autoplayDirection) {
                     return
                 }
                 const activeSessionRecordingIndex = sessionRecordings.findIndex(
                     (x) => x.id === activeSessionRecording.id
                 )
-                return sessionRecordings[activeSessionRecordingIndex + 1]
+                return autoplayDirection === 'older'
+                    ? sessionRecordings[activeSessionRecordingIndex + 1]
+                    : sessionRecordings[activeSessionRecordingIndex - 1]
             },
         ],
 

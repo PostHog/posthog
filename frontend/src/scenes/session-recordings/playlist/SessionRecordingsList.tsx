@@ -119,7 +119,7 @@ export function SessionRecordingsList({
                         {titleContent}
                     </LemonButton>
                 ) : (
-                    <span className="px-2 py-1">{titleContent}</span>
+                    <span className="px-2 py-1 flex-1">{titleContent}</span>
                 )}
                 {titleRight}
                 <LemonTableLoader loading={loading} />

@@ -10,7 +10,7 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconChevronLeft, IconChevronRight, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
@@ -20,6 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -50,6 +51,8 @@ export function RecordingsLists({
         pinnedRecordingsResponseLoading,
     } = useValues(logic)
     const { setSelectedRecordingId, loadNext, loadPrev, setFilters, maybeLoadSessionRecordings } = useActions(logic)
+    const { autoplayDirection } = useValues(playerSettingsLogic)
+    const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const infiniteScrollerEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
 
@@ -84,6 +87,30 @@ export function RecordingsLists({
             />
         </div>
     ) : null
+
+    const autoPlayControl = (
+        <>
+            <LemonButton
+                status={autoplayDirection ? 'primary' : 'muted-alt'}
+                size="small"
+                onClick={toggleAutoplayDirection}
+                tooltip={
+                    <>
+                        Autoplay next recording
+                        <br />({!autoplayDirection ? 'disabled' : autoplayDirection})
+                    </>
+                }
+                tooltipPlacement="bottom"
+                icon={
+                    autoplayDirection === 'newer' ? (
+                        <IconPlayCircle style={{ transform: 'scaleX(-1)' }} />
+                    ) : (
+                        <IconPlayCircle />
+                    )
+                }
+            />
+        </>
+    )
 
     return (
         <>
@@ -127,21 +154,25 @@ export function RecordingsLists({
                 title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                 titleRight={
                     infiniteScrollerEnabled ? (
-                        sessionRecordings.length ? (
-                            <Tooltip
-                                placement="bottom"
-                                title={
-                                    <>
-                                        Showing {sessionRecordings.length} results.
-                                        <br />
-                                        Scrolling to the bottom or the top of the list will load older or newer
-                                        recordings respectively.
-                                    </>
-                                }
-                            >
-                                <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
-                            </Tooltip>
-                        ) : null
+                        <>
+                            {sessionRecordings.length ? (
+                                <Tooltip
+                                    placement="bottom"
+                                    title={
+                                        <>
+                                            Showing {sessionRecordings.length} results.
+                                            <br />
+                                            Scrolling to the bottom or the top of the list will load older or newer
+                                            recordings respectively.
+                                        </>
+                                    }
+                                >
+                                    <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                </Tooltip>
+                            ) : null}
+
+                            {autoPlayControl}
+                        </>
                     ) : (
                         paginationControls
                     )

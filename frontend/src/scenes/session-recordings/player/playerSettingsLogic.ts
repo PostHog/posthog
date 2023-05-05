@@ -168,7 +168,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
-        setAutoplayEnabled: (enabled: boolean) => ({ enabled }),
+        toggleAutoplayDirection: true,
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
@@ -202,11 +202,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
             },
         ],
-        autoplayEnabled: [
-            true,
+        autoplayDirection: [
+            'older' as 'newer' | 'older' | null,
             { persist: true },
             {
-                setAutoplayEnabled: (_, { enabled }) => enabled,
+                toggleAutoplayDirection: (state) => {
+                    return !state ? 'older' : state === 'older' ? 'newer' : null
+                },
             },
         ],
 
