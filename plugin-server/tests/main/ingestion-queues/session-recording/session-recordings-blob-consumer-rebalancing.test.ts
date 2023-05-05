@@ -1,5 +1,3 @@
-import { DateTime } from 'luxon'
-
 import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingBlobIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
@@ -39,12 +37,10 @@ describe('ingester rebalancing tests', () => {
         await ingesterOne.start()
 
         await ingesterOne.consume(
-            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 }),
-            DateTime.local().toMillis()
+            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 })
         )
         await ingesterOne.consume(
-            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 }),
-            DateTime.local().toMillis()
+            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 })
         )
 
         await waitForExpect(() => {

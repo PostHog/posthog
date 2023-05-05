@@ -66,7 +66,7 @@ export class SessionRecordingBlobIngester {
             enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
     }
 
-    public async consume(event: IncomingRecordingMessage, kafkaMessageTimestamp: number | undefined): Promise<void> {
+    public async consume(event: IncomingRecordingMessage): Promise<void> {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
@@ -102,7 +102,7 @@ export class SessionRecordingBlobIngester {
         }
 
         this.offsetManager?.addOffset(topic, partition, offset)
-        await this.sessions.get(key)?.add(event, kafkaMessageTimestamp)
+        await this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
         // If it is recoverable, we probably want to retry?
@@ -165,6 +165,7 @@ export class SessionRecordingBlobIngester {
                 partition: message.partition,
                 topic: message.topic,
                 offset: message.offset,
+                timestamp: message.timestamp,
             },
 
             team_id: team.id,
@@ -182,7 +183,7 @@ export class SessionRecordingBlobIngester {
             events_summary: $snapshot_data.events_summary,
         }
 
-        await this.consume(recordingMessage, message.timestamp)
+        await this.consume(recordingMessage)
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {

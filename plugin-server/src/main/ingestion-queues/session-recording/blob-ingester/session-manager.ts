@@ -82,7 +82,7 @@ export class SessionManager {
         }
     }
 
-    public async add(message: IncomingRecordingMessage, kafkaMessageTimestamp: number | undefined): Promise<void> {
+    public async add(message: IncomingRecordingMessage): Promise<void> {
         // TODO: Check that the offset is higher than the lastProcessed
         // If not - ignore it
         // If it is - update lastProcessed and process it
@@ -92,7 +92,7 @@ export class SessionManager {
             await this.addToChunks(message)
         }
 
-        this.buffer.lastMessageReceivedAt = kafkaMessageTimestamp || Date.now()
+        this.buffer.lastMessageReceivedAt = message.metadata.timestamp || Date.now()
         await this.flushIfBufferExceedsCapacity()
     }
 

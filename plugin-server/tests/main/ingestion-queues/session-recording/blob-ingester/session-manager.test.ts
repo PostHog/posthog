@@ -23,13 +23,14 @@ describe('session-manager', () => {
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
         })
-        const kafkaMessageTimestamp = DateTime.local().toMillis()
-        await sessionManager.add(event, kafkaMessageTimestamp)
+        const messageTimestamp = DateTime.local().toMillis()
+        event.metadata.timestamp = messageTimestamp
+        await sessionManager.add(event)
 
         expect(sessionManager.buffer).toEqual({
             count: 1,
             createdAt: expect.any(Date),
-            lastMessageReceivedAt: kafkaMessageTimestamp,
+            lastMessageReceivedAt: messageTimestamp,
             file: expect.any(String),
             id: expect.any(String),
             size: 61, // The size of the event payload - this may change when test data changes
@@ -44,7 +45,8 @@ describe('session-manager', () => {
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
         })
-        await sessionManager.add(event, DateTime.local().minus({ minutes: 9 }).toMillis())
+        event.metadata.timestamp = DateTime.local().minus({ minutes: 9 }).toMillis()
+        await sessionManager.add(event)
 
         await sessionManager.flushIfSessionIsIdle()
 
@@ -56,7 +58,8 @@ describe('session-manager', () => {
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
         })
-        await sessionManager.add(event, DateTime.local().minus({ minutes: 11 }).toMillis())
+        event.metadata.timestamp = DateTime.local().minus({ minutes: 11 }).toMillis()
+        await sessionManager.add(event)
 
         await sessionManager.flushIfSessionIsIdle()
 
@@ -65,7 +68,7 @@ describe('session-manager', () => {
 
     it('flushes messages', async () => {
         const event = createIncomingRecordingMessage()
-        await sessionManager.add(event, DateTime.local().toMillis())
+        await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
         const file = sessionManager.buffer.file
         expect(fs.existsSync(file)).toEqual(true)
@@ -85,11 +88,11 @@ describe('session-manager', () => {
     it('flushes messages and whilst collecting new ones', async () => {
         const event = createIncomingRecordingMessage()
         const event2 = createIncomingRecordingMessage()
-        await sessionManager.add(event, DateTime.local().toMillis())
+        await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
 
         const flushPromise = sessionManager.flush()
-        await sessionManager.add(event2, DateTime.local().toMillis())
+        await sessionManager.add(event2)
 
         expect(sessionManager.buffer.count).toEqual(1)
         expect(sessionManager.flushBuffer?.count).toEqual(1)
@@ -111,15 +114,15 @@ describe('session-manager', () => {
         expect(events[1].data.length).toBeGreaterThan(1)
         expect(events[2].data.length).toBeGreaterThan(1)
 
-        await sessionManager.add(events[0], DateTime.local().toMillis())
+        await sessionManager.add(events[0])
         expect(sessionManager.buffer.count).toEqual(0)
         expect(sessionManager.chunks.size).toEqual(1)
 
-        await sessionManager.add(events[2], DateTime.local().toMillis())
+        await sessionManager.add(events[2])
         expect(sessionManager.buffer.count).toEqual(0)
         expect(sessionManager.chunks.size).toEqual(1)
 
-        await sessionManager.add(events[1], DateTime.local().toMillis())
+        await sessionManager.add(events[1])
         expect(sessionManager.buffer.count).toEqual(1)
         expect(sessionManager.chunks.size).toEqual(0)
 
