@@ -17,13 +17,17 @@ describe('infiniteListLogic', () => {
             get: {
                 '/api/projects/:team/event_definitions': (req) => {
                     const search = req.url.searchParams.get('search')
+                    const limit = Number(req.url.searchParams.get('limit'))
+                    const offset = Number(req.url.searchParams.get('offset'))
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
+                    const paginatedResults = results.filter((_, index) => index >= offset && index < offset + limit)
+
                     return [
                         200,
                         {
-                            results,
+                            results: paginatedResults,
                             count: results.length,
                         },
                     ]
@@ -105,27 +109,11 @@ describe('infiniteListLogic', () => {
 
         it('can set the index', async () => {
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
-            expectLogic(logic).toMatchValues({ index: 0, remoteItems: partial({ count: 56 }) })
+            expectLogic(logic).toMatchValues({ index: 0, remoteItems: partial({ count: 156 }) })
             expectLogic(logic, () => logic.actions.setIndex(1)).toMatchValues({
-                remoteItems: partial({ count: 56 }),
+                remoteItems: partial({ count: 156 }),
                 index: 1,
             })
-        })
-
-        it('can set the index up and down as a circular list', async () => {
-            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
-            expectLogic(logic).toMatchValues({
-                index: 0,
-                remoteItems: partial({ count: 56 }),
-                localItems: partial({ count: 1 }),
-                items: partial({ count: 57 }),
-            })
-            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 56 })
-            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 55 })
-            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 56 })
-            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 0 })
-            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 1 })
-            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 0 })
         })
 
         it('setting search query filters events', async () => {
@@ -181,6 +169,23 @@ describe('infiniteListLogic', () => {
                     payload.value === 'event1' &&
                     payload.item.name === 'event1',
             ])
+        })
+        describe('events with local and remote data sources', () => {
+            it('can set the index up and down as a circular list', async () => {
+                await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+                expectLogic(logic).toMatchValues({
+                    index: 0,
+                    remoteItems: partial({ count: 156 }),
+                    localItems: partial({ count: 1 }),
+                    items: partial({ count: 157 }),
+                })
+                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 156 })
+                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 155 })
+                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 156 })
+                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 0 })
+                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 1 })
+                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 0 })
+            })
         })
     })
 

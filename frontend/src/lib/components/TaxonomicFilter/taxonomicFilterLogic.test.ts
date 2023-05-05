@@ -82,7 +82,7 @@ describe('taxonomicFilterLogic', () => {
             .clearHistory()
             .toMatchValues({
                 infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 57,
+                    [TaxonomicFilterGroupType.Events]: 157,
                     [TaxonomicFilterGroupType.Actions]: 0, // not mocked
                     [TaxonomicFilterGroupType.Elements]: 4,
                     [TaxonomicFilterGroupType.Sessions]: 1,
@@ -156,7 +156,7 @@ describe('taxonomicFilterLogic', () => {
                 searchQuery: '',
                 activeTab: TaxonomicFilterGroupType.Elements, // no change
                 infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 57,
+                    [TaxonomicFilterGroupType.Events]: 157,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
                     [TaxonomicFilterGroupType.Sessions]: 1,
