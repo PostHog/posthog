@@ -31,7 +31,7 @@ class Command(BaseCommand):
         parser.add_argument("--client-key", default=settings.TEMPORAL_CLIENT_KEY, help="Optional client key")
 
     def handle(self, *args, **options):
-        logging.info(f"Starting Temporal Worker with options: {options}")
+        logging.info(f"Executing Temporal Workflow with options: {options}")
 
         temporal_host = options["temporal_host"]
         temporal_port = options["temporal_port"]
