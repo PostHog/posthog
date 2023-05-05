@@ -1166,9 +1166,6 @@
                         }
                     ]
                 },
-                "breakdown_value": {
-                    "type": ["string", "number"]
-                },
                 "breakdowns": {
                     "items": {
                         "$ref": "#/definitions/Breakdown"

@@ -474,7 +474,6 @@ class BreakdownFilter(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
 
 
