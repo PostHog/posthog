@@ -135,7 +135,8 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // breakdown
     if (isInsightQueryWithBreakdown(query)) {
-        // handle multi-breakdowns
+        /* handle multi-breakdowns */
+        // not undefined or null
         if (filters.breakdowns != null) {
             if (filters.breakdowns.length === 1) {
                 filters.breakdown_type = filters.breakdowns[0].type
@@ -147,15 +148,10 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             }
         }
 
-        // handle missing breakdown_type
+        /* handle missing breakdown_type */
+        // check for undefined and null values
         if (filters.breakdown != null && filters.breakdown_type == null) {
-            if (Array.isArray(filters.breakdown)) {
-                filters.breakdown_type = 'cohort'
-            } else if ((filters.breakdown as string).startsWith('$initial_')) {
-                filters.breakdown_type = 'person'
-            } else {
-                filters.breakdown_type = 'event'
-            }
+            filters.breakdown_type = 'event'
         }
 
         query.breakdown = objectCleanWithEmpty({
