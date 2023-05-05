@@ -151,7 +151,7 @@ class DecideRateThrottle(SimpleRateThrottle):
 
     scope = "decide"
 
-    def __init__(self, rate: str = "4/m") -> None:
+    def __init__(self, rate: str = "400/m") -> None:
         self.rate = rate
         super().__init__()
 
