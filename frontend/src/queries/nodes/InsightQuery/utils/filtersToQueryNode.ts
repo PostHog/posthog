@@ -145,7 +145,17 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         /* handle missing breakdown_type */
         // check for undefined and null values
         if (filters.breakdown != null && filters.breakdown_type == null) {
+<<<<<<< HEAD
             filters.breakdown_type = 'event'
+=======
+            if (Array.isArray(filters.breakdown)) {
+                filters.breakdown_type = 'cohort'
+            } else if ((filters.breakdown as string).startsWith('$initial_')) {
+                filters.breakdown_type = 'person'
+            } else {
+                filters.breakdown_type = 'event'
+            }
+>>>>>>> 45ac2f8ae (fix typing)
         }
 
         query.breakdown = objectCleanWithEmpty({
