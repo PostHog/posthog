@@ -57,7 +57,7 @@ class Command(BaseCommand):
                 client_key=client_key,
             )
         )
-        retry_policy = RetryPolicy(maximum_attempts=options["max_attempts"])
+        retry_policy = RetryPolicy(maximum_attempts=int(options["max_attempts"]))
 
         try:
             workflow = [workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name)][0]
