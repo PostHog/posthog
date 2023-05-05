@@ -2665,6 +2665,61 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEntityResponseEqual(action_response, event_response)
 
+    @snapshot_clickhouse_queries
+    def test_action_filtering_with_cohort(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["blabla", "anonymous_id"],
+            properties={"$some_property": "value", "$bool_prop": "x"},
+        )
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "$some_property", "value": "value", "type": "person"}]}],
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$some_property": "value"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$some_property": "value2"},
+            timestamp="2020-01-03T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="xyz",
+            properties={"$some_property": "value"},
+            timestamp="2020-01-04T12:00:00Z",
+        )
+
+        sign_up_action = _create_action(
+            team=self.team, name="sign up", properties=[{"key": "id", "type": "cohort", "value": cohort.id}]
+        )
+
+        cohort.calculate_people_ch(pending_version=2)
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            action_response = Trends().run(
+                Filter(
+                    data={
+                        "actions": [{"id": sign_up_action.id}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                        "properties": [{"key": "$bool_prop", "value": "x", "type": "person"}],
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(len(action_response), 1)
+            self.assertEqual(action_response[0]["data"], [0, 1, 1, 0, 0, 0, 0])
+
     def test_trends_for_non_existing_action(self):
         with freeze_time("2020-01-04"):
             response = Trends().run(Filter(data={"actions": [{"id": 50000000}]}), self.team)
