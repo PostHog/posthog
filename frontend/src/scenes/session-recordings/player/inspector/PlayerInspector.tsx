@@ -1,4 +1,3 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import { PlayerInspectorList } from './PlayerInspectorList'
 import { PlayerInspectorControls } from './PlayerInspectorControls'
 import { useEffect, useRef, useState } from 'react'
