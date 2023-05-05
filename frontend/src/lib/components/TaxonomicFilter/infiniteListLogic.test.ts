@@ -186,6 +186,45 @@ describe('infiniteListLogic', () => {
                 expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 1 })
                 expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 0 })
             })
+
+            it('joins the local and remote lists precisely on onRowsRendered', async () => {
+                await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+                await expectLogic(logic).toMatchValues({
+                    index: 0,
+                    remoteItems: partial({ count: 156 }),
+                    localItems: partial({ count: 1 }),
+                    items: partial({ count: 157 }),
+                })
+
+                await expectLogic(logic, () =>
+                    logic.actions.onRowsRendered({
+                        startIndex: 30,
+                        stopIndex: 40,
+                        overscanStartIndex: 20,
+                        overscanStopIndex: 60,
+                    })
+                )
+                    .toDispatchActions(['onRowsRendered'])
+                    .toNotHaveDispatchedActions(['loadRemoteItems'])
+
+                await expectLogic(logic, () =>
+                    logic.actions.onRowsRendered({
+                        startIndex: 80,
+                        stopIndex: 100,
+                        overscanStartIndex: 70,
+                        overscanStopIndex: 120,
+                    })
+                )
+                    .toDispatchActions(['onRowsRendered', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toMatchValues({
+                        remoteItems: partial({ count: 156, results: mockEventDefinitions }),
+                        localItems: partial({ count: 1 }),
+                        items: partial({
+                            count: 157,
+                            results: [{ name: 'Any event', value: null }, ...mockEventDefinitions],
+                        }),
+                    })
+            })
         })
     })
 

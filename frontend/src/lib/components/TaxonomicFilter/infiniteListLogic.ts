@@ -169,7 +169,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     ])
                     breakpoint()
 
-                    const queryChanged = values.items.searchQuery !== values.searchQuery
+                    const queryChanged = values.remoteItems.searchQuery !== values.searchQuery
 
                     await captureTimeToSeeData(teamLogic.values.currentTeamId, {
                         type: 'properties_load',
@@ -184,7 +184,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
 
                     return {
                         results: appendAtIndex(
-                            queryChanged ? [] : values.items.results,
+                            queryChanged ? [] : values.remoteItems.results,
                             response.results || response,
                             offset
                         ),
@@ -221,7 +221,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     }
                 }
                 if (loadFrom !== null) {
-                    actions.loadRemoteItems({ offset: loadFrom || startIndex, limit: values.limit })
+                    const offset = (loadFrom || startIndex) - values.localItems.count
+                    actions.loadRemoteItems({ offset, limit: values.limit })
                 }
             }
         },
