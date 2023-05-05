@@ -55,7 +55,6 @@ export function PlayerInspector({ onFocusChange }: { onFocusChange: (focus: bool
             onMouseLeave={onInspectorLeave}
         >
             <PlayerInspectorControls />
-            <LemonDivider className="my-0" />
             <PlayerInspectorList />
             <PlayerInspectorPreview />
         </div>
