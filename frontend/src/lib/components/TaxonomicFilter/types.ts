@@ -27,7 +27,7 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
     taxonomicFilterLogicKey: string
 }
 
-export type TaxonomicFilterValue = string | number
+export type TaxonomicFilterValue = string | number | null
 
 export type TaxonomicFilterRender = (props: {
     value?: TaxonomicFilterValue
