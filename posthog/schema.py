@@ -531,6 +531,7 @@ class FunnelsFilter(BaseModel):
     entrance_period_start: Optional[str] = None
     exclusions: Optional[List[FunnelStepRangeEntityFilter]] = None
     funnel_advanced: Optional[bool] = None
+    funnel_aggregate_by_hogql: Optional[str] = None
     funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted1] = None
     funnel_correlation_person_entity: Optional[Dict[str, Any]] = None
     funnel_custom_steps: Optional[List[float]] = None
@@ -1214,6 +1215,7 @@ class AnyPartialFilterTypeItem2(BaseModel):
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     funnel_advanced: Optional[bool] = None
+    funnel_aggregate_by_hogql: Optional[str] = None
     funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted] = None
     funnel_correlation_person_entity: Optional[Dict[str, Any]] = None
     funnel_custom_steps: Optional[List[float]] = None
