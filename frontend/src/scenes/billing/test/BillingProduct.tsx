@@ -216,16 +216,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         ?.map((tier, i) => {
             const addonPricesForTier = product.addons?.map((addon) => ({
                 [`${addon.type}-price`]: `${
-                    addon.tiers?.[i].unit_amount_usd !== '0' ? '$' + addon.tiers?.[i].unit_amount_usd : 'Free'
+                    addon.tiers?.[i]?.unit_amount_usd !== '0' ? '$' + addon.tiers?.[i]?.unit_amount_usd : 'Free'
                 }`,
             }))
             // take the tier.current_amount_usd and add it to the same tier level for all the addons
             const totalForTier =
                 parseFloat(tier.current_amount_usd || '') +
-                product.addons?.reduce((acc, addon) => acc + parseFloat(addon.tiers?.[i].current_amount_usd || ''), 0)
+                product.addons?.reduce((acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''), 0)
             const projectedTotalForTier =
                 (tier.projected_amount_usd || 0) +
-                product.addons?.reduce((acc, addon) => acc + (addon.tiers?.[i].projected_amount_usd || 0), 0)
+                product.addons?.reduce((acc, addon) => acc + (addon.tiers?.[i]?.projected_amount_usd || 0), 0)
 
             const tierData = {
                 volume: getTierDescription(tier, i, product, billing?.billing_period?.interval || ''),

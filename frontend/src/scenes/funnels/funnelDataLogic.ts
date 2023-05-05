@@ -29,6 +29,7 @@ import { percentage, sum, average } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import {
     aggregateBreakdownResult,
+    aggregationLabelForHogQL,
     flattenedStepsByBreakdown,
     getIncompleteConversionWindowStartDate,
     getLastFilledStep,
@@ -126,7 +127,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     groupTypeIndex: number | null | undefined,
                     deferToUserWording?: boolean | undefined
                 ) => Noun
-            ): Noun => aggregationLabel(querySource.aggregation_group_type_index),
+            ): Noun =>
+                querySource.funnelsFilter?.funnel_aggregate_by_hogql
+                    ? aggregationLabelForHogQL(querySource.funnelsFilter.funnel_aggregate_by_hogql)
+                    : aggregationLabel(querySource.aggregation_group_type_index),
         ],
 
         results: [
@@ -395,6 +399,13 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.conversionMetrics, s.skewWarningHidden],
             (conversionMetrics, skewWarningHidden): boolean => {
                 return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
+            },
+        ],
+
+        canOpenPersonModal: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): boolean => {
+                return !funnelsFilter?.funnel_aggregate_by_hogql
             },
         ],
     })),

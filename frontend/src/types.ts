@@ -1620,6 +1620,7 @@ export interface FunnelsFilterType extends FilterType {
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    funnel_aggregate_by_hogql?: string
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
