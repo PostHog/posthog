@@ -1,8 +1,21 @@
+import dataclasses
 from typing import Any, Dict, List, Tuple, Union
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, EventFiltersSQL
+from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+
+
+@dataclasses.dataclass(frozen=True)
+class SummaryEventFiltersSQL:
+    simple_event_matching_select_condition_clause: str
+    non_aggregate_select_condition_summing_clause: str
+    non_aggregate_select_condition_clause: str
+    aggregate_event_select_clause: str
+    aggregate_select_clause: str
+    aggregate_having_clause: str
+    where_conditions: str
+    params: Dict[str, Any]
 
 
 class SessionRecordingListFromReplaySummary(SessionRecordingList):
@@ -15,58 +28,75 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     # because it doesn't return MatchingEvents any person/event selection templating is redundant here
     # assume this is so fast we don't have to page 🤘
 
-    _core_events_query = """
+    _session_recordings_query: str = """
         SELECT
-            `$session_id` as session_id
-        FROM events
-        PREWHERE
-            team_id = %(team_id)s
-            {events_timestamp_clause}
-            {event_filter_where_conditions}
-            {prop_filter_clause}
-            {person_id_clause}
-            and notEmpty(session_id)
-    """
-
-    _session_recordings_query_base = """
-        select
-       session_id,
-       any(team_id),
-       any(distinct_id),
-       min(first_timestamp) as start_time,
-       max(last_timestamp) as end_time,
-       dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
-       sum(click_count),
-       sum(keypress_count),
-       sum(mouse_activity_count),
-       round((sum(active_milliseconds)/1000)/duration, 2) as active_time
-    from session_replay_events
-    prewhere team_id = %(team_id)s
-    and first_timestamp >= %(start_time)s
-    and last_timestamp <= %(end_time)s
-    """
-
-    _session_recordings_query: str = (
-        _session_recordings_query_base
-        + """
-    group by session_id
+           session_id,
+           any(team_id),
+           any(distinct_id),
+           min(first_timestamp) as start_time,
+           max(last_timestamp) as end_time,
+           dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
+           sum(click_count),
+           sum(keypress_count),
+           sum(mouse_activity_count),
+           round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+        FROM session_replay_events
+        PREWHERE team_id = %(team_id)s
+    GROUP BY session_id
+        HAVING first_timestamp >= %(start_time)s
+        AND last_timestamp <= %(end_time)s
+        {duration_clause}
     ORDER BY start_time DESC
         """
-    )
 
-    _session_recordings_query_with_events = f"""
-        with events_session_ids as (
-        {_core_events_query}
+    _session_recordings_query_with_events = """
+        WITH events_session_ids AS (
+        -- this core query has to select the session_ids from the events table
+        -- because the non_aggregate_select_condition_clause is used to AND conditions together
+        -- but, we want to select a simple set of session ids
+        -- we have to group by session_id and sum any matching columns
+        SELECT session_id {non_aggregate_select_condition_summing_clause}
+         FROM
+            (SELECT
+                `$session_id` as session_id
+                {non_aggregate_select_condition_clause}
+            FROM events
+            PREWHERE
+                team_id = %(team_id)s
+                {events_timestamp_clause}
+                {event_filter_where_conditions}
+                {prop_filter_clause}
+                {person_id_clause}
+                and notEmpty(session_id)) AS inner_event_q
+        GROUP BY session_id
+        HAVING 1=1 {event_matches_filter_conditions}
         )
-        {_session_recordings_query_base}
-        and session_id in (select session_id from events_session_ids)
-        group by session_id
+        SELECT
+           session_id,
+           any(team_id),
+           any(distinct_id),
+           min(first_timestamp) as start_time,
+           max(last_timestamp) as end_time,
+           dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
+           sum(click_count),
+           sum(keypress_count),
+           sum(mouse_activity_count),
+           round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+        FROM session_replay_events
+        PREWHERE team_id = %(team_id)s
+        AND first_timestamp >= %(start_time)s
+        AND last_timestamp <= %(end_time)s
+        {duration_clause}
+        AND session_id in (select session_id from events_session_ids)
+        GROUP BY session_id
         ORDER BY start_time DESC
         """
 
     @cached_property
-    def format_event_filters(self) -> EventFiltersSQL:
+    def format_event_filters(self) -> SummaryEventFiltersSQL:
+        simple_event_matching_select_condition_clause = ""
         non_aggregate_select_condition_clause = ""
+        non_aggregate_select_condition_summing_clause = ""
         aggregate_event_select_clause = ""
         aggregate_select_clause = ""
         aggregate_having_clause = ""
@@ -75,12 +105,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         event_names_to_filter: List[Union[int, str]] = []
 
         params: Dict = {}
-
-        # each entity condition needs to be added to the event query.
-        # so it would end up for two entities as
-        # WHERE AND event IN %(event_names)s
-        # and ((condition_sql1) OR (condition_sql2))
-        where_conditions_for_entities: List[str] = []
 
         for index, entity in enumerate(self._filter.entities):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
@@ -93,8 +117,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             condition_sql, filter_params = self.format_event_filter(
                 entity, prepend=f"event_matcher_{index}", team_id=self._team_id
             )
-
-            where_conditions_for_entities.append(condition_sql)
 
             aggregate_event_select_clause += f"""
             , groupUniqArrayIf(100)((timestamp, uuid, session_id, window_id), event_match_{index} = 1) AS matching_events_{index}
@@ -109,21 +131,29 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             non_aggregate_select_condition_clause += f"""
             , if({condition_sql}, 1, 0) as event_match_{index}
             """
+
+            simple_event_matching_select_condition_clause += f"""
+                        , if({condition_sql}, 1, 0) as matches_{index}
+                        """
+
+            non_aggregate_select_condition_summing_clause += f"""
+                                    , sum(matches_{index}) as matches_{index}
+                                    """
+
             aggregate_having_clause += f"\nAND matches_{index} > 0"
             params = {**params, **filter_params}
 
-        if where_conditions_for_entities:
-            where_conditions += f"\nAND ({' OR '.join(where_conditions_for_entities)})"
-
         params = {**params, "event_names": list(event_names_to_filter)}
 
-        return EventFiltersSQL(
-            non_aggregate_select_condition_clause,
-            aggregate_event_select_clause,
-            aggregate_select_clause,
-            aggregate_having_clause,
-            where_conditions,
-            params,
+        return SummaryEventFiltersSQL(
+            simple_event_matching_select_condition_clause=simple_event_matching_select_condition_clause,
+            non_aggregate_select_condition_clause=non_aggregate_select_condition_clause,
+            non_aggregate_select_condition_summing_clause=non_aggregate_select_condition_summing_clause,
+            aggregate_event_select_clause=aggregate_event_select_clause,
+            aggregate_select_clause=aggregate_select_clause,
+            aggregate_having_clause=aggregate_having_clause,
+            where_conditions=where_conditions,
+            params=params,
         )
 
     def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
@@ -172,16 +202,17 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 self._session_recordings_query.format(
                     # recording_person_query=recording_person_query,
                     # prop_filter_clause=prop_query,
-                    # person_id_clause=person_id_clause,
+                    person_id_clause=person_id_clause,
+                    duration_clause=duration_clause,
                 ),
                 {
                     **base_params,
                     **recording_start_time_params,
-                    # **person_id_params,
+                    **person_id_params,
                     # **recording_person_query_params,
                     # **prop_params,
                     # **events_timestamp_params,
-                    # **duration_params,
+                    **duration_params,
                 },
             )
 
@@ -192,6 +223,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 person_id_clause=person_id_clause,
                 event_filter_where_conditions=event_filters.where_conditions,
                 events_timestamp_clause=events_timestamp_clause,
+                non_aggregate_select_condition_clause=event_filters.simple_event_matching_select_condition_clause,
+                event_matches_filter_conditions=event_filters.aggregate_having_clause,
+                non_aggregate_select_condition_summing_clause=event_filters.non_aggregate_select_condition_summing_clause,
+                duration_clause=duration_clause,
             ),
             {
                 **base_params,

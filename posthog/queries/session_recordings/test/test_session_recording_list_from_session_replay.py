@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -59,12 +60,17 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
     @also_test_with_materialized_columns(["$current_url"])
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_basic_query(self):
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        # need to use a unique team, there are no filters on the query so it will return all results
+        # that means the order of tests could mean other tests create session replay summaries
+        # that would affect the results of this test
+        another_team = Team.objects.create(organization=self.organization)
+
+        Person.objects.create(team=another_team, distinct_ids=["user"], properties={"email": "bla"})
 
         session_id_one = str(uuid4())
         produce_replay_summary(
             session_id=session_id_one,
-            team_id=self.team.pk,
+            team_id=another_team.pk,
             # can CH handle a timestamp with no T
             first_timestamp=self.base_time.isoformat().replace("T", " "),
             last_timestamp=(self.base_time + relativedelta(seconds=20)).isoformat().replace("T", " "),
@@ -77,7 +83,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         )
         produce_replay_summary(
             session_id=session_id_one,
-            team_id=self.team.pk,
+            team_id=another_team.pk,
             # can CH handle a timestamp with no T
             first_timestamp=(self.base_time + relativedelta(seconds=10)).isoformat(),
             last_timestamp=(self.base_time + relativedelta(seconds=50)).isoformat(),
@@ -92,7 +98,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_id_two = str(uuid4())
         produce_replay_summary(
             session_id=session_id_two,
-            team_id=self.team.pk,
+            team_id=another_team.pk,
             # can CH handle a timestamp with no T
             first_timestamp=(self.base_time + relativedelta(seconds=20)).isoformat(),
             last_timestamp=(self.base_time + relativedelta(seconds=2000)).isoformat(),
@@ -104,8 +110,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             active_milliseconds=1980 * 1000 * 0.4,  # 40% of the total expected duration
         )
 
-        filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
-        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        filter = SessionRecordingsFilter(team=another_team, data={"no_filter": None})
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=another_team)
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
         self.assertEqual(len(session_recordings), 2)
@@ -113,7 +119,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         assert session_recordings == [
             {
                 "session_id": session_id_two,
-                "team_id": self.team.pk,
+                "team_id": another_team.pk,
                 "distinct_id": "user",
                 "click_count": 2,
                 "keypress_count": 2,
@@ -125,7 +131,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             },
             {
                 "session_id": session_id_one,
-                "team_id": self.team.pk,
+                "team_id": another_team.pk,
                 "distinct_id": "user",
                 "click_count": 4,
                 "keypress_count": 4,
@@ -325,252 +331,282 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
+    @also_test_with_materialized_columns(["$current_url", "$browser"])
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_action_filter(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        session_id_one = str(uuid4())
+        window_id = str(uuid4())
+        action1 = self.create_action(
+            "custom-event",
+            properties=[
+                {"key": "$browser", "value": "Firefox"},
+                {"key": "$session_id", "value": session_id_one},
+                {"key": "$window_id", "value": window_id},
+            ],
+        )
+        action2 = self.create_action(
+            name="custom-event",
+            properties=[{"key": "$session_id", "value": session_id_one}, {"key": "$window_id", "value": window_id}],
+        )
 
-#     @also_test_with_materialized_columns(["$current_url", "$browser"])
-#     @freeze_time("2021-01-21T20:00:00.000Z")
-#     def test_action_filter(self):
-#         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-#         action1 = self.create_action(
-#             "custom-event",
-#             properties=[
-#                 {"key": "$browser", "value": "Firefox"},
-#                 {"key": "$session_id", "value": "1"},
-#                 {"key": "$window_id", "value": "1"},
-#             ],
-#         )
-#         action2 = self.create_action(
-#             name="custom-event",
-#             properties=[{"key": "$session_id", "value": "1"}, {"key": "$window_id", "value": "1"}],
-#         )
-#
-#         produce_replay_summary(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
-#         self.create_event(
-#             "user",
-#             self.base_time,
-#             event_name="custom-event",
-#             properties={"$browser": "Chrome", "$session_id": "1", "$window_id": "1"},
-#         )
-#         produce_replay_summary(
-#             distinct_id="user",
-#             session_id="1",
-#             timestamp=self.base_time + relativedelta(seconds=30),
-#             team_id=self.team.id,
-#         )
-#
-#         # An action with properties
-#         filter = SessionRecordingsFilter(
-#             team=self.team,
-#             data={"actions": [{"id": action1.id, "type": "actions", "order": 1, "name": "custom-event"}]},
-#         )
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 0)
-#
-#         # An action without properties
-#         filter = SessionRecordingsFilter(
-#             team=self.team,
-#             data={"actions": [{"id": action2.id, "type": "actions", "order": 1, "name": "custom-event"}]},
-#         )
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 1)
-#         self.assertEqual(session_recordings[0]["session_id"], "1")
-#         self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
-#         self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["timestamp"], self.base_time)
-#         self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["session_id"], "1")
-#         self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["window_id"], "1")
-#
-#         # Adding properties to an action
-#         filter = SessionRecordingsFilter(
-#             team=self.team,
-#             data={
-#                 "actions": [
-#                     {
-#                         "id": action2.id,
-#                         "type": "actions",
-#                         "order": 1,
-#                         "name": "custom-event",
-#                         "properties": [
-#                             {"key": "$browser", "value": ["Firefox"], "operator": "exact", "type": "event"}
-#                         ],
-#                     }
-#                 ]
-#             },
-#         )
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 0)
-#
-#     @freeze_time("2021-01-21T20:00:00.000Z")
-#     def test_all_sessions_recording_object_keys_with_entity_filter(self):
-#         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-#         produce_replay_summary(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
-#         self.create_event("user", self.base_time, properties={"$session_id": "1", "$window_id": "1"})
-#         produce_replay_summary(
-#             distinct_id="user",
-#             session_id="1",
-#             timestamp=self.base_time + relativedelta(seconds=30),
-#             team_id=self.team.id,
-#         )
-#         filter = SessionRecordingsFilter(
-#             team=self.team,
-#             data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
-#         )
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 1)
-#         self.assertEqual(session_recordings[0]["session_id"], "1")
-#         self.assertEqual(session_recordings[0]["distinct_id"], "user")
-#         self.assertEqual(session_recordings[0]["start_time"], self.base_time)
-#         self.assertEqual(session_recordings[0]["end_time"], self.base_time + relativedelta(seconds=30))
-#         self.assertEqual(session_recordings[0]["duration"], 30)
-#         self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
-#         self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["timestamp"], self.base_time)
-#         self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["session_id"], "1")
-#         self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["window_id"], "1")
-#
-#     @freeze_time("2021-01-21T20:00:00.000Z")
-#     def test_duration_filter(self):
-#         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-#         produce_replay_summary(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
-#         produce_replay_summary(
-#             distinct_id="user",
-#             session_id="1",
-#             timestamp=self.base_time + relativedelta(seconds=30),
-#             team_id=self.team.id,
-#         )
-#
-#         produce_replay_summary(distinct_id="user", session_id="2", timestamp=self.base_time, team_id=self.team.id)
-#         produce_replay_summary(
-#             distinct_id="user",
-#             session_id="2",
-#             timestamp=self.base_time + relativedelta(minutes=4),
-#             team_id=self.team.id,
-#         )
-#         filter = SessionRecordingsFilter(
-#             team=self.team,
-#             data={"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}'},
-#         )
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 1)
-#         self.assertEqual(session_recordings[0]["session_id"], "2")
-#
-#         filter = SessionRecordingsFilter(
-#             team=self.team,
-#             data={"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"lt"}'},
-#         )
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 1)
-#         self.assertEqual(session_recordings[0]["session_id"], "1")
-#
-#     @freeze_time("2021-01-21T20:00:00.000Z")
-#     def test_date_from_filter(self):
-#         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-#         produce_replay_summary(
-#             distinct_id="user",
-#             session_id="1",
-#             timestamp=self.base_time - relativedelta(days=3),
-#             team_id=self.team.id,
-#         )
-#         produce_replay_summary(
-#             distinct_id="user",
-#             session_id="1",
-#             timestamp=self.base_time - relativedelta(days=3) + relativedelta(seconds=30),
-#             team_id=self.team.id,
-#         )
-#
-#         filter = SessionRecordingsFilter(team=self.team, data={"date_from": self.base_time.strftime("%Y-%m-%d")})
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 0)
-#
-#         filter = SessionRecordingsFilter(
-#             team=self.team, data={"date_from": (self.base_time - relativedelta(days=4)).strftime("%Y-%m-%d")}
-#         )
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 1)
-#         self.assertEqual(session_recordings[0]["session_id"], "1")
-#
-#     @freeze_time("2021-01-21T20:00:00.000Z")
-#     def test_date_to_filter(self):
-#         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-#         produce_replay_summary(
-#             distinct_id="user",
-#             session_id="1",
-#             timestamp=self.base_time - relativedelta(days=3),
-#             team_id=self.team.id,
-#         )
-#         produce_replay_summary(
-#             distinct_id="user",
-#             session_id="1",
-#             timestamp=self.base_time - relativedelta(days=3) + relativedelta(seconds=30),
-#             team_id=self.team.id,
-#         )
-#
-#         filter = SessionRecordingsFilter(
-#             team=self.team, data={"date_to": (self.base_time - relativedelta(days=4)).strftime("%Y-%m-%d")}
-#         )
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 0)
-#
-#         filter = SessionRecordingsFilter(team=self.team, data={"date_to": (self.base_time).strftime("%Y-%m-%d")})
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 1)
-#         self.assertEqual(session_recordings[0]["session_id"], "1")
-#
-#     @freeze_time("2021-01-21T20:00:00.000Z")
-#     def test_recording_that_spans_time_bounds(self):
-#         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-#         day_line = datetime(2021, 11, 5)
-#         produce_replay_summary(
-#             distinct_id="user", session_id="1", timestamp=day_line - relativedelta(hours=3), team_id=self.team.id
-#         )
-#         produce_replay_summary(
-#             distinct_id="user", session_id="1", timestamp=day_line + relativedelta(hours=3), team_id=self.team.id
-#         )
-#
-#         filter = SessionRecordingsFilter(
-#             team=self.team,
-#             data={
-#                 "date_to": day_line.strftime("%Y-%m-%d"),
-#                 "date_from": (day_line - relativedelta(days=10)).strftime("%Y-%m-%d"),
-#             },
-#         )
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 1)
-#         self.assertEqual(session_recordings[0]["session_id"], "1")
-#         self.assertEqual(session_recordings[0]["duration"], 6 * 60 * 60)
-#
-#     @freeze_time("2021-01-21T20:00:00.000Z")
-#     def test_person_id_filter(self):
-#         p = Person.objects.create(team=self.team, distinct_ids=["user", "user2"], properties={"email": "bla"})
-#         produce_replay_summary(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
-#         produce_replay_summary(
-#             distinct_id="user2",
-#             session_id="2",
-#             timestamp=self.base_time + relativedelta(seconds=10),
-#             team_id=self.team.id,
-#         )
-#         produce_replay_summary(
-#             distinct_id="user3",
-#             session_id="3",
-#             timestamp=self.base_time + relativedelta(seconds=20),
-#             team_id=self.team.id,
-#         )
-#
-#         filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
-#         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-#         (session_recordings, _) = session_recording_list_instance.run()
-#         self.assertEqual(len(session_recordings), 2)
-#         self.assertEqual(session_recordings[0]["session_id"], "2")
-#         self.assertEqual(session_recordings[1]["session_id"], "1")
-#
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id_one,
+            first_timestamp=self.base_time.isoformat(),
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            event_name="custom-event",
+            properties={"$browser": "Chrome", "$session_id": session_id_one, "$window_id": window_id},
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id_one,
+            first_timestamp=(self.base_time + relativedelta(seconds=30)).isoformat(),
+            team_id=self.team.id,
+        )
+
+        # An action with properties
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"actions": [{"id": action1.id, "type": "actions", "order": 1, "name": "custom-event"}]},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 0)
+
+        # An action without properties
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"actions": [{"id": action2.id, "type": "actions", "order": 1, "name": "custom-event"}]},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        self.assertEqual(len(session_recordings), 1)
+        self.assertEqual(session_recordings[0]["session_id"], session_id_one)
+
+        # Adding properties to an action
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "actions": [
+                    {
+                        "id": action2.id,
+                        "type": "actions",
+                        "order": 1,
+                        "name": "custom-event",
+                        "properties": [{"key": "$browser", "value": ["Firefox"], "operator": "exact", "type": "event"}],
+                    }
+                ]
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 0)
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_all_sessions_recording_object_keys_with_entity_filter(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        session_id = str(uuid4())
+        window_id = str(uuid4())
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            first_timestamp=self.base_time.isoformat(),
+            last_timestamp=(self.base_time + relativedelta(seconds=60)).isoformat(),
+            team_id=self.team.id,
+        )
+        self.create_event("user", self.base_time, properties={"$session_id": session_id, "$window_id": window_id})
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            last_timestamp=(self.base_time + relativedelta(seconds=30)).isoformat(),
+            team_id=self.team.id,
+        )
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+        self.assertEqual(session_recordings[0]["session_id"], session_id)
+        self.assertEqual(session_recordings[0]["distinct_id"], "user")
+        self.assertEqual(session_recordings[0]["duration"], 60)
+        self.assertEqual(session_recordings[0]["start_time"], self.base_time)
+        self.assertEqual(session_recordings[0]["end_time"], self.base_time + relativedelta(seconds=60))
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_duration_filter(self):
+        another_team = Team.objects.create(organization=self.organization)
+
+        Person.objects.create(team=another_team, distinct_ids=["user"], properties={"email": "bla"})
+
+        session_id_one = "session one is 29 seconds long"
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id_one,
+            first_timestamp=self.base_time.isoformat(),
+            last_timestamp=(self.base_time + relativedelta(seconds=29)).isoformat(),
+            team_id=another_team.id,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id_one,
+            first_timestamp=(self.base_time + relativedelta(seconds=28)).isoformat(),
+            last_timestamp=(self.base_time + relativedelta(seconds=29)).isoformat(),
+            team_id=another_team.id,
+        )
+
+        session_id_two = "session two is 61 seconds long"
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id_two,
+            first_timestamp=self.base_time.isoformat(),
+            last_timestamp=(self.base_time + relativedelta(seconds=61)).isoformat(),
+            team_id=another_team.id,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id_two,
+            first_timestamp=self.base_time.isoformat(),
+            last_timestamp=(self.base_time + relativedelta(seconds=61)).isoformat(),
+            team_id=another_team.id,
+        )
+        filter = SessionRecordingsFilter(
+            team=another_team,
+            data={"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}'},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=another_team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual([r["session_id"] for r in session_recordings], [session_id_two])
+
+        filter = SessionRecordingsFilter(
+            team=another_team,
+            data={"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"lt"}'},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=another_team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual([r["session_id"] for r in session_recordings], [session_id_one])
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_date_from_filter(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="three days before base time",
+            first_timestamp=(self.base_time - relativedelta(days=3, seconds=100)).isoformat(),
+            last_timestamp=(self.base_time - relativedelta(days=3)).isoformat(),
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="two days before base time",
+            first_timestamp=(self.base_time - relativedelta(days=2, seconds=100)).isoformat(),
+            last_timestamp=(self.base_time - relativedelta(days=2)).isoformat(),
+            team_id=self.team.id,
+        )
+
+        filter = SessionRecordingsFilter(team=self.team, data={"date_from": self.base_time.strftime("%Y-%m-%d")})
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 0)
+
+        filter = SessionRecordingsFilter(
+            team=self.team, data={"date_from": (self.base_time - relativedelta(days=2)).strftime("%Y-%m-%d")}
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+        self.assertEqual(session_recordings[0]["session_id"], "two days before base time")
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_date_to_filter(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="three days before base time",
+            first_timestamp=(self.base_time - relativedelta(days=3, seconds=100)).isoformat(),
+            last_timestamp=(self.base_time - relativedelta(days=3)).isoformat(),
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="two days before base time",
+            first_timestamp=(self.base_time - relativedelta(days=2, seconds=100)).isoformat(),
+            last_timestamp=(self.base_time - relativedelta(days=2)).isoformat(),
+            team_id=self.team.id,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team, data={"date_to": (self.base_time - relativedelta(days=4)).strftime("%Y-%m-%d")}
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 0)
+
+        filter = SessionRecordingsFilter(
+            team=self.team, data={"date_to": (self.base_time - relativedelta(days=3)).strftime("%Y-%m-%d")}
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        self.assertEqual(len(session_recordings), 1)
+        self.assertEqual(session_recordings[0]["session_id"], "three days before base time")
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_recording_that_spans_time_bounds(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        day_line = datetime(2021, 11, 5)
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=(day_line - relativedelta(hours=3)).isoformat(),
+            last_timestamp=(day_line + relativedelta(hours=3)).isoformat(),
+            team_id=self.team.id,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "date_to": day_line.strftime("%Y-%m-%d"),
+                "date_from": (day_line - relativedelta(days=10)).strftime("%Y-%m-%d"),
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+        self.assertEqual(session_recordings[0]["session_id"], "1")
+        self.assertEqual(session_recordings[0]["duration"], 6 * 60 * 60)
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_person_id_filter(self):
+        p = Person.objects.create(team=self.team, distinct_ids=["user", "user2"], properties={"email": "bla"})
+        produce_replay_summary(distinct_id="user", session_id=str(uuid4()), team_id=self.team.id)
+        produce_replay_summary(
+            distinct_id="user2",
+            session_id=str(uuid4()),
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            distinct_id="user3",
+            session_id=str(uuid4()),
+            team_id=self.team.id,
+        )
+
+        filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 2)
+        self.assertEqual([r["session_id"] for r in session_recordings], ["2", "1"])
+
+
 #     @freeze_time("2021-01-21T20:00:00.000Z")
 #     def test_all_filters_at_once(self):
 #         p = Person.objects.create(team=self.team, distinct_ids=["user", "user2"], properties={"email": "bla"})
@@ -579,7 +615,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #         produce_replay_summary(
 #             distinct_id="user",
 #             session_id="1",
-#             timestamp=self.base_time - relativedelta(days=3),
+#             first_timestamp=self.base_time - relativedelta(days=3),
 #             team_id=self.team.id,
 #         )
 #         self.create_event("user", self.base_time - relativedelta(days=3), properties={"$session_id": "1"})
@@ -592,7 +628,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #         produce_replay_summary(
 #             distinct_id="user",
 #             session_id="1",
-#             timestamp=self.base_time - relativedelta(days=3) + relativedelta(hours=6),
+#             first_timestamp=self.base_time - relativedelta(days=3) + relativedelta(hours=6),
 #             team_id=self.team.id,
 #         )
 #
@@ -615,17 +651,17 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #     @freeze_time("2021-01-21T20:00:00.000Z")
 #     def test_pagination(self):
 #         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-#         produce_replay_summary(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+#         produce_replay_summary(distinct_id="user", session_id="1", first_timestamp=self.base_time.isoformat(), team_id=self.team.id)
 #         produce_replay_summary(
 #             distinct_id="user",
 #             session_id="2",
-#             timestamp=self.base_time + relativedelta(seconds=10),
+#             first_timestamp=self.base_time + relativedelta(seconds=10),
 #             team_id=self.team.id,
 #         )
 #         produce_replay_summary(
 #             distinct_id="user",
 #             session_id="3",
-#             timestamp=self.base_time + relativedelta(seconds=20),
+#             first_timestamp=self.base_time + relativedelta(seconds=20),
 #             team_id=self.team.id,
 #         )
 #
@@ -666,7 +702,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #         produce_replay_summary(
 #             distinct_id="user",
 #             session_id="1",
-#             timestamp=self.base_time,
+#             first_timestamp=self.base_time,
 #             has_full_snapshot=False,
 #             team_id=self.team.id,
 #         )
@@ -680,12 +716,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 #         another_team = Team.objects.create(organization=self.organization)
 #
-#         produce_replay_summary(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+#         produce_replay_summary(distinct_id="user", session_id="1", first_timestamp=self.base_time.isoformat(), team_id=self.team.id)
 #         self.create_event(1, self.base_time + relativedelta(seconds=15), team=another_team)
 #         produce_replay_summary(
 #             distinct_id="user",
 #             session_id="1",
-#             timestamp=self.base_time + relativedelta(seconds=30),
+#             first_timestamp=self.base_time + relativedelta(seconds=30),
 #             team_id=self.team.id,
 #         )
 #
@@ -704,20 +740,20 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #     def test_event_filter_with_person_properties(self):
 #         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 #         Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})
-#         produce_replay_summary(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+#         produce_replay_summary(distinct_id="user", session_id="1", first_timestamp=self.base_time.isoformat(), team_id=self.team.id)
 #         self.create_event("user", self.base_time)
 #         produce_replay_summary(
 #             distinct_id="user",
 #             session_id="1",
-#             timestamp=self.base_time + relativedelta(seconds=30),
+#             first_timestamp=self.base_time + relativedelta(seconds=30),
 #             team_id=self.team.id,
 #         )
-#         produce_replay_summary(distinct_id="user2", session_id="2", timestamp=self.base_time, team_id=self.team.id)
+#         produce_replay_summary(distinct_id="user2", session_id="2", first_timestamp=self.base_time.isoformat(), team_id=self.team.id)
 #         self.create_event("user2", self.base_time)
 #         produce_replay_summary(
 #             distinct_id="user2",
 #             session_id="2",
-#             timestamp=self.base_time + relativedelta(seconds=30),
+#             first_timestamp=self.base_time + relativedelta(seconds=30),
 #             team_id=self.team.id,
 #         )
 #         filter = SessionRecordingsFilter(
@@ -745,20 +781,20 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #                 )
 #                 cohort.calculate_people_ch(pending_version=0)
 #
-#                 produce_replay_summary(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+#                 produce_replay_summary(distinct_id="user", session_id="1", first_timestamp=self.base_time.isoformat(), team_id=self.team.id)
 #                 self.create_event("user", self.base_time, team=self.team)
 #                 produce_replay_summary(
 #                     distinct_id="user",
 #                     session_id="1",
-#                     timestamp=self.base_time + relativedelta(seconds=30),
+#                     first_timestamp=self.base_time + relativedelta(seconds=30),
 #                     team_id=self.team.id,
 #                 )
-#                 produce_replay_summary(distinct_id="user2", session_id="2", timestamp=self.base_time, team_id=self.team.id)
+#                 produce_replay_summary(distinct_id="user2", session_id="2", first_timestamp=self.base_time.isoformat(), team_id=self.team.id)
 #                 self.create_event("user2", self.base_time, team=self.team)
 #                 produce_replay_summary(
 #                     distinct_id="user2",
 #                     session_id="2",
-#                     timestamp=self.base_time + relativedelta(seconds=30),
+#                     first_timestamp=self.base_time + relativedelta(seconds=30),
 #                     team_id=self.team.id,
 #                 )
 #                 filter = SessionRecordingsFilter(
@@ -776,14 +812,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #     def test_event_filter_with_matching_on_session_id(self):
 #         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 #         produce_replay_summary(
-#             distinct_id="user", session_id="1", timestamp=self.base_time, window_id="1", team_id=self.team.id
+#             distinct_id="user", session_id="1", first_timestamp=self.base_time.isoformat(), window_id="1", team_id=self.team.id
 #         )
 #         self.create_event("user", self.base_time, properties={"$session_id": "1"})
 #         self.create_event("user", self.base_time, event_name="$autocapture", properties={"$session_id": "2"})
 #         produce_replay_summary(
 #             distinct_id="user",
 #             session_id="1",
-#             timestamp=self.base_time + relativedelta(seconds=30),
+#             first_timestamp=self.base_time + relativedelta(seconds=30),
 #             window_id="1",
 #             team_id=self.team.id,
 #         )
@@ -815,7 +851,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #             snapshot_count=1,
 #             distinct_id="user",
 #             session_id="1",
-#             timestamp=self.base_time,
+#             first_timestamp=self.base_time,
 #             window_id="1",
 #             has_full_snapshot=True,
 #             source=3,
@@ -827,7 +863,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #             snapshot_count=10,
 #             distinct_id="user",
 #             session_id="1",
-#             timestamp=self.base_time + timedelta(minutes=1),
+#             first_timestamp=self.base_time + timedelta(minutes=1),
 #             window_id="1",
 #             has_full_snapshot=False,
 #             source=2,
@@ -839,7 +875,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 #             snapshot_count=10,
 #             distinct_id="user",
 #             session_id="1",
-#             timestamp=self.base_time + timedelta(minutes=2),
+#             first_timestamp=self.base_time + timedelta(minutes=2),
 #             window_id="1",
 #             has_full_snapshot=False,
 #             source=5,
@@ -864,14 +900,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 # @freeze_time("2021-01-21T20:00:00.000Z")
 # def test_event_filter_with_hogql_properties(self):
 #     Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-#     produce_replay_summary(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+#     produce_replay_summary(distinct_id="user", session_id="1", first_timestamp=self.base_time.isoformat(), team_id=self.team.id)
 #     self.create_event(
 #         "user", self.base_time, properties={"$browser": "Chrome", "$session_id": "1", "$window_id": "1"}
 #     )
 #     produce_replay_summary(
 #         distinct_id="user",
 #         session_id="1",
-#         timestamp=self.base_time + relativedelta(seconds=30),
+#         first_timestamp=self.base_time + relativedelta(seconds=30),
 #         team_id=self.team.id,
 #     )
 #     filter = SessionRecordingsFilter(

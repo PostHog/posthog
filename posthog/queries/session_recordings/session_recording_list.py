@@ -334,7 +334,7 @@ class SessionRecordingList(EventQuery):
         )
 
         if not self._determine_should_join_events():
-            return (
+            argh = (
                 self._session_recordings_query.format(
                     core_recordings_query=core_recordings_query,
                     recording_person_query=recording_person_query,
@@ -352,12 +352,13 @@ class SessionRecordingList(EventQuery):
                     **session_ids_params,
                 },
             )
+            return argh
 
         event_filters = self.format_event_filters
 
         core_events_query, core_events_query_params = self._get_core_events_query()
 
-        return (
+        ugh = (
             self._session_recordings_query_with_events.format(
                 event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
                 core_events_query=core_events_query,
@@ -381,6 +382,7 @@ class SessionRecordingList(EventQuery):
                 **core_events_query_params,
             },
         )
+        return ugh
 
     def _get_core_events_query(self) -> Tuple[str, Dict[str, Any]]:
         params: Dict[str, Any] = {}
