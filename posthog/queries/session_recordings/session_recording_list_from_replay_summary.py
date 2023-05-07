@@ -51,7 +51,17 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
            min(first_timestamp) as start_time,
            max(last_timestamp) as end_time,
            dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
-           any(first_url) as first_url,
+           -- TODO this is pretty non-deterministic even with all this group and element picking 😢
+           if(
+                -- for fun array indexes are one-based
+                -- this gathers all of the first_urls into an array
+                -- discards any that are empty
+                -- then takes the first one (this assumes this runs before the ORDER BY DESC)
+                -- if there is no non-empty url it returns null
+               empty(arrayElement(arrayFilter(x -> x != '' or x is not NULL, groupArray(first_url)),1)),
+                    null,
+                    arrayElement(arrayFilter(x -> x != '' or x is not NULL, groupArray(first_url)),1)
+           ) as first_url,
            sum(click_count),
            sum(keypress_count),
            sum(mouse_activity_count),
@@ -98,7 +108,17 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
            min(first_timestamp) as start_time,
            max(last_timestamp) as end_time,
            dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
-           any(first_url) as first_url,
+           -- TODO this is pretty non-deterministic even with all this group and element picking 😢
+           if(
+                -- for fun array indexes are one-based
+                -- this gathers all of the first_urls into an array
+                -- discards any that are empty
+                -- then takes the first one (this assumes this runs before the ORDER BY DESC)
+                -- if there is no non-empty url it returns null
+               empty(arrayElement(arrayFilter(x -> x != '' or x is not NULL, groupArray(first_url)),1)),
+                    null,
+                    arrayElement(arrayFilter(x -> x != '' or x is not NULL, groupArray(first_url)),1)
+           ) as first_url,
            sum(click_count),
            sum(keypress_count),
            sum(mouse_activity_count),
@@ -272,7 +292,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     def _persons_cte_clause(self) -> Tuple[str, str, Dict[str, Any]]:
         person_cte_match_clause = ""
         person_cte = ""
-        person_id_params = {}
+        person_id_params: Dict[str, Any] = {}
 
         person_query, person_query_params = self._get_person_query()
 
