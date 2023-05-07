@@ -14,7 +14,6 @@ from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
 )
-
 from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
@@ -148,6 +147,140 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         ]
 
         self.assertEqual(more_recordings_available, False)
+
+    def test_first_url_selection(self):
+        user = "test_first_url_selection-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = f"first-url-on-first-event-{str(uuid4())}"
+        session_id_two = f"first-url-not-on-first-event-{str(uuid4())}"
+        session_id_three = f"no-url-from-many-{str(uuid4())}"
+        session_id_four = f"events-inserted-out-of-order-{str(uuid4())}"
+
+        # session one has the first url on the first event
+        produce_replay_summary(
+            session_id=session_id_one,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=self.base_time,
+            last_timestamp=self.base_time + relativedelta(seconds=20),
+            first_url="https://on-first-event.com",
+        )
+
+        produce_replay_summary(
+            session_id=session_id_one,
+            team_id=self.team.pk,
+            first_timestamp=self.base_time + relativedelta(seconds=10),
+            last_timestamp=self.base_time + relativedelta(seconds=20),
+            first_url="https://on-second-event.com",
+        )
+
+        produce_replay_summary(
+            session_id=session_id_one,
+            team_id=self.team.pk,
+            first_timestamp=self.base_time + relativedelta(seconds=20),
+            last_timestamp=self.base_time + relativedelta(seconds=40),
+            first_url="https://on-third-event.com",
+        )
+
+        # session two has no URL on the first event
+        produce_replay_summary(
+            session_id=session_id_two,
+            team_id=self.team.pk,
+            first_timestamp=(self.base_time + relativedelta(seconds=10)),
+            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            first_url=None,
+        )
+
+        produce_replay_summary(
+            session_id=session_id_two,
+            team_id=self.team.pk,
+            first_timestamp=(self.base_time + relativedelta(seconds=20)),
+            last_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_url="https://first-is-on-second-event.com",
+        )
+
+        produce_replay_summary(
+            session_id=session_id_two,
+            team_id=self.team.pk,
+            first_timestamp=(self.base_time + relativedelta(seconds=25)),
+            last_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_url="https://another-on-the-session.com",
+        )
+
+        # session three has no URLs
+        produce_replay_summary(
+            session_id=session_id_three,
+            team_id=self.team.pk,
+            first_timestamp=self.base_time,
+            last_timestamp=self.base_time + relativedelta(seconds=50),
+            distinct_id=user,
+            first_url=None,
+        )
+
+        produce_replay_summary(
+            session_id=session_id_three,
+            team_id=self.team.pk,
+            first_timestamp=(self.base_time + relativedelta(seconds=10)),
+            last_timestamp=self.base_time + relativedelta(seconds=50),
+            distinct_id=user,
+            first_url=None,
+        )
+
+        produce_replay_summary(
+            session_id=session_id_three,
+            team_id=self.team.pk,
+            first_timestamp=(self.base_time + relativedelta(seconds=20)),
+            last_timestamp=self.base_time + relativedelta(seconds=60),
+            distinct_id=user,
+            first_url=None,
+        )
+
+        # session four events are received out of order
+        produce_replay_summary(
+            session_id=session_id_four,
+            team_id=self.team.pk,
+            first_timestamp=self.base_time + relativedelta(seconds=20),
+            last_timestamp=self.base_time + relativedelta(seconds=25),
+            first_url="https://on-first-received-event.com",
+        )
+        produce_replay_summary(
+            session_id=session_id_four,
+            team_id=self.team.pk,
+            first_timestamp=self.base_time + relativedelta(seconds=10),
+            last_timestamp=self.base_time + relativedelta(seconds=25),
+            first_url="https://on-second-received-event-but-actually-first.com",
+        )
+
+        filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, more_recordings_available) = session_recording_list_instance.run()
+
+        assert sorted(
+            [{"session_id": r["session_id"], "first_url": r["first_url"]} for r in session_recordings],
+            key=lambda x: x["session_id"],
+        ) == sorted(
+            [
+                {
+                    "session_id": session_id_one,
+                    "first_url": "https://on-first-event.com",
+                },
+                {
+                    "session_id": session_id_two,
+                    "first_url": "https://first-is-on-second-event.com",
+                },
+                {
+                    "session_id": session_id_three,
+                    "first_url": None,
+                },
+                {
+                    "session_id": session_id_four,
+                    "first_url": "https://on-second-received-event-but-actually-first.com",
+                },
+            ],
+            # mypy unhappy about this lambda 🤷️
+            key=lambda x: x["session_id"],  # type: ignore
+        )
 
     def test_recordings_dont_leak_data_between_teams(self):
         another_team = Team.objects.create(organization=self.organization)
