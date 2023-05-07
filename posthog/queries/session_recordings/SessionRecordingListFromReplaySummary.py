@@ -31,25 +31,19 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     _persons_lookup_cte = """
     distinct_ids_for_person as (
         SELECT distinct_id, argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-            -- why do we join on person id... to check is_deleted?
-            -- INNER JOIN (
-            -- SELECT id
-            -- FROM person
-            -- WHERE team_id = 2
-            -- GROUP BY id
-            -- HAVING max (is_deleted) = 0
-            -- ) person
-            --                 ON person.id = person_distinct_id2.person_id
+        FROM person_distinct_id2 as pdi
+            {filter_persons_clause}
         PREWHERE team_id = %(team_id)s
         GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0 and person_id = %(person_uuid)s
+        HAVING
+            argMax(is_deleted, version) = 0
+            {filter_by_person_uuid_condition}
+            {filter_by_cohort_condition}
     )
     """
 
     _session_recordings_query: str = """
-        -- prepend with as its the only CTE for this query
-        with  {person_cte}
+        {person_cte}
         SELECT
            session_id,
            any(team_id),
@@ -64,6 +58,8 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         FROM session_replay_events
         PREWHERE team_id = %(team_id)s
         {person_cte_match_clause}
+        -- may also need to match session ids from the query filter
+        {session_ids_clause}
     GROUP BY session_id
         HAVING first_timestamp >= %(start_time)s
         AND last_timestamp <= %(end_time)s
@@ -72,8 +68,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         """
 
     _session_recordings_query_with_events = """
+        -- person_cte is optional,
+        -- it adds the comma needed to have multiple CTEs if it is present
         with {person_cte}
-        ,events_session_ids AS (
+        events_session_ids AS (
         -- this core query has to select the session_ids from the events table
         -- because the non_aggregate_select_condition_clause is used to AND conditions together
         -- but, we want to select a simple set of session ids
@@ -88,8 +86,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 team_id = %(team_id)s
                 {events_timestamp_clause}
                 {event_filter_where_conditions}
-                {prop_filter_clause}
-                {person_id_clause}
                 and notEmpty(session_id)) AS inner_event_q
         GROUP BY session_id
         HAVING 1=1 {event_matches_filter_conditions}
@@ -108,7 +104,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         FROM session_replay_events
         PREWHERE team_id = %(team_id)s
         {person_cte_match_clause}
+        -- matches session ids from events CTE
         AND session_id in (select session_id from events_session_ids)
+        -- may also need to match session ids from the query filter
+        {session_ids_clause}
         GROUP BY session_id
         HAVING first_timestamp >= %(start_time)s
         AND last_timestamp <= %(end_time)s
@@ -210,10 +209,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         }
         recording_person_query, recording_person_query_params = self._get_recording_person_query()
 
-        prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        )
-
         event_filters = self.format_event_filters
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
         _, recording_start_time_params = self._get_recording_start_time_clause
@@ -226,29 +221,24 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         if not self._determine_should_join_events():
             return (
                 self._session_recordings_query.format(
-                    # recording_person_query=recording_person_query,
-                    # prop_filter_clause=prop_query,
                     person_id_clause=person_id_clause,
                     duration_clause=duration_clause,
-                    person_cte=person_cte,
+                    person_cte=f"with {person_cte}" if person_cte else "",
                     person_cte_match_clause=person_cte_match_clause,
+                    session_ids_clause=session_ids_clause,
                 ),
                 {
                     **base_params,
                     **recording_start_time_params,
                     **person_id_params,
-                    # **recording_person_query_params,
-                    # **prop_params,
-                    # **events_timestamp_params,
                     **duration_params,
                     **person_person_cte_params,
+                    **session_ids_params,
                 },
             )
 
         to_be_debugged = (
             self._session_recordings_query_with_events.format(
-                # recording_person_query=recording_person_query,
-                prop_filter_clause=prop_query,
                 person_id_clause=person_id_clause,
                 event_filter_where_conditions=event_filters.where_conditions,
                 events_timestamp_clause=events_timestamp_clause,
@@ -256,19 +246,20 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 event_matches_filter_conditions=event_filters.aggregate_having_clause,
                 non_aggregate_select_condition_summing_clause=event_filters.non_aggregate_select_condition_summing_clause,
                 duration_clause=duration_clause,
-                person_cte=person_cte,
+                person_cte=f"{person_cte}," if person_cte else "",
                 person_cte_match_clause=person_cte_match_clause,
+                session_ids_clause=session_ids_clause,
             ),
             {
                 **base_params,
                 **person_id_params,
                 **recording_person_query_params,
-                **prop_params,
                 **events_timestamp_params,
                 **duration_params,
                 **recording_start_time_params,
                 **event_filters.params,
                 **person_person_cte_params,
+                **session_ids_params,
             },
         )
         # breakpoint()
@@ -276,14 +267,39 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
     @cached_property
     def _persons_cte_clause(self) -> Tuple[str, str, Dict[str, Any]]:
-
         person_cte_match_clause = ""
         person_cte = ""
         person_id_params = {}
-        if self._filter.person_uuid:
+
+        person_query, person_query_params = self._get_person_query()
+
+        # KLUDGE: it is possible coincidence since recordings have their own filter component
+        # but this prop_query is only used when filtering by cohort membership
+        # since we haven't joined replays to person table this condition is only used for and
+        # needs adding to the person CTE
+        # in the two versions of the session_recording_list this is a "top-level" condition
+        # because they do join the tables
+        cohort_filter_condition, cohort_filter_params = self._get_prop_groups(
+            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
+
+        if self._filter.person_uuid or person_query:
+            person_id_params = {
+                **person_id_params,
+                **person_query_params,
+                "person_uuid": self._filter.person_uuid,
+                **cohort_filter_params,
+            }
+            filter_persons_clause = person_query or ""
+            filter_by_person_uuid_condition = "and person_id = %(person_uuid)s" if self._filter.person_uuid else ""
+
+            person_cte = self._persons_lookup_cte.format(
+                filter_persons_clause=filter_persons_clause,
+                filter_by_person_uuid_condition=filter_by_person_uuid_condition,
+                filter_by_cohort_condition=cohort_filter_condition,
+            )
+
             person_cte_match_clause = "AND distinct_id in (select distinct_id from distinct_ids_for_person)"
-            person_cte = self._persons_lookup_cte
-            person_id_params = {"person_uuid": self._filter.person_uuid}
         return person_cte, person_cte_match_clause, person_id_params
 
     @cached_property
@@ -294,3 +310,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             person_id_clause = "AND person_id = %(person_uuid)s"
             person_id_params = {"person_uuid": self._filter.person_uuid}
         return person_id_clause, person_id_params
+
+    def _get_recording_person_query(self) -> Tuple[str, Dict]:
+        # not used in this version of a session_recording_list
+        return "", {}
