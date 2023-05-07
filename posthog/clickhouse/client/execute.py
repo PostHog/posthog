@@ -107,7 +107,6 @@ def sync_execute(
         except Exception as err:
             err = wrap_query_error(err)
             statsd.incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": type(err).__name__})
-            breakpoint()
             raise err
         finally:
             execution_time = perf_counter() - start_time
