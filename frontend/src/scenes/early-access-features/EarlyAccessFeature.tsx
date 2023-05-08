@@ -5,10 +5,10 @@ import { Field, PureField } from 'lib/forms/Field'
 import { SceneExport } from 'scenes/sceneTypes'
 import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { Form } from 'kea-forms'
-import { EarlyAccsesFeatureType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+import { EarlyAccsesFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import { PersonsScene } from 'scenes/persons/Persons'
-import { IconDelete, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { useState } from 'react'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -17,7 +17,6 @@ import { TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { PersonLogicProps, personsLogic } from 'scenes/persons/personsLogic'
-import api from 'lib/api'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
 import { Col } from 'antd'
@@ -248,33 +247,12 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
 
     const { featureFlag } = useValues(featureFlagLogic({ id: earlyAccessFeature.feature_flag.id || 'link' }))
 
-    const optUserOut = async (person: PersonType): Promise<void> => {
-        await api.persons.updateProperty(person.id as string, key, false)
-        logic.actions.setPerson({ ...person, properties: { ...person.properties, [key]: false } })
-    }
-
     return (
         <BindLogic logic={personsLogic} props={personLogicProps}>
             <h3 className="text-xl font-semibold">Opted-In Users</h3>
             <PersonsScene
                 showSearch={persons.results.length > 0}
                 showFilters={persons.results.length > 0}
-                extraColumns={[
-                    {
-                        render: function Render(_, person: PersonType) {
-                            return (
-                                person.properties['$feature_enrollment/' + earlyAccessFeature.feature_flag.key] && (
-                                    <LemonButton
-                                        onClick={() => optUserOut(person)}
-                                        icon={<IconDelete />}
-                                        status="danger"
-                                        size="small"
-                                    />
-                                )
-                            )
-                        },
-                    },
-                ]}
                 extraSceneActions={
                     persons.results.length > 0
                         ? [
