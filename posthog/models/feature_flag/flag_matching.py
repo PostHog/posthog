@@ -312,7 +312,7 @@ class FeatureFlagMatcher:
 
                 person_fields: List[str] = []
 
-                def condition_eval(key, condition):
+                def condition_eval(key, condition, super=False):
                     expr = None
                     annotate_query = True
                     nonlocal person_query
@@ -326,7 +326,7 @@ class FeatureFlagMatcher:
                             )
                         expr = properties_to_Q(
                             Filter(data=condition).property_groups.flat,
-                            override_property_values=target_properties,
+                            override_property_values=target_properties if not super else {},
                         )
 
                         # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.
@@ -350,6 +350,7 @@ class FeatureFlagMatcher:
                                     )
                                 }
                             )
+
                             person_fields.append(key)
                         else:
                             if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
@@ -380,7 +381,7 @@ class FeatureFlagMatcher:
                         prop_key = condition.get("properties", [{}])[0].get("key", None)
                         if prop_key:
                             key = f"flag_{feature_flag.pk}_super_condition"
-                            condition_eval(key, condition)
+                            condition_eval(key, condition, super=True)
 
                             is_set_key = f"flag_{feature_flag.pk}_super_condition_is_set"
                             is_set_condition = {
@@ -391,7 +392,7 @@ class FeatureFlagMatcher:
                                     }
                                 ]
                             }
-                            condition_eval(is_set_key, is_set_condition)
+                            condition_eval(is_set_key, is_set_condition, super=True)
 
                     for index, condition in enumerate(feature_flag.conditions):
                         key = f"flag_{feature_flag.pk}_condition_{index}"
