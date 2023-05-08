@@ -387,7 +387,7 @@ class FeatureFlagMatcher:
                         prop_key = condition.get("properties", [{}])[0].get("key", None)
                         if prop_key:
                             key = f"flag_{feature_flag.pk}_super_condition"
-                            condition_eval(key, condition, super=True)
+                            condition_eval(key, condition)
 
                             is_set_key = f"flag_{feature_flag.pk}_super_condition_is_set"
                             is_set_condition = {
@@ -398,7 +398,7 @@ class FeatureFlagMatcher:
                                     }
                                 ]
                             }
-                            condition_eval(is_set_key, is_set_condition, super=True)
+                            condition_eval(is_set_key, is_set_condition)
 
                     for index, condition in enumerate(feature_flag.conditions):
                         key = f"flag_{feature_flag.pk}_condition_{index}"
