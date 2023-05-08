@@ -4,7 +4,6 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
-import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { isCohortBreakdown } from './taxonomicBreakdownFilterUtils'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
@@ -50,24 +49,16 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
 
     const tags = !hasBreakdown
         ? []
-        : breakdownArray.map((t, index) => {
-              const key = `${t}-${index}`
-              const propertyDefinition = getPropertyDefinition(t)
-              const isPropertyHistogramable = !!propertyDefinition?.is_numerical
-
-              return (
-                  <BreakdownTag
-                      key={key}
-                      logicKey={key}
-                      isHistogramable={isPropertyHistogramable}
-                      isURLNormalizeable={isURLNormalizeable(propertyDefinition?.name || '')}
-                      breakdown={t}
-                      onClose={onCloseFor ? onCloseFor(t, index) : undefined}
-                      filters={filters}
-                      setFilters={setFilters}
-                  />
-              )
-          })
+        : breakdownArray.map((t, index) => (
+              <BreakdownTag
+                  key={`${t}-${index}`}
+                  logicKey={`${t}-${index}`}
+                  breakdown={t}
+                  onClose={onCloseFor ? onCloseFor(t, index) : undefined}
+                  filters={filters}
+                  setFilters={setFilters}
+              />
+          ))
 
     return (
         <div className="flex flex-wrap gap-2 items-center">

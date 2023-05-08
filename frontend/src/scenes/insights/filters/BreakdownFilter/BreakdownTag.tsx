@@ -7,11 +7,10 @@ import { breakdownTagLogic } from './breakdownTagLogic'
 import { isAllCohort, isCohort, isPersonEventOrGroup } from './taxonomicBreakdownFilterUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 
 type BreakdownTagProps = {
-    isHistogramable: boolean
-    // e.g. example.com and example.com/ should be treated as the same value
-    isURLNormalizeable: boolean
     setFilters?: (filter: Partial<FilterType>, mergeFilters?: boolean) => void
     filters: FilterType
     onClose?: () => void
@@ -19,28 +18,25 @@ type BreakdownTagProps = {
     logicKey: string
 }
 
-export function BreakdownTag({
-    isHistogramable,
-    isURLNormalizeable,
-    setFilters,
-    filters,
-    onClose,
-    breakdown,
-    logicKey,
-}: BreakdownTagProps): JSX.Element {
+export function BreakdownTag({ setFilters, filters, onClose, breakdown, logicKey }: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const breakdownTagLogicInstance = breakdownTagLogic({ logicKey, setFilters, filters })
+    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
     const { binCount, useHistogram } = useValues(breakdownTagLogicInstance)
     const { setBinCount, setUseHistogram, setNormalizeBreakdownURL } = useActions(breakdownTagLogicInstance)
 
+    const propertyDefinition = getPropertyDefinition(breakdown)
+    const isHistogramable = !!propertyDefinition?.is_numerical
+    const isNormalizeable = isURLNormalizeable(propertyDefinition?.name || '')
+
     return (
         <LemonTag
             className="taxonomic-breakdown-filter tag-pill"
-            closable={!!setFilters && !isHistogramable && !isURLNormalizeable}
+            closable={!!setFilters && !isHistogramable && !isNormalizeable}
             onClose={onClose}
             popover={{
-                overlay: isURLNormalizeable ? (
+                overlay: isNormalizeable ? (
                     <>
                         <LemonSwitch
                             checked={!!filters.breakdown_normalize_url}
