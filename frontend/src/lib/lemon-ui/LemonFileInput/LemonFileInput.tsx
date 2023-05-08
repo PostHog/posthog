@@ -43,11 +43,12 @@ export function useUploadFiles({
             try {
                 setUploading(true)
                 const formData = new FormData()
-                let blob: Blob = filesToUpload[0]
-                if (blob.type.startsWith('image/')) {
-                    blob = await lazyImageBlobReducer(blob)
+                let file: File = filesToUpload[0]
+                if (file.type.startsWith('image/')) {
+                    const compressedBlob = await lazyImageBlobReducer(file)
+                    file = new File([compressedBlob], file.name, { type: compressedBlob.type })
                 }
-                formData.append('image', blob)
+                formData.append('image', file)
                 const media = await api.media.upload(formData)
                 onUpload?.(media.image_location, media.name)
             } catch (error) {
@@ -170,7 +171,7 @@ export const LemonFileInput = ({
                 ref={dropRef}
                 className={clsx('flex flex-col gap-1', !alternativeDropTargetRef?.current && drag && 'FileDropTarget')}
             >
-                <label className="text-muted    inline-flex flex flow-row items-center gap-1 cursor-pointer">
+                <label className="text-muted inline-flex flex flow-row items-center gap-1 cursor-pointer">
                     <input
                         className={'hidden'}
                         type="file"
