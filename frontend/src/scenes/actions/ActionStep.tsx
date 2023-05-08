@@ -63,7 +63,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                         event: value || '',
                                     })
                                 }
-                                placeholder="Any event"
+                                placeholder="All events"
                             />
 
                             <small>
@@ -282,7 +282,7 @@ function TypeSwitcher({
         if (type === '$autocapture') {
             sendStep({ ...step, event: '$autocapture' })
         } else if (type === 'event') {
-            sendStep({ ...step, event: '' })
+            sendStep({ ...step, event: null })
         } else if (type === '$pageview') {
             sendStep({
                 ...step,

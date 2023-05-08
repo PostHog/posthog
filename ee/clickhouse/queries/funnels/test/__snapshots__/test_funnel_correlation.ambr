@@ -1491,7 +1491,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -1577,7 +1577,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -1660,7 +1660,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -1764,7 +1764,7 @@
             funnel_actors.steps as steps,
             arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
      FROM funnel_actors
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -1823,7 +1823,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -1895,7 +1895,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -1967,7 +1967,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2039,7 +2039,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2132,7 +2132,7 @@
             funnel_actors.steps as steps,
             arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2212,7 +2212,7 @@
             funnel_actors.steps as steps,
             arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
      FROM funnel_actors
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2271,7 +2271,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2343,7 +2343,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2415,7 +2415,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2487,7 +2487,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2580,7 +2580,7 @@
             funnel_actors.steps as steps,
             arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2662,7 +2662,7 @@
             funnel_actors.steps as steps,
             arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
      FROM funnel_actors
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2722,7 +2722,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2796,7 +2796,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2870,7 +2870,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2944,7 +2944,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -3040,7 +3040,7 @@
             funnel_actors.steps as steps,
             arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -3122,7 +3122,7 @@
             funnel_actors.steps as steps,
             arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
      FROM funnel_actors
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -3182,7 +3182,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -3256,7 +3256,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -3330,7 +3330,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -3404,7 +3404,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -3500,7 +3500,7 @@
             funnel_actors.steps as steps,
             arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups

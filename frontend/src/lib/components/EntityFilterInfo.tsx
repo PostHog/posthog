@@ -25,17 +25,16 @@ export function EntityFilterInfo({
     showSingleName = false,
     style,
 }: EntityFilterInfoProps): JSX.Element {
-    const title = getDisplayNameFromEntityFilter(filter, false)
-
     // No filter
-    if (filter.type === EntityTypes.NEW_ENTITY || !title) {
+    if (filter.type === EntityTypes.EVENTS && filter.id === null && !filter.name) {
         return (
-            <TextWrapper title="Select filter" className="text-muted-alt">
-                Select event
+            <TextWrapper title="All events" className="text-muted-alt">
+                All events
             </TextWrapper>
         )
     }
 
+    const title = getDisplayNameFromEntityFilter(filter, false)
     const titleToDisplay = getKeyMapping(title, 'event')?.label?.trim() ?? title ?? undefined
 
     // No custom name
