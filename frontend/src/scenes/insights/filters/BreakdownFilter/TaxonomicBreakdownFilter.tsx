@@ -15,7 +15,9 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
     const logicProps = { filters, setFilters, getPropertyDefinition }
-    const { hasBreakdown, hasNonCohortBreakdown, breakdownArray } = useValues(taxonomicBreakdownFilterLogic(logicProps))
+    const { hasBreakdown, hasNonCohortBreakdown, breakdownArray, isViewOnly } = useValues(
+        taxonomicBreakdownFilterLogic(logicProps)
+    )
 
     const tags = !hasBreakdown
         ? []
@@ -27,7 +29,7 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                {setFilters && !hasNonCohortBreakdown ? (
+                {!isViewOnly && !hasNonCohortBreakdown ? (
                     <TaxonomicBreakdownButton
                         includeSessions={filters.insight === InsightType.TRENDS} // TODO: convert to data exploration
                     />

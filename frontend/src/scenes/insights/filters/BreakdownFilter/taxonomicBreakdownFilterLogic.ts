@@ -50,6 +50,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (s) => [s.breakdownArray],
             (breakdownArray) => breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b))),
         ],
+        isViewOnly: [(_, p) => [p.setFilters], (setFilters) => !setFilters],
     }),
     listeners(({ props, values }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
