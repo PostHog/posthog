@@ -2,7 +2,7 @@ import { captureException } from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { format } from 'util'
 
-import { Action, Hook, IngestionPersonData, PostIngestionEvent } from '../../types'
+import { Action, Hook, PostIngestionEvent } from '../../types'
 import { DB } from '../../utils/db/db'
 import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
@@ -28,17 +28,12 @@ export function determineWebhookType(url: string): WebhookType {
     return WebhookType.Teams
 }
 
-export function getUserDetails(
-    event: PostIngestionEvent,
-    person: IngestionPersonData | undefined,
-    siteUrl: string,
-    webhookType: WebhookType
-): [string, string] {
-    if (!person) {
-        return ['undefined', 'undefined']
-    }
+export function getUserDetails(event: PostIngestionEvent, siteUrl: string, webhookType: WebhookType): [string, string] {
     const userName = stringify(
-        person.properties?.email || person.properties?.name || person.properties?.username || event.distinctId
+        event.person_properties?.email ||
+            event.person_properties?.name ||
+            event.person_properties?.username ||
+            event.distinctId
     )
     let userMarkdown: string
     if (webhookType === WebhookType.Slack) {
@@ -75,7 +70,6 @@ export function getTokens(messageFormat: string): [string[], string] {
 export function getValueOfToken(
     action: Action,
     event: PostIngestionEvent,
-    person: IngestionPersonData | undefined,
     siteUrl: string,
     webhookType: WebhookType,
     tokenParts: string[]
@@ -87,7 +81,7 @@ export function getValueOfToken(
         // [user.name] and [user.foo] are DEPRECATED as they had odd mechanics
         // [person] OR [event.properties.bar] should be used instead
         if (tokenParts[1] === 'name') {
-            ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
+            ;[text, markdown] = getUserDetails(event, siteUrl, webhookType)
         } else {
             const propertyName = `$${tokenParts[1]}`
             const property = event.properties?.[propertyName]
@@ -96,10 +90,10 @@ export function getValueOfToken(
         }
     } else if (tokenParts[0] === 'person') {
         if (tokenParts.length === 1) {
-            ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
+            ;[text, markdown] = getUserDetails(event, siteUrl, webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
             const propertyName = tokenParts[2]
-            const property = person?.properties?.[propertyName]
+            const property = event.person_properties?.[propertyName]
             text = stringify(property)
             markdown = text
         }
@@ -127,7 +121,6 @@ export function getValueOfToken(
 export function getFormattedMessage(
     action: Action,
     event: PostIngestionEvent,
-    person: IngestionPersonData | undefined,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
@@ -143,7 +136,7 @@ export function getFormattedMessage(
         for (const token of tokens) {
             const tokenParts = token.match(/\$\w+|\$\$\w+|\w+/g) || []
 
-            const [value, markdownValue] = getValueOfToken(action, event, person, siteUrl, webhookType, tokenParts)
+            const [value, markdownValue] = getValueOfToken(action, event, siteUrl, webhookType, tokenParts)
             values.push(value)
             markdownValues.push(markdownValue)
         }
@@ -182,11 +175,7 @@ export class HookCommander {
         this.statsd = statsd
     }
 
-    public async findAndFireHooks(
-        event: PostIngestionEvent,
-        person: IngestionPersonData | undefined,
-        actionMatches: Action[]
-    ): Promise<void> {
+    public async findAndFireHooks(event: PostIngestionEvent, actionMatches: Action[]): Promise<void> {
         status.debug('🔍', `Looking for hooks to fire for event "${event.event}"`)
         if (!actionMatches.length) {
             status.debug('🔍', `No hooks to fire for event "${event.event}"`)
@@ -205,7 +194,7 @@ export class HookCommander {
         if (webhookUrl) {
             const webhookRequests = actionMatches
                 .filter((action) => action.post_to_slack)
-                .map((action) => this.postWebhook(webhookUrl, action, event, person))
+                .map((action) => this.postWebhook(webhookUrl, action, event))
             await Promise.all(webhookRequests).catch((error) => captureException(error))
         }
 
@@ -213,7 +202,7 @@ export class HookCommander {
             const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
 
             if (restHooks.length > 0) {
-                const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event, person))
+                const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event))
                 await Promise.all(restHookRequests).catch((error) => captureException(error))
 
                 this.statsd?.increment('zapier_hooks_fired', {
@@ -223,15 +212,10 @@ export class HookCommander {
         }
     }
 
-    private async postWebhook(
-        webhookUrl: string,
-        action: Action,
-        event: PostIngestionEvent,
-        person: IngestionPersonData | undefined
-    ): Promise<void> {
+    private async postWebhook(webhookUrl: string, action: Action, event: PostIngestionEvent): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
         const siteUrl = await this.siteUrlManager.getSiteUrl()
-        const [messageText, messageMarkdown] = getFormattedMessage(action, event, person, siteUrl || '', webhookType)
+        const [messageText, messageMarkdown] = getFormattedMessage(action, event, siteUrl || '', webhookType)
         let message: Record<string, any>
         if (webhookType === WebhookType.Slack) {
             message = {
@@ -255,30 +239,20 @@ export class HookCommander {
         })
     }
 
-    public async postRestHook(
-        hook: Hook,
-        event: PostIngestionEvent,
-        person: IngestionPersonData | undefined
-    ): Promise<void> {
+    public async postRestHook(hook: Hook, event: PostIngestionEvent): Promise<void> {
         let sendablePerson: Record<string, any> = {}
-        if (person) {
-            const { uuid, properties, team_id, id } = person
-
-            // we standardize into ISO before sending the payload
-            const createdAt = person.created_at.toISO()
-
+        const { person_id, person_created_at, person_properties, ...data } = event
+        if (person_id) {
             sendablePerson = {
-                uuid,
-                properties,
-                team_id,
-                id,
-                created_at: createdAt,
+                uuid: person_id,
+                properties: person_properties,
+                created_at: person_created_at,
             }
         }
 
         const payload = {
             hook: { id: hook.id, event: hook.event, target: hook.target },
-            data: { ...event, person: sendablePerson },
+            data: { ...data, person: sendablePerson },
         }
 
         const request = await fetch(hook.target, {

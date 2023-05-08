@@ -67,12 +67,6 @@ export const actionsAndEventsToSeries = ({
                     event: f.id,
                     ...shared,
                 }
-            } else if (f.type === 'new_entity') {
-                return {
-                    kind: NodeKind.NewEntityNode,
-                    event: f.id,
-                    ...shared,
-                }
             }
         })
 
@@ -134,8 +128,12 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             breakdowns: filters.breakdowns,
             breakdown_value: filters.breakdown_value,
             breakdown_group_type_index: filters.breakdown_group_type_index,
-            aggregation_group_type_index: filters.aggregation_group_type_index,
         })
+    }
+
+    // group aggregation
+    if (filters.aggregation_group_type_index !== undefined) {
+        query.aggregation_group_type_index = filters.aggregation_group_type_index
     }
 
     // trends filter
@@ -179,6 +177,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             entrance_period_start: filters.entrance_period_start,
             drop_off: filters.drop_off,
             hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
+            funnel_aggregate_by_hogql: filters.funnel_aggregate_by_hogql,
         })
     }
 

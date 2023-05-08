@@ -20,6 +20,7 @@ export function LemonEventName({ value, onChange, disabled, placeholder }: Event
             placeholder={placeholder ?? 'Select an event'}
             dataAttr="event-name-box"
             renderValue={(v) => <PropertyKeyInfo value={v} disablePopover />}
+            excludedProperties={{ events: [null] }}
             allowClear
         />
     )

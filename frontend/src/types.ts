@@ -362,7 +362,7 @@ export enum ActionStepUrlMatching {
 }
 
 export interface ActionStepType {
-    event?: string
+    event?: string | null
     href?: string | null
     id?: number
     name?: string
@@ -561,11 +561,6 @@ export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGr
 
 export type SessionRecordingId = SessionRecordingType['id']
 
-export interface PlayerPosition {
-    time: number
-    windowId: string
-}
-
 export interface RRWebRecordingConsoleLogPayload {
     level: LogLevel
     payload: (string | null)[]
@@ -600,41 +595,41 @@ export type RecordingConsoleLogV2 = {
 }
 
 export interface RecordingSegment {
-    startPlayerPosition: PlayerPosition // Player time (for the specific window_id's player) that the segment starts. If the segment starts 10 seconds into a recording, this would be 10000
-    endPlayerPosition: PlayerPosition // Player time (for the specific window_id' player) that the segment ends
-    startTimeEpochMs: number // Epoch time that the segment starts
-    endTimeEpochMs: number // Epoch time that the segment ends
+    kind: 'window' | 'buffer' | 'gap'
+    startTimestamp: number // Epoch time that the segment starts
+    endTimestamp: number // Epoch time that the segment ends
     durationMs: number
-    windowId: string
+    windowId?: string
     isActive: boolean
-}
-
-export interface RecordingStartAndEndTime {
-    startTimeEpochMs: number
-    endTimeEpochMs: number
 }
 
 export interface SessionRecordingMeta {
     pinnedCount: number
     segments: RecordingSegment[]
-    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
     startTimestamp: Dayjs
     endTimestamp: Dayjs
 }
 
+export type RecordingSnapshot = eventWithTime & {
+    windowId: string
+}
+
 export interface SessionPlayerSnapshotData {
-    snapshotsByWindowId: Record<string, eventWithTime[]>
+    snapshots: RecordingSnapshot[]
     next?: string
+    blob_keys?: string[]
 }
 
-export interface SessionPlayerMetaData {
+export interface SessionPlayerData {
+    pinnedCount: number
     person: PersonType | null
-    metadata: SessionRecordingMeta
-}
-
-export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {
-    bufferedTo: PlayerPosition | null
+    segments: RecordingSegment[]
+    bufferedToTime: number | null
+    snapshotsByWindowId: Record<string, eventWithTime[]>
+    durationMs: number
+    start?: Dayjs
+    end?: Dayjs
 }
 
 export enum SessionRecordingUsageType {
@@ -705,7 +700,6 @@ export interface Entity {
 export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
-    NEW_ENTITY = 'new_entity',
 }
 
 export type EntityFilter = {
@@ -1626,6 +1620,7 @@ export interface FunnelsFilterType extends FilterType {
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    funnel_aggregate_by_hogql?: string
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType

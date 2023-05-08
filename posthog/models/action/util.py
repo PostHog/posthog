@@ -123,6 +123,9 @@ def format_entity_filter(
             person_id_joined_alias=person_id_joined_alias,
             hogql_context=hogql_context,
         )
+    elif entity.id is None:
+        entity_filter = "1 = 1"
+        params = {}
     else:
         key = f"{prepend}_event"
         entity_filter = f"event = %({key})s"

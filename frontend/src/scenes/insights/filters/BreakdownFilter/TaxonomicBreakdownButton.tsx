@@ -66,6 +66,7 @@ export function TaxonomicBreakdownButton({
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 className="taxonomic-breakdown-filter tag-button"
+                sideIcon={null}
             >
                 <PropertyKeyInfo
                     value={

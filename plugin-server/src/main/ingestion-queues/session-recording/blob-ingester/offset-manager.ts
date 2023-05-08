@@ -19,12 +19,17 @@
 import { KafkaConsumer } from 'node-rdkafka-acosom'
 
 import { status } from '../../../../utils/status'
+import { getMapByteSize } from '../shonky-ram-measurement'
 
 export class OffsetManager {
     // We have to track every message's offset so that we can commit them only after they've been written to S3
     offsetsByPartitionTopic: Map<string, number[]> = new Map()
 
     constructor(private consumer: KafkaConsumer) {}
+
+    public estimateSize(): number {
+        return getMapByteSize(this.offsetsByPartitionTopic)
+    }
 
     public addOffset(topic: string, partition: number, offset: number): void {
         const key = `${topic}-${partition}`
@@ -40,16 +45,13 @@ export class OffsetManager {
     /**
      * When a rebalance occurs we need to remove all in-flight offsets for partitions that are no longer
      * assigned to this consumer.
-     *
-     * @param topic
-     * @param assignedPartitions The partitions that are still assigned to this consumer after a rebalance
      */
-    public cleanPartitions(topic: string, assignedPartitions: number[]): void {
-        const assignedKeys = assignedPartitions.map((partition) => `${topic}-${partition}`)
+    public revokePartitions(topic: string, revokedPartitions: number[]): void {
+        const assignedKeys = revokedPartitions.map((partition) => `${topic}-${partition}`)
 
         const keysToDelete = new Set<string>()
         for (const [key] of this.offsetsByPartitionTopic) {
-            if (!assignedKeys.includes(key)) {
+            if (assignedKeys.includes(key)) {
                 keysToDelete.add(key)
             }
         }

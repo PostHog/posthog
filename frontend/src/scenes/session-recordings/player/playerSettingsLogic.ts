@@ -168,7 +168,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
-        setIsMetadataExpanded: (isMetadataExpanded: boolean) => ({ isMetadataExpanded }),
         setAutoplayEnabled: (enabled: boolean) => ({ enabled }),
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
@@ -201,12 +200,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             false,
             {
                 setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
-            },
-        ],
-        isMetadataExpanded: [
-            false,
-            {
-                setIsMetadataExpanded: (_, { isMetadataExpanded }) => isMetadataExpanded,
             },
         ],
         autoplayEnabled: [

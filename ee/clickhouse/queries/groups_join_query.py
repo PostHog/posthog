@@ -46,7 +46,7 @@ class GroupsJoinQuery:
             group_join_key = self._join_key or f'"$group_{group_type_index}"'
             join_queries.append(
                 f"""
-                INNER JOIN (
+                LEFT JOIN (
                     SELECT
                         group_key,
                         argMax(group_properties, _timestamp) AS group_properties_{group_type_index}

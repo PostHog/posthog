@@ -282,7 +282,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
 
 function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state: boolean) => void }): JSX.Element {
     const { authorizedUrls, launchUrl, suggestionsLoading } = useValues(
-        authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS })
+        authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS, actionId: null })
     )
     return (
         <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">

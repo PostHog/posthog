@@ -72,7 +72,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                 enabledIntervals.hour = {
                     ...enabledIntervals.hour,
                     disabledReason:
-                        'Grouping by hour is not supported on insights with weekly or monthly active users series.',
+                        'Grouping by hour is not supported on insights with weekly or monthly active users series.',
                 }
 
                 // Disallow grouping by month for WAUs as the resulting view is misleading to users
@@ -80,7 +80,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                     enabledIntervals.month = {
                         ...enabledIntervals.month,
                         disabledReason:
-                            'Grouping by month is not supported on insights with weekly active users series.',
+                            'Grouping by month is not supported on insights with weekly active users series.',
                     }
                 }
             }
@@ -93,12 +93,12 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             if (activeUsersMath && values.interval && enabledIntervals[values.interval].disabledReason) {
                 if (values.interval === 'hour') {
                     lemonToast.info(
-                        `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[activeUsersMath].name}" does not support grouping by ${values.interval}.`
+                        `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[activeUsersMath].name}" does not support grouping by ${values.interval}.`
                     )
                     actions.setInterval('day')
                 } else {
                     lemonToast.info(
-                        `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[activeUsersMath].name}" does not support grouping by ${values.interval}.`
+                        `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[activeUsersMath].name}" does not support grouping by ${values.interval}.`
                     )
                     actions.setInterval('week')
                 }

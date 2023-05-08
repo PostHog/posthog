@@ -1,21 +1,18 @@
 import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { sum, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import {
     AvailableFeature,
     PerformanceEvent,
-    PlayerPosition,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingReportLoadTimes,
     RecordingSegment,
-    RecordingStartAndEndTime,
+    RecordingSnapshot,
     SessionPlayerData,
-    SessionPlayerMetaData,
     SessionPlayerSnapshotData,
     SessionRecordingId,
-    SessionRecordingMeta,
     SessionRecordingType,
     SessionRecordingUsageType,
 } from '~/types'
@@ -27,74 +24,50 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
+import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
+import { decompressSync, strFromU8 } from 'fflate'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
-export const parseMetadataResponse = (recording: SessionRecordingType): SessionRecordingMeta => {
-    let startTimestamp: Dayjs | undefined
-    let endTimestamp: Dayjs | undefined
+export const prepareRecordingSnapshots = (
+    newSnapshots?: RecordingSnapshot[],
+    existingSnapshots?: RecordingSnapshot[]
+): RecordingSnapshot[] => {
+    return (newSnapshots || [])
+        .concat(existingSnapshots ? existingSnapshots ?? [] : [])
+        .sort((a, b) => a.timestamp - b.timestamp)
+}
 
-    const segments: RecordingSegment[] =
-        recording.segments?.map((segment): RecordingSegment => {
-            const windowStartTime = dayjs(recording.start_and_end_times_by_window_id?.[segment.window_id]?.start_time)
-            const segmentStartTime = dayjs(segment.start_time)
-            const segmentEndTime = dayjs(segment.end_time)
-            const startPlayerPosition: PlayerPosition = {
-                windowId: segment.window_id,
-                time: segmentStartTime.valueOf() - windowStartTime.valueOf(),
-            }
-            const endPlayerPosition: PlayerPosition = {
-                windowId: segment.window_id,
-                time: segmentEndTime.valueOf() - windowStartTime.valueOf(),
-            }
-            const durationMs = segmentEndTime.valueOf() - segmentStartTime.valueOf()
-
-            if (!startTimestamp || segmentStartTime.isBefore(startTimestamp)) {
-                startTimestamp = segmentStartTime
-            }
-            if (!endTimestamp || segmentEndTime.isAfter(endTimestamp)) {
-                endTimestamp = segmentEndTime
-            }
-
-            return {
-                startPlayerPosition,
-                endPlayerPosition,
-                durationMs,
-                startTimeEpochMs: segmentStartTime.valueOf(),
-                endTimeEpochMs: segmentEndTime.valueOf(),
-                windowId: segment.window_id,
-                isActive: segment.is_active,
-            }
-        }) || []
-    const startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime> = {}
-    Object.entries(recording.start_and_end_times_by_window_id || {}).forEach(([windowId, startAndEndTimes]) => {
-        startAndEndTimesByWindowId[windowId] = {
-            startTimeEpochMs: +dayjs(startAndEndTimes.start_time),
-            endTimeEpochMs: +dayjs(startAndEndTimes.end_time),
-        }
+// Until we change the API to return a simple list of snapshots, we need to convert this ourselves
+export const convertSnapshotsResponse = (
+    snapshotsByWindowId: { [key: string]: eventWithTime[] },
+    existingSnapshots?: RecordingSnapshot[]
+): RecordingSnapshot[] => {
+    const snapshots: RecordingSnapshot[] = Object.entries(snapshotsByWindowId).flatMap(([windowId, snapshots]) => {
+        return snapshots.map((snapshot) => ({
+            ...snapshot,
+            windowId,
+        }))
     })
-    return {
-        pinnedCount: recording.pinned_count ?? 0,
-        segments,
-        startAndEndTimesByWindowId,
-        recordingDurationMs: sum(segments.map((s) => s.durationMs)),
-        startTimestamp: startTimestamp as Dayjs,
-        endTimestamp: endTimestamp as Dayjs,
-    }
+
+    return prepareRecordingSnapshots(snapshots, existingSnapshots)
 }
 
 const generateRecordingReportDurations = (
     cache: Record<string, any>,
     values: Record<string, any>
 ): RecordingReportLoadTimes => {
+    // TODO: This anytyping is super hard to manage - we should either type it or move it to a selector.
     return {
         metadata: {
-            size: values.sessionPlayerMetaData.metadata.segments.length,
+            size: values.segments.length,
             duration: Math.round(performance.now() - cache.metaStartTime),
         },
         snapshots: {
-            size: Object.keys(values.sessionPlayerSnapshotData?.snapshotsByWindowId ?? {}).length,
+            size: (values.sessionPlayerSnapshotData?.segments ?? []).length,
             duration: Math.round(performance.now() - cache.snapshotsStartTime),
         },
         events: {
@@ -109,42 +82,55 @@ const generateRecordingReportDurations = (
     }
 }
 
-// Returns the maximum player position that the recording has been buffered to.
-// Data can be received out of order (e.g. events from a later segment are received
-// before events from an earlier segment). So this function iterates through the
-// segments in their order and returns when it first detects data is not loaded.
-const calculateBufferedTo = (
-    segments: RecordingSegment[] = [],
-    snapshotsByWindowId: Record<string, eventWithTime[]> | undefined,
-    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime> = {}
-): PlayerPosition | null => {
-    let bufferedTo: PlayerPosition | null = null
-    // If we don't have metadata or snapshots yet, then we can't calculate the bufferedTo.
-    if (!segments || !snapshotsByWindowId || !startAndEndTimesByWindowId) {
-        return bufferedTo
-    }
-
-    for (const segment of segments) {
-        const lastEventForWindowId = (snapshotsByWindowId[segment.windowId] ?? []).slice(-1).pop()
-
-        if (lastEventForWindowId && lastEventForWindowId.timestamp >= segment.startTimeEpochMs) {
-            // If we've buffered past the start of the segment, see how far.
-            const windowStartTime = startAndEndTimesByWindowId[segment.windowId].startTimeEpochMs
-            bufferedTo = {
-                windowId: segment.windowId,
-                time: Math.min(lastEventForWindowId.timestamp - windowStartTime, segment.endPlayerPosition.time),
-            }
-        }
-    }
-
-    return bufferedTo
-}
-
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
-    // Data can be preloaded (e.g. via browser import)
-    sessionRecordingData?: SessionPlayerData
     recordingStartTime?: string
+}
+
+async function makeSnapshotsAPICall({
+    breakpoint,
+    nextUrl,
+    recordingStartTime,
+    blobLoadingEnabled,
+    currentSnapshotData,
+    currentTeamId,
+    sessionRecordingId,
+}: {
+    breakpoint: (() => void) & ((ms: number) => Promise<void>)
+    nextUrl: string | undefined
+    recordingStartTime: string | undefined
+    blobLoadingEnabled: boolean
+    currentSnapshotData: SessionPlayerSnapshotData | null
+    currentTeamId: number | null
+    sessionRecordingId: string | undefined
+}): Promise<SessionPlayerSnapshotData> {
+    const params = toParams({
+        recording_start_time: recordingStartTime,
+        blob_loading_enabled: blobLoadingEnabled,
+    })
+    const apiUrl =
+        nextUrl || `api/projects/${currentTeamId}/session_recordings/${sessionRecordingId}/snapshots?${params}`
+    const response = await api.get(apiUrl)
+    breakpoint()
+
+    // NOTE: This might seem backwards as we translate the snapshotsByWindowId to an array and then derive it again later but
+    // this is for future support of the API that will return them as a simple array
+
+    if (!response.blob_keys) {
+        const snapshots = convertSnapshotsResponse(
+            response.snapshot_data_by_window_id,
+            nextUrl ? currentSnapshotData?.snapshots ?? [] : []
+        )
+        return {
+            snapshots,
+            next: response.next,
+        }
+    } else {
+        return {
+            snapshots: [],
+            blob_keys: response.blob_keys,
+        }
+    }
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -153,21 +139,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     }),
     defaults({
-        sessionPlayerMetaData: {
-            person: null,
-            metadata: {
-                pinnedCount: 0,
-                segments: [],
-                startAndEndTimesByWindowId: {},
-                recordingDurationMs: 0,
-                startTimestamp: dayjs(),
-                endTimestamp: dayjs(),
-            },
-            bufferedTo: null,
-        } as SessionPlayerMetaData,
+        sessionPlayerMetaData: null as SessionRecordingType | null,
     }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
@@ -210,33 +185,123 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, props, actions, cache }) => ({
         loadEntireRecording: () => {
             actions.loadRecordingMeta()
         },
         loadRecordingMetaSuccess: () => {
-            if (!values.sessionPlayerSnapshotData?.snapshotsByWindowId) {
+            if (!values.sessionPlayerSnapshotData?.snapshots) {
                 actions.loadRecordingSnapshots()
             }
             actions.loadEvents()
             actions.loadPerformanceEvents()
         },
+        loadRecordingBlobSnapshotsSuccess: () => {
+            if (values.sessionPlayerSnapshotData?.blob_keys?.length) {
+                actions.loadRecordingBlobSnapshots(null)
+            } else {
+                actions.loadRecordingSnapshotsSuccess(values.sessionPlayerSnapshotData)
+            }
+        },
         loadRecordingSnapshotsSuccess: () => {
-            // If there is more data to poll for load the next batch.
-            // This will keep calling loadRecording until `next` is empty.
-            if (!!values.sessionPlayerData.next) {
-                actions.loadRecordingSnapshots(values.sessionPlayerData.next)
+            if (values.sessionPlayerSnapshotData?.blob_keys?.length) {
+                actions.loadRecordingBlobSnapshots(null)
+                return
+            } else if (!!values.sessionPlayerSnapshotData?.next) {
+                actions.loadRecordingSnapshots(values.sessionPlayerSnapshotData?.next)
             } else {
                 actions.reportUsageIfFullyLoaded()
             }
             // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
             if (values.chunkPaginationIndex === 1) {
                 cache.firstPaintDurationRow = {
-                    size: Object.keys(values.sessionPlayerSnapshotData?.snapshotsByWindowId || {}).length,
+                    size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
 
                 actions.reportViewed()
+            }
+
+            if (!values.sessionPlayerSnapshotData?.next) {
+                // this is a short term mechanism to compare blob and api loaded snapshot data
+                ;(window as any).PH_SESSION_REPLAY = {
+                    compare: async () => {
+                        console.group('comparing session for: ', props.sessionRecordingId)
+                        if (!values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY]) {
+                            console.error(
+                                'FOR SIMPLICITY THIS MECHANISM ASSUMES YOU HAVE THE BLOB STORAGE FLAG ENABLED'
+                            )
+                            return false
+                        }
+                        if (!values.sessionPlayerSnapshotData?.snapshots.length) {
+                            console.log('There are no current values **from blob storage**')
+                        }
+                        const fakePoint = (): Promise<void> => Promise.resolve()
+                        let comparisonData = await makeSnapshotsAPICall({
+                            breakpoint: fakePoint,
+                            nextUrl: undefined,
+                            recordingStartTime: props.recordingStartTime,
+                            blobLoadingEnabled: false,
+                            currentSnapshotData: null,
+                            currentTeamId: values.currentTeamId,
+                            sessionRecordingId: props.sessionRecordingId,
+                        })
+
+                        while (comparisonData.next) {
+                            comparisonData = await makeSnapshotsAPICall({
+                                breakpoint: fakePoint,
+                                nextUrl: comparisonData.next,
+                                recordingStartTime: props.recordingStartTime,
+                                blobLoadingEnabled: false,
+                                currentSnapshotData: comparisonData,
+                                currentTeamId: values.currentTeamId,
+                                sessionRecordingId: props.sessionRecordingId,
+                            })
+                        }
+                        console.log('finished loading comparison data')
+                        console.log('now we have: ', {
+                            fromBlobStorage: values.sessionPlayerSnapshotData?.snapshots,
+                            fromAPI: comparisonData?.snapshots,
+                        })
+
+                        console.log(
+                            'blob storage returned ',
+                            values.sessionPlayerSnapshotData?.snapshots?.length,
+                            ' snapshots'
+                        )
+                        console.log('api returned ', comparisonData?.snapshots?.length, ' snapshots')
+
+                        const timestampsMatch = values.sessionPlayerSnapshotData?.snapshots?.every(
+                            (snapshot, index) => {
+                                const comparisonSnapshot = comparisonData?.snapshots?.[index]
+                                if (!comparisonSnapshot) {
+                                    return false
+                                }
+                                return snapshot.timestamp === comparisonSnapshot.timestamp
+                            }
+                        )
+
+                        if (values.sessionPlayerSnapshotData?.snapshots?.length === comparisonData?.snapshots?.length) {
+                            if (timestampsMatch) {
+                                console.log('🎉 storage and api have the same timestamps ✅')
+                            } else {
+                                console.error(
+                                    '🧨 storage and api snapshots are the same length but have different timestamps'
+                                )
+                            }
+                        } else {
+                            if (timestampsMatch) {
+                                console.error(
+                                    '⚠️ storage and api have the same timestamps but different lengths. If this is a recent recording then the ingester probably has not flushed the whole thing yet'
+                                )
+                            } else {
+                                console.error('🧨 storage and api have different lengths and different timestamps')
+                            }
+                        }
+
+                        console.groupEnd()
+                    },
+                }
             }
         },
         loadEventsSuccess: () => {
@@ -293,43 +358,73 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             loadRecordingMeta: async (_, breakpoint) => {
                 cache.metaStartTime = performance.now()
                 if (!props.sessionRecordingId) {
-                    return values.sessionPlayerMetaData
+                    return null
                 }
                 const params = toParams({
                     save_view: true,
                     recording_start_time: props.recordingStartTime,
                 })
                 const response = await api.recordings.get(props.sessionRecordingId, params)
-
-                const metadata = parseMetadataResponse(response)
                 breakpoint()
 
                 if (response.snapshot_data_by_window_id) {
+                    const snapshots = convertSnapshotsResponse(response.snapshot_data_by_window_id)
                     // When loaded from S3 the snapshots are already present
                     actions.loadRecordingSnapshotsSuccess({
-                        snapshotsByWindowId: response.snapshot_data_by_window_id,
+                        snapshots,
                     })
+                }
+
+                return response
+            },
+            addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
+                if (!values.sessionPlayerMetaData) {
+                    return null
                 }
 
                 return {
                     ...values.sessionPlayerMetaData,
-                    person: response.person || null,
-                    metadata,
-                }
-            },
-            addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
-                return {
-                    ...values.sessionPlayerMetaData,
-                    metadata: {
-                        ...values.sessionPlayerMetaData.metadata,
-                        pinnedCount: Math.max(values.sessionPlayerMetaData.metadata.pinnedCount + diffCount, 0),
-                    },
+                    pinned_count: Math.max(values.sessionPlayerMetaData.pinned_count ?? 0 + diffCount, 0),
                 }
             },
         },
         sessionPlayerSnapshotData: [
             null as SessionPlayerSnapshotData | null,
             {
+                loadRecordingBlobSnapshots: async (_, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
+                    const snapshotDataClone = { ...values.sessionPlayerSnapshotData } as SessionPlayerSnapshotData
+
+                    if (!snapshotDataClone?.blob_keys?.length) {
+                        // only call this loader action when there are blob_keys to load
+                        return snapshotDataClone
+                    }
+
+                    await breakpoint(1)
+
+                    const blob_key = snapshotDataClone.blob_keys.shift()
+
+                    const response = await api.getResponse(
+                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshot_file/?blob_key=${blob_key}`
+                    )
+                    breakpoint()
+
+                    const contentBuffer = new Uint8Array(await response.arrayBuffer())
+                    const jsonLines = strFromU8(decompressSync(contentBuffer)).trim().split('\n')
+                    const snapshots: RecordingSnapshot[] = jsonLines.flatMap((l) => {
+                        const snapshotLine = JSON.parse(l)
+                        const snapshotData = JSON.parse(snapshotLine['data'])
+
+                        return snapshotData.map((d: any) => ({
+                            windowId: snapshotLine['window_id'],
+                            ...d,
+                        }))
+                    })
+
+                    return {
+                        blob_keys: snapshotDataClone.blob_keys,
+                        snapshots: prepareRecordingSnapshots(snapshots, snapshotDataClone.snapshots),
+                    }
+                },
                 loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
                     cache.snapshotsStartTime = performance.now()
 
@@ -338,33 +433,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
                     await breakpoint(1)
 
-                    const params = toParams({
-                        recording_start_time: props.recordingStartTime,
+                    return await makeSnapshotsAPICall({
+                        breakpoint,
+                        nextUrl,
+                        recordingStartTime: props.recordingStartTime,
+                        blobLoadingEnabled: !!values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY],
+                        currentSnapshotData: values.sessionPlayerSnapshotData,
+                        currentTeamId: values.currentTeamId,
+                        sessionRecordingId: props.sessionRecordingId,
                     })
-                    const apiUrl =
-                        nextUrl ||
-                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
-                    const response = await api.get(apiUrl)
-                    breakpoint()
-                    // If we have a next url, we need to append the new snapshots to the existing ones
-                    const snapshotsByWindowId = {
-                        ...(nextUrl ? values.sessionPlayerSnapshotData?.snapshotsByWindowId ?? {} : {}),
-                    }
-                    const incomingSnapshotByWindowId: {
-                        [key: string]: eventWithTime[]
-                    } = response.snapshot_data_by_window_id
-
-                    // We merge the new snapshots with the existing ones and sort by timestamp to ensure they are in order
-                    Object.entries(incomingSnapshotByWindowId).forEach(([windowId, snapshots]) => {
-                        snapshotsByWindowId[windowId] = [...(snapshotsByWindowId[windowId] ?? []), ...snapshots].sort(
-                            (a, b) => a.timestamp - b.timestamp
-                        )
-                    })
-                    return {
-                        ...values.sessionPlayerSnapshotData,
-                        snapshotsByWindowId,
-                        next: response.next,
-                    }
                 },
             },
         ],
@@ -372,12 +449,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as null | RecordingEventType[],
             {
                 loadEvents: async () => {
-                    if (!values.sessionPlayerData?.metadata || !values.sessionPlayerData?.person) {
+                    const { start, end, person } = values.sessionPlayerData
+
+                    if (!person || !start || !end) {
                         return null
                     }
-
-                    const { metadata, person } = values.sessionPlayerData
-                    const { startTimestamp, endTimestamp } = metadata || {}
 
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all(
                         [
@@ -409,8 +485,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 orderBy: ['timestamp ASC'],
                                 limit: 1000000,
                                 personId: person.id,
-                                after: startTimestamp.subtract(BUFFER_MS, 'ms').format(),
-                                before: endTimestamp.add(BUFFER_MS, 'ms').format(),
+                                after: start.subtract(BUFFER_MS, 'ms').format(),
+                                before: end.add(BUFFER_MS, 'ms').format(),
                                 properties: [properties],
                             })
                         )
@@ -436,7 +512,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     $event_type: event[6],
                                     $pathname: pathname,
                                 },
-                                playerTime: +dayjs(event[2]) - +startTimestamp,
+                                playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
                             }
                         }
@@ -487,9 +563,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as null | PerformanceEvent[],
             {
                 loadPerformanceEvents: async ({}, breakpoint) => {
-                    const { startTimestamp, endTimestamp } = values.sessionPlayerData.metadata
+                    const { start, end } = values.sessionPlayerData
 
-                    if (!startTimestamp || !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)) {
+                    if (!start || !end || !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)) {
                         return []
                     }
 
@@ -500,8 +576,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     // Use `nextUrl` if there is a `next` url to fetch
                     const response = await api.performanceEvents.list({
                         session_id: props.sessionRecordingId,
-                        date_from: startTimestamp.subtract(BUFFER_MS, 'ms').format(),
-                        date_to: endTimestamp.add(BUFFER_MS, 'ms').format(),
+                        date_from: start.subtract(BUFFER_MS, 'ms').format(),
+                        date_to: end.add(BUFFER_MS, 'ms').format(),
                     })
 
                     breakpoint()
@@ -513,39 +589,95 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     })),
     selectors({
         sessionPlayerData: [
-            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
-            (meta, snapshots): SessionPlayerData => ({
-                ...meta,
-                ...(snapshots || {
-                    snapshotsByWindowId: {},
-                }),
-                bufferedTo: calculateBufferedTo(
-                    meta.metadata?.segments,
-                    snapshots?.snapshotsByWindowId,
-                    meta.metadata?.startAndEndTimesByWindowId
-                ),
+            (s) => [
+                s.sessionPlayerMetaData,
+                s.snapshotsByWindowId,
+                s.segments,
+                s.bufferedToTime,
+                s.start,
+                s.end,
+                s.durationMs,
+            ],
+            (meta, snapshotsByWindowId, segments, bufferedToTime, start, end, durationMs): SessionPlayerData => ({
+                pinnedCount: meta?.pinned_count ?? 0,
+                person: meta?.person ?? null,
+                start,
+                end,
+                durationMs,
+                snapshotsByWindowId,
+                segments,
+                bufferedToTime,
             }),
         ],
+
+        start: [
+            (s) => [s.sessionPlayerMetaData],
+            (meta): Dayjs | undefined => {
+                return meta?.start_time ? dayjs(meta.start_time) : undefined
+            },
+        ],
+
+        end: [
+            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
+            (meta, sessionPlayerSnapshotData): Dayjs | undefined => {
+                // NOTE: We might end up with more snapshots than we knew about when we started the recording so we
+                // either use the metadata end point or the last snapshot, whichever is later.
+                const end = meta?.end_time ? dayjs(meta.end_time) : undefined
+                const lastEvent = sessionPlayerSnapshotData?.snapshots?.slice(-1)[0]
+
+                return lastEvent?.timestamp && lastEvent.timestamp > +(end ?? 0) ? dayjs(lastEvent.timestamp) : end
+            },
+        ],
+
+        durationMs: [
+            (s) => [s.start, s.end],
+            (start, end): number => {
+                return end?.diff(start) ?? 0
+            },
+        ],
+
+        segments: [
+            (s) => [s.sessionPlayerSnapshotData, s.start, s.end],
+            (sessionPlayerSnapshotData, start, end): RecordingSegment[] => {
+                return createSegments(sessionPlayerSnapshotData?.snapshots || [], start, end)
+            },
+        ],
+
+        snapshotsByWindowId: [
+            (s) => [s.sessionPlayerSnapshotData],
+            (sessionPlayerSnapshotData): Record<string, eventWithTime[]> => {
+                return mapSnapshotsToWindowId(sessionPlayerSnapshotData?.snapshots || [])
+            },
+        ],
+
+        bufferedToTime: [
+            (s) => [s.segments],
+            (segments): number | null => {
+                if (!segments.length) {
+                    return null
+                }
+
+                const startTime = segments[0].startTimestamp
+                const lastSegment = segments[segments.length - 1]
+
+                if (lastSegment.kind === 'buffer') {
+                    return lastSegment.startTimestamp - startTime
+                }
+
+                return lastSegment.endTimestamp - startTime
+            },
+        ],
+
         windowIds: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData) => {
-                return Object.keys(sessionPlayerData?.metadata?.startAndEndTimesByWindowId) ?? []
+            (s) => [s.snapshotsByWindowId],
+            (snapshotsByWindowId) => {
+                return Object.keys(snapshotsByWindowId)
             },
         ],
     }),
     afterMount(({ props, actions }) => {
         if (props.sessionRecordingId) {
             actions.loadEntireRecording()
-        }
-
-        if (props.sessionRecordingData) {
-            actions.loadRecordingSnapshotsSuccess({
-                snapshotsByWindowId: props.sessionRecordingData.snapshotsByWindowId,
-            })
-            actions.loadRecordingMetaSuccess({
-                person: props.sessionRecordingData.person,
-                metadata: props.sessionRecordingData.metadata,
-            })
         }
     }),
 ])
