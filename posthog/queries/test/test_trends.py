@@ -6317,7 +6317,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)
-        self.assertEqual(1, 2)
 
     def test_filtering_with_group_props_event_with_no_group_data(self):
         self._create_groups()
