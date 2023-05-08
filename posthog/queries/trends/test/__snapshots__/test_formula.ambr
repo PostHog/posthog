@@ -1,6 +1,6 @@
 # name: TestFormula.test_breakdown
   '
-  
+
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
@@ -18,7 +18,7 @@
 ---
 # name: TestFormula.test_breakdown.1
   '
-  
+
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
@@ -128,7 +128,7 @@
 ---
 # name: TestFormula.test_breakdown_aggregated
   '
-  
+
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
@@ -146,7 +146,7 @@
 ---
 # name: TestFormula.test_breakdown_aggregated.1
   '
-  
+
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
@@ -329,7 +329,7 @@
 ---
 # name: TestFormula.test_breakdown_hogql
   '
-  
+
   SELECT groupArray(value)
   FROM
     (SELECT concat(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ' : ', replaceRegexpAll(JSONExtractRaw(events.properties, 'location'), '^"|"$', '')) AS value,
@@ -361,7 +361,7 @@
 ---
 # name: TestFormula.test_breakdown_hogql.1
   '
-  
+
   SELECT groupArray(value)
   FROM
     (SELECT concat(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ' : ', replaceRegexpAll(JSONExtractRaw(events.properties, 'location'), '^"|"$', '')) AS value,
@@ -513,7 +513,7 @@
 ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
   '
-  
+
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
@@ -531,7 +531,7 @@
 ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
   '
-  
+
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
