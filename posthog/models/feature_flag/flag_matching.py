@@ -312,7 +312,7 @@ class FeatureFlagMatcher:
 
                 person_fields: List[str] = []
 
-                def condition_eval(key, condition, super=False):
+                def condition_eval(key, condition):
                     expr = None
                     annotate_query = True
                     nonlocal person_query
@@ -326,7 +326,7 @@ class FeatureFlagMatcher:
                             )
                         expr = properties_to_Q(
                             Filter(data=condition).property_groups.flat,
-                            override_property_values=target_properties if not super else {},
+                            override_property_values=target_properties,
                         )
 
                         # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.
