@@ -268,14 +268,13 @@ export function SitePopoverOverlay(): JSX.Element {
                 ) : null}
                 <InviteMembersButton />
                 {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
-                    <LemonButton
-                        type="tertiary"
-                        fullWidth
+                    <div
+                        className="LemonButton LemonButton--tertiary LemonButton--status-primary LemonButton--full-width LemonButton__content flex items-center"
                         data-attr="early-access-feature-button"
                         onClick={closeSitePopover}
                     >
                         Early Access Features
-                    </LemonButton>
+                    </div>
                 )}
             </SitePopoverSection>
             {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
