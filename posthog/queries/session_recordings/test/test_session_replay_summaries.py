@@ -38,29 +38,18 @@ class SessionReplaySummaryQuery:
                session_id,
                any(team_id),
                any(distinct_id),
-               min(first_timestamp),
-               max(last_timestamp),
-               dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
-               -- TRICKY: make an array of tuples of first_url and first_timestamp for each row being grouped by session
-               -- then sort those by the first timestamp
-               -- take the first of those that is not null (if one exists)
-               -- and keep the URL from that tuple
-               -- for fun, tuples are one indexed not zero indexed
-               tupleElement(
-                    arrayFirst(
-                         x -> x.1 is not null,
-                         arraySort(x -> x.2, groupArray(tuple(first_url, first_timestamp)))
-                    ),
-                    1
-               ) as first_url,
+               min(min_first_timestamp),
+               max(max_last_timestamp),
+               dateDiff('SECOND', min(min_first_timestamp), max(max_last_timestamp)) as duration,
+               argMinMerge(first_url) as first_url,
                sum(click_count),
                sum(keypress_count),
                sum(mouse_activity_count),
                round((sum(active_milliseconds)/1000)/duration, 2) as active_time
             from session_replay_events
             prewhere team_id = %(team_id)s
-            and first_timestamp >= %(start_time)s
-            and last_timestamp <= %(end_time)s
+            and min_first_timestamp >= %(start_time)s
+            and max_last_timestamp <= %(end_time)s
             and session_id in (%(session_ids)s)
             group by session_id
             """,
