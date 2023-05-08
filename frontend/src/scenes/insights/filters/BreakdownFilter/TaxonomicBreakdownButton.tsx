@@ -15,14 +15,14 @@ import { IconPlusMini } from 'lib/lemon-ui/icons'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
-    onChange: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => void
+    addBreakdown: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => void
     onlyCohorts?: boolean
     includeSessions?: boolean
 }
 
 export function TaxonomicBreakdownButton({
     breakdownType,
-    onChange,
+    addBreakdown,
     onlyCohorts,
     includeSessions,
 }: TaxonomicBreakdownButtonProps): JSX.Element {
@@ -49,7 +49,7 @@ export function TaxonomicBreakdownButton({
                     groupType={breakdownType}
                     onChange={(taxonomicGroup, value) => {
                         if (value) {
-                            onChange(value, taxonomicGroup)
+                            addBreakdown(value, taxonomicGroup)
                             setOpen(false)
                         }
                     }}

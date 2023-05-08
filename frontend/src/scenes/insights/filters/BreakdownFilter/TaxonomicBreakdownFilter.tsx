@@ -1,10 +1,10 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
-import { onFilterChange, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
+import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { isCohortBreakdown } from './taxonomicBreakdownFilterUtils'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
@@ -18,7 +18,8 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
     const { hasBreakdown, hasNonCohortBreakdown, taxonomicBreakdownType, breakdownArray, breakdownCohortArray } =
-        useValues(taxonomicBreakdownFilterLogic({ filters }))
+        useValues(taxonomicBreakdownFilterLogic({ filters, setFilters, getPropertyDefinition }))
+    const { addBreakdown } = useActions(taxonomicBreakdownFilterLogic({ filters, setFilters, getPropertyDefinition }))
 
     const onCloseFor = setFilters
         ? (t: string | number, index: number): (() => void) => {
@@ -68,22 +69,14 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
               )
           })
 
-    const onChange = setFilters
-        ? onFilterChange({
-              breakdownCohortArray,
-              setFilters,
-              getPropertyDefinition: getPropertyDefinition,
-          })
-        : undefined
-
     return (
         <div className="flex flex-wrap gap-2 items-center">
             {tags}
-            {onChange && !hasNonCohortBreakdown ? (
+            {setFilters && !hasNonCohortBreakdown ? (
                 <TaxonomicBreakdownButton
                     breakdownType={taxonomicBreakdownType}
-                    onChange={onChange}
-                    includeSessions={filters.insight === InsightType.TRENDS}
+                    addBreakdown={addBreakdown}
+                    includeSessions={filters.insight === InsightType.TRENDS} // TODO: convert to data exploration
                 />
             ) : null}
         </div>
