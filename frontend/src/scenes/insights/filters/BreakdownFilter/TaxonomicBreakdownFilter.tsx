@@ -12,16 +12,24 @@ export interface TaxonomicBreakdownFilterProps {
 }
 
 export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
-    return <TaxonomicBreakdownFilterComponent breakdownFilter={filters} setFilters={setFilters} />
+    return (
+        <TaxonomicBreakdownFilterComponent
+            breakdownFilter={filters}
+            isTrends={filters.insight === InsightType.TRENDS}
+            setFilters={setFilters}
+        />
+    )
 }
 
 export interface TaxonomicBreakdownFilterComponentProps {
     breakdownFilter?: BreakdownFilter | null
+    isTrends: boolean
     setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
 }
 
 export function TaxonomicBreakdownFilterComponent({
     breakdownFilter,
+    isTrends,
     setFilters,
 }: TaxonomicBreakdownFilterComponentProps): JSX.Element {
     const logicProps = { breakdownFilter: breakdownFilter || {}, setFilters: setFilters || null }
@@ -37,11 +45,7 @@ export function TaxonomicBreakdownFilterComponent({
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                {!isViewOnly && !hasNonCohortBreakdown ? (
-                    <TaxonomicBreakdownButton
-                        includeSessions={filters.insight === InsightType.TRENDS} // TODO: convert to data exploration
-                    />
-                ) : null}
+                {!isViewOnly && !hasNonCohortBreakdown ? <TaxonomicBreakdownButton includeSessions={isTrends} /> : null}
             </div>
         </BindLogic>
     )

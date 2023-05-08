@@ -4,8 +4,14 @@ import { TaxonomicBreakdownFilterComponent } from 'scenes/insights/filters/Break
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function Breakdown({ insightProps }: QueryEditorFilterProps): JSX.Element {
-    const { breakdown } = useValues(insightVizDataLogic(insightProps))
+    const { breakdown, isTrends } = useValues(insightVizDataLogic(insightProps))
     const { updateBreakdown } = useActions(insightVizDataLogic(insightProps))
 
-    return <TaxonomicBreakdownFilterComponent breakdownFilter={breakdown} setFilters={updateBreakdown} />
+    return (
+        <TaxonomicBreakdownFilterComponent
+            breakdownFilter={breakdown}
+            isTrends={isTrends}
+            setFilters={updateBreakdown}
+        />
+    )
 }
