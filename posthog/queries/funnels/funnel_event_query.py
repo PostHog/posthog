@@ -1,6 +1,7 @@
 from typing import Any, Dict, Set, Tuple, Union
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.hogql.hogql import translate_hogql
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
 from posthog.queries.event_query import EventQuery
@@ -17,15 +18,27 @@ class FunnelEventQuery(EventQuery):
         entity_name="events",
         skip_entity_filter=False,
     ) -> Tuple[str, Dict[str, Any]]:
+        # Aggregating by group
+        if self._filter.aggregation_group_type_index is not None:
+            aggregation_target = get_aggregation_target_field(
+                self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self._person_id_alias
+            )
 
-        _aggregation_target = self._person_id_alias
+        # Aggregating by HogQL
+        elif self._filter.funnel_aggregate_by_hogql and self._filter.funnel_aggregate_by_hogql != "person_id":
+            aggregation_target = translate_hogql(
+                self._filter.funnel_aggregate_by_hogql,
+                events_table_alias=self.EVENT_TABLE_ALIAS,
+                context=self._filter.hogql_context,
+            )
 
-        if self._aggregate_users_by_distinct_id:
-            _aggregation_target = f"{self.EVENT_TABLE_ALIAS}.distinct_id"
+        # Aggregating by Distinct ID
+        elif self._aggregate_users_by_distinct_id:
+            aggregation_target = f"{self.EVENT_TABLE_ALIAS}.distinct_id"
 
-        aggregation_target = get_aggregation_target_field(
-            self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, _aggregation_target
-        )
+        # Aggregating by Person ID
+        else:
+            aggregation_target = self._person_id_alias
 
         _fields = [
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp",

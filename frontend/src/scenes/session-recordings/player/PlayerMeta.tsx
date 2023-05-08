@@ -1,7 +1,7 @@
 import './PlayerMeta.scss'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,11 +10,8 @@ import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -83,13 +80,12 @@ export function PlayerMeta(): JSX.Element {
         currentWindowIndex,
         startTime,
         sessionPlayerMetaDataLoading,
-        windowIds,
     } = useValues(playerMetaLogic(logicProps))
 
-    const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
-    const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
-
-    const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
+    const { isFullScreen } = useValues(playerSettingsLogic)
+    // NOTE: The optimised event listing broke this as we don't have all the properties we need
+    // const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
+    const iconProperties = sessionPerson?.properties
 
     const { ref, size } = useResizeBreakpoints({
         0: 'compact',
@@ -115,24 +111,26 @@ export function PlayerMeta(): JSX.Element {
 
             <div
                 className={clsx(
-                    'PlayerMeta__top flex items-center gap-2 shrink-0',
-                    isFullScreen ? 'px-3 p-1 text-xs' : 'p-3 border-b'
+                    'PlayerMeta__top flex items-center gap-2 shrink-0 p-2',
+                    isFullScreen ? ' text-xs' : 'border-b'
                 )}
             >
                 <div className="ph-no-capture">
                     {!sessionPerson ? (
                         <LemonSkeleton.Circle className="w-10 h-10" />
                     ) : (
-                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xl' : 'md'} />
+                        <ProfilePicture name={asDisplay(sessionPerson)} />
                     )}
                 </div>
-                <div className="overflow-hidden ph-no-capture flex-1">
+                <div className="overflow-hidden ph-no-capture">
                     <div className="font-bold">
                         {!sessionPerson || !startTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
                         ) : (
                             <div className="flex gap-1">
-                                <PersonHeader person={sessionPerson} withIcon={false} noEllipsis={true} />
+                                <span className="whitespace-nowrap truncate">
+                                    <PersonHeader person={sessionPerson} withIcon={false} noEllipsis={true} />
+                                </span>
                                 {'·'}
                                 <TZLabel
                                     time={dayjs(startTime)}
@@ -156,44 +154,8 @@ export function PlayerMeta(): JSX.Element {
                     </div>
                 </div>
 
-                {!logicProps.embedded && (
-                    <>
-                        <LemonButton
-                            className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
-                            status="stealth"
-                            active={isMetadataExpanded}
-                            onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
-                            tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
-                            tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
-                            size="small"
-                        >
-                            {isMetadataExpanded ? (
-                                <IconUnfoldLess className="text-lg text-muted-alt" />
-                            ) : (
-                                <IconUnfoldMore className="text-lg text-muted-alt" />
-                            )}
-                        </LemonButton>
-                        {sessionRecordingId ? <PlayerMetaLinks /> : null}
-                    </>
-                )}
+                {sessionRecordingId ? <PlayerMetaLinks /> : null}
             </div>
-            {sessionPerson && (
-                <CSSTransition
-                    in={isMetadataExpanded}
-                    timeout={200}
-                    classNames="PlayerMetaPersonProperties-"
-                    mountOnEnter
-                    unmountOnExit
-                >
-                    <div className="PlayerMetaPersonProperties">
-                        {Object.keys(sessionPerson.properties).length ? (
-                            <PropertiesTable properties={sessionPerson.properties} searchable filterable />
-                        ) : (
-                            <p className="text-center m-4">There are no properties.</p>
-                        )}
-                    </div>
-                </CSSTransition>
-            )}
             <div
                 className={clsx(
                     'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
@@ -207,10 +169,17 @@ export function PlayerMeta(): JSX.Element {
                     <LemonSkeleton className="w-1/3 my-1" />
                 ) : (
                     <>
-                        <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
-                        {windowIds.length > 1 && !isSmallPlayer ? (
-                            <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>
-                        ) : null}
+                        <Tooltip
+                            title={
+                                <>
+                                    Window {currentWindowIndex + 1}.
+                                    <br />
+                                    Each recording window translates to a distinct browser tab or window.
+                                </>
+                            }
+                        >
+                            <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
+                        </Tooltip>
 
                         {lastPageviewEvent?.properties?.['$current_url'] && (
                             <span className="flex items-center gap-2 truncate">
@@ -248,16 +217,30 @@ export function PlayerMeta(): JSX.Element {
                 <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
                 {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3" />
-                ) : (
-                    <span className="text-muted-alt">
-                        {resolution && (
+                ) : resolution ? (
+                    <Tooltip
+                        placement="bottom"
+                        title={
                             <>
-                                Resolution: {resolution.width} x {resolution.height}{' '}
-                                {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
+                                The resolution of the page as it was captured was{' '}
+                                <b>
+                                    {resolution.width} x {resolution.height}
+                                </b>
+                                <br />
+                                You are viewing the replay at <b>{percentage(scale, 1, true)}</b> of the original size
                             </>
-                        )}
-                    </span>
-                )}
+                        }
+                    >
+                        <span className="text-muted-alt text-xs">
+                            {resolution && (
+                                <>
+                                    {resolution.width} x {resolution.height}{' '}
+                                    {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
+                                </>
+                            )}
+                        </span>
+                    </Tooltip>
+                ) : null}
             </div>
         </div>
     )

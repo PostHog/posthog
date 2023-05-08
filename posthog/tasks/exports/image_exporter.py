@@ -12,7 +12,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.wait import WebDriverWait
-from sentry_sdk import capture_exception, configure_scope
+from sentry_sdk import capture_exception, configure_scope, push_scope
 from statshog.defaults.django import statsd
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.utils import ChromeType
@@ -153,25 +153,31 @@ def _screenshot_asset(
 
 @timed("image_exporter")
 def export_image(exported_asset: ExportedAsset) -> None:
-    try:
-        if exported_asset.insight:
-            # NOTE: Dashboards are regularly updated but insights are not
-            # so, we need to trigger a manual update to ensure the results are good
-            synchronously_update_cache(exported_asset.insight, exported_asset.dashboard)
+    with push_scope() as scope:
+        scope.set_tag("team_id", exported_asset.team if exported_asset else "unknown")
+        scope.set_tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
-        if exported_asset.export_format == "image/png":
-            _export_to_png(exported_asset)
-            statsd.incr("image_exporter.succeeded", tags={"team_id": exported_asset.team.id})
-        else:
-            raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported for insights")
-    except Exception as e:
-        if exported_asset:
-            team_id = str(exported_asset.team.id)
-        else:
-            team_id = "unknown"
+        try:
+            if exported_asset.insight:
+                # NOTE: Dashboards are regularly updated but insights are not
+                # so, we need to trigger a manual update to ensure the results are good
+                synchronously_update_cache(exported_asset.insight, exported_asset.dashboard)
 
-        capture_exception(e)
+            if exported_asset.export_format == "image/png":
+                _export_to_png(exported_asset)
+                statsd.incr("image_exporter.succeeded", tags={"team_id": exported_asset.team.id})
+            else:
+                raise NotImplementedError(
+                    f"Export to format {exported_asset.export_format} is not supported for insights"
+                )
+        except Exception as e:
+            if exported_asset:
+                team_id = str(exported_asset.team.id)
+            else:
+                team_id = "unknown"
 
-        logger.error("image_exporter.failed", exception=e, exc_info=True)
-        statsd.incr("exporter_task_failure", tags={"team_id": team_id})
-        raise e
+            capture_exception(e)
+
+            logger.error("image_exporter.failed", exception=e, exc_info=True)
+            statsd.incr("exporter_task_failure", tags={"team_id": team_id})
+            raise e
