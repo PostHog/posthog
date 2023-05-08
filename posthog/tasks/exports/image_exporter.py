@@ -196,5 +196,5 @@ def export_image(exported_asset: ExportedAsset) -> None:
             capture_exception(e)
 
             logger.error("image_exporter.failed", exception=e, exc_info=True)
-            IMAGE_EXPORT_FAILED_COUNTER.labels(team_id=team_id, scope="image").inc()
+            IMAGE_EXPORT_FAILED_COUNTER.labels(team_id=team_id).inc()
             raise e
