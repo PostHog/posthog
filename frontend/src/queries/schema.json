@@ -134,9 +134,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -267,9 +264,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -409,9 +403,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -602,9 +593,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -767,9 +755,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -888,9 +873,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -1001,9 +983,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
