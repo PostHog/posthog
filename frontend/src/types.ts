@@ -1582,7 +1582,6 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
-    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
