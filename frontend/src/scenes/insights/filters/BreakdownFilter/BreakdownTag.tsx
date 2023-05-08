@@ -9,7 +9,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
-import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 type BreakdownTagProps = {
     breakdown: string | number
@@ -24,9 +23,9 @@ export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagPro
 
     const logicProps = { breakdown, filters, setFilters }
     const { binCount, useHistogram } = useValues(breakdownTagLogic(logicProps))
-    const { setBinCount, setUseHistogram, setNormalizeBreakdownURL } = useActions(breakdownTagLogic(logicProps))
-
-    const { removeBreakdown } = useActions(taxonomicBreakdownFilterLogic)
+    const { removeBreakdown, setBinCount, setUseHistogram, setNormalizeBreakdownURL } = useActions(
+        breakdownTagLogic(logicProps)
+    )
 
     const propertyDefinition = getPropertyDefinition(breakdown)
     const isHistogramable = !!propertyDefinition?.is_numerical
@@ -36,7 +35,7 @@ export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagPro
         <LemonTag
             className="taxonomic-breakdown-filter tag-pill"
             closable={!!setFilters && !isHistogramable && !isNormalizeable}
-            onClose={() => removeBreakdown(breakdown)}
+            onClose={removeBreakdown}
             popover={{
                 overlay: isNormalizeable ? (
                     <>
@@ -72,7 +71,7 @@ export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagPro
                             }
                         />
                         <LemonDivider />
-                        <LemonButton status="danger" onClick={() => removeBreakdown(breakdown)} fullWidth>
+                        <LemonButton status="danger" onClick={removeBreakdown} fullWidth>
                             Remove breakdown
                         </LemonButton>
                     </>
@@ -111,7 +110,7 @@ export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagPro
                             Do not bin numeric values
                         </LemonButton>
                         <LemonDivider />
-                        <LemonButton status="danger" onClick={() => removeBreakdown(breakdown)} fullWidth>
+                        <LemonButton status="danger" onClick={removeBreakdown} fullWidth>
                             Remove breakdown
                         </LemonButton>
                     </div>
