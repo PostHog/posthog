@@ -26,6 +26,7 @@ export interface TaxonomicPopoverProps<ValueType = TaxonomicFilterValue>
     allowClear?: boolean
     style?: React.CSSProperties
     buttonProps?: Omit<LemonButtonProps, 'onClick'>
+    excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -110,6 +111,7 @@ export function LemonTaxonomicPopover({
     placeholder = 'Please select',
     placeholderClass = 'text-muted',
     allowClear = false,
+    excludedProperties,
     ...buttonProps
 }: TaxonomicPopoverProps): JSX.Element {
     const [localValue, setLocalValue] = useState<TaxonomicFilterValue>(value || '')
@@ -141,6 +143,7 @@ export function LemonTaxonomicPopover({
                             }}
                             taxonomicGroupTypes={groupTypes ?? [groupType]}
                             eventNames={eventNames}
+                            excludedProperties={excludedProperties}
                         />
                     ),
                     sameWidth: false,
