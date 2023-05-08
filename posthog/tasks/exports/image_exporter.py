@@ -180,7 +180,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
                 synchronously_update_cache(exported_asset.insight, exported_asset.dashboard)
 
             if exported_asset.export_format == "image/png":
-                with IMAGE_EXPORT_TIMER.time():
+                with IMAGE_EXPORT_TIMER.labels(team_id=exported_asset.team.id).time():
                     _export_to_png(exported_asset)
                 IMAGE_EXPORT_SUCCEEDED_COUNTER.labels(team_id=exported_asset.team.id).inc()
             else:
