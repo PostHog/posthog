@@ -4,8 +4,9 @@ import { FilterType, TrendsFilterType } from '~/types'
 import type { breakdownTagLogicType } from './breakdownTagLogicType'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
-import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
+import { isAllCohort, isCohort, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 
 export interface BreakdownTagLogicProps {
     setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
@@ -18,7 +19,14 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     key(({ breakdown }) => breakdown),
     path((key) => ['scenes', 'insights', 'BreakdownFilter', 'breakdownTagLogic', key]),
     connect(() => ({
-        values: [taxonomicBreakdownFilterLogic, ['isViewOnly'], propertyDefinitionsModel, ['getPropertyDefinition']],
+        values: [
+            taxonomicBreakdownFilterLogic,
+            ['isViewOnly'],
+            propertyDefinitionsModel,
+            ['getPropertyDefinition'],
+            cohortsModel,
+            ['cohortsById'],
+        ],
         actions: [taxonomicBreakdownFilterLogic, ['removeBreakdown as removeBreakdownFromList']],
     })),
     actions(() => ({
@@ -49,6 +57,19 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         propertyDefinition: [
             (s, p) => [s.getPropertyDefinition, p.breakdown],
             (getPropertyDefinition, breakdown) => getPropertyDefinition(breakdown),
+        ],
+        propertyName: [
+            (s, p) => [p.breakdown, s.cohortsById],
+            (breakdown, cohortsById) => {
+                if (isAllCohort(breakdown)) {
+                    return 'All Users'
+                } else if (isCohort(breakdown)) {
+                    return cohortsById[breakdown]?.name || `Cohort ${breakdown}`
+                } else {
+                    // regular property breakdown i.e. person, event or group
+                    return breakdown
+                }
+            },
         ],
         isHistogramable: [(s) => [s.propertyDefinition], (propertyDefinition) => !!propertyDefinition?.is_numerical],
         isNormalizeable: [

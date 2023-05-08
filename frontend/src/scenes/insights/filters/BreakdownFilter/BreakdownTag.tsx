@@ -1,10 +1,8 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { cohortsModel } from '~/models/cohortsModel'
 import { FilterType } from '~/types'
 import { breakdownTagLogic } from './breakdownTagLogic'
-import { isAllCohort, isCohort, isPersonEventOrGroup } from './taxonomicBreakdownFilterUtils'
 import { BreakdownTagMenu } from './BreakdownTagMenu'
 
 type BreakdownTagProps = {
@@ -14,10 +12,8 @@ type BreakdownTagProps = {
 }
 
 export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagProps): JSX.Element {
-    const { cohortsById } = useValues(cohortsModel)
-
     const logicProps = { breakdown, filters, setFilters }
-    const { isViewOnly, shouldShowMenu } = useValues(breakdownTagLogic(logicProps))
+    const { isViewOnly, shouldShowMenu, propertyName } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
 
     return (
@@ -32,13 +28,7 @@ export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagPro
                     closeOnClickInside: false,
                 }}
             >
-                <>
-                    {isPersonEventOrGroup(breakdown) && <PropertyKeyInfo value={breakdown} />}
-                    {isAllCohort(breakdown) && <PropertyKeyInfo value={'All Users'} />}
-                    {isCohort(breakdown) && (
-                        <PropertyKeyInfo value={cohortsById[breakdown]?.name || `Cohort ${breakdown}`} />
-                    )}
-                </>
+                <PropertyKeyInfo value={propertyName} />
             </LemonTag>
         </BindLogic>
     )
