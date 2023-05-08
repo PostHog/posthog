@@ -2043,13 +2043,20 @@ export interface CombinedFeatureFlagAndValueType {
     value: boolean | string
 }
 
+export enum EarlyAccessFeatureStage {
+    Concept = 'concept',
+    Alpha = 'alpha',
+    Beta = 'beta',
+    GeneralAvailability = 'general-availability',
+}
+
 export interface EarlyAccsesFeatureType {
     /** UUID */
     id: string
     feature_flag: FeatureFlagBasicType
     name: string
     description: string
-    stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
+    stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string

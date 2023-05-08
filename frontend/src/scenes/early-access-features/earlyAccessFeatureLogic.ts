@@ -4,14 +4,14 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, EarlyAccsesFeatureType, NewEarlyAccessFeatureType } from '~/types'
+import { Breadcrumb, EarlyAccessFeatureStage, EarlyAccsesFeatureType, NewEarlyAccessFeatureType } from '~/types'
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
 const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
-    stage: 'beta',
+    stage: EarlyAccessFeatureStage.Beta,
     documentation_url: '',
     feature_flag_id: undefined,
 }

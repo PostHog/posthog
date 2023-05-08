@@ -5,7 +5,7 @@ import { Field, PureField } from 'lib/forms/Field'
 import { SceneExport } from 'scenes/sceneTypes'
 import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { Form } from 'kea-forms'
-import { EarlyAccsesFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
+import { EarlyAccessFeatureStage, EarlyAccsesFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import { PersonsScene } from 'scenes/persons/Persons'
 import { IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
@@ -41,7 +41,8 @@ export function EarlyAccessFeature(): JSX.Element {
                     isEditingFeature && !('id' in earlyAccessFeature) ? 'New Feature Release' : earlyAccessFeature.name
                 }
                 buttons={
-                    !earlyAccessFeatureLoading ? (
+                    !earlyAccessFeatureLoading &&
+                    earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability ? (
                         isEditingFeature ? (
                             <>
                                 <LemonButton
@@ -125,7 +126,7 @@ export function EarlyAccessFeature(): JSX.Element {
                                     </LemonTag>
                                 </div>
                             </Col>
-                            {earlyAccessFeature.stage != 'general-availability' && (
+                            {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
                                 <LemonButton
                                     onClick={() => promote()}
                                     tooltip={'Make feature generally available'}
