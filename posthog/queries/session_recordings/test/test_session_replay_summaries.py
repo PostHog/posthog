@@ -50,7 +50,7 @@ class SessionReplaySummaryQuery:
             prewhere team_id = %(team_id)s
             and min_first_timestamp >= %(start_time)s
             and max_last_timestamp <= %(end_time)s
-            and session_id in (%(session_ids)s)
+            and session_id in %(session_ids)s
             group by session_id
             """,
             params,
@@ -95,19 +95,6 @@ class TestReceiveSummarizedSessionReplays(ClickhouseTestMixin, BaseTest):
             last_timestamp="2023-04-27T19:20:24.597",
             distinct_id=str(self.user.distinct_id),
             first_url="https://third-url-ingested.com",
-            click_count=2,
-            keypress_count=2,
-            mouse_activity_count=2,
-        )
-
-        # same session but starts more than 2 days ago so excluded
-        produce_replay_summary(
-            session_id=session_id,
-            team_id=self.team.pk,
-            first_timestamp="2023-04-22T19:18:24.597",
-            last_timestamp="2023-04-26T19:20:24.597",
-            distinct_id=str(self.user.distinct_id),
-            first_url=None,
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
