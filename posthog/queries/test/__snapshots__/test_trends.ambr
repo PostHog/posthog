@@ -6,7 +6,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -55,7 +55,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
            FROM events e
-           INNER JOIN
+           LEFT JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
               FROM groups
@@ -90,7 +90,7 @@
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -108,33 +108,6 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
-# name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
-  '
-  
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     INNER JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-       AND notEmpty(e.person_id)
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
   '
 ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
@@ -168,7 +141,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
            FROM events e
-           INNER JOIN
+           LEFT JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
               FROM groups
@@ -526,7 +499,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -575,7 +548,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
            FROM events e
-           INNER JOIN
+           LEFT JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
               FROM groups
@@ -620,7 +593,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -676,7 +649,7 @@
               FROM person_overrides
               WHERE team_id = 2
               GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
-           INNER JOIN
+           LEFT JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
               FROM groups
@@ -860,14 +833,14 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
            WHERE team_id = 2
              AND group_type_index = 0
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-        INNER JOIN
+        LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_2
            FROM groups
@@ -897,14 +870,14 @@
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_2
         FROM groups
@@ -942,7 +915,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
@@ -1201,33 +1174,6 @@
      ORDER BY day_start)
   '
 ---
-# name: TestTrends.test_same_day.1
-  '
-  
-  SELECT groupArray(day_start) as date,
-         groupArray(count) AS total
-  FROM
-    (SELECT SUM(total) AS count,
-            day_start
-     FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-03 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC')), toDateTime('2020-01-03 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        WHERE team_id = 2
-          AND event = 'sign up'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-03 00:00:00', 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
-          AND notEmpty(e.person_id)
-        GROUP BY date)
-     GROUP BY day_start
-     ORDER BY day_start)
-  '
----
 # name: TestTrends.test_same_day_with_person_on_events_v2
   '
   
@@ -1270,100 +1216,6 @@
   '
 ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.2
-  '
-  
-  SELECT groupArray(day_start) as date,
-         groupArray(count) AS total
-  FROM
-    (SELECT SUM(total) AS count,
-            day_start
-     FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-03 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC')), toDateTime('2020-01-03 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        LEFT OUTER JOIN
-          (SELECT argMax(override_person_id, version) as person_id,
-                  old_person_id
-           FROM person_overrides
-           WHERE team_id = 2
-           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
-        WHERE team_id = 2
-          AND event = 'sign up'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-03 00:00:00', 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
-          AND notEmpty(e.person_id)
-        GROUP BY date)
-     GROUP BY day_start
-     ORDER BY day_start)
-  '
----
-# name: TestTrends.test_same_day_with_person_on_events_v2_
-  '
-  
-  SELECT distinct_id,
-         person_id
-  FROM events
-  WHERE team_id = 2
-    AND distinct_id IN ('distinctid1',
-                        'distinctid2')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
-# name: TestTrends.test_same_day_with_person_on_events_v2_.1
-  '
-  
-  SELECT groupArray(day_start) as date,
-         groupArray(count) AS total
-  FROM
-    (SELECT SUM(total) AS count,
-            day_start
-     FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-03 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC')), toDateTime('2020-01-03 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        LEFT OUTER JOIN
-          (SELECT argMax(override_person_id, version) as person_id,
-                  old_person_id
-           FROM person_overrides
-           WHERE team_id = 2
-           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
-        WHERE team_id = 2
-          AND event = 'sign up'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-03 00:00:00', 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
-          AND notEmpty(e.person_id)
-        GROUP BY date)
-     GROUP BY day_start
-     ORDER BY day_start)
-  '
----
-# name: TestTrends.test_same_day_with_person_on_events_v2_.2
-  '
-  
-  SELECT distinct_id,
-         person_id
-  FROM events
-  WHERE team_id = 2
-    AND distinct_id IN ('distinctid1',
-                        'distinctid3')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
-# name: TestTrends.test_same_day_with_person_on_events_v2_.3
   '
   
   SELECT groupArray(day_start) as date,
@@ -1527,79 +1379,6 @@
            FROM person_overrides
            WHERE team_id = 2
            GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
-        WHERE team_id = 2
-          AND event = 'sign up'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-03 00:00:00', 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
-          AND notEmpty(e.person_id)
-        GROUP BY date)
-     GROUP BY day_start
-     ORDER BY day_start)
-  '
----
-# name: TestTrends.test_same_day_with_person_on_events_v2g
-  '
-  
-  SELECT distinct_id,
-         person_id
-  FROM events
-  WHERE team_id = 2
-    AND distinct_id IN ('distinctid1',
-                        'distinctid2')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
-# name: TestTrends.test_same_day_with_person_on_events_v2g.1
-  '
-  
-  SELECT groupArray(day_start) as date,
-         groupArray(count) AS total
-  FROM
-    (SELECT SUM(total) AS count,
-            day_start
-     FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-03 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC')), toDateTime('2020-01-03 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        WHERE team_id = 2
-          AND event = 'sign up'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-03 00:00:00', 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
-          AND notEmpty(e.person_id)
-        GROUP BY date)
-     GROUP BY day_start
-     ORDER BY day_start)
-  '
----
-# name: TestTrends.test_same_day_with_person_on_events_v2g.2
-  '
-  
-  SELECT groupArray(day_start) as date,
-         groupArray(count) AS total
-  FROM
-    (SELECT SUM(total) AS count,
-            day_start
-     FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-03 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC')), toDateTime('2020-01-03 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        LEFT OUTER JOIN
-          (SELECT override_person_id as person_id,
-                  old_person_id
-           FROM person_overrides
-           WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
         WHERE team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-03 00:00:00', 'UTC')

@@ -6317,6 +6317,57 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)
+        self.assertEqual(1, 2)
+
+    def test_filtering_with_group_props_event_with_no_group_data(self):
+        self._create_groups()
+
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
+        _create_event(event="$pageview", distinct_id="person1", team=self.team, timestamp="2020-01-02T12:00:00Z")
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            timestamp="2020-01-02T12:00:00Z",
+        )
+
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "properties": [
+                    {
+                        "key": "industry",
+                        "operator": "is_not",
+                        "value": "textiles",
+                        "type": "group",
+                        "group_type_index": 0,
+                    },
+                    {"key": "key", "value": "value", "type": "person"},
+                ],
+            },
+            team=self.team,
+        )
+
+        response = Trends().run(filter, self.team)
+
+        # we include all 4 events even though they do not have an associated group since the filter is a negative
+        # i.e. "industry is not textiles" includes both events associated with a group that has the property "industry"
+        # set to a value other than textiles AND events with no group at all
+        self.assertEqual(response[0]["count"], 4)
 
     @also_test_with_materialized_columns(
         person_properties=["key"], group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
