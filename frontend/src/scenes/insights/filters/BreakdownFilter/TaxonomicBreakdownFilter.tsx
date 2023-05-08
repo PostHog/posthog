@@ -9,6 +9,7 @@ import './TaxonomicBreakdownFilter.scss'
 import { onFilterChange, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { isCohortBreakdown } from './taxonomicBreakdownFilterUtils'
+import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -19,12 +20,12 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
     const { breakdown, breakdown_type } = filters
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
+    const { hasSelectedBreakdown } = useValues(taxonomicBreakdownFilterLogic({ filters }))
+
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
     if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
         breakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
     }
-
-    const hasSelectedBreakdown = breakdown && typeof breakdown === 'string'
 
     const breakdownArray = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b)
 
