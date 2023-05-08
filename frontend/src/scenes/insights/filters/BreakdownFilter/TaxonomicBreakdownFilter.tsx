@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FilterType, InsightType } from '~/types'
@@ -15,10 +15,7 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
     const logicProps = { filters, setFilters, getPropertyDefinition }
-    const { hasBreakdown, hasNonCohortBreakdown, taxonomicBreakdownType, breakdownArray } = useValues(
-        taxonomicBreakdownFilterLogic(logicProps)
-    )
-    const { addBreakdown } = useActions(taxonomicBreakdownFilterLogic(logicProps))
+    const { hasBreakdown, hasNonCohortBreakdown, breakdownArray } = useValues(taxonomicBreakdownFilterLogic(logicProps))
 
     const tags = !hasBreakdown
         ? []
@@ -38,8 +35,6 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
                 {tags}
                 {setFilters && !hasNonCohortBreakdown ? (
                     <TaxonomicBreakdownButton
-                        breakdownType={taxonomicBreakdownType}
-                        addBreakdown={addBreakdown}
                         includeSessions={filters.insight === InsightType.TRENDS} // TODO: convert to data exploration
                     />
                 ) : null}
