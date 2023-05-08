@@ -1,6 +1,4 @@
 import { useValues } from 'kea'
-import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
@@ -20,12 +18,7 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
     const { breakdown, breakdown_type } = filters
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
-    const { hasSelectedBreakdown } = useValues(taxonomicBreakdownFilterLogic({ filters }))
-
-    let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
-    if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
-        breakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
-    }
+    const { hasSelectedBreakdown, taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic({ filters }))
 
     const breakdownArray = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b)
 
@@ -92,7 +85,7 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
             {tags}
             {onChange && !hasSelectedBreakdown ? (
                 <TaxonomicBreakdownButton
-                    breakdownType={breakdownType}
+                    breakdownType={taxonomicBreakdownType}
                     onChange={onChange}
                     includeSessions={filters.insight === InsightType.TRENDS}
                 />
