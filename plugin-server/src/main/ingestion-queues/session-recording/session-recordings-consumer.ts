@@ -1,5 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/react'
+import { captureException } from '@sentry/node'
 import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka-acosom'
 
 import {
@@ -283,7 +283,7 @@ const eachMessage =
                         event.properties || {}
                     )
 
-                    let replayRecord: null | SummarizedSessionRecordingEvent
+                    let replayRecord: null | SummarizedSessionRecordingEvent = null
                     try {
                         if (summaryEnabledTeams === null || summaryEnabledTeams?.includes(team.id)) {
                             replayRecord = createSessionReplayEvent(
