@@ -42,21 +42,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
            session_id,
            any(team_id),
            any(distinct_id),
-           min(first_timestamp) as start_time,
-           max(last_timestamp) as end_time,
-           dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
-           -- TRICKY: make an array of tuples of first_url and first_timestamp for each row being grouped by session
-           -- then sort those by the first timestamp
-           -- take the first of those that is not null (if one exists)
-           -- and keep the URL from that tuple
-           -- for fun, tuples are one indexed not zero indexed
-           tupleElement(
-                arrayFirst(
-                     x -> x.1 is not null,
-                     arraySort(x -> x.2, groupArray(tuple(first_url, first_timestamp)))
-                ),
-                1
-           ) as first_url,
+           min(min_first_timestamp) as start_time,
+           max(max_last_timestamp) as end_time,
+           dateDiff('SECOND', start_time, end_time) as duration,
+           argMinMerge(first_url) as first_url,
            sum(click_count),
            sum(keypress_count),
            sum(mouse_activity_count),
@@ -67,8 +56,8 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         -- may also need to match session ids from the query filter
         {session_ids_clause}
     GROUP BY session_id
-        HAVING first_timestamp >= %(start_time)s
-        AND last_timestamp <= %(end_time)s
+        HAVING start_time >= %(start_time)s
+        AND end_time <= %(end_time)s
         {duration_clause}
     ORDER BY start_time DESC
         """
@@ -100,21 +89,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
            session_id,
            any(team_id),
            any(distinct_id),
-           min(first_timestamp) as start_time,
-           max(last_timestamp) as end_time,
-           dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
-           -- TRICKY: make an array of tuples of first_url and first_timestamp for each row being grouped by session
-           -- then sort those by the first timestamp
-           -- take the first of those that is not null (if one exists)
-           -- and keep the URL from that tuple
-           -- for fun, tuples are one indexed not zero indexed
-           tupleElement(
-                arrayFirst(
-                     x -> x.1 is not null,
-                     arraySort(x -> x.2, groupArray(tuple(first_url, first_timestamp)))
-                ),
-                1
-           ) as first_url,
+           min(min_first_timestamp) as start_time,
+           max(max_last_timestamp) as end_time,
+           dateDiff('SECOND', start_time, end_time) as duration,
+           argMinMerge(first_url) as first_url,
            sum(click_count),
            sum(keypress_count),
            sum(mouse_activity_count),
@@ -127,8 +105,8 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         -- may also need to match session ids from the query filter
         {session_ids_clause}
         GROUP BY session_id
-        HAVING first_timestamp >= %(start_time)s
-        AND last_timestamp <= %(end_time)s
+        HAVING start_time >= %(start_time)s
+        AND end_time <= %(end_time)s
         {duration_clause}
         ORDER BY start_time DESC
         """
