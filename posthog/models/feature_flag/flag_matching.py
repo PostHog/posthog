@@ -293,7 +293,7 @@ class FeatureFlagMatcher:
     def query_conditions(self) -> Dict[str, bool]:
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-                all_conditions = {}
+                all_conditions: Dict = {}
                 team_id = self.feature_flags[0].team_id
                 person_query: QuerySet = Person.objects.filter(
                     team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
