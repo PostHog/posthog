@@ -13,6 +13,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     path(['scenes', 'insights', 'filters', 'BreakdownFilter', 'taxonomicBreakdownFilterLogic']),
     props({} as TaxonomicBreakdownFilterLogicProps),
     selectors({
+        hasBreakdown: [(_, p) => [p.filters], ({ breakdown_type }) => !!breakdown_type,
         hasNonCohortBreakdown: [(_, p) => [p.filters], ({ breakdown }) => breakdown && typeof breakdown === 'string'],
         taxonomicBreakdownType: [
             (_, p) => [p.filters],

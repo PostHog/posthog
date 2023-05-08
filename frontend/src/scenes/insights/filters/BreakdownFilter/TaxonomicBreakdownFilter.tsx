@@ -15,12 +15,10 @@ export interface TaxonomicBreakdownFilterProps {
 }
 
 export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
-    const { breakdown_type } = filters
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
-    const { hasNonCohortBreakdown, taxonomicBreakdownType, breakdownArray, breakdownCohortArray } = useValues(
-        taxonomicBreakdownFilterLogic({ filters })
-    )
+    const { hasBreakdown, hasNonCohortBreakdown, taxonomicBreakdownType, breakdownArray, breakdownCohortArray } =
+        useValues(taxonomicBreakdownFilterLogic({ filters }))
 
     const onCloseFor = setFilters
         ? (t: string | number, index: number): (() => void) => {
@@ -49,7 +47,7 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
           }
         : undefined
 
-    const tags = !breakdown_type
+    const tags = !hasBreakdown
         ? []
         : breakdownArray.map((t, index) => {
               const key = `${t}-${index}`
