@@ -356,7 +356,6 @@ class FeatureFlagMatcher:
                                     )
                                 }
                             )
-
                             person_fields.append(key)
                         else:
                             if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
@@ -407,14 +406,13 @@ class FeatureFlagMatcher:
                 if len(person_fields) > 0:
                     person_query = person_query.values(*person_fields)
                     if len(person_query) > 0:
-                        all_conditions = {**person_query[0]}
+                        all_conditions = {**all_conditions, **person_query[0]}
 
                 for group_query, group_fields in group_query_per_group_type_mapping.values():
                     group_query = group_query.values(*group_fields)
                     if len(group_query) > 0:
                         assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
                         all_conditions = {**all_conditions, **group_query[0]}
-
                 return all_conditions
         except Exception as e:
             self.failed_to_fetch_conditions = True
