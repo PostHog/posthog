@@ -15,7 +15,13 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.test.test_person_overrides import PersonOverrideValues
-from posthog.models.person_overrides.sql import PERSON_OVERRIDES_CREATE_TABLE_SQL
+from posthog.models.person_overrides.sql import (
+    DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL,
+    DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
+    KAFKA_PERSON_OVERRIDES_TABLE_SQL,
+    PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
+    PERSON_OVERRIDES_CREATE_TABLE_SQL,
+)
 from posthog.temporal.workflows.squash_person_overrides import (
     QueryInputs,
     SerializablePersonOverrideToDelete,
@@ -25,6 +31,8 @@ from posthog.temporal.workflows.squash_person_overrides import (
     delete_squashed_person_overrides_from_postgres,
     drop_dictionary,
     prepare_dictionary,
+    prepare_person_overrides,
+    re_attach_person_overrides,
     select_persons_to_delete,
     squash_events_partition,
 )
@@ -54,9 +62,15 @@ def activity_environment():
 
 @pytest.fixture
 def person_overrides_table():
-    """Manage person_overrides table for testing."""
+    """Manage person_overrides tables for testing."""
     sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL)
+    sync_execute(KAFKA_PERSON_OVERRIDES_TABLE_SQL)
+    sync_execute(PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL)
+
     yield
+
+    sync_execute(DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL)
+    sync_execute(DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL)
     sync_execute("DROP TABLE person_overrides")
 
 
@@ -140,86 +154,6 @@ async def test_prepare_dictionary(activity_environment, person_overrides_data):
 
             assert result[0][0] == person_override.old_person_id
             assert result[0][1] == person_override.override_person_id
-
-    await activity_environment.run(drop_dictionary, query_inputs)
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_prepare_dictionary_with_team_ids(activity_environment, person_overrides_data):
-    """Test a DICTIONARY is created by the prepare_dictionary activity excluding team_ids."""
-    existing_team_id = max(person_overrides_data.keys())
-    new_team_id = existing_team_id + 1
-    new_old_person_id = uuid4()
-    new_override_person_id = uuid4()
-
-    values: PersonOverrideValues = {
-        "team_id": new_team_id,
-        "old_person_id": new_old_person_id,
-        "override_person_id": new_override_person_id,
-        "merged_at": OVERRIDES_CREATED_AT,
-        "oldest_event": OLDEST_EVENT_AT,
-        "created_at": OVERRIDES_CREATED_AT,
-        "version": 1,
-    }
-
-    sync_execute("INSERT INTO person_overrides (*) VALUES", [values])
-
-    query_inputs = QueryInputs(
-        database=settings.CLICKHOUSE_DATABASE,
-        dictionary_name="fancy_dictionary",
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        cluster_name=settings.CLICKHOUSE_CLUSTER,
-        team_ids=[new_team_id],
-    )
-
-    latest_merge_at = await activity_environment.run(prepare_dictionary, query_inputs)
-
-    assert latest_merge_at == OVERRIDES_CREATED_AT.isoformat()
-
-    for team_id, person_overrides in person_overrides_data.items():
-        for person_override in person_overrides:
-            result = sync_execute(
-                f"""
-                SELECT
-                    old_person_id,
-                    dictGetOrNull(
-                        '{settings.CLICKHOUSE_DATABASE}.fancy_dictionary',
-                        'override_person_id',
-                        (toInt32(team_id), old_person_id)
-                    ) AS override_person_id
-                FROM (
-                    SELECT
-                        {team_id} AS team_id,
-                        '{person_override.old_person_id}'::UUID AS old_person_id
-                )
-                """
-            )
-            # Check that team_ids that we haven't specified are not included in the result.
-            # This is in direct contrast to previous test.
-            assert result[0][0] == person_override.old_person_id
-            assert result[0][1] is None
-
-    result = sync_execute(
-        f"""
-        SELECT
-            old_person_id,
-            dictGet(
-                '{settings.CLICKHOUSE_DATABASE}.fancy_dictionary',
-                'override_person_id',
-                (toInt32(team_id), old_person_id)
-            ) AS override_person_id
-        FROM (
-            SELECT
-                {new_team_id} AS team_id,
-                '{new_old_person_id}'::UUID AS old_person_id
-        )
-        """
-    )
-    # The new_team_id should be in the dictionary.
-    assert result[0][0] == new_old_person_id
-    assert result[0][1] == new_override_person_id
 
     await activity_environment.run(drop_dictionary, query_inputs)
 
@@ -1150,6 +1084,8 @@ async def test_squash_person_overrides_workflow(events_to_override, person_overr
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
+            prepare_person_overrides,
+            re_attach_person_overrides,
             prepare_dictionary,
             select_persons_to_delete,
             squash_events_partition,
@@ -1195,6 +1131,8 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
+            prepare_person_overrides,
+            re_attach_person_overrides,
             prepare_dictionary,
             select_persons_to_delete,
             squash_events_partition,
@@ -1239,6 +1177,8 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
+            prepare_person_overrides,
+            re_attach_person_overrides,
             prepare_dictionary,
             select_persons_to_delete,
             squash_events_partition,

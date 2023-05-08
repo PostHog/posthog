@@ -1,9 +1,10 @@
+import contextlib
 import json
 import os
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, NamedTuple
+from typing import AsyncIterator, Iterable, NamedTuple
 from uuid import UUID
 
 import psycopg2
@@ -38,28 +39,6 @@ SELECT
 FROM {database}.person_overrides;
 """
 
-CREATE_DICTIONARY_TABLE_QUERY = """
-CREATE OR REPLACE TABLE {database}.{dictionary_name}_table (
-    team_id INT NOT NULL,
-    old_person_id UUID NOT NULL,
-    override_person_id UUID NOT NULL
-)
-ENGINE = TinyLog();
-"""
-
-INSERT_INTO_DICTIONARY_TABLE_QUERY = """
-INSERT INTO {database}.{dictionary_name}_table
-    SELECT
-        team_id,
-        old_person_id,
-        argMax(override_person_id, created_at) AS override_person_id
-    FROM {database}.person_overrides
-    WHERE
-        created_at <= %(latest_created_at)s
-        {team_id_filter}
-    GROUP BY team_id, old_person_id;
-"""
-
 CREATE_DICTIONARY_QUERY = """
 CREATE OR REPLACE DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_name} (
     `team_id` INT,
@@ -67,7 +46,7 @@ CREATE OR REPLACE DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_na
     `override_person_id` UUID
 )
 PRIMARY KEY team_id, old_person_id
-SOURCE(CLICKHOUSE(USER '{user}' PASSWORD '{password}' TABLE '{dictionary_name}_table' DB '{database}'))
+SOURCE(CLICKHOUSE(USER '{user}' PASSWORD '{password}' TABLE 'person_overrides' DB '{database}'))
 LAYOUT(complex_key_hashed())
 LIFETIME(0)
 """
@@ -87,10 +66,6 @@ WHERE
 
 DROP_DICTIONARY_QUERY = """
 DROP DICTIONARY {database}.{dictionary_name};
-"""
-
-DROP_DICTIONARY_TABLE_QUERY = """
-DROP TABLE {database}.{dictionary_name}_table;
 """
 
 DELETE_SQUASHED_PERSON_OVERRIDES_QUERY = """
@@ -241,6 +216,41 @@ class QueryInputs:
 
 
 @activity.defn
+async def prepare_person_overrides(inputs: QueryInputs) -> None:
+    """Prepare the person_overrides table to be used in a squash.
+
+    This activity executes two queries:
+    - First one is a DETACH TABLE to ensure no new data is ingested during the squash.
+    - Second one is a OPTIMIZE TABLE to ensure we assign the latest overrides for each old_person_id.
+
+    The activity to re-attach person_overrides should always be executed after this one.
+    """
+    activity.logger.info("Detaching %s.kafka_person_overrides", inputs.database)
+    sync_execute(
+        "DETACH TABLE {database}.kafka_person_overrides ON CLUSTER {cluster}".format(
+            database=inputs.database, cluster=inputs.cluster_name
+        )
+    )
+    activity.logger.info("Optimizing %s.person_overrides", inputs.database)
+    sync_execute(
+        "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL".format(
+            database=inputs.database, cluster=inputs.cluster_name
+        )
+    )
+
+
+@activity.defn
+async def re_attach_person_overrides(inputs: QueryInputs) -> None:
+    """Re-attach the person_overrides table after it was used in a squash."""
+    activity.logger.info("Re-attaching %s.person_overrides", inputs.database)
+    sync_execute(
+        "ATTACH TABLE {database}.kafka_person_overrides ON CLUSTER {cluster}".format(
+            database=inputs.database, cluster=inputs.cluster_name
+        )
+    )
+
+
+@activity.defn
 async def prepare_dictionary(inputs: QueryInputs) -> str:
     """Prepare the DICTIONARY to be used in the squash workflow.
 
@@ -248,30 +258,7 @@ async def prepare_dictionary(inputs: QueryInputs) -> str:
     we have started the job.
     """
     activity.logger.info("Preparing DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
-
     latest_created_at = sync_execute(SELECT_LATEST_CREATED_AT_QUERY.format(database=inputs.database))[0][0]
-    activity.logger.info("Populating underlying TABLE %s.%s_table", inputs.database, inputs.dictionary_name)
-    sync_execute(
-        CREATE_DICTIONARY_TABLE_QUERY.format(
-            database=inputs.database,
-            dictionary_name=inputs.dictionary_name,
-            user=inputs.user,
-            password=inputs.password,
-            cluster_name=inputs.cluster_name,
-        )
-    )
-
-    sync_execute(
-        INSERT_INTO_DICTIONARY_TABLE_QUERY.format(
-            database=inputs.database,
-            dictionary_name=inputs.dictionary_name,
-            user=inputs.user,
-            password=inputs.password,
-            cluster_name=inputs.cluster_name,
-            team_id_filter="AND team_id in %(team_ids)s" if inputs.team_ids else "",
-        ),
-        {"latest_created_at": latest_created_at, "team_ids": inputs.team_ids},
-    )
 
     activity.logger.info("Creating DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
     sync_execute(
@@ -285,6 +272,13 @@ async def prepare_dictionary(inputs: QueryInputs) -> str:
     )
 
     return latest_created_at.isoformat()
+
+
+@activity.defn
+async def drop_dictionary(inputs: QueryInputs) -> None:
+    """DROP the DICTIONARY used in the squash workflow."""
+    activity.logger.info("Dropping DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
+    sync_execute(DROP_DICTIONARY_QUERY.format(database=inputs.database, dictionary_name=inputs.dictionary_name))
 
 
 @activity.defn
@@ -370,7 +364,7 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePers
 
 
 @activity.defn
-async def squash_events_partition(inputs: QueryInputs):
+async def squash_events_partition(inputs: QueryInputs) -> None:
     """Execute the squash query for a given partition_id and persons to_override.
 
     As ClickHouse doesn't support an UPDATE ... FROM statement ala PostgreSQL, we must
@@ -396,15 +390,7 @@ async def squash_events_partition(inputs: QueryInputs):
 
 
 @activity.defn
-async def drop_dictionary(inputs: QueryInputs):
-    """DROP the JOIN table used in the squash workflow."""
-    activity.logger.info("Dropping DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
-    sync_execute(DROP_DICTIONARY_QUERY.format(database=inputs.database, dictionary_name=inputs.dictionary_name))
-    sync_execute(DROP_DICTIONARY_TABLE_QUERY.format(database=inputs.database, dictionary_name=inputs.dictionary_name))
-
-
-@activity.defn
-async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs):
+async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) -> None:
     """Execute the query to delete persons from ClickHouse that have been squashed."""
     activity.logger.info("Deleting squashed persons from ClickHouse")
 
@@ -420,7 +406,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs):
 
 
 @activity.defn
-async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs):
+async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) -> None:
     """Execute the query to delete from Postgres persons that have been squashed.
 
     We cannot use the Django ORM in an async context without enabling unsafe behavior.
@@ -487,6 +473,56 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs):
                         "id": deleted_id,
                     },
                 )
+
+
+@contextlib.asynccontextmanager
+async def person_overrides_dictionary(
+    workflow, query_inputs: QueryInputs, retry_policy: RetryPolicy
+) -> AsyncIterator[str]:
+    """This context manager manages the person_overrides DICTIONARY used during a squash job.
+
+    Managing the DICTIONARY involves setup activities:
+    - Prepare the underlying person_overrides table.
+    - Creating the DICTIONARY itself, returning latest_created_at.
+
+    And clean-up activities:
+    - Re-attaching the underlying person_overrides table after we are done.
+    - Dropping the DICTIONARY.
+
+    It's important that we account for possible cancellations with a try/finally block. However, if the
+    squash workflow is terminated instead of cancelled, we may leave the underlying person_overrides
+    table detached and the dictionary un-dropped. There is nothing we can do about this as termination
+    leaves us no time to clean-up.
+    """
+    await workflow.execute_activity(
+        prepare_person_overrides,
+        query_inputs,
+        start_to_close_timeout=timedelta(seconds=60),
+        retry_policy=retry_policy,
+    )
+    latest_created_at = await workflow.execute_activity(
+        prepare_dictionary,
+        query_inputs,
+        start_to_close_timeout=timedelta(seconds=60),
+        retry_policy=retry_policy,
+    )
+
+    try:
+        yield latest_created_at
+
+    finally:
+        await workflow.execute_activity(
+            re_attach_person_overrides,
+            query_inputs,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=retry_policy,
+        )
+        await workflow.execute_activity(
+            drop_dictionary,
+            query_inputs,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=retry_policy,
+        )
 
 
 @dataclass
@@ -623,76 +659,69 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
         workflow.logger.debug("%s", json.dumps(asdict(inputs)))
 
         retry_policy = RetryPolicy(maximum_attempts=3)
-
-        latest_created_at = await workflow.execute_activity(
-            prepare_dictionary,
-            QueryInputs(
-                database=inputs.clickhouse_database,
-                dictionary_name=inputs.dictionary_name,
-                user=settings.CLICKHOUSE_USER,
-                password=settings.CLICKHOUSE_PASSWORD,
-                cluster_name=settings.CLICKHOUSE_CLUSTER,
-                team_ids=inputs.team_ids,
-            ),
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=retry_policy,
+        query_inputs = QueryInputs(
+            database=inputs.clickhouse_database,
+            dictionary_name=inputs.dictionary_name,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            cluster_name=settings.CLICKHOUSE_CLUSTER,
+            team_ids=inputs.team_ids,
         )
 
-        persons_to_delete = await workflow.execute_activity(
-            select_persons_to_delete,
-            QueryInputs(
-                partition_ids=list(inputs.iter_partition_ids()),
-                database=inputs.clickhouse_database,
-                _latest_created_at=latest_created_at,
-            ),
-            start_to_close_timeout=timedelta(seconds=60),
+        async with person_overrides_dictionary(
+            workflow,
+            query_inputs,
             retry_policy=retry_policy,
-        )
+        ) as latest_created_at:
+            persons_to_delete = await workflow.execute_activity(
+                select_persons_to_delete,
+                QueryInputs(
+                    partition_ids=list(inputs.iter_partition_ids()),
+                    database=inputs.clickhouse_database,
+                    _latest_created_at=latest_created_at,
+                ),
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=retry_policy,
+            )
 
-        await workflow.execute_activity(
-            squash_events_partition,
-            QueryInputs(
-                partition_ids=list(inputs.iter_partition_ids()),
-                database=inputs.clickhouse_database,
-                team_ids=inputs.team_ids,
-                dictionary_name=inputs.dictionary_name,
-                _latest_created_at=latest_created_at,
-            ),
-            start_to_close_timeout=timedelta(seconds=300),
-            retry_policy=retry_policy,
-        )
+            await workflow.execute_activity(
+                squash_events_partition,
+                QueryInputs(
+                    partition_ids=list(inputs.iter_partition_ids()),
+                    database=inputs.clickhouse_database,
+                    team_ids=inputs.team_ids,
+                    dictionary_name=inputs.dictionary_name,
+                    _latest_created_at=latest_created_at,
+                ),
+                start_to_close_timeout=timedelta(seconds=300),
+                retry_policy=retry_policy,
+            )
 
-        workflow.logger.info("Squash finished for all requested partitions, running clean up activities")
-        await workflow.execute_activity(
-            drop_dictionary,
-            QueryInputs(database=inputs.clickhouse_database, dictionary_name=inputs.dictionary_name),
-            start_to_close_timeout=timedelta(seconds=300),
-            retry_policy=retry_policy,
-        )
+            workflow.logger.info("Squash finished for all requested partitions, running clean up activities")
 
-        if not persons_to_delete:
-            workflow.logger.info("No overrides to delete were found, workflow done")
-            return
+            if not persons_to_delete:
+                workflow.logger.info("No overrides to delete were found, workflow done")
+                return
 
-        await workflow.execute_activity(
-            delete_squashed_person_overrides_from_clickhouse,
-            QueryInputs(
-                person_overrides_to_delete=persons_to_delete,
-                database=inputs.clickhouse_database,
-                _latest_created_at=latest_created_at,
-            ),
-            start_to_close_timeout=timedelta(seconds=300),
-            retry_policy=retry_policy,
-        )
+            await workflow.execute_activity(
+                delete_squashed_person_overrides_from_clickhouse,
+                QueryInputs(
+                    person_overrides_to_delete=persons_to_delete,
+                    database=inputs.clickhouse_database,
+                    _latest_created_at=latest_created_at,
+                ),
+                start_to_close_timeout=timedelta(seconds=300),
+                retry_policy=retry_policy,
+            )
 
-        await workflow.execute_activity(
-            delete_squashed_person_overrides_from_postgres,
-            QueryInputs(
-                person_overrides_to_delete=persons_to_delete,
-                database=inputs.postgres_database,
-            ),
-            start_to_close_timeout=timedelta(seconds=300),
-            retry_policy=retry_policy,
-        )
+            await workflow.execute_activity(
+                delete_squashed_person_overrides_from_postgres,
+                QueryInputs(
+                    person_overrides_to_delete=persons_to_delete,
+                    database=inputs.postgres_database,
+                ),
+                start_to_close_timeout=timedelta(seconds=300),
+                retry_policy=retry_policy,
+            )
 
         workflow.logger.info("Done 🎉")
