@@ -21,7 +21,9 @@ export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagPro
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
     const logicProps = { breakdown, filters, setFilters, getPropertyDefinition }
-    const { binCount, useHistogram, isHistogramable, isNormalizeable } = useValues(breakdownTagLogic(logicProps))
+    const { binCount, useHistogram, isViewOnly, isHistogramable, isNormalizeable } = useValues(
+        breakdownTagLogic(logicProps)
+    )
     const { removeBreakdown, setBinCount, setUseHistogram, setNormalizeBreakdownURL } = useActions(
         breakdownTagLogic(logicProps)
     )
@@ -29,7 +31,7 @@ export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagPro
     return (
         <LemonTag
             className="taxonomic-breakdown-filter tag-pill"
-            closable={!!setFilters && !isHistogramable && !isNormalizeable}
+            closable={!isViewOnly && !isHistogramable && !isNormalizeable}
             onClose={removeBreakdown}
             popover={{
                 overlay: isNormalizeable ? (
