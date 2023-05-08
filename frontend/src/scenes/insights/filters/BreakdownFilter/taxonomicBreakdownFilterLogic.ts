@@ -6,10 +6,11 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { BreakdownFilter } from '~/queries/schema'
-import { onFilterChange } from './taxonomicBreakdownFilterUtils'
-import { FilterType, PropertyDefinition } from '~/types'
+import { isCohortBreakdown, onFilterChange } from './taxonomicBreakdownFilterUtils'
+import { ChartDisplayType, FilterType, PropertyDefinition, TrendsFilterType } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 type TaxonomicBreakdownFilterLogicProps = {
     filters: BreakdownFilter
@@ -25,6 +26,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             breakdown,
             taxonomicGroup,
         }),
+        removeBreakdown: (breakdown: string | number) => ({ breakdown }),
     }),
     selectors({
         hasBreakdown: [(_, p) => [p.filters], ({ breakdown_type }) => !!breakdown_type],
@@ -60,6 +62,33 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 setFilters: props.setFilters,
                 getPropertyDefinition: props.getPropertyDefinition,
             })(breakdown, taxonomicGroup)
+        },
+        removeBreakdown: ({ breakdown }) => {
+            if (!props.setFilters) {
+                return
+            }
+
+            if (isCohortBreakdown(breakdown)) {
+                const newParts = values.breakdownCohortArray.filter((cohort) => cohort !== breakdown)
+                if (newParts.length === 0) {
+                    props.setFilters({ breakdown: null, breakdown_type: null })
+                } else {
+                    props.setFilters({ breakdown: newParts, breakdown_type: 'cohort' })
+                }
+            } else {
+                const newFilters: Partial<TrendsFilterType> = {
+                    breakdown: undefined,
+                    breakdown_type: undefined,
+                    breakdown_histogram_bin_count: undefined,
+                    // TODO: convert to data exploration
+                    // Make sure we are no longer in map view after removing the Country Code breakdown
+                    display:
+                        isTrendsFilter(props.filters) && props.filters.display !== ChartDisplayType.WorldMap
+                            ? props.filters.display
+                            : undefined,
+                }
+                props.setFilters(newFilters)
+            }
         },
     })),
 ])
