@@ -1201,6 +1201,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["another_val", "some_val"])
         self.assertEqual([resp["aggregated_value"] for resp in daily_response], [10.0, 5.0])
 
+    @snapshot_clickhouse_queries
+    def test_trends_any_event_total_count(self):
+        self._create_events()
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = Trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "interval": "day",
+                        "events": [{"id": None, "math": "total"}, {"id": "sign up", "math": "total"}],
+                    }
+                ),
+                self.team,
+            )
+        self.assertEqual(response[0]["count"], 5)
+        self.assertEqual(response[1]["count"], 4)
+
     @also_test_with_materialized_columns(["$math_prop", "$some_property"])
     def test_trends_breakdown_with_math_func(self):
 

@@ -260,6 +260,9 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             (s) => [s.propertyDefinitionStorage],
             (propertyDefinitionStorage): ((s: TaxonomicFilterValue) => PropertyDefinition | null) =>
                 (propertyName: TaxonomicFilterValue): PropertyDefinition | null => {
+                    if (!propertyName) {
+                        return null
+                    }
                     checkOrLoadPropertyDefinition(propertyName, propertyDefinitionStorage)
                     return typeof propertyDefinitionStorage[propertyName] === 'object'
                         ? (propertyDefinitionStorage[propertyName] as PropertyDefinition)
@@ -270,6 +273,9 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             (s) => [s.propertyDefinitionStorage],
             (propertyDefinitionStorage): ((s: TaxonomicFilterValue) => string | null) =>
                 (propertyName: TaxonomicFilterValue) => {
+                    if (!propertyName) {
+                        return null
+                    }
                     checkOrLoadPropertyDefinition(propertyName, propertyDefinitionStorage)
                     // if the model hasn't already cached this definition, will fall back to original display type
                     return typeof propertyDefinitionStorage[propertyName] === 'object'

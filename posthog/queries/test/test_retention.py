@@ -753,6 +753,51 @@ def retention_test_factory(retention):
                 [[2, 0, 0, 0, 0, 2, 1], [2, 0, 0, 0, 2, 1], [2, 0, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [1, 0], [0]],
             )
 
+        def test_retention_any_event(self):
+            _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+            _create_events(
+                self.team,
+                [
+                    ("person1", _date(0)),
+                    ("person1", _date(1)),
+                    ("person1", _date(2)),
+                    ("person1", _date(3)),
+                    ("person2", _date(0)),
+                    ("person2", _date(1)),
+                    ("person2", _date(2)),
+                    ("person2", _date(3)),
+                    ("person3", _date(5)),
+                ],
+                "$some_event",
+            )
+
+            _create_events(
+                self.team, [("person1", _date(5)), ("person1", _date(6)), ("person2", _date(5))], "$pageview"
+            )
+
+            result = retention().run(
+                RetentionFilter(
+                    data={
+                        "date_to": _date(6, hour=6),
+                        "target_entity": json.dumps({"id": None, "type": "events"}),
+                        "returning_entity": {"id": None, "type": "events"},
+                        "total_intervals": 7,
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(len(result), 7)
+            self.assertEqual(pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"])
+
+            self.assertEqual(
+                pluck(result, "values", "count"),
+                [[2, 2, 2, 2, 0, 2, 1], [2, 2, 2, 0, 2, 1], [2, 2, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [3, 1], [1]],
+            )
+
         @snapshot_clickhouse_queries
         def test_retention_event_action(self):
             _create_person(team=self.team, distinct_ids=["person1", "alias1"])
