@@ -154,7 +154,6 @@ def _screenshot_asset(
 @timed("image_exporter")
 def export_image(exported_asset: ExportedAsset) -> None:
     with push_scope() as scope:
-        scope.set_tag("export_format", exported_asset.export_format if exported_asset else "unknown")
         scope.set_tag("team_id", exported_asset.team if exported_asset else "unknown")
         scope.set_tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
