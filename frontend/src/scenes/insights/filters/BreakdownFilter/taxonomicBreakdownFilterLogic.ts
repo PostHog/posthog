@@ -17,7 +17,7 @@ import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export type TaxonomicBreakdownFilterLogicProps = {
-    filters: BreakdownFilter
+    breakdownFilter: BreakdownFilter
     setFilters: ((filters: Partial<FilterType>, mergeFilters?: boolean) => void) | null
 }
 
@@ -43,25 +43,31 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     }),
     reducers(({ props }) => ({
         histogramBinsUsed: [
-            props.filters && isTrendsFilter(props.filters) && props.filters.breakdown_histogram_bin_count !== undefined,
+            props.breakdownFilter &&
+                isTrendsFilter(props.breakdownFilter) &&
+                props.breakdownFilter.breakdown_histogram_bin_count !== undefined,
             {
                 setHistogramBinsUsed: (_, { value }) => value,
             },
         ],
         histogramBinCount: [
-            ((props.filters && isTrendsFilter(props.filters) && props.filters.breakdown_histogram_bin_count) ?? 10) as
-                | number
-                | undefined,
+            ((props.breakdownFilter &&
+                isTrendsFilter(props.breakdownFilter) &&
+                props.breakdownFilter.breakdown_histogram_bin_count) ??
+                10) as number | undefined,
             {
                 setHistogramBinCount: (_, { count }) => count,
             },
         ],
     })),
     selectors({
-        hasBreakdown: [(_, p) => [p.filters], ({ breakdown_type }) => !!breakdown_type],
-        hasNonCohortBreakdown: [(_, p) => [p.filters], ({ breakdown }) => breakdown && typeof breakdown === 'string'],
+        hasBreakdown: [(_, p) => [p.breakdownFilter], ({ breakdown_type }) => !!breakdown_type],
+        hasNonCohortBreakdown: [
+            (_, p) => [p.breakdownFilter],
+            ({ breakdown }) => breakdown && typeof breakdown === 'string',
+        ],
         taxonomicBreakdownType: [
-            (_, p) => [p.filters],
+            (_, p) => [p.breakdownFilter],
             ({ breakdown_type }) => {
                 let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
                 if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
@@ -71,7 +77,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             },
         ],
         breakdownArray: [
-            (_, p) => [p.filters],
+            (_, p) => [p.breakdownFilter],
             ({ breakdown }) =>
                 (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b),
         ],
@@ -127,8 +133,9 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     // TODO: convert to data exploration
                     // Make sure we are no longer in map view after removing the Country Code breakdown
                     display:
-                        isTrendsFilter(props.filters) && props.filters.display !== ChartDisplayType.WorldMap
-                            ? props.filters.display
+                        isTrendsFilter(props.breakdownFilter) &&
+                        props.breakdownFilter.display !== ChartDisplayType.WorldMap
+                            ? props.breakdownFilter.display
                             : undefined,
                 }
                 props.setFilters(newFilters)
