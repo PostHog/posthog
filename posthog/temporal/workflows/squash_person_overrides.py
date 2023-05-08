@@ -220,20 +220,21 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
     """Prepare the person_overrides table to be used in a squash.
 
     This activity executes two queries:
-    - First one is a DETACH TABLE to ensure no new data is ingested during the squash.
+    - First one is a DETACH VIEW to ensure no new data is ingested during the squash.
     - Second one is a OPTIMIZE TABLE to ensure we assign the latest overrides for each old_person_id.
 
-    The activity to re-attach person_overrides should always be executed after this one.
+    The activity re_attach_person_overrides should always be executed after the squash is done to clean
+    up what we do here.
     """
-    activity.logger.info("Detaching %s.kafka_person_overrides", inputs.database)
+    activity.logger.info("Detaching %s.person_overrides_mv", inputs.database)
     sync_execute(
-        "DETACH TABLE {database}.kafka_person_overrides ON CLUSTER {cluster}".format(
+        "DETACH VIEW {database}.person_overrides_mv ON CLUSTER {cluster}".format(
             database=inputs.database, cluster=inputs.cluster_name
         )
     )
     activity.logger.info("Optimizing %s.person_overrides", inputs.database)
     sync_execute(
-        "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL".format(
+        "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL SETTINGS mutations_sync = 2".format(
             database=inputs.database, cluster=inputs.cluster_name
         )
     )
@@ -241,10 +242,10 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
 
 @activity.defn
 async def re_attach_person_overrides(inputs: QueryInputs) -> None:
-    """Re-attach the person_overrides table after it was used in a squash."""
-    activity.logger.info("Re-attaching %s.person_overrides", inputs.database)
+    """Re-attach the person_overrides mat view after it was used in a squash."""
+    activity.logger.info("Re-attaching %s.person_overrides_mv", inputs.database)
     sync_execute(
-        "ATTACH TABLE {database}.kafka_person_overrides ON CLUSTER {cluster}".format(
+        "ATTACH TABLE {database}.person_overrides_mv ON CLUSTER {cluster}".format(
             database=inputs.database, cluster=inputs.cluster_name
         )
     )
@@ -368,12 +369,12 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
     """Execute the squash query for a given partition_id and persons to_override.
 
     As ClickHouse doesn't support an UPDATE ... FROM statement ala PostgreSQL, we must
-    do this in 4 steps/queries:
+    do this in 4 basic steps:
 
-    1. Build a JOIN table AS person_overrides.
-    2. Populate it with the data we are using in the update.
-    3. Perform ALTER TABLE UPDATE using joinGet to query the JOIN table.
-    4. Clean up the JOIN table once done.
+    1. Stop ingesting data into person_overrides.
+    2. Build a DICTIONARY from person_overrides.
+    3. Perform ALTER TABLE UPDATE using dictGet to query the DICTIONARY.
+    4. Clean up the DICTIONARY once done.
     """
     query = SQUASH_EVENTS_QUERY.format(
         database=inputs.database,
@@ -482,7 +483,8 @@ async def person_overrides_dictionary(
     """This context manager manages the person_overrides DICTIONARY used during a squash job.
 
     Managing the DICTIONARY involves setup activities:
-    - Prepare the underlying person_overrides table.
+    - Prepare the underlying person_overrides table by: stopping ingestion of new overrides and optimizing
+        the table to remove any duplicates.
     - Creating the DICTIONARY itself, returning latest_created_at.
 
     And clean-up activities:
@@ -490,8 +492,8 @@ async def person_overrides_dictionary(
     - Dropping the DICTIONARY.
 
     It's important that we account for possible cancellations with a try/finally block. However, if the
-    squash workflow is terminated instead of cancelled, we may leave the underlying person_overrides
-    table detached and the dictionary un-dropped. There is nothing we can do about this as termination
+    squash workflow is terminated instead of cancelled, we may leave the underlying person_overrides_mv
+    detached and the dictionary un-dropped. There is nothing we can do about this as termination
     leaves us no time to clean-up.
     """
     await workflow.execute_activity(
