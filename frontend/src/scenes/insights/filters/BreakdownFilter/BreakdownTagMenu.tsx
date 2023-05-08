@@ -6,14 +6,19 @@ import { IconInfo } from 'lib/lemon-ui/icons'
 
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { BreakdownFilter } from '~/queries/schema'
+import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 type BreakdownTagMenuProps = {
     filters: BreakdownFilter
 }
 
 export const BreakdownTagMenu = ({ filters }: BreakdownTagMenuProps): JSX.Element => {
-    const { binCount, useHistogram, isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
-    const { removeBreakdown, setBinCount, setUseHistogram, setNormalizeBreakdownURL } = useActions(breakdownTagLogic)
+    const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
+    const { removeBreakdown } = useActions(breakdownTagLogic)
+
+    const { histogramBinCount, histogramBinsUsed } = useValues(taxonomicBreakdownFilterLogic)
+    const { setHistogramBinCount, setHistogramBinsUsed, setNormalizeBreakdownURL } =
+        useActions(taxonomicBreakdownFilterLogic)
 
     return (
         <>
@@ -53,18 +58,18 @@ export const BreakdownTagMenu = ({ filters }: BreakdownTagMenuProps): JSX.Elemen
                 <>
                     <LemonButton
                         onClick={() => {
-                            setUseHistogram(true)
+                            setHistogramBinsUsed(true)
                         }}
                         status="stealth"
-                        active={useHistogram}
+                        active={histogramBinsUsed}
                         fullWidth
                     >
                         Use{' '}
                         <LemonInput
                             min={1}
-                            value={binCount}
+                            value={histogramBinCount}
                             onChange={(newValue) => {
-                                setBinCount(newValue)
+                                setHistogramBinCount(newValue)
                             }}
                             fullWidth={false}
                             type="number"
@@ -74,10 +79,10 @@ export const BreakdownTagMenu = ({ filters }: BreakdownTagMenuProps): JSX.Elemen
                     </LemonButton>
                     <LemonButton
                         onClick={() => {
-                            setUseHistogram(false)
+                            setHistogramBinsUsed(false)
                         }}
                         status="stealth"
-                        active={!useHistogram}
+                        active={!histogramBinsUsed}
                         className="mt-2"
                         fullWidth
                     >

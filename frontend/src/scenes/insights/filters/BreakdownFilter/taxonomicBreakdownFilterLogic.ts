@@ -1,4 +1,4 @@
-import { kea, path, props, actions, selectors, listeners, connect } from 'kea'
+import { kea, path, props, actions, reducers, selectors, listeners, connect } from 'kea'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import {
     TaxonomicFilterGroup,
@@ -28,7 +28,28 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             taxonomicGroup,
         }),
         removeBreakdown: (breakdown: string | number) => ({ breakdown }),
+        setHistogramBinsUsed: (value: boolean) => ({ value }),
+        setHistogramBinCount: (count: number | undefined) => ({ count }),
+        setNormalizeBreakdownURL: (normalizeBreakdownURL: boolean) => ({
+            normalizeBreakdownURL,
+        }),
     }),
+    reducers(({ props }) => ({
+        histogramBinsUsed: [
+            props.filters && isTrendsFilter(props.filters) && props.filters.breakdown_histogram_bin_count !== undefined,
+            {
+                setHistogramBinsUsed: (_, { value }) => value,
+            },
+        ],
+        histogramBinCount: [
+            ((props.filters && isTrendsFilter(props.filters) && props.filters.breakdown_histogram_bin_count) ?? 10) as
+                | number
+                | undefined,
+            {
+                setHistogramBinCount: (_, { count }) => count,
+            },
+        ],
+    })),
     selectors({
         hasBreakdown: [(_, p) => [p.filters], ({ breakdown_type }) => !!breakdown_type],
         hasNonCohortBreakdown: [(_, p) => [p.filters], ({ breakdown }) => breakdown && typeof breakdown === 'string'],
@@ -91,6 +112,25 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 }
                 props.setFilters(newFilters)
             }
+        },
+        setNormalizeBreakdownURL: ({ normalizeBreakdownURL }) => {
+            const newFilter: TrendsFilterType = {
+                breakdown_normalize_url: normalizeBreakdownURL,
+            }
+            props.setFilters?.(newFilter, true)
+        },
+        setHistogramBinsUsed: ({ value }) => {
+            const newFilter: TrendsFilterType = {
+                breakdown_histogram_bin_count: value ? values.histogramBinCount : undefined,
+            }
+            props.setFilters?.(newFilter, true)
+        },
+        setHistogramBinCount: async ({ count }, breakpoint) => {
+            await breakpoint(1000)
+            const newFilter: TrendsFilterType = {
+                breakdown_histogram_bin_count: values.histogramBinsUsed ? count : undefined,
+            }
+            props.setFilters?.(newFilter, true)
         },
     })),
 ])

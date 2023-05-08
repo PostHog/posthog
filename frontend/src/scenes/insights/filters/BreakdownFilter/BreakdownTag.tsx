@@ -8,11 +8,10 @@ import { BreakdownTagMenu } from './BreakdownTagMenu'
 type BreakdownTagProps = {
     breakdown: string | number
     filters: FilterType
-    setFilters?: (filter: Partial<FilterType>, mergeFilters?: boolean) => void
 }
 
-export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagProps): JSX.Element {
-    const logicProps = { breakdown, filters, setFilters }
+export function BreakdownTag({ breakdown, filters }: BreakdownTagProps): JSX.Element {
+    const logicProps = { breakdown }
     const { isViewOnly, shouldShowMenu, propertyName } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
 
