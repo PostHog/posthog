@@ -1,16 +1,14 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FilterType } from '~/types'
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { BreakdownTagMenu } from './BreakdownTagMenu'
 
 type BreakdownTagProps = {
     breakdown: string | number
-    filters: FilterType
 }
 
-export function BreakdownTag({ breakdown, filters }: BreakdownTagProps): JSX.Element {
+export function BreakdownTag({ breakdown }: BreakdownTagProps): JSX.Element {
     const logicProps = { breakdown }
     const { isViewOnly, shouldShowMenu, propertyName } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
@@ -23,7 +21,7 @@ export function BreakdownTag({ breakdown, filters }: BreakdownTagProps): JSX.Ele
                 closable={!isViewOnly && !shouldShowMenu}
                 onClose={removeBreakdown}
                 popover={{
-                    overlay: shouldShowMenu ? <BreakdownTagMenu filters={filters} /> : undefined,
+                    overlay: shouldShowMenu ? <BreakdownTagMenu /> : undefined,
                     closeOnClickInside: false,
                 }}
             >

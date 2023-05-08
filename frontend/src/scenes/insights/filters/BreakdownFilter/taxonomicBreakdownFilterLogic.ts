@@ -61,6 +61,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
     })),
     selectors({
+        breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         hasBreakdown: [(_, p) => [p.breakdownFilter], ({ breakdown_type }) => !!breakdown_type],
         hasNonCohortBreakdown: [
             (_, p) => [p.breakdownFilter],
