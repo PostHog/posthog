@@ -13,7 +13,7 @@ import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilt
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
-type TaxonomicBreakdownFilterLogicProps = {
+export type TaxonomicBreakdownFilterLogicProps = {
     filters: BreakdownFilter
     setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
 }
