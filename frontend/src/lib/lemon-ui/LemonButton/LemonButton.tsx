@@ -98,6 +98,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 targetBlank,
                 disableClientSideRouting,
                 getTooltipPopupContainer,
+                'data-attr': dataAttr,
                 ...buttonProps
             },
             ref
@@ -172,7 +173,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     {...buttonProps}
                 >
                     {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-                    {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
+                    {children ? (
+                        <span data-attr={dataAttr} className="LemonButton__content flex items-center">
+                            {children}
+                        </span>
+                    ) : null}
                     {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
                 </ButtonComponent>
             )
