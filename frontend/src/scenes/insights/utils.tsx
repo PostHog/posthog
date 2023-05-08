@@ -38,7 +38,7 @@ export const getDisplayNameFromEntityFilter = (
         name = keyMapping.event[name].label
     }
     if (filter?.type === 'events' && filter.id === null) {
-        name = 'Any event'
+        name = 'All events'
     }
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
@@ -53,7 +53,7 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
         name = keyMapping.event[name].label
     }
     if (isEventsNode(node) && node.event === null) {
-        name = 'Any event'
+        name = 'All events'
     }
 
     const id = isEventsNode(node) ? node.event : node.id

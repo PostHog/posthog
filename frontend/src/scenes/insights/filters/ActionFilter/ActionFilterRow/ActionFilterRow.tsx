@@ -196,7 +196,7 @@ export function ActionFilterRow({
             groupTypes={actionsTaxonomicGroupTypes}
             type="secondary"
             status="stealth"
-            placeholder="Any event"
+            placeholder="All events"
             placeholderClass=""
             disabled={disabled || readOnly}
         />

@@ -63,7 +63,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                         event: value || '',
                                     })
                                 }
-                                placeholder="Any event"
+                                placeholder="All events"
                             />
 
                             <small>

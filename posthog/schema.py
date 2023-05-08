@@ -628,7 +628,7 @@ class EventsNode(BaseModel):
         extra = Extra.forbid
 
     custom_name: Optional[str] = None
-    event: Optional[str] = Field(None, description="The event or `null` for any event.")
+    event: Optional[str] = Field(None, description="The event or `null` for all events.")
     fixedProperties: Optional[
         List[
             Union[

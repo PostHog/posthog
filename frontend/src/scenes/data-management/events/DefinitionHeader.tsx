@@ -68,7 +68,7 @@ export function getEventDefinitionIcon(definition: EventDefinition | Record<stri
     }
     if (!('id' in definition) && definition.value === null) {
         return (
-            <Tooltip title={`Any events`}>
+            <Tooltip title={`All events`}>
                 <ActionEvent className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )

@@ -156,7 +156,7 @@ describe('infiniteListLogic', () => {
         it('selects the selected item', async () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadRemoteItemsSuccess'])
-                .toMatchValues({ selectedItem: partial({ name: 'Any event', value: null }) })
+                .toMatchValues({ selectedItem: partial({ name: 'All events', value: null }) })
 
             await expectLogic(logic, () => {
                 logic.actions.moveDown()
@@ -221,7 +221,7 @@ describe('infiniteListLogic', () => {
                         localItems: partial({ count: 1 }),
                         items: partial({
                             count: 157,
-                            results: [{ name: 'Any event', value: null }, ...mockEventDefinitions],
+                            results: [{ name: 'All events', value: null }, ...mockEventDefinitions],
                         }),
                     })
             })

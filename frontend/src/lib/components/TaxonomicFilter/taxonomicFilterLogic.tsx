@@ -159,7 +159,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         name: 'Events',
                         searchPlaceholder: 'events',
                         type: TaxonomicFilterGroupType.Events,
-                        options: [{ name: 'Any event', value: null }],
+                        options: [{ name: 'All events', value: null }],
                         endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                         }).url,

@@ -135,7 +135,7 @@ export interface EntityNode extends DataNode {
 
 export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
-    /** The event or `null` for any event. */
+    /** The event or `null` for all events. */
     event?: string | null
     limit?: number
     /** Columns to order by */

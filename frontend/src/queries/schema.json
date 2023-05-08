@@ -1600,7 +1600,7 @@
                     "type": "string"
                 },
                 "event": {
-                    "description": "The event or `null` for any event.",
+                    "description": "The event or `null` for all events.",
                     "type": ["string", "null"]
                 },
                 "fixedProperties": {
