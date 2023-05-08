@@ -3,19 +3,13 @@ from typing import Any, Dict, List, Tuple, Union
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, EventFiltersSQL
 
 
 @dataclasses.dataclass(frozen=True)
-class SummaryEventFiltersSQL:
+class SummaryEventFiltersSQL(EventFiltersSQL):
     simple_event_matching_select_condition_clause: str
     non_aggregate_select_condition_summing_clause: str
-    non_aggregate_select_condition_clause: str
-    aggregate_event_select_clause: str
-    aggregate_select_clause: str
-    aggregate_having_clause: str
-    where_conditions: str
-    params: Dict[str, Any]
 
 
 class SessionRecordingListFromReplaySummary(SessionRecordingList):
