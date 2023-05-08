@@ -51,6 +51,7 @@ describe('ingester rebalancing tests', () => {
         await ingesterTwo.start()
 
         await waitForExpect(() => {
+            // because the rebalancing strategy is cooperative sticky the partition stays on the same ingester
             assertIngesterHasExpectedPartitions(ingesterOne, [1])
 
             // only one partition so nothing for the new consumer to do

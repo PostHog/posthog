@@ -4,6 +4,7 @@ export type IncomingRecordingMessage = {
         topic: string
         partition: number
         offset: number
+        timestamp: number | undefined
     }
 
     team_id: number

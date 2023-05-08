@@ -219,7 +219,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             return handle_compare(filter, self._run_formula_query, team)
 
         for entity in filter.entities:
-            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+            if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
                 try:
                     entity.name = actions.get(id=entity.id).name
                 except Action.DoesNotExist:

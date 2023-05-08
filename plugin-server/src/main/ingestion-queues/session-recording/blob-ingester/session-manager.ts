@@ -33,6 +33,7 @@ type SessionBuffer = {
     count: number
     size: number
     createdAt: Date
+    lastMessageReceivedAt: number | null
     file: string
     offsets: number[]
 }
@@ -91,26 +92,33 @@ export class SessionManager {
             await this.addToChunks(message)
         }
 
-        await this.flushIfNecessary()
+        this.buffer.lastMessageReceivedAt = message.metadata.timestamp || Date.now()
+        await this.flushIfBufferExceedsCapacity()
     }
 
     public get isEmpty(): boolean {
         return this.buffer.count === 0 && this.chunks.size === 0
     }
 
-    public async flushIfNecessary(): Promise<void> {
+    public async flushIfBufferExceedsCapacity(): Promise<void> {
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
-        const overCapacity = gzippedCapacity > 1
-        const timeSinceLastFlushTooLong =
-            Date.now() - this.buffer.createdAt.getTime() >=
-            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        const readyToFlush = overCapacity || timeSinceLastFlushTooLong
+        if (gzippedCapacity > 1) {
+            // return the promise and let the caller decide whether to await
+            return this.flush()
+        }
+    }
 
-        if (readyToFlush) {
-            await this.flush()
+    public async flushIfSessionIsIdle(): Promise<void> {
+        if (
+            this.buffer.lastMessageReceivedAt !== null &&
+            Date.now() - this.buffer.lastMessageReceivedAt >=
+                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+        ) {
+            // return the promise and let the caller decide whether to await
+            return this.flush()
         }
     }
 
@@ -184,6 +192,7 @@ export class SessionManager {
             count: 0,
             size: 0,
             createdAt: new Date(),
+            lastMessageReceivedAt: null,
             file: path.join(
                 bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
                 `${this.teamId}.${this.sessionId}.${id}.jsonl`
