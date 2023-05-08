@@ -1,4 +1,4 @@
-import { kea, path, props, actions, reducers, selectors, listeners, connect } from 'kea'
+import { kea, path, props, defaults, actions, reducers, selectors, listeners, connect } from 'kea'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import {
     TaxonomicFilterGroup,
@@ -21,6 +21,10 @@ export type TaxonomicBreakdownFilterLogicProps = {
 export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicType>([
     path(['scenes', 'insights', 'filters', 'BreakdownFilter', 'taxonomicBreakdownFilterLogic']),
     props({} as TaxonomicBreakdownFilterLogicProps),
+    defaults({
+        // This is a hack to get `TaxonomicFilterGroupType` imported in `taxonomicBreakdownFilterLogicType.ts`
+        __ignore: null as TaxonomicFilterGroupType | null,
+    }),
     connect(() => ({ values: [propertyDefinitionsModel, ['getPropertyDefinition']] })),
     actions({
         addBreakdown: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => ({
