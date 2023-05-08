@@ -19,11 +19,12 @@ type BreakdownTagProps = {
 
 export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
-    const breakdownTagLogicInstance = breakdownTagLogic({ breakdown, filters, setFilters })
+
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
-    const { binCount, useHistogram } = useValues(breakdownTagLogicInstance)
-    const { setBinCount, setUseHistogram, setNormalizeBreakdownURL } = useActions(breakdownTagLogicInstance)
+    const logicProps = { breakdown, filters, setFilters }
+    const { binCount, useHistogram } = useValues(breakdownTagLogic(logicProps))
+    const { setBinCount, setUseHistogram, setNormalizeBreakdownURL } = useActions(breakdownTagLogic(logicProps))
 
     const { removeBreakdown } = useActions(taxonomicBreakdownFilterLogic)
 
