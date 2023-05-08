@@ -12,7 +12,7 @@ export function Breakdown({ insightProps }: QueryEditorFilterProps): JSX.Element
             breakdownFilter={breakdown}
             display={display}
             isTrends={isTrends}
-            setFilters={updateBreakdown}
+            updateBreakdown={updateBreakdown}
             updateDisplay={updateDisplay}
         />
     )

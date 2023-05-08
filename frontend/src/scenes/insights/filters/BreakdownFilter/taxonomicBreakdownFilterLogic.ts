@@ -10,7 +10,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { BreakdownFilter } from '~/queries/schema'
 import { isCohortBreakdown, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
-import { BreakdownType, ChartDisplayType, FilterType, TrendsFilterType } from '~/types'
+import { BreakdownType, ChartDisplayType } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
@@ -20,7 +20,7 @@ export type TaxonomicBreakdownFilterLogicProps = {
     breakdownFilter: BreakdownFilter
     display?: ChartDisplayType | null
     isTrends: boolean
-    setFilters: ((filters: Partial<FilterType>, mergeFilters?: boolean) => void) | null
+    updateBreakdown: ((breakdown: BreakdownFilter) => void) | null
     updateDisplay: ((display: ChartDisplayType) => void) | null
 }
 
@@ -89,19 +89,19 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (s) => [s.breakdownArray],
             (breakdownArray) => breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b))),
         ],
-        isViewOnly: [(_, p) => [p.setFilters], (setFilters) => !setFilters],
-        includeSessions: [(_, p) => [p.setFilters], (setFilters) => !setFilters],
+        isViewOnly: [(_, p) => [p.updateBreakdown], (updateBreakdown) => !updateBreakdown],
+        includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
     }),
     listeners(({ props, values }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
             const breakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
             const isHistogramable = !!values.getPropertyDefinition(breakdown)?.is_numerical
 
-            if (!props.setFilters || !breakdownType) {
+            if (!props.updateBreakdown || !breakdownType) {
                 return
             }
 
-            const newFilters: Partial<TrendsFilterType> = {
+            props.updateBreakdown({
                 breakdown_type: breakdownType,
                 breakdown:
                     taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
@@ -114,29 +114,27 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 breakdown_normalize_url: isURLNormalizeable(
                     values.getPropertyDefinition(breakdown)?.name || (breakdown as string)
                 ),
-            }
-
-            props.setFilters(newFilters, true)
+            })
         },
         removeBreakdown: ({ breakdown }) => {
-            if (!props.setFilters) {
+            if (!props.updateBreakdown) {
                 return
             }
 
             if (isCohortBreakdown(breakdown)) {
                 const newParts = values.breakdownCohortArray.filter((cohort) => cohort !== breakdown)
                 if (newParts.length === 0) {
-                    props.setFilters({ breakdown: null, breakdown_type: null })
+                    props.updateBreakdown({ ...props.breakdownFilter, breakdown: null, breakdown_type: null })
                 } else {
-                    props.setFilters({ breakdown: newParts, breakdown_type: 'cohort' })
+                    props.updateBreakdown({ ...props.breakdownFilter, breakdown: newParts, breakdown_type: 'cohort' })
                 }
             } else {
-                const newFilters: Partial<TrendsFilterType> = {
+                props.updateBreakdown({
+                    ...props.breakdownFilter,
                     breakdown: undefined,
                     breakdown_type: undefined,
                     breakdown_histogram_bin_count: undefined,
-                }
-                props.setFilters(newFilters)
+                })
 
                 // Make sure we are no longer in map view after removing the Country Code breakdown
                 if (props.isTrends && props.display === ChartDisplayType.WorldMap) {
@@ -145,23 +143,20 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             }
         },
         setNormalizeBreakdownURL: ({ normalizeBreakdownURL }) => {
-            const newFilter: TrendsFilterType = {
+            props.updateBreakdown?.({
                 breakdown_normalize_url: normalizeBreakdownURL,
-            }
-            props.setFilters?.(newFilter, true)
+            })
         },
         setHistogramBinsUsed: ({ value }) => {
-            const newFilter: TrendsFilterType = {
+            props.updateBreakdown?.({
                 breakdown_histogram_bin_count: value ? values.histogramBinCount : undefined,
-            }
-            props.setFilters?.(newFilter, true)
+            })
         },
         setHistogramBinCount: async ({ count }, breakpoint) => {
             await breakpoint(1000)
-            const newFilter: TrendsFilterType = {
+            props.updateBreakdown?.({
                 breakdown_histogram_bin_count: values.histogramBinsUsed ? count : undefined,
-            }
-            props.setFilters?.(newFilter, true)
+            })
         },
     })),
 ])

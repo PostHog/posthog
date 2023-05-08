@@ -16,7 +16,7 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
         <TaxonomicBreakdownFilterComponent
             breakdownFilter={filters}
             isTrends={filters.insight === InsightType.TRENDS}
-            setFilters={(breakdownFilter) => setFilters?.(breakdownFilter, true)}
+            updateBreakdown={(breakdownFilter) => setFilters?.(breakdownFilter, true)}
             updateDisplay={(display) => setFilters?.({ display } as TrendsFilterType, true)}
         />
     )
@@ -26,7 +26,7 @@ export interface TaxonomicBreakdownFilterComponentProps {
     breakdownFilter?: BreakdownFilter | null
     display?: ChartDisplayType | null
     isTrends: boolean
-    setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
+    updateBreakdown?: (breakdown: BreakdownFilter) => void
     updateDisplay?: (display: ChartDisplayType) => void
 }
 
@@ -34,13 +34,13 @@ export function TaxonomicBreakdownFilterComponent({
     breakdownFilter,
     display,
     isTrends,
-    setFilters,
+    updateBreakdown,
     updateDisplay,
 }: TaxonomicBreakdownFilterComponentProps): JSX.Element {
     const logicProps = {
         breakdownFilter: breakdownFilter || {},
         display,
-        setFilters: setFilters || null,
+        updateBreakdown: updateBreakdown || null,
         updateDisplay,
         isTrends,
     }
