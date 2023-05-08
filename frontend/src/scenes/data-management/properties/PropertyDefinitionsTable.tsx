@@ -15,7 +15,7 @@ import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-managemen
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 
@@ -48,6 +48,19 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 return <PropertyDefinitionHeader definition={definition} hideIcon asLink />
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
+        },
+        {
+            title: 'Type',
+            key: 'type',
+            render: function RenderType(_, definition: PropertyDefinition) {
+                return definition.property_type ? (
+                    <LemonTag type="success" className="uppercase">
+                        {definition.property_type}
+                    </LemonTag>
+                ) : (
+                    <span className="text-muted">—</span>
+                )
+            },
         },
         ...(hasDashboardCollaboration
             ? [

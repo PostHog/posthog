@@ -22,7 +22,7 @@ from posthog.utils import relative_date_parse
 def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]]) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
-    for (k, v) in conditions.items():
+    for k, v in conditions.items():
         if not isinstance(v, str):
             continue
         if k == "after":
@@ -73,6 +73,8 @@ def query_events_list(
     if offset > 0:
         limit_sql += " OFFSET %(offset)s"
 
+    workload = Workload.OFFLINE if unbounded_date_from else Workload.ONLINE
+
     conditions, condition_params = determine_event_conditions(
         {
             "after": None if unbounded_date_from else (now() - timedelta(days=1)).isoformat(),
@@ -111,7 +113,7 @@ def query_events_list(
                 **hogql_context.values,
             },
             query_type="events_list",
-            workload=Workload.OFFLINE,
+            workload=workload,
         )
     else:
         return insight_query_with_columns(
@@ -124,5 +126,5 @@ def query_events_list(
                 **hogql_context.values,
             },
             query_type="events_list",
-            workload=Workload.OFFLINE,
+            workload=workload,
         )
