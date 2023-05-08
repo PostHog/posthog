@@ -29,5 +29,9 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             ({ breakdown }) =>
                 (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b),
         ],
+        breakdownCohortArray: [
+            (s) => [s.breakdownArray],
+            (breakdownArray) => breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b))),
+        ],
     }),
 ])

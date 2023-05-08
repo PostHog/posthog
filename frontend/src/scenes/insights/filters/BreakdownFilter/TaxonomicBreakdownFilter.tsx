@@ -18,17 +18,15 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
     const { breakdown_type } = filters
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
-    const { hasSelectedBreakdown, taxonomicBreakdownType, breakdownArray } = useValues(
+    const { hasSelectedBreakdown, taxonomicBreakdownType, breakdownArray, breakdownCohortArray } = useValues(
         taxonomicBreakdownFilterLogic({ filters })
     )
-
-    const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b)))
 
     const onCloseFor = setFilters
         ? (t: string | number, index: number): (() => void) => {
               return () => {
                   if (isCohortBreakdown(t)) {
-                      const newParts = breakdownParts.filter((_, i): _ is string | number => i !== index)
+                      const newParts = breakdownCohortArray.filter((_, i): _ is string | number => i !== index)
                       if (newParts.length === 0) {
                           setFilters({ breakdown: null, breakdown_type: null })
                       } else {
@@ -74,7 +72,7 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
 
     const onChange = setFilters
         ? onFilterChange({
-              breakdownParts,
+              breakdownCohortArray,
               setFilters,
               getPropertyDefinition: getPropertyDefinition,
           })
