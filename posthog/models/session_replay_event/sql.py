@@ -30,8 +30,13 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 SESSION_REPLAY_EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
+    -- part of order by so will aggregate correctly
     session_id VARCHAR,
+    -- part of order by so will aggregate correctly
     team_id Int64,
+    -- ClickHouse will pick any value of distinct_id for the session
+    -- this is fine since even if the distinct_id changes during a session
+    -- it will still (or should still) map to the same person
     distinct_id VARCHAR,
     min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
