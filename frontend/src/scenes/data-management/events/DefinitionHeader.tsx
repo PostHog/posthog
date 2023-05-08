@@ -7,6 +7,7 @@ import {
     IconUnverifiedEvent,
     IconVerifiedEvent,
     VerifiedPropertyIcon,
+    ActionEvent,
 } from 'lib/lemon-ui/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -35,7 +36,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     )
 }
 
-export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element {
+export function getEventDefinitionIcon(definition: EventDefinition | Record<string, any>): JSX.Element {
     // Rest are events
     if (definition.name === '$pageview' || definition.name === '$screen') {
         return (
@@ -62,6 +63,13 @@ export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element
         return (
             <Tooltip title={`${!!keyMapping.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
                 <IconVerifiedEvent className="taxonomy-icon taxonomy-icon-verified" />
+            </Tooltip>
+        )
+    }
+    if (!('id' in definition) && definition.value === null) {
+        return (
+            <Tooltip title={`Any events`}>
+                <ActionEvent className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
