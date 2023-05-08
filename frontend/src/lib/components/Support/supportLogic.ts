@@ -28,6 +28,17 @@ function getDjangoAdminLink(user: UserType | null): string {
     return `[Admin](${link}) (Organization: '${user.organization?.name}'; Project: ${user.team?.id}:'${user.team?.name}')`
 }
 
+function getSentryLinks(user: UserType | null): string {
+    const sentryProjectId = new URL(window.SENTRY_DSN).pathname.slice(1)
+    if (!user || !sentryProjectId) {
+        return ''
+    }
+    const link = `https://posthog.sentry.io/issues/?project=${sentryProjectId}&query=user.email:${user.email}`
+    const cloud = window.location.origin == 'https://eu.posthog.com' ? 'EU' : 'US'
+    const pluginServer = `http://go/pluginServerSentry/DEPLOYMENT:${cloud}+team_id:${user.team?.id}`
+    return `[Sentry](${link}) | [Plugin Server Sentry](${pluginServer})`
+}
+
 export const TARGET_AREA_TO_NAME = {
     app_performance: 'App Performance',
     apps: 'Apps',
@@ -161,7 +172,9 @@ export const supportLogic = kea<supportLogicType>([
                             '\n' +
                             getSessionReplayLink() +
                             '\n' +
-                            getDjangoAdminLink(userLogic.values.user),
+                            getDjangoAdminLink(userLogic.values.user) +
+                            '\n' +
+                            getSentryLinks(userLogic.values.user),
                     },
                 },
             }
