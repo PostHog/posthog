@@ -18,8 +18,10 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export type TaxonomicBreakdownFilterLogicProps = {
     breakdownFilter: BreakdownFilter
-    setFilters: ((filters: Partial<FilterType>, mergeFilters?: boolean) => void) | null
+    display?: ChartDisplayType | null
     isTrends: boolean
+    setFilters: ((filters: Partial<FilterType>, mergeFilters?: boolean) => void) | null
+    updateDisplay: ((display: ChartDisplayType) => void) | null
 }
 
 export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicType>([
@@ -133,15 +135,13 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     breakdown: undefined,
                     breakdown_type: undefined,
                     breakdown_histogram_bin_count: undefined,
-                    // TODO: convert to data exploration
-                    // Make sure we are no longer in map view after removing the Country Code breakdown
-                    display:
-                        isTrendsFilter(props.breakdownFilter) &&
-                        props.breakdownFilter.display !== ChartDisplayType.WorldMap
-                            ? props.breakdownFilter.display
-                            : undefined,
                 }
                 props.setFilters(newFilters)
+
+                // Make sure we are no longer in map view after removing the Country Code breakdown
+                if (props.isTrends && props.display === ChartDisplayType.WorldMap) {
+                    props.updateDisplay?.(undefined)
+                }
             }
         },
         setNormalizeBreakdownURL: ({ normalizeBreakdownURL }) => {

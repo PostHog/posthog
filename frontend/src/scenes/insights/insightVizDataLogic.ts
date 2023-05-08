@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 import { actions, connect, kea, key, listeners, path, props, selectors, reducers } from 'kea'
-import { InsightLogicProps } from '~/types'
+import { ChartDisplayType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
@@ -78,6 +78,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
+        updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
 
@@ -183,6 +184,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
             if (isInsightQueryNode(localQuerySource)) {
                 const newQuerySource = { ...localQuerySource, breakdown }
+                actions.updateQuerySource(newQuerySource)
+            }
+        },
+        updateDisplay: ({ display }) => {
+            const localQuerySource = values.querySource
+                ? values.querySource
+                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
+            if (isInsightQueryNode(localQuerySource)) {
+                const newQuerySource = { ...localQuerySource, display }
                 actions.updateQuerySource(newQuerySource)
             }
         },
