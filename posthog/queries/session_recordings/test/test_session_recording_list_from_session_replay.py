@@ -6,10 +6,12 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun.api import freeze_time
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Person, Cohort
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
+from posthog.models.session_replay_event.sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
@@ -29,6 +31,10 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
     # this test does not create any session_recording_events, only writes to the session_replay summary table
     # it is a pair with test_session_recording_list
     # it should pass all the same tests but without needing the session_recording_events table at all
+
+    @classmethod
+    def teardown_class(cls):
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
     def create_action(self, name, team_id=None, properties=None):
         if team_id is None:
@@ -60,20 +66,15 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
     def test_basic_query(self):
-        # need to use a unique team, there are no filters on the query so it will return all results
-        # that means the order of tests could mean other tests create session replay summaries
-        # that would affect the results of this test
-        another_team = Team.objects.create(organization=self.organization)
-
         user = "test_basic_query-user"
-        Person.objects.create(team=another_team, distinct_ids=[user], properties={"email": "bla"})
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = f"test_basic_query-{str(uuid4())}"
         session_id_two = f"test_basic_query-{str(uuid4())}"
 
         produce_replay_summary(
             session_id=session_id_one,
-            team_id=another_team.pk,
+            team_id=self.team.pk,
             # can CH handle a timestamp with no T
             first_timestamp=self.base_time.isoformat().replace("T", " "),
             last_timestamp=(self.base_time + relativedelta(seconds=20)).isoformat().replace("T", " "),
@@ -87,7 +88,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         produce_replay_summary(
             session_id=session_id_one,
-            team_id=another_team.pk,
+            team_id=self.team.pk,
             # can CH handle a timestamp with no T
             first_timestamp=(self.base_time + relativedelta(seconds=10)),
             last_timestamp=(self.base_time + relativedelta(seconds=50)),
@@ -101,7 +102,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         produce_replay_summary(
             session_id=session_id_two,
-            team_id=another_team.pk,
+            team_id=self.team.pk,
             # can CH handle a timestamp with no T
             first_timestamp=(self.base_time + relativedelta(seconds=20)),
             last_timestamp=(self.base_time + relativedelta(seconds=2000)),
@@ -113,14 +114,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             active_milliseconds=1980 * 1000 * 0.4,  # 40% of the total expected duration
         )
 
-        filter = SessionRecordingsFilter(team=another_team, data={"no_filter": None})
-        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=another_team)
+        filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
         assert session_recordings == [
             {
                 "session_id": session_id_two,
-                "team_id": another_team.pk,
+                "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 2,
                 "keypress_count": 2,
@@ -133,7 +134,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             },
             {
                 "session_id": session_id_one,
-                "team_id": another_team.pk,
+                "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
                 "keypress_count": 4,
