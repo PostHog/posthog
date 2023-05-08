@@ -7,7 +7,6 @@ import { breakdownTagLogic } from './breakdownTagLogic'
 import { isAllCohort, isCohort, isPersonEventOrGroup } from './taxonomicBreakdownFilterUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 type BreakdownTagProps = {
     breakdown: string | number
@@ -18,9 +17,7 @@ type BreakdownTagProps = {
 export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
 
-    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
-
-    const logicProps = { breakdown, filters, setFilters, getPropertyDefinition }
+    const logicProps = { breakdown, filters, setFilters }
     const { binCount, useHistogram, isViewOnly, isHistogramable, isNormalizeable } = useValues(
         breakdownTagLogic(logicProps)
     )

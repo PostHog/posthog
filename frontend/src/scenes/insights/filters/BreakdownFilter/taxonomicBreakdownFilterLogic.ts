@@ -1,4 +1,4 @@
-import { kea, path, props, actions, selectors, listeners } from 'kea'
+import { kea, path, props, actions, selectors, listeners, connect } from 'kea'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import {
     TaxonomicFilterGroup,
@@ -7,20 +7,21 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { BreakdownFilter } from '~/queries/schema'
 import { isCohortBreakdown, onFilterChange } from './taxonomicBreakdownFilterUtils'
-import { ChartDisplayType, FilterType, PropertyDefinition, TrendsFilterType } from '~/types'
+import { ChartDisplayType, FilterType, TrendsFilterType } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 type TaxonomicBreakdownFilterLogicProps = {
     filters: BreakdownFilter
     setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
-    getPropertyDefinition: (s: TaxonomicFilterValue) => PropertyDefinition | null
 }
 
 export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicType>([
     path(['scenes', 'insights', 'filters', 'BreakdownFilter', 'taxonomicBreakdownFilterLogic']),
     props({} as TaxonomicBreakdownFilterLogicProps),
+    connect(() => ({ values: [propertyDefinitionsModel, ['getPropertyDefinition']] })),
     actions({
         addBreakdown: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => ({
             breakdown,
@@ -61,7 +62,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             onFilterChange({
                 breakdownCohortArray: values.breakdownCohortArray,
                 setFilters: props.setFilters,
-                getPropertyDefinition: props.getPropertyDefinition,
+                getPropertyDefinition: values.getPropertyDefinition,
             })(breakdown, taxonomicGroup)
         },
         removeBreakdown: ({ breakdown }) => {

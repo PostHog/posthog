@@ -1,6 +1,5 @@
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FilterType, InsightType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
@@ -12,9 +11,7 @@ export interface TaxonomicBreakdownFilterProps {
 }
 
 export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
-    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
-
-    const logicProps = { filters, setFilters, getPropertyDefinition }
+    const logicProps = { filters, setFilters }
     const { hasBreakdown, hasNonCohortBreakdown, breakdownArray, isViewOnly } = useValues(
         taxonomicBreakdownFilterLogic(logicProps)
     )

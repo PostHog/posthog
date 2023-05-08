@@ -5,6 +5,7 @@ import type { breakdownTagLogicType } from './breakdownTagLogicType'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export interface BreakdownTagLogicProps {
     setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
@@ -16,10 +17,10 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     props({} as BreakdownTagLogicProps),
     key(({ breakdown }) => breakdown),
     path((key) => ['scenes', 'insights', 'BreakdownFilter', 'breakdownTagLogic', key]),
-    connect({
-        values: [taxonomicBreakdownFilterLogic, ['isViewOnly']],
+    connect(() => ({
+        values: [taxonomicBreakdownFilterLogic, ['isViewOnly'], propertyDefinitionsModel, ['getPropertyDefinition']],
         actions: [taxonomicBreakdownFilterLogic, ['removeBreakdown as removeBreakdownFromList']],
-    }),
+    })),
     actions(() => ({
         removeBreakdown: true,
         setUseHistogram: (useHistogram: boolean) => ({ useHistogram }),
@@ -46,7 +47,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     })),
     selectors({
         propertyDefinition: [
-            (_, p) => [p.getPropertyDefinition, p.breakdown],
+            (s, p) => [s.getPropertyDefinition, p.breakdown],
             (getPropertyDefinition, breakdown) => getPropertyDefinition(breakdown),
         ],
         isHistogramable: [(s) => [s.propertyDefinition], (propertyDefinition) => !!propertyDefinition?.is_numerical],
