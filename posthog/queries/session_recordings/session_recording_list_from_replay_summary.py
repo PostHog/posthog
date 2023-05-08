@@ -51,7 +51,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
            min(first_timestamp) as start_time,
            max(last_timestamp) as end_time,
            dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
-           -- TRICKY: make an array of tuples of first_url and first_timestamp for each row being grouped for each session
+           -- TRICKY: make an array of tuples of first_url and first_timestamp for each row being grouped by session
            -- then sort those by the first timestamp
            -- take the first of those that is not null (if one exists)
            -- and keep the URL from that tuple
@@ -109,7 +109,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
            min(first_timestamp) as start_time,
            max(last_timestamp) as end_time,
            dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
-           -- TRICKY: make an array of tuples of first_url and first_timestamp for each row being grouped for each session
+           -- TRICKY: make an array of tuples of first_url and first_timestamp for each row being grouped by session
            -- then sort those by the first timestamp
            -- take the first of those that is not null (if one exists)
            -- and keep the URL from that tuple
