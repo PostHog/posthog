@@ -25,7 +25,7 @@ function getDjangoAdminLink(user: UserType | null): string {
         return ''
     }
     const link = `${window.location.origin}/admin/posthog/user/?q=${user.email}`
-    return `[Admin](${link}) (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`
+    return `[Admin](${link}) (Organization: '${user.organization?.name}'; Project: ${user.team?.id}:'${user.team?.name}')`
 }
 
 export const TARGET_AREA_TO_NAME = {
@@ -42,8 +42,13 @@ export const TARGET_AREA_TO_NAME = {
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
 }
+export const SUPPORT_KIND_TO_SUBJECT = {
+    bug: 'Bug Report',
+    feedback: 'Feedback',
+    support: 'Support Ticket',
+}
 export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
-export type SupportTicketKind = 'bug' | 'feedback' | 'support'
+export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
 export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
     insights: 'analytics',
@@ -135,7 +140,13 @@ export const supportLogic = kea<supportLogicType>([
             const email = userLogic.values.user?.email
 
             const zendesk_ticket_uuid = uuid()
-            const subject = (kind == 'bug' ? 'Bug Report: ' : 'Feedback: ') + TargetAreaToName[target_area]
+            const subject =
+                SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
+                ': ' +
+                (target_area ? TARGET_AREA_TO_NAME[target_area] : 'General') +
+                ' (' +
+                zendesk_ticket_uuid +
+                ')'
             const payload = {
                 request: {
                     requester: { name: name, email: email },
@@ -147,9 +158,9 @@ export const supportLogic = kea<supportLogicType>([
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
                             `\nInternal links: [Event](http://go/ticketByUUID/${zendesk_ticket_uuid})` +
-                            ' | ' +
+                            '\n' +
                             getSessionReplayLink() +
-                            ' | ' +
+                            '\n' +
                             getDjangoAdminLink(userLogic.values.user),
                     },
                 },
@@ -189,7 +200,7 @@ export const supportLogic = kea<supportLogicType>([
                 const [kind, area] = (hashParams['supportModal'] || '').split(':')
 
                 actions.openSupportForm(
-                    ['bug', 'feedback'].includes(kind) ? kind : null,
+                    Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
                     Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
                 )
             }
