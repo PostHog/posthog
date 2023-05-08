@@ -362,7 +362,7 @@ export enum ActionStepUrlMatching {
 }
 
 export interface ActionStepType {
-    event?: string
+    event?: string | null
     href?: string | null
     id?: number
     name?: string
@@ -700,7 +700,6 @@ export interface Entity {
 export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
-    NEW_ENTITY = 'new_entity',
 }
 
 export type EntityFilter = {
