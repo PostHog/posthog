@@ -8,7 +8,6 @@ import { isAllCohort, isCohort, isPersonEventOrGroup } from './taxonomicBreakdow
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 
 type BreakdownTagProps = {
     breakdown: string | number
@@ -21,15 +20,11 @@ export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagPro
 
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
-    const logicProps = { breakdown, filters, setFilters }
-    const { binCount, useHistogram } = useValues(breakdownTagLogic(logicProps))
+    const logicProps = { breakdown, filters, setFilters, getPropertyDefinition }
+    const { binCount, useHistogram, isHistogramable, isNormalizeable } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown, setBinCount, setUseHistogram, setNormalizeBreakdownURL } = useActions(
         breakdownTagLogic(logicProps)
     )
-
-    const propertyDefinition = getPropertyDefinition(breakdown)
-    const isHistogramable = !!propertyDefinition?.is_numerical
-    const isNormalizeable = isURLNormalizeable(propertyDefinition?.name || '')
 
     return (
         <LemonTag

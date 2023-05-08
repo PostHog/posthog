@@ -1,9 +1,10 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { FilterType, TrendsFilterType } from '~/types'
 
 import type { breakdownTagLogicType } from './breakdownTagLogicType'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 
 export interface BreakdownTagLogicProps {
     setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
@@ -42,6 +43,17 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             },
         ],
     })),
+    selectors({
+        propertyDefinition: [
+            (_, p) => [p.getPropertyDefinition, p.breakdown],
+            (getPropertyDefinition, breakdown) => getPropertyDefinition(breakdown),
+        ],
+        isHistogramable: [(s) => [s.propertyDefinition], (propertyDefinition) => !!propertyDefinition?.is_numerical],
+        isNormalizeable: [
+            (s) => [s.propertyDefinition],
+            (propertyDefinition) => isURLNormalizeable(propertyDefinition?.name || ''),
+        ],
+    }),
     listeners(({ props, values, actions }) => ({
         removeBreakdown: () => {
             actions.removeBreakdownFromList(props.breakdown)
