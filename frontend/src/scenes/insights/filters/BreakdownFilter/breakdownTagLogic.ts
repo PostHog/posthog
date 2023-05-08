@@ -6,13 +6,13 @@ import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface BreakdownTagLogicProps {
     setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
-    logicKey?: string
+    breakdown: string | number
     filters?: Partial<FilterType>
 }
 
 export const breakdownTagLogic = kea<breakdownTagLogicType>([
     props({} as BreakdownTagLogicProps),
-    key(({ logicKey }) => logicKey || 'global'),
+    key(({ breakdown }) => breakdown),
     path((key) => ['scenes', 'insights', 'BreakdownFilter', 'breakdownTagLogic', key]),
     actions(() => ({
         setUseHistogram: (useHistogram: boolean) => ({ useHistogram }),

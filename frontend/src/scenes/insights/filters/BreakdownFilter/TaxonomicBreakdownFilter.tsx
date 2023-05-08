@@ -19,14 +19,8 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
 
     const tags = !hasBreakdown
         ? []
-        : breakdownArray.map((breakdown, index) => (
-              <BreakdownTag
-                  key={`${breakdown}-${index}`}
-                  logicKey={`${breakdown}-${index}`}
-                  breakdown={breakdown}
-                  filters={filters}
-                  setFilters={setFilters}
-              />
+        : breakdownArray.map((breakdown) => (
+              <BreakdownTag key={breakdown} breakdown={breakdown} filters={filters} setFilters={setFilters} />
           ))
 
     return (

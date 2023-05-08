@@ -12,15 +12,14 @@ import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 type BreakdownTagProps = {
-    setFilters?: (filter: Partial<FilterType>, mergeFilters?: boolean) => void
-    filters: FilterType
     breakdown: string | number
-    logicKey: string
+    filters: FilterType
+    setFilters?: (filter: Partial<FilterType>, mergeFilters?: boolean) => void
 }
 
-export function BreakdownTag({ setFilters, filters, breakdown, logicKey }: BreakdownTagProps): JSX.Element {
+export function BreakdownTag({ breakdown, filters, setFilters }: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
-    const breakdownTagLogicInstance = breakdownTagLogic({ logicKey, setFilters, filters })
+    const breakdownTagLogicInstance = breakdownTagLogic({ breakdown, filters, setFilters })
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
     const { binCount, useHistogram } = useValues(breakdownTagLogicInstance)
