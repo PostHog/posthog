@@ -10,11 +10,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
-export interface TaxonomicBreakdownButtonProps {
-    onlyCohorts?: boolean
-}
-
-export function TaxonomicBreakdownButton({ onlyCohorts }: TaxonomicBreakdownButtonProps): JSX.Element {
+export function TaxonomicBreakdownButton(): JSX.Element {
     const [open, setOpen] = useState(false)
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -22,17 +18,15 @@ export function TaxonomicBreakdownButton({ onlyCohorts }: TaxonomicBreakdownButt
     const { taxonomicBreakdownType, includeSessions } = useValues(taxonomicBreakdownFilterLogic)
     const { addBreakdown } = useActions(taxonomicBreakdownFilterLogic)
 
-    const taxonomicGroupTypes = onlyCohorts
-        ? [TaxonomicFilterGroupType.CohortsWithAllUsers]
-        : [
-              TaxonomicFilterGroupType.EventProperties,
-              TaxonomicFilterGroupType.PersonProperties,
-              TaxonomicFilterGroupType.EventFeatureFlags,
-              ...groupsTaxonomicTypes,
-              TaxonomicFilterGroupType.CohortsWithAllUsers,
-              ...(includeSessions ? [TaxonomicFilterGroupType.Sessions] : []),
-              TaxonomicFilterGroupType.HogQLExpression,
-          ]
+    const taxonomicGroupTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        ...groupsTaxonomicTypes,
+        TaxonomicFilterGroupType.CohortsWithAllUsers,
+        ...(includeSessions ? [TaxonomicFilterGroupType.Sessions] : []),
+        TaxonomicFilterGroupType.HogQLExpression,
+    ]
 
     return (
         <Popover
