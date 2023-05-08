@@ -18,7 +18,7 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
     const { breakdown_type } = filters
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
-    const { hasSelectedBreakdown, taxonomicBreakdownType, breakdownArray, breakdownCohortArray } = useValues(
+    const { hasNonCohortBreakdown, taxonomicBreakdownType, breakdownArray, breakdownCohortArray } = useValues(
         taxonomicBreakdownFilterLogic({ filters })
     )
 
@@ -81,7 +81,7 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
     return (
         <div className="flex flex-wrap gap-2 items-center">
             {tags}
-            {onChange && !hasSelectedBreakdown ? (
+            {onChange && !hasNonCohortBreakdown ? (
                 <TaxonomicBreakdownButton
                     breakdownType={taxonomicBreakdownType}
                     onChange={onChange}
