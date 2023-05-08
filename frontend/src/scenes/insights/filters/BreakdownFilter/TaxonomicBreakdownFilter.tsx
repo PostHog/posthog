@@ -11,7 +11,7 @@ export interface TaxonomicBreakdownFilterProps {
 }
 
 export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
-    const logicProps = { filters, setFilters }
+    const logicProps = { filters, setFilters: setFilters || null }
     const { hasBreakdown, hasNonCohortBreakdown, breakdownArray, isViewOnly } = useValues(
         taxonomicBreakdownFilterLogic(logicProps)
     )

@@ -15,7 +15,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export type TaxonomicBreakdownFilterLogicProps = {
     filters: BreakdownFilter
-    setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
+    setFilters: ((filters: Partial<FilterType>, mergeFilters?: boolean) => void) | null
 }
 
 export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicType>([
