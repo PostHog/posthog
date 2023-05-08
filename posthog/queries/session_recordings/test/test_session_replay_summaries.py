@@ -1,74 +1,15 @@
 from datetime import datetime, timedelta
-from typing import Optional
 from uuid import uuid4
-from dateutil.parser import isoparse
+
 import pytz
+from dateutil.parser import isoparse
 
 from posthog.clickhouse.client import sync_execute
-from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models import Team
 from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.models.session_replay_event.sql import SELECT_SUMMARIZED_SESSIONS
-
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
+from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.utils import cast_timestamp_or_now
-
-INSERT_SINGLE_SESSION_REPLAY = """
-INSERT INTO sharded_session_replay_events (
-        session_id,
-    team_id,
-    distinct_id,
-    first_timestamp,
-    last_timestamp,
-    first_url,
-    click_count,
-    keypress_count,
-    mouse_activity_count,
-    active_milliseconds
-)
-SELECT
-    %(session_id)s,
-    %(team_id)s,
-    %(distinct_id)s,
-    min(toDateTime64(%(first_timestamp)s, 6, 'UTC')),
-    max(toDateTime64(%(last_timestamp)s, 6, 'UTC')),
-    anyState(%(first_url)s),
-    %(click_count)s,
-    %(keypress_count)s,
-    %(mouse_activity_count)s,
-    %(active_milliseconds)s
-"""
-
-
-def produce_replay_summary(
-    session_id: str,
-    team_id: int,
-    distinct_id: str,
-    first_timestamp: str,
-    last_timestamp: str,
-    first_url: str | None,
-    click_count: int,
-    keypress_count: int,
-    mouse_activity_count: int,
-    active_milliseconds: Optional[float] = None,
-):
-
-    data = {
-        "session_id": session_id,
-        "team_id": team_id,
-        "distinct_id": distinct_id,
-        "first_timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(first_timestamp)),
-        "last_timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(last_timestamp)),
-        "first_url": first_url,
-        "click_count": click_count,
-        "keypress_count": keypress_count,
-        "mouse_activity_count": mouse_activity_count,
-        "active_milliseconds": active_milliseconds or 0,
-    }
-    p = ClickhouseProducer()
-    p.produce(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, sql=INSERT_SINGLE_SESSION_REPLAY, data=data)
 
 
 def make_filter(serializer_klass=AppMetricsRequestSerializer, **kwargs) -> AppMetricsRequestSerializer:
@@ -92,7 +33,37 @@ class SessionReplaySummaryQuery:
         }
 
         results = sync_execute(
-            SELECT_SUMMARIZED_SESSIONS,
+            """
+            select
+               session_id,
+               any(team_id),
+               any(distinct_id),
+               min(first_timestamp),
+               max(last_timestamp),
+               dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
+               -- TRICKY: make an array of tuples of first_url and first_timestamp for each row being grouped by session
+               -- then sort those by the first timestamp
+               -- take the first of those that is not null (if one exists)
+               -- and keep the URL from that tuple
+               -- for fun, tuples are one indexed not zero indexed
+               tupleElement(
+                    arrayFirst(
+                         x -> x.1 is not null,
+                         arraySort(x -> x.2, groupArray(tuple(first_url, first_timestamp)))
+                    ),
+                    1
+               ) as first_url,
+               sum(click_count),
+               sum(keypress_count),
+               sum(mouse_activity_count),
+               round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+            from session_replay_events
+            prewhere team_id = %(team_id)s
+            and first_timestamp >= %(start_time)s
+            and last_timestamp <= %(end_time)s
+            and session_id in (%(session_ids)s)
+            group by session_id
+            """,
             params,
         )
         return results
@@ -110,7 +81,7 @@ class TestReceiveSummarizedSessionReplays(ClickhouseTestMixin, BaseTest):
             first_timestamp="2023-04-27 10:00:00.309",
             last_timestamp="2023-04-27 14:20:42.237",
             distinct_id=str(self.user.distinct_id),
-            first_url=None,
+            first_url="https://first-url-ingested.com",
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -123,7 +94,7 @@ class TestReceiveSummarizedSessionReplays(ClickhouseTestMixin, BaseTest):
             first_timestamp="2023-04-27T19:17:38.116",
             last_timestamp="2023-04-27T19:17:38.117",
             distinct_id=str(self.user.distinct_id),
-            first_url=None,
+            first_url="https://second-url-ingested.com",
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -134,7 +105,7 @@ class TestReceiveSummarizedSessionReplays(ClickhouseTestMixin, BaseTest):
             first_timestamp="2023-04-27T19:18:24.597",
             last_timestamp="2023-04-27T19:20:24.597",
             distinct_id=str(self.user.distinct_id),
-            first_url=None,
+            first_url="https://third-url-ingested.com",
             click_count=2,
             keypress_count=2,
             mouse_activity_count=2,
@@ -201,6 +172,7 @@ class TestReceiveSummarizedSessionReplays(ClickhouseTestMixin, BaseTest):
                 datetime(2023, 4, 27, 10, 0, 0, 309000, tzinfo=pytz.UTC),
                 datetime(2023, 4, 27, 19, 20, 24, 597000, tzinfo=pytz.UTC),
                 33624,
+                "https://first-url-ingested.com",
                 6,
                 6,
                 6,

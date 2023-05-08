@@ -72,7 +72,18 @@ team_id,
 any(distinct_id) as distinct_id,
 min(first_timestamp) AS first_timestamp,
 max(last_timestamp) AS last_timestamp,
-any(first_url) AS first_url,
+-- TRICKY: make an array of tuples of first_url and first_timestamp for each row being grouped by session
+-- then sort those by the first timestamp
+-- take the first of those that is not null (if one exists)
+-- and keep the URL from that tuple
+-- for fun, tuples are one indexed not zero indexed
+tupleElement(
+    arrayFirst(
+         x -> x.1 is not null,
+         arraySort(x -> x.2, groupArray(tuple(first_url, first_timestamp)))
+    ),
+    1
+) as first_url,
 sum(click_count) as click_count,
 sum(keypress_count) as keypress_count,
 sum(mouse_activity_count) as mouse_activity_count,
@@ -106,23 +117,3 @@ DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABL
 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: (
     f"DROP TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
-
-SELECT_SUMMARIZED_SESSIONS = """
-select
-   session_id,
-   any(team_id),
-   any(distinct_id),
-   min(first_timestamp),
-   max(last_timestamp),
-   dateDiff('SECOND', min(first_timestamp), max(last_timestamp)) as duration,
-   sum(click_count),
-   sum(keypress_count),
-   sum(mouse_activity_count),
-   round((sum(active_milliseconds)/1000)/duration, 2) as active_time
-from session_replay_events
-prewhere team_id = %(team_id)s
-and first_timestamp >= %(start_time)s
-and last_timestamp <= %(end_time)s
-and session_id in (%(session_ids)s)
-group by session_id
-"""
