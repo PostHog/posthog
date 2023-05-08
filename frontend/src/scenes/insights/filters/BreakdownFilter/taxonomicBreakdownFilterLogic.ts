@@ -1,13 +1,16 @@
 import { kea, path, props, defaults, actions, reducers, selectors, listeners, connect } from 'kea'
-import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
+import {
+    propertyFilterTypeToTaxonomicFilterType,
+    taxonomicFilterTypeToPropertyFilterType,
+} from 'lib/components/PropertyFilters/utils'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { BreakdownFilter } from '~/queries/schema'
-import { isCohortBreakdown, onFilterChange } from './taxonomicBreakdownFilterUtils'
-import { ChartDisplayType, FilterType, TrendsFilterType } from '~/types'
+import { isCohortBreakdown, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
+import { BreakdownType, ChartDisplayType, FilterType, TrendsFilterType } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
@@ -80,15 +83,29 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     }),
     listeners(({ props, values }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
-            if (!props.setFilters) {
+            const breakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
+            const isHistogramable = !!values.getPropertyDefinition(breakdown)?.is_numerical
+
+            if (!props.setFilters || !breakdownType) {
                 return
             }
 
-            onFilterChange({
-                breakdownCohortArray: values.breakdownCohortArray,
-                setFilters: props.setFilters,
-                getPropertyDefinition: values.getPropertyDefinition,
-            })(breakdown, taxonomicGroup)
+            const newFilters: Partial<TrendsFilterType> = {
+                breakdown_type: breakdownType,
+                breakdown:
+                    taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
+                        ? [...values.breakdownCohortArray, breakdown].filter((b): b is string | number => !!b)
+                        : breakdown,
+                breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
+                breakdown_histogram_bin_count: isHistogramable ? 10 : undefined,
+                // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
+                // For now, it is safe to fall back to `breakdown` instead of the property definition.
+                breakdown_normalize_url: isURLNormalizeable(
+                    values.getPropertyDefinition(breakdown)?.name || (breakdown as string)
+                ),
+            }
+
+            props.setFilters(newFilters, true)
         },
         removeBreakdown: ({ breakdown }) => {
             if (!props.setFilters) {

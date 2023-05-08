@@ -1,11 +1,3 @@
-import { BreakdownType, FilterType, PropertyDefinition, TrendsFilterType } from '~/types'
-import {
-    TaxonomicFilterGroup,
-    TaxonomicFilterGroupType,
-    TaxonomicFilterValue,
-} from 'lib/components/TaxonomicFilter/types'
-import { taxonomicFilterTypeToPropertyFilterType } from 'lib/components/PropertyFilters/utils'
-
 export const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'
 
 export const isCohort = (t: number | string): t is number => typeof t === 'number'
