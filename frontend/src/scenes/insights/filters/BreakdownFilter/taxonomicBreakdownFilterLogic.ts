@@ -24,5 +24,10 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 return breakdownType
             },
         ],
+        breakdownArray: [
+            (_, p) => [p.filters],
+            ({ breakdown }) =>
+                (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b),
+        ],
     }),
 ])

@@ -15,12 +15,12 @@ export interface TaxonomicBreakdownFilterProps {
 }
 
 export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
-    const { breakdown, breakdown_type } = filters
+    const { breakdown_type } = filters
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
-    const { hasSelectedBreakdown, taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic({ filters }))
-
-    const breakdownArray = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b)
+    const { hasSelectedBreakdown, taxonomicBreakdownType, breakdownArray } = useValues(
+        taxonomicBreakdownFilterLogic({ filters })
+    )
 
     const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b)))
 
