@@ -12,15 +12,14 @@ import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 export interface TaxonomicBreakdownButtonProps {
     onlyCohorts?: boolean
-    includeSessions?: boolean
 }
 
-export function TaxonomicBreakdownButton({ onlyCohorts, includeSessions }: TaxonomicBreakdownButtonProps): JSX.Element {
+export function TaxonomicBreakdownButton({ onlyCohorts }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
+    const { taxonomicBreakdownType, includeSessions } = useValues(taxonomicBreakdownFilterLogic)
     const { addBreakdown } = useActions(taxonomicBreakdownFilterLogic)
 
     const taxonomicGroupTypes = onlyCohorts

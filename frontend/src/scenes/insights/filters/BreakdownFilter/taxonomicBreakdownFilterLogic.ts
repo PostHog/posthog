@@ -19,6 +19,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 export type TaxonomicBreakdownFilterLogicProps = {
     breakdownFilter: BreakdownFilter
     setFilters: ((filters: Partial<FilterType>, mergeFilters?: boolean) => void) | null
+    isTrends: boolean
 }
 
 export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicType>([
@@ -87,6 +88,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (breakdownArray) => breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b))),
         ],
         isViewOnly: [(_, p) => [p.setFilters], (setFilters) => !setFilters],
+        includeSessions: [(_, p) => [p.setFilters], (setFilters) => !setFilters],
     }),
     listeners(({ props, values }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {

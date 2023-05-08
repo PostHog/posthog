@@ -32,7 +32,7 @@ export function TaxonomicBreakdownFilterComponent({
     isTrends,
     setFilters,
 }: TaxonomicBreakdownFilterComponentProps): JSX.Element {
-    const logicProps = { breakdownFilter: breakdownFilter || {}, setFilters: setFilters || null }
+    const logicProps = { breakdownFilter: breakdownFilter || {}, setFilters: setFilters || null, isTrends }
     const { hasBreakdown, hasNonCohortBreakdown, breakdownArray, isViewOnly } = useValues(
         taxonomicBreakdownFilterLogic(logicProps)
     )
@@ -45,7 +45,7 @@ export function TaxonomicBreakdownFilterComponent({
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                {!isViewOnly && !hasNonCohortBreakdown ? <TaxonomicBreakdownButton includeSessions={isTrends} /> : null}
+                {!isViewOnly && !hasNonCohortBreakdown ? <TaxonomicBreakdownButton /> : null}
             </div>
         </BindLogic>
     )
