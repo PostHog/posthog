@@ -1,28 +1,47 @@
 import json
 import os
-import time
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
 
 import structlog
 from django.conf import settings
+from prometheus_client import Counter, Summary
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.wait import WebDriverWait
 from sentry_sdk import capture_exception, configure_scope, push_scope
-from statshog.defaults.django import statsd
+
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.utils import ChromeType
 
 from posthog.caching.fetch_from_cache import synchronously_update_cache
 from posthog.logging.timing import timed
+from posthog.metrics import LABEL_TEAM_ID
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
+
+IMAGE_EXPORT_SUCCEEDED_COUNTER = Counter(
+    "image_exporter_task_succeeded",
+    "An image export task succeeded",
+    labelnames=[LABEL_TEAM_ID],
+)
+
+IMAGE_EXPORT_FAILED_COUNTER = Counter(
+    "image_exporter_task_failure",
+    "An image export task failed",
+    labelnames=[LABEL_TEAM_ID],
+)
+
+IMAGE_EXPORT_TIMER = Summary(
+    "image_exporter_task_success_time",
+    "Number of seconds it took to export an image",
+    labelnames=[LABEL_TEAM_ID],
+)
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
@@ -58,8 +77,6 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
     3. Loading that screenshot into memory and saving the data representation to the relevant Insight
     4. Cleanup: Remove the old file and close the browser session
     """
-
-    _start = time.time()
 
     image_path = None
 
@@ -101,7 +118,6 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         save_content(exported_asset, image_data)
 
         os.remove(image_path)
-        statsd.timing("exporter_task_success", time.time() - _start)
 
     except Exception as err:
         # Ensure we clean up the tmp file in case anything went wrong
@@ -164,8 +180,9 @@ def export_image(exported_asset: ExportedAsset) -> None:
                 synchronously_update_cache(exported_asset.insight, exported_asset.dashboard)
 
             if exported_asset.export_format == "image/png":
-                _export_to_png(exported_asset)
-                statsd.incr("image_exporter.succeeded", tags={"team_id": exported_asset.team.id})
+                with IMAGE_EXPORT_TIMER.time():
+                    _export_to_png(exported_asset)
+                IMAGE_EXPORT_SUCCEEDED_COUNTER.labels(team_id=exported_asset.team.id).inc()
             else:
                 raise NotImplementedError(
                     f"Export to format {exported_asset.export_format} is not supported for insights"
@@ -179,5 +196,5 @@ def export_image(exported_asset: ExportedAsset) -> None:
             capture_exception(e)
 
             logger.error("image_exporter.failed", exception=e, exc_info=True)
-            statsd.incr("exporter_task_failure", tags={"team_id": team_id})
+            IMAGE_EXPORT_FAILED_COUNTER.labels(team_id=team_id, scope="image").inc()
             raise e
