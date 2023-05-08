@@ -13,12 +13,18 @@ import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 type BreakdownTagProps = {
     setFilters?: (filter: Partial<FilterType>, mergeFilters?: boolean) => void
     filters: FilterType
-    onClose?: () => void
+    removeBreakdown?: () => void
     breakdown: string | number
     logicKey: string
 }
 
-export function BreakdownTag({ setFilters, filters, onClose, breakdown, logicKey }: BreakdownTagProps): JSX.Element {
+export function BreakdownTag({
+    setFilters,
+    filters,
+    removeBreakdown,
+    breakdown,
+    logicKey,
+}: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const breakdownTagLogicInstance = breakdownTagLogic({ logicKey, setFilters, filters })
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
@@ -34,7 +40,7 @@ export function BreakdownTag({ setFilters, filters, onClose, breakdown, logicKey
         <LemonTag
             className="taxonomic-breakdown-filter tag-pill"
             closable={!!setFilters && !isHistogramable && !isNormalizeable}
-            onClose={onClose}
+            onClose={removeBreakdown}
             popover={{
                 overlay: isNormalizeable ? (
                     <>
@@ -109,7 +115,7 @@ export function BreakdownTag({ setFilters, filters, onClose, breakdown, logicKey
                             Do not bin numeric values
                         </LemonButton>
                         <LemonDivider />
-                        <LemonButton status="danger" onClick={onClose} fullWidth>
+                        <LemonButton status="danger" onClick={removeBreakdown} fullWidth>
                             Remove breakdown
                         </LemonButton>
                     </div>

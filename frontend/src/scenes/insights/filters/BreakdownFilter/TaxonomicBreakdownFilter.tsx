@@ -21,9 +21,9 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
     const { addBreakdown } = useActions(taxonomicBreakdownFilterLogic({ filters, setFilters, getPropertyDefinition }))
 
     const onCloseFor = setFilters
-        ? (t: string | number, index: number): (() => void) => {
+        ? (breakdown: string | number, index: number): (() => void) => {
               return () => {
-                  if (isCohortBreakdown(t)) {
+                  if (isCohortBreakdown(breakdown)) {
                       const newParts = breakdownCohortArray.filter((_, i): _ is string | number => i !== index)
                       if (newParts.length === 0) {
                           setFilters({ breakdown: null, breakdown_type: null })
@@ -49,12 +49,12 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
 
     const tags = !hasBreakdown
         ? []
-        : breakdownArray.map((t, index) => (
+        : breakdownArray.map((breakdown, index) => (
               <BreakdownTag
-                  key={`${t}-${index}`}
-                  logicKey={`${t}-${index}`}
-                  breakdown={t}
-                  onClose={onCloseFor ? onCloseFor(t, index) : undefined}
+                  key={`${breakdown}-${index}`}
+                  logicKey={`${breakdown}-${index}`}
+                  breakdown={breakdown}
+                  removeBreakdown={onCloseFor ? onCloseFor(breakdown, index) : undefined}
                   filters={filters}
                   setFilters={setFilters}
               />

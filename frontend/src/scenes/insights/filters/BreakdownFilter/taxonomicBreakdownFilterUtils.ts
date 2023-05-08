@@ -17,6 +17,7 @@ export const isPersonEventOrGroup = (t: number | string): t is string => typeof 
 export const isURLNormalizeable = (propertyName: string): boolean => {
     return ['$current_url', '$pathname'].includes(propertyName)
 }
+
 interface FilterChange {
     breakdownCohortArray: (string | number)[]
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
