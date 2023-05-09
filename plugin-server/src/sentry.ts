@@ -17,6 +17,7 @@ export function initSentry(config: PluginsServerConfig): void {
         Sentry.init({
             dsn: config.SENTRY_DSN,
             normalizeDepth: 8, // Default: 3
+            environment: config.SENTRY_ENVIRONMENT,
             initialScope: {
                 tags: {
                     PLUGIN_SERVER_MODE: config.PLUGIN_SERVER_MODE,

@@ -181,6 +181,7 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
+    SENTRY_ENVIRONMENT: string
 
     SESSION_RECORDING_BLOB_PROCESSING_TEAMS: string
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
