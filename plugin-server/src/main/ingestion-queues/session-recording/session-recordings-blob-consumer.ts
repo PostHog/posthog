@@ -20,6 +20,8 @@ const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
 
+const flushIntervalTimeoutMs = 30000
+
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
 export const gaugeSessionsHandled = new Gauge({
@@ -118,8 +120,9 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        if (!message.value) {
-            return statusWarn('message value is empty')
+        if (!message.value || !message.timestamp) {
+            // Typing says this can happen but in practice it shouldn't
+            return statusWarn('message value or timestamp is empty')
         }
 
         let messagePayload: RawEventMessage
@@ -267,7 +270,7 @@ export class SessionRecordingBlobIngester {
 
                 this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
 
-                await Promise.all(sessionsToDrop.map((session) => session.destroy()))
+                await this.destroySessions(sessionsToDrop)
 
                 status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
                     currentPartitions: currentPartitions,
@@ -326,7 +329,7 @@ export class SessionRecordingBlobIngester {
 
             gaugeSessionsHandled.set(this.sessions.size)
             gaugeBytesBuffered.set(sessionManangerBufferSizes)
-        }, 10000)
+        }, flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {
@@ -346,13 +349,19 @@ export class SessionRecordingBlobIngester {
         await this.batchConsumer?.stop()
 
         // This is inefficient but currently necessary due to new instances restarting from the committed offset point
+        await this.destroySessions([...this.sessions.values()])
+
+        this.sessions = new Map()
+    }
+
+    private async destroySessions(sessionsToDestroy: SessionManager[]): Promise<void> {
         const destroyPromises: Promise<void>[] = []
-        this.sessions.forEach((sessionManager) => {
+
+        sessionsToDestroy.forEach((sessionManager) => {
+            this.sessions.delete(sessionManager.sessionId)
             destroyPromises.push(sessionManager.destroy())
         })
 
         await Promise.allSettled(destroyPromises)
-
-        this.sessions = new Map()
     }
 }

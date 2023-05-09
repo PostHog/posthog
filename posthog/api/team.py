@@ -19,7 +19,6 @@ from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
-    OrganizationAdminAnyPermissions,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
@@ -173,7 +172,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 organization_id=organization_id, user=request.user
             )
             if org_membership.level < OrganizationMembership.Level.ADMIN:
-                raise exceptions.PermissionDenied(OrganizationAdminAnyPermissions.message)
+                raise exceptions.PermissionDenied("Your organization access level is insufficient.")
 
         if "session_recording_version" in attrs:
             if attrs["session_recording_version"] not in ["v1", "v2"]:

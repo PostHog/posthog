@@ -319,8 +319,10 @@ def render_template(
     context["impersonated_session"] = is_impersonated_session(request)
     context["self_capture"] = settings.SELF_CAPTURE
 
-    if os.environ.get("SENTRY_DSN"):
-        context["sentry_dsn"] = os.environ["SENTRY_DSN"]
+    if sentry_dsn := os.environ.get("SENTRY_DSN"):
+        context["sentry_dsn"] = sentry_dsn
+    if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
+        context["sentry_environment"] = sentry_environment
 
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True

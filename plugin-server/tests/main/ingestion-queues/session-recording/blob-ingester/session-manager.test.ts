@@ -23,14 +23,13 @@ describe('session-manager', () => {
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
         })
-        const messageTimestamp = DateTime.local().toMillis()
+        const messageTimestamp = Date.now() - 10000
         event.metadata.timestamp = messageTimestamp
         await sessionManager.add(event)
 
         expect(sessionManager.buffer).toEqual({
             count: 1,
-            createdAt: expect.any(Date),
-            lastMessageReceivedAt: messageTimestamp,
+            oldestKafkaTimestamp: messageTimestamp,
             file: expect.any(String),
             id: expect.any(String),
             size: 61, // The size of the event payload - this may change when test data changes

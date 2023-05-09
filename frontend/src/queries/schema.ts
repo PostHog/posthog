@@ -178,7 +178,7 @@ export interface EventsQuery extends DataNode {
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
     /** Limit to events matching this string */
-    event?: string
+    event?: string | null
     /**
      * Number of rows to return
      * @asType integer

@@ -258,7 +258,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+           UNION ALL SELECT count(DISTINCT person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             breakdown_value
            FROM

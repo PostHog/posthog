@@ -23,7 +23,7 @@ export function FeedbackInstructions(): JSX.Element {
     const { toggleInAppFeedbackInstructions } = useActions(inAppFeedbackLogic)
     return (
         <LemonModal
-            title="How to send in-app feedback to Posthog"
+            title="How to send in-app feedback to PostHog"
             isOpen={inAppFeedbackInstructions}
             onClose={toggleInAppFeedbackInstructions}
             width={640}

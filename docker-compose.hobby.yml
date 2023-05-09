@@ -115,6 +115,8 @@ services:
             - ENABLE_ES=false
         ports:
             - 7233:7233
+        volumes:
+            - ./posthog/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml

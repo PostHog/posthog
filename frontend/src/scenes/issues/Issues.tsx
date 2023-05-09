@@ -21,7 +21,7 @@ export function IssuesSettings(): JSX.Element {
             <div>
                 Configure which events are used for issue reporting. If this is not set we use <code>$bug_report</code>
             </div>
-            <LemonEventName value={issueEvent} onChange={(value: string) => setIssueEvent(value)} />
+            <LemonEventName value={issueEvent} onChange={(value) => setIssueEvent(value)} />
         </div>
     )
 }
