@@ -1598,9 +1598,9 @@
       -- we want the fewest rows possible but also the fastest queries
       -- since we query by date and not by time
       -- and order by must be in order of increasing cardinality
-      -- so we order by week first, then team_id, then session_id
+      -- so we order by date first, then team_id, then session_id
       -- hopefully, this is a good balance between the two
-      ORDER BY (toStartOfWeek(min_first_timestamp), team_id, session_id)
+      ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
   '
@@ -2212,9 +2212,9 @@
       -- we want the fewest rows possible but also the fastest queries
       -- since we query by date and not by time
       -- and order by must be in order of increasing cardinality
-      -- so we order by week first, then team_id, then session_id
+      -- so we order by date first, then team_id, then session_id
       -- hopefully, this is a good balance between the two
-      ORDER BY (toStartOfWeek(min_first_timestamp), team_id, session_id)
+      ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
   '
