@@ -24,10 +24,12 @@ export function NodeWrapper({ title, className, children, preview, selected, hre
             })}
         >
             <div
-                className={clsx('NotebookNode__meta flex items-center justify-between text-xs truncate', {
-                    'text-primary font-semibold': selected,
-                    'text-muted-alt': !selected,
-                })}
+                className={clsx(
+                    'NotebookNode__meta flex items-center justify-between text-xs truncate text-muted-alt',
+                    {
+                        'font-semibold': selected,
+                    }
+                )}
                 data-drag-handle
             >
                 <div className="shrink-0">
