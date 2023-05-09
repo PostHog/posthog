@@ -112,6 +112,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                     "id": ANY,
                     "name": "Click counter",
                     "stage": "beta",
+                    "deleted": False,
                 },
             ],
         }
@@ -186,6 +187,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "stage": "beta",
                         "documentationUrl": "",
                         "flagKey": "sprocket",
+                        "deleted": False,
                     },
                     {
                         "id": str(feature2.id),
@@ -194,6 +196,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "stage": "alpha",
                         "documentationUrl": "",
                         "flagKey": "sprocket2",
+                        "deleted": False,
                     },
                 ],
             )
