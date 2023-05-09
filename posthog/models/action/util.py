@@ -101,6 +101,8 @@ def filter_event(
     if step.event:
         params.update({f"{prepend}_{index}": step.event})
         conditions.append(f"event = %({prepend}_{index})s")
+    else:
+        conditions.append("44 = 44")  # Allow "All events"
 
     return conditions, params
 
