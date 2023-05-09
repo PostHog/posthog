@@ -251,7 +251,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         .concat({
             volume: 'Total',
             basePrice: '',
-            usage: `${compactNumber(product.current_usage ?? 0)}`,
+            usage: '',
             total: `$${product.current_amount_usd || '0.00'}`,
             projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
         })
