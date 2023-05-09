@@ -183,7 +183,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 ? values.querySource
                 : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
             if (isInsightQueryNode(localQuerySource)) {
-                const newQuerySource = { ...localQuerySource, breakdown }
+                const newQuerySource = {
+                    ...localQuerySource,
+                    breakdown: { ...localQuerySource.breakdown, ...breakdown },
+                }
                 actions.updateQuerySource(newQuerySource)
             }
         },
