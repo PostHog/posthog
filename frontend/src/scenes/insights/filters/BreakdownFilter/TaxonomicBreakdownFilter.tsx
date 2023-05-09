@@ -4,7 +4,7 @@ import { BreakdownFilter } from '~/queries/schema'
 import { ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
-import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -27,7 +27,7 @@ export interface TaxonomicBreakdownFilterComponentProps {
     display?: ChartDisplayType | null
     isTrends: boolean
     updateBreakdown?: (breakdown: BreakdownFilter) => void
-    updateDisplay?: (display: ChartDisplayType) => void
+    updateDisplay?: (display: ChartDisplayType | undefined) => void
 }
 
 export function TaxonomicBreakdownFilterComponent({
@@ -37,12 +37,12 @@ export function TaxonomicBreakdownFilterComponent({
     updateBreakdown,
     updateDisplay,
 }: TaxonomicBreakdownFilterComponentProps): JSX.Element {
-    const logicProps = {
-        breakdownFilter: breakdownFilter || {},
-        display,
-        updateBreakdown: updateBreakdown || null,
-        updateDisplay,
+    const logicProps: TaxonomicBreakdownFilterLogicProps = {
         isTrends,
+        display,
+        breakdownFilter: breakdownFilter || {},
+        updateBreakdown: updateBreakdown || null,
+        updateDisplay: updateDisplay || null,
     }
     const { hasBreakdown, hasNonCohortBreakdown, breakdownArray, isViewOnly } = useValues(
         taxonomicBreakdownFilterLogic(logicProps)

@@ -13,7 +13,6 @@ import { isCohortBreakdown, isURLNormalizeable } from './taxonomicBreakdownFilte
 import { BreakdownType, ChartDisplayType } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export type TaxonomicBreakdownFilterLogicProps = {
@@ -21,7 +20,7 @@ export type TaxonomicBreakdownFilterLogicProps = {
     display?: ChartDisplayType | null
     isTrends: boolean
     updateBreakdown: ((breakdown: BreakdownFilter) => void) | null
-    updateDisplay: ((display: ChartDisplayType) => void) | null
+    updateDisplay: ((display: ChartDisplayType | undefined) => void) | null
 }
 
 export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicType>([
