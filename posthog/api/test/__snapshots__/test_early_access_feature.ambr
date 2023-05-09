@@ -165,6 +165,7 @@
          "posthog_earlyaccessfeature"."stage",
          "posthog_earlyaccessfeature"."documentation_url",
          "posthog_earlyaccessfeature"."created_at",
+         "posthog_earlyaccessfeature"."deleted",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -181,7 +182,8 @@
          "posthog_featureflag"."usage_dashboard_id"
   FROM "posthog_earlyaccessfeature"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_earlyaccessfeature"."feature_flag_id" = "posthog_featureflag"."id")
-  WHERE ("posthog_earlyaccessfeature"."team_id" = 2
+  WHERE (NOT "posthog_earlyaccessfeature"."deleted"
+         AND "posthog_earlyaccessfeature"."team_id" = 2
          AND NOT ("posthog_earlyaccessfeature"."stage" = 'general-availability')) /*controller='posthog.api.early_access_feature.early_access_features',route='%5Eapi/early_access_features/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
   '
 ---
