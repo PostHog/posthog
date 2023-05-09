@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonButton, LemonInput, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useState } from 'react'
 
 export enum SettingValueType {
@@ -94,6 +94,7 @@ export function ExtraTeamSettings(): JSX.Element {
                             />
                         )}
                     </div>
+                    <LemonDivider className="my-6" />
                 </>
             ))}
         </>

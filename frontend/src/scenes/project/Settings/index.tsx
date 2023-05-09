@@ -232,7 +232,6 @@ export function ProjectSettings(): JSX.Element {
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
                 <ExtraTeamSettings />
-                <LemonDivider className="my-6" />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
