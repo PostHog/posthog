@@ -1,7 +1,6 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { SurprisedHog, BlushingHog } from 'lib/components/hedgehogs'
 
 export default {
     title: 'Lemon UI/Lemon Select',
@@ -116,22 +115,12 @@ CustomElement.args = {
     options: [
         {
             value: 1,
-            element: (
-                <div>
-                    <SurprisedHog className="w-10 h-10 mr-4" />
-                    Surprised
-                </div>
-            ),
+            labelInMenuExtra: <i> (Surprised)</i>,
             label: 'Wow',
         },
         {
             value: 2,
-            element: (
-                <div>
-                    <BlushingHog className="w-10 h-10 mr-4" />
-                    Blushing
-                </div>
-            ),
+            labelInMenuExtra: <i> (Blushing)</i>,
             label: 'Ohh',
         },
     ],

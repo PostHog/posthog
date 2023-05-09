@@ -2,6 +2,14 @@ import { EventType, IncrementalSource, eventWithTime } from '@rrweb/types'
 import { Dayjs } from 'lib/dayjs'
 import { RecordingSegment, RecordingSnapshot } from '~/types'
 
+/**
+ * This file is copied into the plugin server to calculate activeMilliseconds on ingestion
+ * plugin-server/src/main/ingestion-queues/session-recording/snapshot-segmenter.ts
+ *
+ * Changes here should be reflected there
+ * TODO add code sharing between plugin-server and front-end so that this duplication is unnecessary
+ */
+
 const activeSources = [
     IncrementalSource.MouseMove,
     IncrementalSource.MouseInteraction,
