@@ -42,6 +42,11 @@ from posthog.models.session_recording_event.sql import (
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
+from posthog.models.session_replay_event.sql import (
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
+)
 from posthog.settings.utils import get_from_env, str_to_bool
 
 persons_cache_tests: List[Dict[str, Any]] = []
@@ -660,6 +665,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 TRUNCATE_GROUPS_TABLE_SQL,
                 TRUNCATE_COHORTPEOPLE_TABLE_SQL,
                 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
@@ -667,10 +673,19 @@ class ClickhouseDestroyTablesMixin(BaseTest):
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                EVENTS_TABLE_SQL(),
+                PERSONS_TABLE_SQL(),
+                SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
         run_clickhouse_statement_in_parallel(
-            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                DISTRIBUTED_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
 
     def tearDown(self):
@@ -682,13 +697,24 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
+        )
+
+        run_clickhouse_statement_in_parallel(
+            [
+                EVENTS_TABLE_SQL(),
+                PERSONS_TABLE_SQL(),
+                SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
-        )
-        run_clickhouse_statement_in_parallel(
-            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                DISTRIBUTED_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
 
 
