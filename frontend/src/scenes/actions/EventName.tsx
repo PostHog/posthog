@@ -2,26 +2,28 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { LemonTaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-interface LemonEventNamePropsWithAllEvents {
-    value: string | null
-    onChange: (value: string | null) => void
-    disabled?: boolean
-    placeholder?: string
-    includeAllEventsOption: true
-}
 interface LemonEventNamePropsWithoutAllEvents {
     value: string
     onChange: (value: string) => void
     disabled?: boolean
     placeholder?: string
-    includeAllEventsOption?: false
+    /** By default "All events" is not allowed. */
+    allEventsOption?: never
+}
+interface LemonEventNamePropsWithAllEvents {
+    value: string | null
+    onChange: (value: string | null) => void
+    disabled?: boolean
+    placeholder?: string
+    /** Allow "All events", in either explicit option item form, or clear button form. */
+    allEventsOption: 'explicit' | 'clear'
 }
 export function LemonEventName({
     value,
     onChange,
     disabled,
     placeholder = 'Select an event',
-    includeAllEventsOption,
+    allEventsOption,
 }: LemonEventNamePropsWithAllEvents | LemonEventNamePropsWithoutAllEvents): JSX.Element {
     return (
         <LemonTaxonomicPopover
@@ -34,7 +36,8 @@ export function LemonEventName({
             placeholder={placeholder}
             dataAttr="event-name-box"
             renderValue={(v) => (v !== null ? <PropertyKeyInfo value={v} disablePopover /> : null)}
-            excludedProperties={!includeAllEventsOption ? { events: [null] } : undefined}
+            allowClear={allEventsOption === 'clear'}
+            excludedProperties={allEventsOption !== 'explicit' ? { events: [null] } : undefined}
         />
     )
 }

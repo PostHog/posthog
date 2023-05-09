@@ -174,9 +174,7 @@ export function LemonTaxonomicPopover<ValueType extends TaxonomicFilterValue = T
                 {...buttonProps}
             >
                 {(localValue && (renderValue?.(localValue) ?? String(localValue))) || (
-                    <span style={{ minWidth: '10rem' }} className={placeholderClass ?? 'text-muted'}>
-                        {placeholder}
-                    </span>
+                    <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
                 )}
             </LemonButtonWithDropdown>
         </div>
