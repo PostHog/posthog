@@ -50,7 +50,6 @@ function ExtraSettingInput({
                 onClick={() =>
                     updateCurrentTeam({ extra_settings: { ...currentTeam?.extra_settings, [settingKey]: value } })
                 }
-                // disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
             >
                 Update
