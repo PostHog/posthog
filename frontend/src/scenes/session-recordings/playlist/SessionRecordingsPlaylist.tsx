@@ -10,16 +10,15 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
-import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
+import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
-import { SessionRecordingsPlaylistFilters } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistFilters'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { SessionRecordingsFiltersV2 } from '../filters/SessionRecordingsFiltersV2'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -48,8 +47,10 @@ export function RecordingsLists({
         showFilters,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
+        totalFiltersCount,
     } = useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev, setFilters, maybeLoadSessionRecordings } = useActions(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev, setFilters, maybeLoadSessionRecordings, setShowFilters } =
+        useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const infiniteScrollerEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
 
@@ -87,9 +88,9 @@ export function RecordingsLists({
 
     return (
         <>
-            {showFilters ? (
+            {/* {showFilters ? (
                 <SessionRecordingsFilters filters={filters} setFilters={setFilters} showPropertyFilters={!personUUID} />
-            ) : null}
+            ) : null} */}
             <div className="SessionRecordingsPlaylist__lists">
                 {/* Pinned recordings */}
                 {!!playlistShortId && !showFilters ? (
@@ -130,25 +131,48 @@ export function RecordingsLists({
                     listKey="other"
                     title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                     titleRight={
-                        infiniteScrollerEnabled ? (
-                            sessionRecordings.length ? (
-                                <Tooltip
-                                    placement="bottom"
-                                    title={
-                                        <>
-                                            Showing {sessionRecordings.length} results.
-                                            <br />
-                                            Scrolling to the bottom or the top of the list will load older or newer
-                                            recordings respectively.
-                                        </>
-                                    }
-                                >
-                                    <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
-                                </Tooltip>
-                            ) : null
-                        ) : (
-                            paginationControls
-                        )
+                        <>
+                            {infiniteScrollerEnabled ? (
+                                sessionRecordings.length ? (
+                                    <Tooltip
+                                        placement="bottom"
+                                        title={
+                                            <>
+                                                Showing {sessionRecordings.length} results.
+                                                <br />
+                                                Scrolling to the bottom or the top of the list will load older or newer
+                                                recordings respectively.
+                                            </>
+                                        }
+                                    >
+                                        <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                    </Tooltip>
+                                ) : null
+                            ) : (
+                                paginationControls
+                            )}
+
+                            <LemonButton
+                                size="small"
+                                status={showFilters ? 'primary' : 'primary-alt'}
+                                type={showFilters ? 'primary' : 'tertiary'}
+                                icon={
+                                    <IconWithCount count={totalFiltersCount}>
+                                        <IconFilter />
+                                    </IconWithCount>
+                                }
+                                onClick={() => setShowFilters(!showFilters)}
+                            />
+                        </>
+                    }
+                    subheader={
+                        showFilters ? (
+                            <SessionRecordingsFiltersV2
+                                filters={filters}
+                                setFilters={setFilters}
+                                showPropertyFilters={!personUUID}
+                            />
+                        ) : null
                     }
                     onRecordingClick={onRecordingClick}
                     onPropertyClick={onPropertyClick}
@@ -236,7 +260,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
 
     return (
         <>
-            {mode === 'standard' ? <SessionRecordingsPlaylistFilters {...props} /> : null}
+            {/* {mode === 'standard' ? <SessionRecordingsPlaylistFilters {...props} /> : null} */}
             <div
                 ref={playlistRef}
                 data-attr="session-recordings-playlist"

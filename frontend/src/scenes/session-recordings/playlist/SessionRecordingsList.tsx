@@ -32,8 +32,8 @@ export type SessionRecordingsListProps = {
     onCollapse?: (collapsed: boolean) => void
     empty?: React.ReactNode
     className?: string
-    embedded?: boolean // if embedded don't show border
     footer?: React.ReactNode
+    subheader?: React.ReactNode
     onScrollToStart?: () => void
     onScrollToEnd?: () => void
 }
@@ -54,9 +54,9 @@ export function SessionRecordingsList({
     activeRecordingId,
     className,
     footer,
+    subheader,
     onScrollToStart,
     onScrollToEnd,
-    embedded = false,
 }: SessionRecordingsListProps): JSX.Element {
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
     const lastScrollPositionRef = useRef(0)
@@ -102,7 +102,7 @@ export function SessionRecordingsList({
 
     return (
         <div
-            className={clsx('flex flex-col w-full bg-white', className, !embedded && 'border rounded', {
+            className={clsx('flex flex-col w-full bg-white border rounded', className, {
                 'border-dashed': !recordings?.length,
                 'overflow-hidden': recordings?.length,
             })}
@@ -119,7 +119,7 @@ export function SessionRecordingsList({
                         {titleContent}
                     </LemonButton>
                 ) : (
-                    <span className="px-2 py-1">{titleContent}</span>
+                    <span className="px-2 py-1 flex-1">{titleContent}</span>
                 )}
                 {titleRight}
                 <LemonTableLoader loading={loading} />
@@ -127,6 +127,8 @@ export function SessionRecordingsList({
             {!collapsed ? (
                 recordings?.length ? (
                     <ul className="overflow-y-auto border-t" onScroll={handleScroll}>
+                        {subheader}
+
                         {recordings.map((rec, i) => (
                             <Fragment key={rec.id}>
                                 {i > 0 && <div className="border-t" />}

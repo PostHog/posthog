@@ -151,6 +151,7 @@ export const FEATURE_FLAGS = {
     DATA_MANAGEMENT_HISTORY: 'data-management-history', // owner: @pauldambra
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SESSION_RECORDING_INFINITE_LIST: 'session-recording-infinite-list', // owner: #team-monitoring
+    SESSION_RECORDING_INLINED_FILTERS: 'session-recording-inlined-filters', // owner: #team-monitoring
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

@@ -1,13 +1,16 @@
 .ActionFilter {
-    .ActionFilterRow {
-        &:not(:last-child) {
-            margin-bottom: 0.5rem;
-        }
+    > * + * {
+        margin-top: 0.5rem;
     }
 
+    // .ActionFilterRow {
+    //     &:not(:last-child) {
+    //         margin-bottom: 0.5rem;
+    //     }
+    // }
+
     .ActionFilterRow-filters {
-        margin: 0;
-        padding: 1em 0.5em;
+        margin: 0.5rem 0;
     }
 
     &.ActionFilter--bordered {
@@ -19,7 +22,7 @@
 
             .ActionFilterRow-content {
                 margin-bottom: 0px;
-                padding: 1rem 0.5rem;
+                padding: 1rem;
                 border-bottom: 1px solid var(--border);
             }
         }

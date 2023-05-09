@@ -43,38 +43,6 @@ export function SessionRecordingsPlaylistFilters({
         reportRecordingPlaylistCreated('filters')
     })
 
-    const dateFilter = (
-        <DateFilter
-            dateFrom={filters.date_from ?? '-7d'}
-            dateTo={filters.date_to ?? undefined}
-            onChange={(changedDateFrom, changedDateTo) => {
-                reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
-                setFilters({
-                    date_from: changedDateFrom,
-                    date_to: changedDateTo,
-                })
-            }}
-            dateOptions={[
-                { key: 'Custom', values: [] },
-                { key: 'Last 24 hours', values: ['-24h'] },
-                { key: 'Last 7 days', values: ['-7d'] },
-                { key: 'Last 21 days', values: ['-21d'] },
-            ]}
-            dropdownPlacement="bottom-end"
-        />
-    )
-
-    const durationFilter = (
-        <DurationFilter
-            onChange={(newFilter) => {
-                reportRecordingsListFilterAdded(SessionRecordingFilterType.Duration)
-                setFilters({ session_recording_duration: newFilter })
-            }}
-            initialFilter={filters.session_recording_duration as RecordingDurationFilter}
-            pageKey={!!personUUID ? `person-${personUUID}` : 'session-recordings'}
-        />
-    )
-
     return (
         <div className={clsx('flex flex-wrap items-end justify-between gap-4 mb-4')}>
             <div className="flex items-center gap-4">
@@ -136,10 +104,34 @@ export function SessionRecordingsPlaylistFilters({
             </div>
 
             <div className="flex items-center gap-4">
-                {dateFilter}
+                <DateFilter
+                    dateFrom={filters.date_from ?? '-7d'}
+                    dateTo={filters.date_to ?? undefined}
+                    onChange={(changedDateFrom, changedDateTo) => {
+                        reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
+                        setFilters({
+                            date_from: changedDateFrom,
+                            date_to: changedDateTo,
+                        })
+                    }}
+                    dateOptions={[
+                        { key: 'Custom', values: [] },
+                        { key: 'Last 24 hours', values: ['-24h'] },
+                        { key: 'Last 7 days', values: ['-7d'] },
+                        { key: 'Last 21 days', values: ['-21d'] },
+                    ]}
+                    dropdownPlacement="bottom-end"
+                />
                 <div className="flex gap-2">
                     <LemonLabel>Duration</LemonLabel>
-                    {durationFilter}
+                    <DurationFilter
+                        onChange={(newFilter) => {
+                            reportRecordingsListFilterAdded(SessionRecordingFilterType.Duration)
+                            setFilters({ session_recording_duration: newFilter })
+                        }}
+                        initialFilter={filters.session_recording_duration as RecordingDurationFilter}
+                        pageKey={!!personUUID ? `person-${personUUID}` : 'session-recordings'}
+                    />
                 </div>
             </div>
         </div>

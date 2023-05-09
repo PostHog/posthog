@@ -248,6 +248,7 @@ export function ActionFilterRow({
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
                         : undefined
                 }}
+                disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
             />
         </IconWithCount>
     )
@@ -290,6 +291,11 @@ export function ActionFilterRow({
         />
     )
 
+    const rowStartElements = [
+        sortable && filterCount > 1 ? <DragHandle /> : null,
+        showSeriesIndicator && <div>{seriesIndicator}</div>,
+    ].filter(Boolean)
+
     return (
         <div className={'ActionFilterRow'}>
             <div className="ActionFilterRow-content">
@@ -306,10 +312,9 @@ export function ActionFilterRow({
                 ) : (
                     <>
                         {/* left section fixed */}
-                        <div className="ActionFilterRow__start">
-                            {sortable && filterCount > 1 ? <DragHandle /> : null}
-                            {showSeriesIndicator && <div>{seriesIndicator}</div>}
-                        </div>
+                        {rowStartElements.length ? (
+                            <div className="ActionFilterRow__start">{...rowStartElements}</div>
+                        ) : null}
                         {/* central section flexible */}
                         <div className="ActionFilterRow__center">
                             <div className="flex-auto overflow-hidden">{filterElement}</div>
@@ -381,7 +386,7 @@ export function ActionFilterRow({
             </div>
 
             {propertyFiltersVisible && (
-                <div className={`ActionFilterRow-filters`}>
+                <div className="ActionFilterRow-filters">
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
