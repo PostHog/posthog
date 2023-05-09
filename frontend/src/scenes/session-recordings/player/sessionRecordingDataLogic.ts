@@ -175,7 +175,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingSnapshotsSuccess: (state) => state + 1,
             },
         ],
-
+        loadedFromBlobStorage: [
+            false as boolean,
+            {
+                loadRecordingBlobSnapshotsSuccess: () => true,
+            },
+        ],
         isNotFound: [
             false as boolean,
             {
@@ -233,8 +238,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             )
                             return false
                         }
-                        if (!values.sessionPlayerSnapshotData?.snapshots.length) {
+                        if (!values.sessionPlayerSnapshotData?.snapshots.length || !values.loadedFromBlobStorage) {
                             console.log('There are no current values **from blob storage**')
+                            return false
                         }
                         const fakePoint = (): Promise<void> => Promise.resolve()
                         let comparisonData = await makeSnapshotsAPICall({
