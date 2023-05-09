@@ -7,7 +7,6 @@ import {
     prefix as KAFKA_PREFIX,
 } from '../../config/kafka-topics'
 import { Hub } from '../../types'
-import { convertRdKafkaMessageToKafkaJSMessage } from '../../utils/db/kafka-producer-wrapper'
 import { isIngestionOverflowEnabled } from '../../utils/env-utils'
 import { formPipelineEvent } from '../../utils/event'
 import { status } from '../../utils/status'
@@ -130,9 +129,11 @@ export async function eachMessageIngestionWithOverflow(message: Message, queue: 
     // Events are marked to have a null key during batch break-up if they should go to the *_OVERFLOW topic.
     // So we do not ingest them here.
     if (message.key == null) {
-        await queue.pluginsServer.kafkaProducer.queueMessage({
+        await queue.pluginsServer.kafkaProducer.produce({
             topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-            messages: [convertRdKafkaMessageToKafkaJSMessage(message)],
+            value: message.value,
+            key: message.key,
+            headers: message.headers,
         })
 
         return

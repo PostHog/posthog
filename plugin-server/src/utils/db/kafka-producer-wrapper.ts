@@ -1,5 +1,5 @@
-import { IHeaders, Message, ProducerRecord } from 'kafkajs'
-import { HighLevelProducer, LibrdKafkaError, Message as RdKafkaMessage } from 'node-rdkafka-acosom'
+import { Message, ProducerRecord } from 'kafkajs'
+import { HighLevelProducer, LibrdKafkaError, MessageHeader, MessageKey, MessageValue } from 'node-rdkafka-acosom'
 
 import { disconnectProducer, flushProducer, produce } from '../../kafka/producer'
 import { status } from '../../utils/status'
@@ -23,21 +23,27 @@ export class KafkaProducerWrapper {
         this.producer = producer
     }
 
-    async queueMessage(kafkaMessage: ProducerRecord) {
+    async produce({
+        value,
+        key,
+        topic,
+        headers,
+    }: {
+        value: MessageValue
+        key: MessageKey
+        topic: string
+        headers?: MessageHeader[]
+    }) {
         try {
-            return await Promise.all(
-                kafkaMessage.messages.map((message) =>
-                    produce({
-                        producer: this.producer,
-                        topic: kafkaMessage.topic,
-                        key: message.key ? Buffer.from(message.key) : null,
-                        value: message.value ? Buffer.from(message.value) : null,
-                        headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
-                    })
-                )
-            )
+            return await produce({
+                producer: this.producer,
+                topic: topic,
+                key: key,
+                value: value,
+                headers: headers,
+            })
         } catch (error) {
-            status.error('⚠️', 'kafka_produce_error', { error: error, topic: kafkaMessage.topic })
+            status.error('⚠️', 'kafka_produce_error', { error: error, topic: topic })
 
             if ((error as LibrdKafkaError).isRetriable) {
                 // If we get a retriable error, bubble that up so that the
@@ -47,6 +53,19 @@ export class KafkaProducerWrapper {
 
             throw error
         }
+    }
+
+    async queueMessage(kafkaMessage: ProducerRecord) {
+        return await Promise.all(
+            kafkaMessage.messages.map((message) =>
+                this.produce({
+                    topic: kafkaMessage.topic,
+                    key: message.key ? Buffer.from(message.key) : null,
+                    value: message.value ? Buffer.from(message.value) : null,
+                    headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
+                })
+            )
+        )
     }
 
     async queueMessages(kafkaMessages: ProducerRecord[]): Promise<void> {
@@ -91,34 +110,3 @@ export const convertKafkaJSHeadersToRdKafkaHeaders = (headers: Message['headers'
               )
               .map(({ key, value }) => ({ [key]: value }))
         : undefined
-
-export const convertRdKafkaHeadersToKafkaJSHeaders = (headers: RdKafkaMessage['headers'] = undefined) =>
-    // While we still have KafkaJS consumers, we need to convert from rdkafka
-    // headers to KafkaJS headers format. The former has type { [key: string]:
-    // Buffer }[], while the latter has type { [key: string]: string | Buffer |
-    // (string | Buffer)[] | undefined }. The former's values that are arrays
-    // need to be converted into an array of objects with a single key-value
-    // pair, and the undefined values need to be filtered out.
-    //
-    // When we have removed kafkajs consumers we can refactor this Producer
-    // wrapper to just use rdkafka format headers.
-    headers
-        ?.flatMap((header) => Object.entries(header))
-        .reduce((acc, [key, value]) => {
-            const existing = acc[key]
-            if (existing === undefined) {
-                return { ...acc, [key]: value }
-            }
-            if (Array.isArray(existing)) {
-                return { ...acc, [key]: [...existing, value] }
-            }
-            return { ...acc, [key]: [existing, value] }
-        }, {} as IHeaders)
-
-export const convertRdKafkaMessageToKafkaJSMessage = (message: RdKafkaMessage) => ({
-    key: message.key,
-    value: message.value,
-    offset: message.offset,
-    timestamp: message.timestamp ? message.timestamp.toString() : undefined,
-    headers: convertRdKafkaHeadersToKafkaJSHeaders(message.headers),
-})
