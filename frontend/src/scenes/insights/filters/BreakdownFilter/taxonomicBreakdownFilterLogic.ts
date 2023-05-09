@@ -98,6 +98,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 return
             }
 
+            // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
+            // For now, it is safe to fall back to `breakdown` instead of the property definition.
+            const isNormalizeable = isURLNormalizeable(
+                values.getPropertyDefinition(breakdown)?.name || (breakdown as string)
+            )
+
             props.updateBreakdown({
                 breakdown_type: breakdownType,
                 breakdown:
@@ -106,11 +112,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                         : breakdown,
                 breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
                 breakdown_histogram_bin_count: isHistogramable ? 10 : undefined,
-                // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
-                // For now, it is safe to fall back to `breakdown` instead of the property definition.
-                breakdown_normalize_url: isURLNormalizeable(
-                    values.getPropertyDefinition(breakdown)?.name || (breakdown as string)
-                ),
+                breakdown_normalize_url: isNormalizeable ? true : undefined,
             })
         },
         removeBreakdown: ({ breakdown }) => {
