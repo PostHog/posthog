@@ -256,6 +256,29 @@ class TestCSVExporter(APIBaseTest):
         with pytest.raises(UnexpectedEmptyJsonResponse, match="JSON is None when calling API for data"):
             csv_exporter.export_csv(self._create_asset())
 
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_hogql_query(self, mocked_uuidt) -> None:
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"source": {"kind": "HogQLQuery", "query": "select 10 as number, '20' as string"}},
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            assert content == "number,string\r\n10,20\r\n"
+
+            assert exported_asset.content is None
+
     def _split_to_dict(self, url: str) -> Dict[str, Any]:
         first_split_parts = url.split("?")
         assert len(first_split_parts) == 2
