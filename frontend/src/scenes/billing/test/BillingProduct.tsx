@@ -256,7 +256,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
         })
 
-    if (billing?.discount_percent && product.projected_amount_usd) {
+    if (billing?.discount_percent && parseFloat(product.projected_amount_usd || '')) {
+        // If there is a discount, add a row for the total after discount if there is also a projected amount
         tableTierData?.push({
             volume: 'Total after discount',
             basePrice: '',
