@@ -29,13 +29,12 @@ function getDjangoAdminLink(user: UserType | null): string {
 }
 
 function getSentryLinks(user: UserType | null): string {
-    const sentryProjectId = new URL(window.SENTRY_DSN).pathname.slice(1)
-    if (!user || !sentryProjectId) {
+    if (!user) {
         return ''
     }
-    const link = `https://posthog.sentry.io/issues/?project=${sentryProjectId}&query=user.email:${user.email}`
     const cloud = window.location.origin == 'https://eu.posthog.com' ? 'EU' : 'US'
-    const pluginServer = `http://go/pluginServerSentry/DEPLOYMENT:${cloud}+team_id:${user.team?.id}`
+    const link = `http://go/sentry${cloud}/${user.email}`
+    const pluginServer = `http://go/pluginServerSentry${cloud}/${user.team?.id}`
     return `[Sentry](${link}) | [Plugin Server Sentry](${pluginServer})`
 }
 
