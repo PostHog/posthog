@@ -95,7 +95,7 @@ runs:
         - name: Run FOSS tests
           if: ${{ inputs.segment == 'FOSS' }}
           env:
-              PERSON_ON_EVENTS_V2_OVERRIDE: ${{ inputs.person-on-events }}
+              PERSON_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations are covered in ci-async-migrations.yml
@@ -107,7 +107,7 @@ runs:
         - name: Run EE tests
           if: ${{ inputs.segment == 'EE' }}
           env:
-              PERSON_ON_EVENTS_V2_OVERRIDE: ${{ inputs.person-on-events }}
+              PERSON_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations are covered in ci-async-migrations.yml

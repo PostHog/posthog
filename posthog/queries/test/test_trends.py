@@ -4061,7 +4061,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             _create_event(team=self.team, event="sign up", distinct_id="blabla")
             _create_event(team=self.team, event="sign up", distinct_id="blabla2")
             _create_event(team=self.team, event="sign up", distinct_id="blabla3")
-        with freeze_time("2020-01-04T13:01:01Z"), self.settings(SHELL_PLUS_PRINT_SQL=True):
+        with freeze_time("2020-01-04T13:01:01Z"):
             event_response = Trends().run(
                 Filter(
                     data={
@@ -4091,7 +4091,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             _create_event(
                 team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"}
             )
-        with freeze_time("2020-01-04T13:01:01Z"), self.settings(SHELL_PLUS_PRINT_SQL=True):
+        with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(data={"breakdown": "$some_property", "actions": [{"id": sign_up_action.id, "math": "dau"}]}),
                 self.team,
