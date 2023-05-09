@@ -1586,6 +1586,7 @@ export interface TrendsFilterType extends FilterType {
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
