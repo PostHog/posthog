@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import { Breadcrumb, EarlyAccessFeatureStage, EarlyAccsesFeatureType, NewEarlyAccessFeatureType } from '~/types'
@@ -130,15 +130,33 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 },
             })
         },
-        saveEarlyAccessFeatureSuccess: ({}) => {
+        saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature }) => {
             lemonToast.success('Early Access Feature saved')
             actions.loadEarlyAccessFeatures()
+            earlyAccessFeature.id && router.actions.replace(urls.earlyAccessFeature(earlyAccessFeature.id))
             actions.editFeature(false)
+        },
+    })),
+    urlToAction(({ actions, props }) => ({
+        [urls.earlyAccessFeature(props.id ?? 'new')]: (_, __, ___, { method }) => {
+            // If the URL was pushed (user clicked on a link), reset the scene's data.
+            // This avoids resetting form fields if you click back/forward.
+            if (method === 'PUSH') {
+                if (props.id) {
+                    actions.loadEarlyAccessFeature()
+                } else {
+                    actions.resetEarlyAccessFeature()
+                }
+            }
         },
     })),
     afterMount(async ({ props, actions }) => {
         if (props.id !== 'new') {
             await actions.loadEarlyAccessFeature()
+        }
+        if (props.id === 'new') {
+            actions.resetEarlyAccessFeature()
+            actions.editFeature
         }
     }),
 ])
