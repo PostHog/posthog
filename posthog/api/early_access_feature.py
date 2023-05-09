@@ -105,6 +105,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             )
             feature_flag_key = feature_flag.key
         validated_data["feature_flag_id"] = feature_flag.id
+        validated_data["deleted"] = False
         feature: EarlyAccessFeature = super().create(validated_data)
         feature_flag.filters = {
             "groups": feature_flag.filters.get("groups", default_condition),

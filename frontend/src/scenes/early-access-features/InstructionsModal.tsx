@@ -1,4 +1,4 @@
-import { LemonCollapse, LemonModal } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonModal, Link } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FeatureFlagType } from '~/types'
 
@@ -45,7 +45,13 @@ export function InstructionsModal({ onClose, visible, featureFlag }: Instruction
                         {
                             key: '2',
                             header: 'Option 2: Widget Site App',
-                            content: <div />,
+                            content: (
+                                <div>
+                                    Give your users a{' '}
+                                    <Link to={'https://app.posthog.com/project/apps/574'}>prebuilt widget</Link> to
+                                    opt-in to features
+                                </div>
+                            ),
                         },
                     ]}
                 />

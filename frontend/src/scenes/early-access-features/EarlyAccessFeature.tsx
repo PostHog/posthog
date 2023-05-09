@@ -25,26 +25,26 @@ export const scene: SceneExport = {
     component: EarlyAccessFeature,
     logic: earlyAccessFeatureLogic,
     paramsToProps: ({ params: { id } }): (typeof earlyAccessFeatureLogic)['props'] => ({
-        id,
+        id: id && id !== 'new' ? id : 'new',
     }),
 }
 
-export function EarlyAccessFeature(): JSX.Element {
+export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
     const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote, deleteEarlyAccessFeature } =
         useActions(earlyAccessFeatureLogic)
 
+    const isNewEarlyAccessFeature = id === 'new' || id === undefined
+
     return (
         <Form formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
-                title={
-                    isEditingFeature && !('id' in earlyAccessFeature) ? 'New Feature Release' : earlyAccessFeature.name
-                }
+                title={isNewEarlyAccessFeature ? 'New Feature Release' : earlyAccessFeature.name}
                 buttons={
                     !earlyAccessFeatureLoading &&
                     earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability ? (
-                        isEditingFeature ? (
+                        isNewEarlyAccessFeature || isEditingFeature ? (
                             <>
                                 <LemonButton
                                     type="secondary"
@@ -94,7 +94,7 @@ export function EarlyAccessFeature(): JSX.Element {
             />
             <div className={clsx('flex', 'flex-row', 'gap-6', isEditingFeature ? 'max-w-160' : null)}>
                 <div className="flex flex-col gap-4" style={{ flex: 2 }}>
-                    {isEditingFeature && !('id' in earlyAccessFeature) && (
+                    {isNewEarlyAccessFeature && (
                         <Field name="name" label="Name">
                             <LemonInput data-attr="feature-name" />
                         </Field>
@@ -127,7 +127,7 @@ export function EarlyAccessFeature(): JSX.Element {
                             )}
                         </Field>
                     )}
-                    {isEditingFeature ? (
+                    {isEditingFeature || isNewEarlyAccessFeature ? (
                         <></>
                     ) : (
                         <div className="mb-2 flex flex-row justify-between">
@@ -150,7 +150,7 @@ export function EarlyAccessFeature(): JSX.Element {
                             )}
                         </div>
                     )}
-                    {isEditingFeature ? (
+                    {isEditingFeature || isNewEarlyAccessFeature ? (
                         <Field name="description" label="Description" showOptional>
                             <LemonTextArea
                                 className="ph-ignore-input"
@@ -169,7 +169,7 @@ export function EarlyAccessFeature(): JSX.Element {
                             </div>
                         </div>
                     )}
-                    {isEditingFeature ? (
+                    {isEditingFeature || isNewEarlyAccessFeature ? (
                         <Field name="documentation_url" label="Documentation URL" showOptional>
                             <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
                         </Field>
@@ -186,7 +186,7 @@ export function EarlyAccessFeature(): JSX.Element {
                         </div>
                     )}
                 </div>
-                {!isEditingFeature && 'id' in earlyAccessFeature && (
+                {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <div style={{ flex: 3 }}>
                         <PersonList earlyAccessFeature={earlyAccessFeature} />
                     </div>

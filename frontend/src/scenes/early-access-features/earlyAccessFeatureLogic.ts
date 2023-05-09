@@ -42,8 +42,11 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     loaders(({ props }) => ({
         earlyAccessFeature: {
             loadEarlyAccessFeature: async () => {
-                const response = await api.earlyAccessFeatures.get(props.id)
-                return response
+                if (props.id && props.id !== 'new') {
+                    const response = await api.earlyAccessFeatures.get(props.id)
+                    return response
+                }
+                return NEW_EARLY_ACCESS_FEATURE
             },
             saveEarlyAccessFeature: async (updatedEarlyAccessFeature: Partial<EarlyAccsesFeatureType>) => {
                 let result: EarlyAccsesFeatureType
@@ -111,6 +114,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         promote: async () => {
             'id' in values.earlyAccessFeature && (await api.earlyAccessFeatures.promote(values.earlyAccessFeature.id))
             actions.loadEarlyAccessFeature()
+            actions.loadEarlyAccessFeatures()
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeature }) => {
             deleteWithUndo({
@@ -136,7 +140,5 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         if (props.id !== 'new') {
             await actions.loadEarlyAccessFeature()
         }
-
-        actions.editFeature(props.id === 'new')
     }),
 ])
