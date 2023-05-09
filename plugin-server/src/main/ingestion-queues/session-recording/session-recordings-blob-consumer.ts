@@ -20,6 +20,8 @@ const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
 
+const flushIntervalTimeoutMs = 30000
+
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
 export const gaugeSessionsHandled = new Gauge({
@@ -118,8 +120,9 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        if (!message.value) {
-            return statusWarn('message value is empty')
+        if (!message.value || !message.timestamp) {
+            // Typing says this can happen but in practice it shouldn't
+            return statusWarn('message value or timestamp is empty')
         }
 
         let messagePayload: RawEventMessage
@@ -326,7 +329,7 @@ export class SessionRecordingBlobIngester {
 
             gaugeSessionsHandled.set(this.sessions.size)
             gaugeBytesBuffered.set(sessionManangerBufferSizes)
-        }, 10000)
+        }, flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {
