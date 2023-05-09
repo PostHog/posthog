@@ -39,6 +39,34 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             attributes: {
                 class: 'Notebook',
             },
+            handleDrop: (view, event, slice, moved) => {
+                console.log(view, event, slice, moved)
+
+                if (event.dataTransfer?.getData('node')) {
+                    const nodeType = event.dataTransfer.getData('node')
+                    const properties = JSON.parse(event.dataTransfer.getData('properties'))
+
+                    const { schema } = view.state
+                    const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
+                    if (!coordinates) {
+                        return false
+                    }
+                    const node = schema.nodes[nodeType].create(properties)
+                    const transaction = view.state.tr.insert(coordinates.pos, node) // places it in the correct position
+                    return view.dispatch(transaction)
+                }
+                if (!moved && event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]) {
+                    // if dropping external files
+                    const file = event.dataTransfer.files[0] // the dropped file
+
+                    console.log('FILE!', file)
+                    // TODO: Add image with upload handler
+
+                    return true // handled
+                }
+
+                return false
+            },
         },
         onUpdate: ({ editor }) => {
             syncContent(editor.getHTML())

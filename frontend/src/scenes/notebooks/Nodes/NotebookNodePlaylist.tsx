@@ -66,7 +66,7 @@ export const NotebookNodePlaylist = Node.create({
     name: NotebookNodeType.RecordingPlaylist,
     group: 'block',
     atom: true,
-    draggable: true,
+    draggable: false,
 
     addAttributes() {
         return {
