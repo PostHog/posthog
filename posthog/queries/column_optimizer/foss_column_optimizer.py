@@ -69,6 +69,7 @@ class FOSSColumnOptimizer:
 
     @cached_property
     def is_using_cohort_propertes(self) -> bool:
+        # make backend tests run
         return len(self.used_properties_with_type("cohort")) > 0
 
     @cached_property
