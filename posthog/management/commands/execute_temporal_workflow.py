@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.client import connect
 from posthog.temporal.workflows import WORKFLOWS
@@ -21,8 +21,18 @@ class Command(BaseCommand):
             nargs="*",
             help="Inputs for the workflow to execute",
         )
-        parser.add_argument("--temporal_host", default=settings.TEMPORAL_HOST, help="Hostname for Temporal Scheduler")
-        parser.add_argument("--temporal_port", default=settings.TEMPORAL_PORT, help="Port for Temporal Scheduler")
+        parser.add_argument(
+            "--workflow-id",
+            default=None,
+            help=(
+                "Optionally, set an id for this workflow. If the ID is already in use, "
+                "the workflow will not execute unless it failed. If not used, a random UUID "
+                "will be used as the workflow ID, which means the workflow will always execute. "
+                "Set an ID in order to limit concurrency."
+            ),
+        )
+        parser.add_argument("--temporal-host", default=settings.TEMPORAL_HOST, help="Hostname for Temporal Scheduler")
+        parser.add_argument("--temporal-port", default=settings.TEMPORAL_PORT, help="Port for Temporal Scheduler")
         parser.add_argument("--namespace", default=settings.TEMPORAL_NAMESPACE, help="Namespace to connect to")
         parser.add_argument("--task-queue", default=settings.TEMPORAL_TASK_QUEUE, help="Task queue to service")
         parser.add_argument(
@@ -42,12 +52,11 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
-        workflow_id = str(uuid4())
+        workflow_id = options.get("workflow_id", str(uuid4()))
         workflow_name = options["workflow"]
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
-        logging.info(f"Executing Temporal Workflow with options: {options}")
 
         client = asyncio.run(
             connect(
@@ -70,11 +79,14 @@ class Command(BaseCommand):
                 f"Workflow '{workflow_name}' is not a CommandableWorkflow that can invoked by execute_temporal_workflow."
             )
 
+        logging.info(f"Executing Temporal Workflow %s with ID %s", workflow_name, workflow_id)
+
         result = asyncio.run(
             client.execute_workflow(
                 workflow_name,
                 workflow.parse_inputs(options["inputs"]),
                 id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                 task_queue=task_queue,
                 retry_policy=retry_policy,
             )
