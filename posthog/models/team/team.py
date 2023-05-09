@@ -160,7 +160,7 @@ class Team(UUIDClassicModel):
     )  # Dashboard shown on project homepage
 
     # Generic field for storing any team-specific context that is more temporary in nature and thus
-    # likely doesn't deserve a dedicated row. Can be used for things like settings and overrides
+    # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
     # during feature releases.
     extra_settings: models.JSONField = models.JSONField(default=dict())
 
