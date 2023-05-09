@@ -105,7 +105,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         : undefined,
                     {
                         text: 'Current',
-                        color: product.percentage_usage && product.percentage_usage <= 1 ? 'success' : 'danger',
+                        color: product.percentage_usage
+                            ? product.percentage_usage <= 1
+                                ? 'success'
+                                : 'danger'
+                            : 'success',
                         value: product.current_usage || 0,
                         top: false,
                     },

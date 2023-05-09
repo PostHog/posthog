@@ -222,17 +222,24 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             // take the tier.current_amount_usd and add it to the same tier level for all the addons
             const totalForTier =
                 parseFloat(tier.current_amount_usd || '') +
-                product.addons?.reduce((acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''), 0)
+                (product.addons?.reduce(
+                    (acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
+                    0
+                    // if there aren't any addons we get NaN from the above, so we need to default to 0
+                ) || 0)
             const projectedTotalForTier =
-                (tier.projected_amount_usd || 0) +
-                product.addons?.reduce((acc, addon) => acc + (addon.tiers?.[i]?.projected_amount_usd || 0), 0)
+                (parseFloat(tier.projected_amount_usd || '') || 0) +
+                product.addons?.reduce(
+                    (acc, addon) => acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
+                    0
+                )
 
             const tierData = {
                 volume: getTierDescription(tier, i, product, billing?.billing_period?.interval || ''),
                 basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
                 usage: compactNumber(tier.current_usage),
-                total: `$${totalForTier || '0.00'}`,
-                projectedTotal: `$${projectedTotalForTier || '0.00'}`,
+                total: `$${totalForTier.toFixed(2) || '0.00'}`,
+                projectedTotal: `$${projectedTotalForTier.toFixed(2) || '0.00'}`,
             }
             // if there are any addon prices we need to include, put them in the table
             addonPricesForTier?.map((addonPrice) => {
@@ -246,9 +253,25 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             basePrice: '',
             usage: `${compactNumber(product.current_usage ?? 0)}`,
             total: `$${product.current_amount_usd || '0.00'}`,
-            // TODO: Make sure this projected total includes addons
             projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
         })
+
+    if (billing?.discount_percent && product.projected_amount_usd) {
+        tableTierData?.push({
+            volume: 'Total after discount',
+            basePrice: '',
+            usage: '',
+            total: `$${
+                (parseInt(product.current_amount_usd || '0') * (billing?.discount_percent / 100)).toFixed(2) || '0.00'
+            }`,
+            projectedTotal: `$${
+                (
+                    parseInt(product.projected_amount_usd || '0') -
+                    parseInt(product.projected_amount_usd || '0') * (billing?.discount_percent / 100)
+                ).toFixed(2) || '0.00'
+            }`,
+        })
+    }
 
     return (
         <div
@@ -379,11 +402,17 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             {product.current_amount_usd ? (
                                                 <div className="flex justify-end gap-8 flex-wrap items-end">
                                                     <Tooltip
-                                                        title={`The current amount you have been billed for this ${billing?.billing_period?.interval} so far.`}
+                                                        title={`The current ${
+                                                            billing?.discount_percent ? 'discounted ' : ''
+                                                        }amount you have been billed for this ${
+                                                            billing?.billing_period?.interval
+                                                        } so far.`}
                                                         className="flex flex-col items-center"
                                                     >
                                                         <div className="font-bold text-3xl leading-7">
-                                                            ${product.current_amount_usd}
+                                                            $
+                                                            {parseFloat(product.current_amount_usd || '') *
+                                                                (billing?.discount_percent / 100 || 1) || '0.00'}
                                                         </div>
                                                         <span className="text-xs text-muted">
                                                             {capitalizeFirstLetter(
@@ -394,15 +423,19 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     </Tooltip>
                                                     {product.tiers && (
                                                         <Tooltip
-                                                            title={
-                                                                'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
-                                                            }
+                                                            title={`This is roughly calculated based on your current bill${
+                                                                billing?.discount_percent
+                                                                    ? ', discounts on your account,'
+                                                                    : ''
+                                                            } and the remaining time left in this billing period.`}
                                                             className="flex flex-col items-center justify-end"
                                                         >
                                                             <div className="font-bold text-muted text-lg leading-5">
-                                                                ${product.projected_amount_usd || '0.00'}
+                                                                $
+                                                                {parseFloat(product.projected_amount_usd || '') *
+                                                                    (billing?.discount_percent / 100 || 1) || '0.00'}
                                                             </div>
-                                                            <span className="text-xs text-muted">Predicted</span>
+                                                            <span className="text-xs text-muted">Projected</span>
                                                         </Tooltip>
                                                     )}
                                                 </div>
