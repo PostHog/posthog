@@ -29,8 +29,7 @@ describe('session-manager', () => {
 
         expect(sessionManager.buffer).toEqual({
             count: 1,
-            createdAt: expect.any(Date),
-            lastMessageReceivedAt: messageTimestamp,
+            oldestKafkaTimestamp: messageTimestamp,
             file: expect.any(String),
             id: expect.any(String),
             size: 61, // The size of the event payload - this may change when test data changes
