@@ -328,6 +328,7 @@ export interface TeamType extends TeamBasicType {
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
     groups_on_events_querying_enabled: boolean
+    extra_settings: Record<string, string | number | boolean | undefined>
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
