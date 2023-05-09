@@ -372,6 +372,14 @@ class QueryMatchingTest:
         # replace Savepoint numbers
         query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
 
+        # test_formula has some values that change on every run
+        query = re.sub(r"\SELECT \[\d+, \d+] as breakdown_value", "SELECT [1, 2] as breakdown_value", query)
+        query = re.sub(
+            r"SELECT distinct_id,[\n\r\s]+\d+ as value",
+            "SELECT distinct_id, 1 as value",
+            query,
+        )
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run

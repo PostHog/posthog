@@ -519,6 +519,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
                 ],
             },
             BREAKDOWN: "$feature_flag_response",
+            BREAKDOWN_TYPE: "event",
             FILTER_TEST_ACCOUNTS: False,
         },
         layouts={
@@ -566,6 +567,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
                 ],
             },
             BREAKDOWN: "$feature_flag_response",
+            BREAKDOWN_TYPE: "event",
             FILTER_TEST_ACCOUNTS: False,
         },
         layouts={

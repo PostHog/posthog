@@ -1,14 +1,14 @@
-import { LemonButton, LemonInput, LemonSelect, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Field, PureField } from 'lib/forms/Field'
 import { SceneExport } from 'scenes/sceneTypes'
 import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
-import { Field as KeaField, Form } from 'kea-forms'
-import { EarlyAccsesFeatureType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+import { Form } from 'kea-forms'
+import { EarlyAccessFeatureStage, EarlyAccsesFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import { PersonsScene } from 'scenes/persons/Persons'
-import { IconDelete, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { useState } from 'react'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -17,9 +17,9 @@ import { TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { PersonLogicProps, personsLogic } from 'scenes/persons/personsLogic'
-import api from 'lib/api'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
+import { Col } from 'antd'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -32,7 +32,7 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature(): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature } = useActions(earlyAccessFeatureLogic)
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote } = useActions(earlyAccessFeatureLogic)
 
     return (
         <Form formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
@@ -41,7 +41,8 @@ export function EarlyAccessFeature(): JSX.Element {
                     isEditingFeature && !('id' in earlyAccessFeature) ? 'New Feature Release' : earlyAccessFeature.name
                 }
                 buttons={
-                    !earlyAccessFeatureLoading ? (
+                    !earlyAccessFeatureLoading &&
+                    earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability ? (
                         isEditingFeature ? (
                             <>
                                 <LemonButton
@@ -114,38 +115,26 @@ export function EarlyAccessFeature(): JSX.Element {
                         </Field>
                     )}
                     {isEditingFeature ? (
-                        <KeaField name="stage" label={<h4 className="font-semibold">Stage</h4>}>
-                            {({ value, onChange }) => (
-                                <div>
-                                    <LemonSelect
-                                        value={value}
-                                        onChange={onChange}
-                                        options={[
-                                            {
-                                                label: 'Alpha',
-                                                value: 'alpha',
-                                            },
-                                            {
-                                                label: 'Beta',
-                                                value: 'beta',
-                                            },
-                                            {
-                                                label: 'General Availability',
-                                                value: 'general-availability',
-                                            },
-                                        ]}
-                                    />
-                                </div>
-                            )}
-                        </KeaField>
+                        <></>
                     ) : (
-                        <div className="mb-2">
-                            <b>Stage</b>
-                            <div>
-                                <LemonTag type="highlight" className="mt-2 uppercase">
-                                    {earlyAccessFeature.stage}
-                                </LemonTag>
-                            </div>
+                        <div className="mb-2 flex flex-row justify-between">
+                            <Col>
+                                <b>Stage</b>
+                                <div>
+                                    <LemonTag type="highlight" className="mt-2 uppercase">
+                                        {earlyAccessFeature.stage}
+                                    </LemonTag>
+                                </div>
+                            </Col>
+                            {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
+                                <LemonButton
+                                    onClick={() => promote()}
+                                    tooltip={'Make feature generally available'}
+                                    type="secondary"
+                                >
+                                    Promote
+                                </LemonButton>
+                            )}
                         </div>
                     )}
                     {isEditingFeature ? (
@@ -259,33 +248,12 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
 
     const { featureFlag } = useValues(featureFlagLogic({ id: earlyAccessFeature.feature_flag.id || 'link' }))
 
-    const optUserOut = async (person: PersonType): Promise<void> => {
-        await api.persons.updateProperty(person.id as string, key, false)
-        logic.actions.setPerson({ ...person, properties: { ...person.properties, [key]: false } })
-    }
-
     return (
         <BindLogic logic={personsLogic} props={personLogicProps}>
             <h3 className="text-xl font-semibold">Opted-In Users</h3>
             <PersonsScene
                 showSearch={persons.results.length > 0}
                 showFilters={persons.results.length > 0}
-                extraColumns={[
-                    {
-                        render: function Render(_, person: PersonType) {
-                            return (
-                                person.properties['$feature_enrollment/' + earlyAccessFeature.feature_flag.key] && (
-                                    <LemonButton
-                                        onClick={() => optUserOut(person)}
-                                        icon={<IconDelete />}
-                                        status="danger"
-                                        size="small"
-                                    />
-                                )
-                            )
-                        },
-                    },
-                ]}
                 extraSceneActions={
                     persons.results.length > 0
                         ? [

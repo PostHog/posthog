@@ -20,6 +20,7 @@ describe('dlq handling', () => {
             connectionConfig: { 'metadata.broker.list': defaultConfig.KAFKA_HOSTS },
             groupId: 'scheduled-tasks-consumer-test',
             topic: 'scheduled_tasks_dlq',
+            autoResetOffsets: 'earliest',
             eachBatch: (messages) => {
                 dlq.push(...messages)
                 return Promise.resolve()

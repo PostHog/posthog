@@ -8,14 +8,14 @@ import { EventPipelineRunner } from './runner'
 
 export async function processPersonsStep(
     runner: EventPipelineRunner,
-    pluginEvent: PluginEvent,
-    personContainer: LazyPersonContainer
+    pluginEvent: PluginEvent
 ): Promise<[PluginEvent, LazyPersonContainer]> {
     const event = normalizeEvent(pluginEvent)
 
     const timestamp = parseEventTimestamp(event)
 
     // TODO: handle runner.poEEmbraceJoinEnabled
+    const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
     const newPersonContainer: LazyPersonContainer = await updatePersonState(
         event,
         event.team_id,

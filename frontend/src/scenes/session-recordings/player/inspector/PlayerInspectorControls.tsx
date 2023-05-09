@@ -42,7 +42,7 @@ export function PlayerInspectorControls(): JSX.Element {
     ]
 
     return (
-        <div className="bg-side p-2 space-y-2">
+        <div className="bg-side p-2 space-y-2 border-b">
             <div className="flex justify-between gap-2 flex-wrap">
                 <div className="flex flex-1 items-center gap-1">
                     {tabs.map((tabId) => {

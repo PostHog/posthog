@@ -1,9 +1,9 @@
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
-import { PlaylistPopover } from './playlist-popover/PlaylistPopover'
+import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -40,22 +40,37 @@ export function PlayerMetaLinks(): JSX.Element {
         })
     }
 
+    const commonProps: Partial<LemonButtonProps> = {
+        size: 'small',
+    }
+
     return (
-        <div className="flex flex-row gap-1 items-center">
-            <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" size="small">
-                Share
+        <div className="flex flex-row gap-1 items-center flex-1 justify-end">
+            <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
+                <span>Share</span>
             </LemonButton>
 
-            <PlaylistPopover />
+            <PlaylistPopoverButton {...commonProps}>
+                <span>Pin</span>
+            </PlaylistPopoverButton>
 
             {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                <AddToNotebook node={NotebookNodeType.Recording} properties={{ sessionRecordingId }} />
+                <AddToNotebook
+                    tooltip="Add to Notebook"
+                    node={NotebookNodeType.Recording}
+                    properties={{ sessionRecordingId }}
+                    {...commonProps}
+                />
             )}
 
             {logicProps.playerKey !== 'modal' && (
-                <LemonButton status="danger" onClick={onDelete} size="small">
-                    <IconDelete className="text-lg" />
-                </LemonButton>
+                <LemonButton
+                    tooltip="Delete"
+                    icon={<IconDelete />}
+                    onClick={onDelete}
+                    {...commonProps}
+                    status="danger"
+                />
             )}
         </div>
     )

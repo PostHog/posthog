@@ -19,7 +19,7 @@ export function onFilterChange({ breakdownParts, setFilters, getPropertyDefiniti
     return (changedBreakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup): void => {
         const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
 
-        if (changedBreakdownType) {
+        if (changedBreakdownType && changedBreakdown !== null) {
             const isHistogramable = !!getPropertyDefinition(changedBreakdown)?.is_numerical
 
             const newFilters: Partial<TrendsFilterType> = {

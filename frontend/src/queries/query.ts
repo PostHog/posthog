@@ -204,7 +204,7 @@ export function legacyInsightQueryURL({ filters, currentTeamId, refresh }: Legac
     } else if (isFunnelsFilter(filters)) {
         return `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
     } else if (isPathsFilter(filters)) {
-        return `api/projects/${currentTeamId}/insights/path${refresh ? '&refresh=true' : ''}`
+        return `api/projects/${currentTeamId}/insights/path${refresh ? '?refresh=true' : ''}`
     } else {
         throw new Error(`Unsupported insight type: ${filters.insight}`)
     }

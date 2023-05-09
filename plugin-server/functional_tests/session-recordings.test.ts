@@ -26,6 +26,7 @@ beforeAll(async () => {
         connectionConfig: { 'metadata.broker.list': defaultConfig.KAFKA_HOSTS },
         groupId: 'session_recording_events_test',
         topic: 'session_recording_events_dlq',
+        autoResetOffsets: 'earliest',
         eachBatch: (messages) => {
             dlq.push(...messages)
             return Promise.resolve()

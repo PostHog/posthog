@@ -22,8 +22,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightLogic } from './insightLogic'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { ReactNode } from 'react'
-import { ActionsNode, EventsNode, NewEntityNode } from '~/queries/schema'
-import { isEventsNode, isNewEntityNode } from '~/queries/utils'
+import { ActionsNode, EventsNode } from '~/queries/schema'
+import { isEventsNode } from '~/queries/utils'
 import { urls } from 'scenes/urls'
 import { examples } from '~/queries/examples'
 
@@ -37,24 +37,23 @@ export const getDisplayNameFromEntityFilter = (
     if (name && name in keyMapping.event) {
         name = keyMapping.event[name].label
     }
+    if (filter?.type === 'events' && filter.id === null) {
+        name = 'All events'
+    }
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
 }
 
-export const getDisplayNameFromEntityNode = (
-    node: EventsNode | ActionsNode | NewEntityNode,
-    isCustom = true
-): string | null => {
-    if (isNewEntityNode(node)) {
-        return null
-    }
-
+export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isCustom = true): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
     if (name && name in keyMapping.event) {
         name = keyMapping.event[name].label
+    }
+    if (isEventsNode(node) && node.event === null) {
+        name = 'All events'
     }
 
     const id = isEventsNode(node) ? node.event : node.id

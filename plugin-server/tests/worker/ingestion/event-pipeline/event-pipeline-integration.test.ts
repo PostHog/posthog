@@ -37,6 +37,7 @@ describe('Event Pipeline integration test', () => {
         ;[hub, closeServer] = await createHub()
 
         jest.spyOn(hub.db, 'fetchPerson')
+        jest.spyOn(hub.db, 'createPerson')
     })
 
     afterEach(async () => {
@@ -212,7 +213,7 @@ describe('Event Pipeline integration test', () => {
         expect(secondArg!.method).toBe('POST')
     })
 
-    it('loads person data once', async () => {
+    it('single postgres action per run to create or load person', async () => {
         const event: PluginEvent = {
             event: 'xyz',
             properties: { foo: 'bar' },
@@ -227,6 +228,11 @@ describe('Event Pipeline integration test', () => {
 
         await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
+        expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).not.toHaveBeenCalled()
+
+        // second time single fetch
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
     })
 })

@@ -29,6 +29,7 @@ export const startBatchConsumer = async ({
     fetchBatchSize = 500,
     eachBatch,
     autoCommit = true,
+    autoResetOffsets = 'latest',
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -40,6 +41,7 @@ export const startBatchConsumer = async ({
     fetchBatchSize?: number
     eachBatch: (messages: Message[]) => Promise<void>
     autoCommit?: boolean
+    autoResetOffsets?: 'earliest' | 'latest'
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -75,6 +77,10 @@ export const startBatchConsumer = async ({
             'enable.partition.eof': true,
             'queued.min.messages': 100000, // 100000 is the default
             'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
+            // Set if we want to start at the beginning or end of the topic, if
+            // the consumer group has no committed offsets. We default to
+            // the end.
+            'auto.offset.reset': autoResetOffsets,
             // Use cooperative-sticky rebalancing strategy, which is the
             // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
             // in the Java Kafka Client. There its actually
