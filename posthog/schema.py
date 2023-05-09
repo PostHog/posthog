@@ -446,6 +446,7 @@ class TrendsFilter(BaseModel):
     aggregation_axis_format: Optional[AggregationAxisFormat] = None
     aggregation_axis_postfix: Optional[str] = None
     aggregation_axis_prefix: Optional[str] = None
+    breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[Any] = None
@@ -1015,6 +1016,7 @@ class AnyPartialFilterTypeItem(BaseModel):
     aggregation_group_type_index: Optional[float] = None
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
+    breakdown_histogram_bin_count: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
