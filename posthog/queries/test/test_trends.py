@@ -389,6 +389,34 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][-1], "6-Jan-2020")
         self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0])
 
+    @also_test_with_person_on_events_v2
+    @snapshot_clickhouse_queries
+    def test_trends_breakdown_cumulative(self):
+        self._create_events()
+        with freeze_time("2020-01-04T13:00:01Z"), self.settings(SHELL_PLUS_PRINT_SQL=True):
+
+            response = Trends().run(
+                Filter(
+                    data={
+                        "date_from": "-7d",
+                        "display": "ActionsLineGraphCumulative",
+                        "events": [{"id": "sign up", "math": "dau"}],
+                        "breakdown": "$some_property",
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "sign up - none")
+        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+
+        self.assertEqual(response[1]["label"], "sign up - other_value")
+        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+
+        self.assertEqual(response[2]["label"], "sign up - value")
+        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+
     def test_trends_single_aggregate_dau(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):

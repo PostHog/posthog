@@ -315,13 +315,17 @@ class TrendsBreakdown:
                     **breakdown_filter_params,
                 )
             elif self.filter.display == TRENDS_CUMULATIVE and self.entity.math == "dau":
+                # TRICKY: This is a subquery, so the person_id_alias expression is not available in the outer query.
+                # Hence, we overwrite the aggregation_operation with the apprioriate one for the outer query.
+                cummulative_aggregate_operation = f"count(DISTINCT person_id)"
+
                 inner_sql = BREAKDOWN_CUMULATIVE_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
                     person_id_alias=self._person_id_alias,
-                    aggregate_operation=aggregate_operation,
+                    aggregate_operation=cummulative_aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
