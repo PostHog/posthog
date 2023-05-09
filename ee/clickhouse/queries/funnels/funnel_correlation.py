@@ -575,7 +575,7 @@ class FunnelCorrelation:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
                 events.update(action.get_step_events())
-            else:
+            elif entity.id is not None:
                 events.add(entity.id)
 
         return sorted(list(events))

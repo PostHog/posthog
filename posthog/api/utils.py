@@ -28,7 +28,8 @@ class PaginationMode(Enum):
 
 
 def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
-    if not filter.target_entity_id:
+    # Except for "events", we require an entity id and type to be provided
+    if not filter.target_entity_id and filter.target_entity_type != "events":
         raise ValidationError("An entity id and the entity type must be provided to determine an entity")
 
     entity_math = filter.target_entity_math or "total"  # make math explicit
@@ -69,7 +70,7 @@ def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[
 
 
 def retrieve_entity_from(
-    entity_id: str,
+    entity_id: Optional[str],
     entity_type: Optional[str],
     entity_math: MathType,
     events: List[Entity],

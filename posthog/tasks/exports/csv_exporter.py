@@ -115,10 +115,7 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             # RETENTION PERSONS LIKE
             csv_rows = []
             for item in items:
-                line = {
-                    "person": item["person"].get("properties").get("email")
-                    or item["person"].get("properties").get("id")
-                }
+                line = {"person": item["person"]["name"]}
                 for index, data in enumerate(item["appearances"]):
                     line[f"Day {index}"] = data
 

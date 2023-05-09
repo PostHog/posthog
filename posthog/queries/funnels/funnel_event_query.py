@@ -1,6 +1,6 @@
 from typing import Any, Dict, Set, Tuple, Union
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql.hogql import translate_hogql
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
@@ -147,7 +147,9 @@ class FunnelEventQuery(EventQuery):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
                 events.update(action.get_step_events())
-            else:
+            elif entity.type == TREND_FILTER_TYPE_EVENTS and entity.id is None:
+                return "AND 1 = 1", {}
+            elif entity.id is not None:
                 events.add(entity.id)
 
         return f"AND event IN %({entity_name})s", {entity_name: sorted(list(events))}

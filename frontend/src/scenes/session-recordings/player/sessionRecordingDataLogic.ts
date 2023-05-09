@@ -87,6 +87,52 @@ export interface SessionRecordingDataLogicProps {
     recordingStartTime?: string
 }
 
+async function makeSnapshotsAPICall({
+    breakpoint,
+    nextUrl,
+    recordingStartTime,
+    blobLoadingEnabled,
+    currentSnapshotData,
+    currentTeamId,
+    sessionRecordingId,
+}: {
+    breakpoint: (() => void) & ((ms: number) => Promise<void>)
+    nextUrl: string | undefined
+    recordingStartTime: string | undefined
+    blobLoadingEnabled: boolean
+    currentSnapshotData: SessionPlayerSnapshotData | null
+    currentTeamId: number | null
+    sessionRecordingId: string | undefined
+}): Promise<SessionPlayerSnapshotData> {
+    const params = toParams({
+        recording_start_time: recordingStartTime,
+        blob_loading_enabled: blobLoadingEnabled,
+    })
+    const apiUrl =
+        nextUrl || `api/projects/${currentTeamId}/session_recordings/${sessionRecordingId}/snapshots?${params}`
+    const response = await api.get(apiUrl)
+    breakpoint()
+
+    // NOTE: This might seem backwards as we translate the snapshotsByWindowId to an array and then derive it again later but
+    // this is for future support of the API that will return them as a simple array
+
+    if (!response.blob_keys) {
+        const snapshots = convertSnapshotsResponse(
+            response.snapshot_data_by_window_id,
+            nextUrl ? currentSnapshotData?.snapshots ?? [] : []
+        )
+        return {
+            snapshots,
+            next: response.next,
+        }
+    } else {
+        return {
+            snapshots: [],
+            blob_keys: response.blob_keys,
+        }
+    }
+}
+
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
     props({} as SessionRecordingDataLogicProps),
@@ -127,8 +173,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             0,
             {
                 loadRecordingSnapshotsSuccess: (state) => state + 1,
-                // load recording blob snapshots will call loadRecordingSnapshotsSuccess again when complete
-                loadRecordingBlobSnapshots: () => 0,
             },
         ],
 
@@ -175,11 +219,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             if (values.sessionPlayerSnapshotData?.blob_keys?.length) {
                 actions.loadRecordingBlobSnapshots(null)
                 return
-            }
-
-            // If there is more data to poll for load the next batch.
-            // This will keep calling loadRecording until `next` is empty.
-            if (!!values.sessionPlayerSnapshotData?.next) {
+            } else if (!!values.sessionPlayerSnapshotData?.next) {
                 actions.loadRecordingSnapshots(values.sessionPlayerSnapshotData?.next)
             } else {
                 actions.reportUsageIfFullyLoaded()
@@ -192,6 +232,88 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 }
 
                 actions.reportViewed()
+            }
+
+            if (!values.sessionPlayerSnapshotData?.next) {
+                // this is a short term mechanism to compare blob and api loaded snapshot data
+                ;(window as any).PH_SESSION_REPLAY = {
+                    compare: async () => {
+                        console.group('comparing session for: ', props.sessionRecordingId)
+                        if (!values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY]) {
+                            console.error(
+                                'FOR SIMPLICITY THIS MECHANISM ASSUMES YOU HAVE THE BLOB STORAGE FLAG ENABLED'
+                            )
+                            return false
+                        }
+                        if (!values.sessionPlayerSnapshotData?.snapshots.length) {
+                            console.log('There are no current values **from blob storage**')
+                        }
+                        const fakePoint = (): Promise<void> => Promise.resolve()
+                        let comparisonData = await makeSnapshotsAPICall({
+                            breakpoint: fakePoint,
+                            nextUrl: undefined,
+                            recordingStartTime: props.recordingStartTime,
+                            blobLoadingEnabled: false,
+                            currentSnapshotData: null,
+                            currentTeamId: values.currentTeamId,
+                            sessionRecordingId: props.sessionRecordingId,
+                        })
+
+                        while (comparisonData.next) {
+                            comparisonData = await makeSnapshotsAPICall({
+                                breakpoint: fakePoint,
+                                nextUrl: comparisonData.next,
+                                recordingStartTime: props.recordingStartTime,
+                                blobLoadingEnabled: false,
+                                currentSnapshotData: comparisonData,
+                                currentTeamId: values.currentTeamId,
+                                sessionRecordingId: props.sessionRecordingId,
+                            })
+                        }
+                        console.log('finished loading comparison data')
+                        console.log('now we have: ', {
+                            fromBlobStorage: values.sessionPlayerSnapshotData?.snapshots,
+                            fromAPI: comparisonData?.snapshots,
+                        })
+
+                        console.log(
+                            'blob storage returned ',
+                            values.sessionPlayerSnapshotData?.snapshots?.length,
+                            ' snapshots'
+                        )
+                        console.log('api returned ', comparisonData?.snapshots?.length, ' snapshots')
+
+                        const timestampsMatch = values.sessionPlayerSnapshotData?.snapshots?.every(
+                            (snapshot, index) => {
+                                const comparisonSnapshot = comparisonData?.snapshots?.[index]
+                                if (!comparisonSnapshot) {
+                                    return false
+                                }
+                                return snapshot.timestamp === comparisonSnapshot.timestamp
+                            }
+                        )
+
+                        if (values.sessionPlayerSnapshotData?.snapshots?.length === comparisonData?.snapshots?.length) {
+                            if (timestampsMatch) {
+                                console.log('🎉 storage and api have the same timestamps ✅')
+                            } else {
+                                console.error(
+                                    '🧨 storage and api snapshots are the same length but have different timestamps'
+                                )
+                            }
+                        } else {
+                            if (timestampsMatch) {
+                                console.error(
+                                    '⚠️ storage and api have the same timestamps but different lengths. If this is a recent recording then the ingester probably has not flushed the whole thing yet'
+                                )
+                            } else {
+                                console.error('🧨 storage and api have different lengths and different timestamps')
+                            }
+                        }
+
+                        console.groupEnd()
+                    },
+                }
             }
         },
         loadEventsSuccess: () => {
@@ -323,34 +445,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
                     await breakpoint(1)
 
-                    const params = toParams({
-                        recording_start_time: props.recordingStartTime,
-                        blob_loading_enabled: !!values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY],
+                    return await makeSnapshotsAPICall({
+                        breakpoint,
+                        nextUrl,
+                        recordingStartTime: props.recordingStartTime,
+                        blobLoadingEnabled: !!values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY],
+                        currentSnapshotData: values.sessionPlayerSnapshotData,
+                        currentTeamId: values.currentTeamId,
+                        sessionRecordingId: props.sessionRecordingId,
                     })
-                    const apiUrl =
-                        nextUrl ||
-                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
-                    const response = await api.get(apiUrl)
-                    breakpoint()
-
-                    // NOTE: This might seem backwards as we translate the snapshotsByWindowId to an array and then derive it again later but
-                    // this is for future support of the API that will return them as a simple array
-
-                    if (!response.blob_keys) {
-                        const snapshots = convertSnapshotsResponse(
-                            response.snapshot_data_by_window_id,
-                            nextUrl ? values.sessionPlayerSnapshotData?.snapshots ?? [] : []
-                        )
-                        return {
-                            snapshots,
-                            next: response.next,
-                        }
-                    } else {
-                        return {
-                            snapshots: [],
-                            blob_keys: response.blob_keys,
-                        }
-                    }
                 },
             },
         ],
@@ -474,7 +577,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadPerformanceEvents: async ({}, breakpoint) => {
                     const { start, end } = values.sessionPlayerData
 
-                    if (!start || !end || !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)) {
+                    if (
+                        !props.sessionRecordingId ||
+                        !start ||
+                        !end ||
+                        !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
+                    ) {
                         return []
                     }
 
