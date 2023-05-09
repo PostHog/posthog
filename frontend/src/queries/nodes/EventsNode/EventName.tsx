@@ -12,6 +12,7 @@ export function EventName({ query, setQuery }: EventNameProps): JSX.Element {
             value={query.event ?? ''}
             disabled={!setQuery}
             onChange={(value) => setQuery?.({ ...query, event: value })}
+            allEventsOption="clear"
         />
     )
 }
