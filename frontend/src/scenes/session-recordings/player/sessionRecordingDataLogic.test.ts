@@ -75,7 +75,7 @@ describe('sessionRecordingDataLogic', () => {
     describe('loading session core', () => {
         it('is triggered by mounting', async () => {
             await expectLogic(logic)
-                .toDispatchActions(['loadEntireRecording', 'loadRecordingMetaSuccess', 'loadRecordingSnapshotsSuccess'])
+                .toDispatchActions(['loadRecording', 'loadRecordingMetaSuccess', 'loadRecordingSnapshotsSuccess'])
                 .toFinishAllListeners()
 
             expect(logic.values.sessionPlayerData).toMatchObject({
@@ -389,9 +389,9 @@ describe('sessionRecordingDataLogic', () => {
     describe('report usage', () => {
         it('send `recording loaded` event only when entire recording has loaded', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadEntireRecording()
+                logic.actions.loadRecording()
             })
-                .toDispatchActions(['loadEntireRecording'])
+                .toDispatchActions(['loadRecording'])
                 .toDispatchActionsInAnyOrder([
                     'loadRecordingMeta',
                     'loadRecordingMetaSuccess',
@@ -410,9 +410,9 @@ describe('sessionRecordingDataLogic', () => {
         })
         it('send `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadEntireRecording()
+                logic.actions.loadRecording()
             })
-                .toDispatchActions(['loadEntireRecording', 'loadRecordingSnapshotsSuccess'])
+                .toDispatchActions(['loadRecording', 'loadRecordingSnapshotsSuccess'])
                 .toDispatchActionsInAnyOrder([
                     eventUsageLogic.actionTypes.reportRecording, // loaded
                     eventUsageLogic.actionTypes.reportRecording, // viewed

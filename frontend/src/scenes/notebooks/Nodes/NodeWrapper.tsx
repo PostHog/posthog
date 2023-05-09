@@ -17,10 +17,21 @@ export function NodeWrapper({ title, className, children, preview, selected, hre
     const content = selected ? children : preview ?? children
 
     return (
-        <NodeViewWrapper as="div" className={clsx(className, 'NotebookNode flex flex-col gap-1 overflow-hidden')}>
-            <div className="flex items-center justify-between text-xs text-muted-alt truncate" data-drag-handle>
+        <NodeViewWrapper
+            as="div"
+            className={clsx(className, 'NotebookNode flex flex-col gap-1 overflow-hidden', {
+                'NotebookNode--selected': selected,
+            })}
+        >
+            <div
+                className={clsx('NotebookNode__meta flex items-center justify-between text-xs truncate', {
+                    'text-primary font-semibold': selected,
+                    'text-muted-alt': !selected,
+                })}
+                data-drag-handle
+            >
                 <div className="shrink-0">
-                    <IconDragHandle className="text-muted-alt cursor-move text-base shrink-0" />
+                    <IconDragHandle className="cursor-move text-base shrink-0" />
                     <span>{title}</span>
                 </div>
                 <div className="shrink-0 flex gap-4">
@@ -31,12 +42,10 @@ export function NodeWrapper({ title, className, children, preview, selected, hre
                     )}
                 </div>
             </div>
-            <div className="flex flex-row gap-4">
+            <div className="flex flex-row gap-4 relative z-10">
                 <div
                     // className={clsx('relative mb-2 flex-1 overflow-y-auto')}
-                    className={clsx('relative mb-2 overflow-y-auto flex-1', {
-                        'border-primary border-2 rounded': selected,
-                    })}
+                    className={clsx('relative mb-2 overflow-y-auto flex-1')}
                 >
                     {content}
                 </div>

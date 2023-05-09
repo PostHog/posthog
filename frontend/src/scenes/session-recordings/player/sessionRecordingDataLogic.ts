@@ -185,7 +185,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, props }) => ({
         loadRecording: ({ full }) => {
             // If we don't have metadata then we load that first, which will trigger this again
             if (!values.sessionPlayerMetaData) {
