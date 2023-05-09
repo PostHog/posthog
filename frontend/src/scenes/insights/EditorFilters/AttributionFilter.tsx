@@ -50,7 +50,7 @@ export function AttributionComponent({
                     : {
                           value: BreakdownAttributionType.Step,
                           label: 'Specific step',
-                          element: (
+                          labelInMenuExtra: (
                               <LemonSelect
                                   className="ml-2"
                                   onChange={(value) => {

@@ -10,6 +10,7 @@ export function createIncomingRecordingMessage(data: Partial<IncomingRecordingMe
             topic: 'session_recording_events',
             partition: 1,
             offset: 1,
+            timestamp: undefined,
         },
 
         team_id: 1,

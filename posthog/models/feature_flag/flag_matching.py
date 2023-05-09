@@ -3,12 +3,13 @@ from dataclasses import dataclass
 from enum import Enum
 import time
 import structlog
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from prometheus_client import Counter
 from django.db import DatabaseError, IntegrityError, OperationalError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
+from django.db.models import Q
 from django.db.models.query import QuerySet
 from sentry_sdk.api import capture_exception
 
@@ -19,6 +20,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
+from posthog.models.cohort import Cohort
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q
 
@@ -43,12 +45,15 @@ FLAG_EVALUATION_ERROR_COUNTER = Counter(
 
 
 class FeatureFlagMatchReason(str, Enum):
+    SUPER_CONDITION_VALUE = "super_condition_value"
     CONDITION_MATCH = "condition_match"
     NO_CONDITION_MATCH = "no_condition_match"
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
     NO_GROUP_TYPE = "no_group_type"
 
     def score(self):
+        if self == FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
+            return 4
         if self == FeatureFlagMatchReason.CONDITION_MATCH:
             return 3
         if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
@@ -121,6 +126,7 @@ class FeatureFlagMatcher:
         self.property_value_overrides = property_value_overrides
         self.group_property_value_overrides = group_property_value_overrides
         self.skip_experience_continuity_flags = skip_experience_continuity_flags
+        self.cohorts_cache: Dict[int, Cohort] = {}
 
     def get_match(self, feature_flag: FeatureFlag) -> FeatureFlagMatch:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
@@ -129,6 +135,21 @@ class FeatureFlagMatcher:
 
         highest_priority_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
         highest_priority_index = 0
+
+        # Match for boolean super condition first
+        if feature_flag.filters.get("super_groups", None):
+            super_condition_value_is_set = self._super_condition_is_set(feature_flag)
+            super_condition_value = self._super_condition_matches(feature_flag)
+
+            if super_condition_value_is_set:
+                payload = self.get_matching_payload(super_condition_value, None, feature_flag)
+                return FeatureFlagMatch(
+                    match=super_condition_value,
+                    reason=FeatureFlagMatchReason.SUPER_CONDITION_VALUE,
+                    condition_index=0,
+                    payload=payload,
+                )
+
         # Stable sort conditions with variant overrides to the top. This ensures that if overrides are present, they are
         # evaluated first, and the variant override is applied to the first matching condition.
         # :TRICKY: We need to include the enumeration index before the sort so the flag evaluation reason gets the right condition index.
@@ -240,6 +261,16 @@ class FeatureFlagMatcher:
 
         return True, FeatureFlagMatchReason.CONDITION_MATCH
 
+    def _super_condition_matches(self, feature_flag: FeatureFlag) -> bool:
+        if self.failed_to_fetch_conditions:
+            raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
+        return self.query_conditions.get(f"flag_{feature_flag.pk}_super_condition", False)
+
+    def _super_condition_is_set(self, feature_flag: FeatureFlag) -> Optional[bool]:
+        if self.failed_to_fetch_conditions:
+            raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
+        return self.query_conditions.get(f"flag_{feature_flag.pk}_super_condition_is_set", False)
+
     def _condition_matches(self, feature_flag: FeatureFlag, condition_index: int) -> bool:
         if self.failed_to_fetch_conditions:
             raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
@@ -262,6 +293,7 @@ class FeatureFlagMatcher:
     def query_conditions(self) -> Dict[str, bool]:
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+                all_conditions: Dict = {}
                 team_id = self.feature_flags[0].team_id
                 person_query: QuerySet = Person.objects.filter(
                     team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
@@ -280,24 +312,42 @@ class FeatureFlagMatcher:
                             [],
                         )
 
-                person_fields = []
+                person_fields: List[str] = []
 
-                for feature_flag in self.feature_flags:
-                    for index, condition in enumerate(feature_flag.conditions):
-                        key = f"flag_{feature_flag.pk}_condition_{index}"
-                        expr: Any = None
-                        if len(condition.get("properties", {})) > 0:
-                            # Feature Flags don't support OR filtering yet
-                            target_properties = self.property_value_overrides
-                            if feature_flag.aggregation_group_type_index is not None:
-                                target_properties = self.group_property_value_overrides.get(
-                                    self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index], {}
-                                )
-                            expr = properties_to_Q(
-                                Filter(data=condition).property_groups.flat,
-                                override_property_values=target_properties,
+                def condition_eval(key, condition):
+                    expr = None
+                    annotate_query = True
+                    nonlocal person_query
+
+                    if len(condition.get("properties", {})) > 0:
+                        # Feature Flags don't support OR filtering yet
+                        target_properties = self.property_value_overrides
+                        if feature_flag.aggregation_group_type_index is not None:
+                            target_properties = self.group_property_value_overrides.get(
+                                self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index], {}
                             )
+                        expr = properties_to_Q(
+                            Filter(data=condition).property_groups.flat,
+                            override_property_values=target_properties,
+                            cohorts_cache=self.cohorts_cache,
+                        )
 
+                        # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.
+                        # In that case, the expression is either an explicit True or explicit False, or multiple conditions.
+                        # We can skip going to the database in explicit True|False conditions. This is important
+                        # as it allows resolving flags correctly for non-ingested persons.
+                        # However, this doesn't work for the multiple condition case (when expr has multiple Q objects),
+                        # but it's better than nothing.
+                        # TODO: A proper fix would be to handle cohorts with property overrides before we get to this point.
+                        # Unskip test test_complex_cohort_filter_with_override_properties when we fix this.
+                        if expr == Q(pk__isnull=False):
+                            all_conditions[key] = True
+                            annotate_query = False
+                        elif expr == Q(pk__isnull=True):
+                            all_conditions[key] = False
+                            annotate_query = False
+
+                    if annotate_query:
                         if feature_flag.aggregation_group_type_index is None:
                             person_query = person_query.annotate(
                                 **{
@@ -310,7 +360,7 @@ class FeatureFlagMatcher:
                         else:
                             if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
                                 # ignore flags that didn't have the right groups passed in
-                                continue
+                                return
                             group_query, group_fields = group_query_per_group_type_mapping[
                                 feature_flag.aggregation_group_type_index
                             ]
@@ -327,18 +377,42 @@ class FeatureFlagMatcher:
                                 group_fields,
                             )
 
-                all_conditions = {}
+                # release conditions
+                for feature_flag in self.feature_flags:
+
+                    # super release conditions
+                    if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
+                        condition = feature_flag.super_conditions[0]
+                        prop_key = condition.get("properties", [{}])[0].get("key", None)
+                        if prop_key:
+                            key = f"flag_{feature_flag.pk}_super_condition"
+                            condition_eval(key, condition)
+
+                            is_set_key = f"flag_{feature_flag.pk}_super_condition_is_set"
+                            is_set_condition = {
+                                "properties": [
+                                    {
+                                        "key": prop_key,
+                                        "operator": "is_set",
+                                    }
+                                ]
+                            }
+                            condition_eval(is_set_key, is_set_condition)
+
+                    for index, condition in enumerate(feature_flag.conditions):
+                        key = f"flag_{feature_flag.pk}_condition_{index}"
+                        condition_eval(key, condition)
+
                 if len(person_fields) > 0:
                     person_query = person_query.values(*person_fields)
                     if len(person_query) > 0:
-                        all_conditions = {**person_query[0]}
+                        all_conditions = {**all_conditions, **person_query[0]}
 
                 for group_query, group_fields in group_query_per_group_type_mapping.values():
                     group_query = group_query.values(*group_fields)
                     if len(group_query) > 0:
                         assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
                         all_conditions = {**all_conditions, **group_query[0]}
-
                 return all_conditions
         except Exception as e:
             self.failed_to_fetch_conditions = True

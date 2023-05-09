@@ -45,6 +45,7 @@ from posthog.models.filters.mixins.funnel import (
     FunnelWindowDaysMixin,
     FunnelWindowMixin,
     HistogramMixin,
+    FunnelHogQLAggregationMixin,
 )
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.interval import IntervalMixin
@@ -80,6 +81,7 @@ class Filter(
     FunnelTrendsPersonsMixin,
     FunnelPersonsStepBreakdownMixin,
     FunnelLayoutMixin,
+    FunnelHogQLAggregationMixin,
     FunnelTypeMixin,
     HistogramMixin,
     GroupsAggregationMixin,

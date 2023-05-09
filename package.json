@@ -117,7 +117,7 @@
         "kea-window-values": "^3.0.0",
         "md5": "^2.3.0",
         "monaco-editor": "^0.23.0",
-        "posthog-js": "1.54.0",
+        "posthog-js": "1.55.2",
         "posthog-js-lite": "2.0.0-alpha5",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -240,7 +240,7 @@
         "jest-canvas-mock": "^2.4.0",
         "jest-environment-jsdom": "^29.3.1",
         "jest-image-snapshot": "^6.1.0",
-        "kea-typegen": "^3.1.5",
+        "kea-typegen": "^3.1.6",
         "less": "^3.12.2",
         "less-loader": "^7.0.2",
         "lint-staged": "~10.2.13",
@@ -275,8 +275,8 @@
             "prettier --write"
         ],
         "(plugin-server/**).{js,jsx,mjs,ts,tsx}": [
-            "eslint -c plugin-server/.eslintrc.js --fix",
-            "prettier --write"
+            "pnpm --dir plugin-server exec eslint --fix",
+            "pnpm --dir plugin-server exec prettier --write"
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "black",

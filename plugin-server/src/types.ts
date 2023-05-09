@@ -188,6 +188,8 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
+
+    SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -615,7 +617,11 @@ interface BaseIngestionEvent {
 export type PreIngestionEvent = BaseIngestionEvent
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export type PostIngestionEvent = BaseIngestionEvent
+export interface PostIngestionEvent extends BaseIngestionEvent {
+    person_id?: string // This is not optional, but BaseEvent needs to be fixed first
+    person_created_at: ISOTimestamp | null
+    person_properties: Properties
+}
 
 export interface DeadLetterQueueEvent {
     id: string

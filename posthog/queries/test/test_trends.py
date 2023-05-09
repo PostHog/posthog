@@ -1201,6 +1201,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["another_val", "some_val"])
         self.assertEqual([resp["aggregated_value"] for resp in daily_response], [10.0, 5.0])
 
+    @snapshot_clickhouse_queries
+    def test_trends_any_event_total_count(self):
+        self._create_events()
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = Trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "interval": "day",
+                        "events": [{"id": None, "math": "total"}, {"id": "sign up", "math": "total"}],
+                    }
+                ),
+                self.team,
+            )
+        self.assertEqual(response[0]["count"], 5)
+        self.assertEqual(response[1]["count"], 4)
+
     @also_test_with_materialized_columns(["$math_prop", "$some_property"])
     def test_trends_breakdown_with_math_func(self):
 
@@ -2664,6 +2681,61 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(action_response), 1)
 
         self.assertEntityResponseEqual(action_response, event_response)
+
+    @snapshot_clickhouse_queries
+    def test_action_filtering_with_cohort(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["blabla", "anonymous_id"],
+            properties={"$some_property": "value", "$bool_prop": "x"},
+        )
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "$some_property", "value": "value", "type": "person"}]}],
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$some_property": "value"},
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$some_property": "value2"},
+            timestamp="2020-01-03T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="xyz",
+            properties={"$some_property": "value"},
+            timestamp="2020-01-04T12:00:00Z",
+        )
+
+        sign_up_action = _create_action(
+            team=self.team, name="sign up", properties=[{"key": "id", "type": "cohort", "value": cohort.id}]
+        )
+
+        cohort.calculate_people_ch(pending_version=2)
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            action_response = Trends().run(
+                Filter(
+                    data={
+                        "actions": [{"id": sign_up_action.id}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                        "properties": [{"key": "$bool_prop", "value": "x", "type": "person"}],
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(len(action_response), 1)
+            self.assertEqual(action_response[0]["data"], [0, 1, 1, 0, 0, 0, 0])
 
     def test_trends_for_non_existing_action(self):
         with freeze_time("2020-01-04"):
@@ -6317,6 +6389,56 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)
+
+    def test_filtering_with_group_props_event_with_no_group_data(self):
+        self._create_groups()
+
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
+        _create_event(event="$pageview", distinct_id="person1", team=self.team, timestamp="2020-01-02T12:00:00Z")
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            timestamp="2020-01-02T12:00:00Z",
+        )
+
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "properties": [
+                    {
+                        "key": "industry",
+                        "operator": "is_not",
+                        "value": "textiles",
+                        "type": "group",
+                        "group_type_index": 0,
+                    },
+                    {"key": "key", "value": "value", "type": "person"},
+                ],
+            },
+            team=self.team,
+        )
+
+        response = Trends().run(filter, self.team)
+
+        # we include all 4 events even though they do not have an associated group since the filter is a negative
+        # i.e. "industry is not textiles" includes both events associated with a group that has the property "industry"
+        # set to a value other than textiles AND events with no group at all
+        self.assertEqual(response[0]["count"], 4)
 
     @also_test_with_materialized_columns(
         person_properties=["key"], group_properties=[(0, "industry")], materialize_only_with_person_on_events=True

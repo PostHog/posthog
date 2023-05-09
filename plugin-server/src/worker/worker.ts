@@ -87,11 +87,7 @@ export const createTaskRunner =
                 return response
             },
             (transactionDuration: number) => {
-                if (
-                    task === 'runEventPipeline' ||
-                    task === 'runBufferEventPipeline' ||
-                    task === 'runAsyncHandlersEventPipeline'
-                ) {
+                if (task === 'runEventPipeline' || task === 'runAsyncHandlersEventPipeline') {
                     return transactionDuration > 0.5 ? 1 : 0.01
                 } else {
                     return 1
@@ -120,8 +116,7 @@ export function processUnhandledException(error: Error, server: Hub, kind: strin
         },
     })
 
-    status.error('🤮', `${kind}!`)
-    status.error('🤮', error)
+    status.error('🤮', `${kind}!`, { error, stack: error.stack })
 }
 
 const jobDuration = new Histogram({

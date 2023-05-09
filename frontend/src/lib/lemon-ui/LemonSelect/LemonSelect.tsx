@@ -11,7 +11,6 @@ import {
     LemonMenuItemBase,
     LemonMenuItemLeaf,
     LemonMenuItemNode,
-    LemonMenuItems,
     LemonMenuProps,
     LemonMenuSection,
     isLemonMenuSection,
@@ -21,7 +20,8 @@ type LemonSelectOptionBase = Omit<LemonMenuItemBase, 'active' | 'status'> // Sel
 
 export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
     value: T
-    element?: React.ReactElement
+    /** Extra element shown next to the label in the select menu. */
+    labelInMenuExtra?: React.ReactElement
 }
 
 export interface LemonSelectOptionNode<T> extends LemonSelectOptionBase {
@@ -108,6 +108,7 @@ export function LemonSelect<T>({
         [options, activeValue]
     )
 
+    const activeLeaf = allLeafOptions.find((o) => o.value === activeValue)
     const isClearButtonShown = allowClear && !!activeValue
 
     return (
@@ -119,12 +120,14 @@ export function LemonSelect<T>({
             actionable
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
-            activeItemIndex={items.flatMap((i) => (isLemonMenuSection(i) ? i.items : i)).findIndex((i) => i.active)}
+            activeItemIndex={items
+                .flatMap((i) => (isLemonMenuSection(i) ? i.items.filter(Boolean) : i))
+                .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
             <LemonButton
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
-                icon={allLeafOptions.find((o) => o.value === activeValue)?.icon}
+                icon={activeLeaf?.icon}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
@@ -132,9 +135,7 @@ export function LemonSelect<T>({
                 {...buttonProps}
             >
                 <span>
-                    {allLeafOptions.find((o) => o.value === activeValue)?.label ?? activeValue ?? (
-                        <span className="text-muted">{placeholder}</span>
-                    )}
+                    {activeLeaf ? activeLeaf.label : activeValue ?? <span className="text-muted">{placeholder}</span>}
                 </span>
                 {isClearButtonShown && (
                     <LemonButton
@@ -165,9 +166,9 @@ function convertSelectOptionsToMenuItems<T>(
     options: LemonSelectOptions<T>,
     activeValue: T | null,
     onSelect: OnSelect<T>
-): [LemonMenuItems, LemonSelectOptionLeaf<T>[]] {
+): [(LemonMenuItem | LemonMenuSection)[], LemonSelectOptionLeaf<T>[]] {
     const leafOptionsAccumulator: LemonSelectOptionLeaf<T>[] = []
-    const items: LemonMenuItems = options.map((option) =>
+    const items: (LemonMenuItem | LemonMenuSection)[] = options.map((option) =>
         convertToMenuSingle(option, activeValue, onSelect, leafOptionsAccumulator)
     )
     return [items, leafOptionsAccumulator]
@@ -194,9 +195,17 @@ function convertToMenuSingle<T>(
         } as LemonMenuItemNode
     } else {
         acc.push(option)
-        const { value, ...leaf } = option
+        const { value, label, labelInMenuExtra: element, ...leaf } = option
         return {
             ...leaf,
+            label: element ? (
+                <>
+                    {label}
+                    {element}
+                </>
+            ) : (
+                label
+            ),
             active: value === activeValue,
             onClick: () => onSelect(value),
         } as LemonMenuItemLeaf

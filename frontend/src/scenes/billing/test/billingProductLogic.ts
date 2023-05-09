@@ -82,12 +82,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         billingLimitAsUsage: [
-            (s, p) => [p.product, s.isEditingBillingLimit, s.billingLimitInput, s.customLimitUsd],
-            (product, isEditingBillingLimit, billingLimitInput, customLimitUsd) => {
+            (s, p) => [s.billing, p.product, s.isEditingBillingLimit, s.billingLimitInput, s.customLimitUsd],
+            (billing, product, isEditingBillingLimit, billingLimitInput, customLimitUsd) => {
                 return product.tiers
                     ? isEditingBillingLimit
-                        ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
-                        : convertAmountToUsage(customLimitUsd || '', product.tiers)
+                        ? convertAmountToUsage(`${billingLimitInput}`, product.tiers, billing?.discount_percent)
+                        : convertAmountToUsage(customLimitUsd || '', product.tiers, billing?.discount_percent)
                     : 0
             },
         ],
@@ -105,7 +105,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         : undefined,
                     {
                         text: 'Current',
-                        color: product.percentage_usage && product.percentage_usage <= 1 ? 'success' : 'danger',
+                        color: product.percentage_usage
+                            ? product.percentage_usage <= 1
+                                ? 'success'
+                                : 'danger'
+                            : 'success',
                         value: product.current_usage || 0,
                         top: false,
                     },

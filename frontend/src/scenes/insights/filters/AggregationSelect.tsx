@@ -6,17 +6,42 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { InsightLogicProps } from '~/types'
 import { insightLogic } from '../insightLogic'
-import { isInsightQueryNode } from '~/queries/utils'
+import { isFunnelsQuery, isInsightQueryNode } from '~/queries/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { FunnelsQuery } from '~/queries/schema'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
     className?: string
+    hogqlAvailable?: boolean
+    value?: string
+}
+
+function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
+    if (groupIndex !== undefined) {
+        return `$group_${groupIndex}`
+    } else if (aggregationQuery) {
+        return aggregationQuery
+    } else {
+        return UNIQUE_USERS
+    }
+}
+
+function hogQLToFilterValue(value?: string): { groupIndex?: number; aggregationQuery?: string } {
+    if (value?.match(/^\$group_[0-9]+$/)) {
+        return { groupIndex: parseInt(value.replace('$group_', '')) }
+    } else if (value === 'person_id') {
+        return {}
+    } else {
+        return { aggregationQuery: value }
+    }
 }
 
 export function AggregationSelectDataExploration({
     insightProps,
     className,
+    hogqlAvailable,
 }: AggregationSelectProps): JSX.Element | null {
     const { querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -25,46 +50,82 @@ export function AggregationSelectDataExploration({
         return null
     }
 
-    return (
-        <AggregationSelectComponent
-            className={className}
-            aggregationGroupTypeIndex={querySource.aggregation_group_type_index}
-            onChange={(aggregation_group_type_index) => updateQuerySource({ aggregation_group_type_index })}
-        />
+    const value = getHogQLValue(
+        querySource.aggregation_group_type_index,
+        isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnel_aggregate_by_hogql : undefined
     )
-}
-
-export function AggregationSelect({ insightProps, className }: AggregationSelectProps): JSX.Element {
-    const { filters } = useValues(insightLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
 
     return (
         <AggregationSelectComponent
             className={className}
-            aggregationGroupTypeIndex={filters.aggregation_group_type_index}
-            onChange={(aggregation_group_type_index) => {
-                setFilters({ ...filters, aggregation_group_type_index })
+            hogqlAvailable={hogqlAvailable}
+            value={value}
+            onChange={(value) => {
+                const { aggregationQuery, groupIndex } = hogQLToFilterValue(value)
+                if (isFunnelsQuery(querySource)) {
+                    updateQuerySource({
+                        aggregation_group_type_index: groupIndex,
+                        funnelsFilter: { ...querySource.funnelsFilter, funnel_aggregate_by_hogql: aggregationQuery },
+                    } as FunnelsQuery)
+                } else {
+                    updateQuerySource({ aggregation_group_type_index: groupIndex } as FunnelsQuery)
+                }
             }}
         />
     )
 }
 
-const UNIQUE_USERS = -1
+export function AggregationSelect({ insightProps, className, hogqlAvailable }: AggregationSelectProps): JSX.Element {
+    const { filters } = useValues(insightLogic(insightProps))
+    const { setFilters } = useActions(funnelLogic(insightProps))
+
+    const value = getHogQLValue(
+        filters.aggregation_group_type_index,
+        isFunnelsFilter(filters) ? filters.funnel_aggregate_by_hogql : undefined
+    )
+
+    return (
+        <AggregationSelectComponent
+            className={className}
+            value={value}
+            hogqlAvailable={hogqlAvailable}
+            onChange={(value) => {
+                const { aggregationQuery, groupIndex } = hogQLToFilterValue(value)
+                if (isFunnelsFilter(filters)) {
+                    setFilters({
+                        ...filters,
+                        aggregation_group_type_index: groupIndex,
+                        funnel_aggregate_by_hogql: aggregationQuery,
+                    })
+                } else {
+                    setFilters({
+                        ...filters,
+                        aggregation_group_type_index: groupIndex,
+                    })
+                }
+            }}
+        />
+    )
+}
+
+const UNIQUE_USERS = 'person_id'
 interface AggregationSelectComponentProps {
     className?: string
-    aggregationGroupTypeIndex: number | undefined
-    onChange: (aggregation_group_type_index: number | undefined) => void
+    hogqlAvailable?: boolean
+    value?: string
+    onChange: (value: string | undefined) => void
 }
 
 function AggregationSelectComponent({
     className,
-    aggregationGroupTypeIndex: aggregation_group_type_index,
+    hogqlAvailable,
     onChange,
+    value,
 }: AggregationSelectComponentProps): JSX.Element {
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
-    const optionSections: LemonSelectSection<number>[] = [
+    const optionSections: LemonSelectSection<string>[] = [
         {
             title: 'Event Aggregation',
             options: [
@@ -81,20 +142,26 @@ function AggregationSelectComponent({
     } else {
         groupTypes.forEach((groupType) => {
             optionSections[0].options.push({
-                value: groupType.group_type_index,
+                value: `$group_${groupType.group_type_index}`,
                 label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
             })
+        })
+    }
+
+    if (hogqlAvailable) {
+        optionSections[0].options.push({
+            value: `properties.$session_id`,
+            label: `Unique sessions`,
         })
     }
 
     return (
         <LemonSelect
             className={className}
-            value={aggregation_group_type_index === undefined ? UNIQUE_USERS : aggregation_group_type_index}
-            onChange={(value) => {
-                if (value !== null) {
-                    const groupTypeIndex = value === UNIQUE_USERS ? undefined : value
-                    onChange(groupTypeIndex)
+            value={value}
+            onChange={(newValue) => {
+                if (newValue !== null) {
+                    onChange(newValue)
                 }
             }}
             data-attr="retention-aggregation-selector"

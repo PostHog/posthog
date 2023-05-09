@@ -17,7 +17,7 @@ export interface LemonMenuItemBase
     label: string | JSX.Element
 }
 export interface LemonMenuItemNode extends LemonMenuItemBase {
-    items: LemonMenuItemLeaf[]
+    items: (LemonMenuItemLeaf | false | null)[]
 }
 export type LemonMenuItemLeaf =
     | (LemonMenuItemBase & {
@@ -25,20 +25,22 @@ export type LemonMenuItemLeaf =
       })
     | (LemonMenuItemBase & {
           to: string
+          targetBlank?: boolean
       })
     | (LemonMenuItemBase & {
           onClick: () => void
           to: string
+          targetBlank?: boolean
       })
 export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemNode
 
 export interface LemonMenuSection {
     title?: string | React.ReactNode
-    items: LemonMenuItem[]
+    items: (LemonMenuItem | false | null)[]
     footer?: string | React.ReactNode
 }
 
-export type LemonMenuItems = (LemonMenuItem | LemonMenuSection)[]
+export type LemonMenuItems = (LemonMenuItem | LemonMenuSection | false | null)[]
 
 export interface LemonMenuProps
     extends Pick<
@@ -56,13 +58,19 @@ export interface LemonMenuProps
         LemonMenuOverlayProps {
     /** Must support `ref` and `onKeyDown` for keyboard navigation. */
     children: React.ReactElement
-    /** Optional index of the active (e.g. selected) item. This improves the keyboard navigation experience. */
+    /** Index of the active (e.g. selected) item, if there is a specific one. */
     activeItemIndex?: number
 }
 
-export function LemonMenu({ items, activeItemIndex, tooltipPlacement, ...dropdownProps }: LemonMenuProps): JSX.Element {
+export function LemonMenu({
+    items,
+    activeItemIndex,
+    tooltipPlacement,
+    onVisibilityChange,
+    ...dropdownProps
+}: LemonMenuProps): JSX.Element {
     const { referenceRef, itemsRef } = useKeyboardNavigation<HTMLElement, HTMLButtonElement>(
-        items.flatMap((item) => (isLemonMenuSection(item) ? item.items : item)).length,
+        items.flatMap((item) => (item && isLemonMenuSection(item) ? item.items : item)).length,
         activeItemIndex
     )
 
@@ -71,6 +79,16 @@ export function LemonMenu({ items, activeItemIndex, tooltipPlacement, ...dropdow
             overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} itemsRef={itemsRef} />}
             closeOnClickInside
             referenceRef={referenceRef}
+            onVisibilityChange={(visible) => {
+                onVisibilityChange?.(visible)
+                if (visible && activeItemIndex && activeItemIndex > -1) {
+                    // Scroll the active item into view once the menu is open (i.e. in the next tick)
+                    setTimeout(
+                        () => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }),
+                        0
+                    )
+                }
+            }}
             {...dropdownProps}
         />
     )
@@ -135,7 +153,7 @@ export function LemonMenuSectionList({
                                 )
                             ) : null}
                             <LemonMenuItemList
-                                items={section.items}
+                                items={section.items.filter(Boolean) as LemonMenuItem[]}
                                 buttonSize={buttonSize}
                                 tooltipPlacement={tooltipPlacement}
                                 itemsRef={itemsRef}
@@ -220,10 +238,13 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
     })
 LemonMenuItemButton.displayName = 'LemonMenuItemButton'
 
-function normalizeItems(sectionsAndItems: (LemonMenuItem | LemonMenuSection)[]): LemonMenuItem[] | LemonMenuSection[] {
+function normalizeItems(sectionsAndItems: LemonMenuItems): LemonMenuItem[] | LemonMenuSection[] {
     const sections: LemonMenuSection[] = []
     let implicitSection: LemonMenuSection = { items: [] }
     for (const sectionOrItem of sectionsAndItems) {
+        if (!sectionOrItem) {
+            continue // Ignore falsy items
+        }
         if (isLemonMenuSection(sectionOrItem)) {
             if (implicitSection.items.length > 0) {
                 sections.push(implicitSection)
@@ -239,7 +260,7 @@ function normalizeItems(sectionsAndItems: (LemonMenuItem | LemonMenuSection)[]):
     }
 
     if (sections.length === 1 && !sections[0].title && !sections[0].footer) {
-        return sections[0].items
+        return sections[0].items.filter(Boolean) as LemonMenuItem[]
     }
     return sections
 }

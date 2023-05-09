@@ -1,6 +1,4 @@
 import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, alphabet, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -26,7 +24,7 @@ import { TZLabel } from '../../TZLabel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
-import { isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import {
     isAnyPropertyfilter,
     isCohortPropertyFilter,
@@ -285,16 +283,10 @@ export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): J
 }
 
 export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     return (
         <div>
             <h5>Breakdown by</h5>
-            <TaxonomicBreakdownFilter
-                filters={filters}
-                useMultiBreakdown={
-                    isFunnelsFilter(filters) && !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
-                }
-            />
+            <TaxonomicBreakdownFilter filters={filters} />
         </div>
     )
 }

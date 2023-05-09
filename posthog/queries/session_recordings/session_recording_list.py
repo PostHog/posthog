@@ -287,7 +287,7 @@ class SessionRecordingList(EventQuery):
                 action = entity.get_action()
                 event_names_to_filter.extend([ae for ae in action.get_step_events() if ae not in event_names_to_filter])
             else:
-                if entity.id not in event_names_to_filter:
+                if entity.id not in event_names_to_filter and entity.id is not None:
                     event_names_to_filter.append(entity.id)
 
             condition_sql, filter_params = self.format_event_filter(
@@ -537,7 +537,7 @@ class SessionRecordingListV2(SessionRecordingList):
                 action = entity.get_action()
                 event_names_to_filter.extend([ae for ae in action.get_step_events() if ae not in event_names_to_filter])
             else:
-                if entity.id not in event_names_to_filter:
+                if entity.id not in event_names_to_filter and entity.id is not None:
                     event_names_to_filter.append(entity.id)
 
             condition_sql, filter_params = self.format_event_filter(

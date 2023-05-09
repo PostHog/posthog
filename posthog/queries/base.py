@@ -204,7 +204,9 @@ def lookup_q(key: str, value: Any) -> Q:
     return Q(**{key: value})
 
 
-def property_to_Q(property: Property, override_property_values: Dict[str, Any] = {}) -> Q:
+def property_to_Q(
+    property: Property, override_property_values: Dict[str, Any] = {}, cohorts_cache: Optional[Dict[int, Cohort]] = None
+) -> Q:
 
     if property.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
         raise ValueError(f"property_to_Q: type is not supported: {repr(property.type)}")
@@ -213,7 +215,13 @@ def property_to_Q(property: Property, override_property_values: Dict[str, Any] =
     if property.type == "cohort":
 
         cohort_id = int(cast(Union[str, int], value))
-        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+        if cohorts_cache is not None:
+            if cohorts_cache.get(cohort_id) is None:
+                cohorts_cache[cohort_id] = Cohort.objects.get(pk=cohort_id)
+            cohort = cohorts_cache[cohort_id]
+        else:
+            cohort = Cohort.objects.get(pk=cohort_id)
+
         if cohort.is_static:
             return Q(
                 Exists(
@@ -225,16 +233,21 @@ def property_to_Q(property: Property, override_property_values: Dict[str, Any] =
         else:
             # :TRICKY: This has potential to create an infinite loop if the cohort is recursive.
             # But, this shouldn't happen because we check for cyclic cohorts on creation.
-            return property_group_to_Q(cohort.properties, override_property_values)
+            return property_group_to_Q(cohort.properties, override_property_values, cohorts_cache)
 
     # short circuit query if key exists in override_property_values
     if property.key in override_property_values and property.operator != "is_not_set":
-        # if match found, do nothing to Q
-        # if not found, return empty Q
+        # if match found, add an explicit match-all Q object
+        # if not found, return falsy Q
         if not match_property(property, override_property_values):
             return Q(pk__isnull=True)
         else:
-            return Q()
+            # TRICKY: We need to return an explicit match-all Q object, instead of an empty Q object,
+            # because the empty Q object,  when OR'ed with other Q objects, results in removing the empty Q object.
+            # This isn't what we want here, because this is an explicit true match, which when OR'ed with others,
+            # should not be removed, and return True.
+            # See https://code.djangoproject.com/ticket/32554 for gotcha explanation
+            return Q(pk__isnull=False)
 
     # if no override matches, return a true Q object
 
@@ -262,7 +275,11 @@ def property_to_Q(property: Property, override_property_values: Dict[str, Any] =
     return empty_or_null_with_value_q(column, property.key, property.operator, property.value)
 
 
-def property_group_to_Q(property_group: PropertyGroup, override_property_values: Dict[str, Any] = {}) -> Q:
+def property_group_to_Q(
+    property_group: PropertyGroup,
+    override_property_values: Dict[str, Any] = {},
+    cohorts_cache: Optional[Dict[int, Cohort]] = None,
+) -> Q:
 
     filters = Q()
 
@@ -271,7 +288,7 @@ def property_group_to_Q(property_group: PropertyGroup, override_property_values:
 
     if isinstance(property_group.values[0], PropertyGroup):
         for group in property_group.values:
-            group_filter = property_group_to_Q(cast(PropertyGroup, group), override_property_values)
+            group_filter = property_group_to_Q(cast(PropertyGroup, group), override_property_values, cohorts_cache)
             if property_group.type == PropertyOperatorType.OR:
                 filters |= group_filter
             else:
@@ -279,7 +296,7 @@ def property_group_to_Q(property_group: PropertyGroup, override_property_values:
     else:
         for property in property_group.values:
             property = cast(Property, property)
-            property_filter = property_to_Q(property, override_property_values)
+            property_filter = property_to_Q(property, override_property_values, cohorts_cache)
             if property_group.type == PropertyOperatorType.OR:
                 if property.negation:
                     filters |= ~property_filter
@@ -297,6 +314,7 @@ def property_group_to_Q(property_group: PropertyGroup, override_property_values:
 def properties_to_Q(
     properties: List[Property],
     override_property_values: Dict[str, Any] = {},
+    cohorts_cache: Optional[Dict[int, Cohort]] = None,
 ) -> Q:
     """
     Converts a filter to Q, for use in Django ORM .filter()
@@ -308,5 +326,5 @@ def properties_to_Q(
         return filters
 
     return property_group_to_Q(
-        PropertyGroup(type=PropertyOperatorType.AND, values=properties), override_property_values
+        PropertyGroup(type=PropertyOperatorType.AND, values=properties), override_property_values, cohorts_cache
     )

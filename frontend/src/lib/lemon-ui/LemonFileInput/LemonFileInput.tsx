@@ -43,11 +43,12 @@ export function useUploadFiles({
             try {
                 setUploading(true)
                 const formData = new FormData()
-                let blob: Blob = filesToUpload[0]
-                if (blob.type.startsWith('image/')) {
-                    blob = await lazyImageBlobReducer(blob)
+                let file: File = filesToUpload[0]
+                if (file.type.startsWith('image/')) {
+                    const compressedBlob = await lazyImageBlobReducer(file)
+                    file = new File([compressedBlob], file.name, { type: compressedBlob.type })
                 }
-                formData.append('image', blob)
+                formData.append('image', file)
                 const media = await api.media.upload(formData)
                 onUpload?.(media.image_location, media.name)
             } catch (error) {
@@ -170,7 +171,7 @@ export const LemonFileInput = ({
                 ref={dropRef}
                 className={clsx('flex flex-col gap-1', !alternativeDropTargetRef?.current && drag && 'FileDropTarget')}
             >
-                <label className="text-muted    inline-flex flex flow-row items-center gap-1 cursor-pointer">
+                <label className="text-muted inline-flex flex flow-row items-center gap-1 cursor-pointer">
                     <input
                         className={'hidden'}
                         type="file"
@@ -179,6 +180,7 @@ export const LemonFileInput = ({
                         onChange={onInputChange}
                     />
                     <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
+                    {accept ? ` ${acceptToDisplayName(accept)}` : ''}
                 </label>
                 <div className={'flex flex-row gap-2'}>
                     {files.map((x, i) => (
@@ -195,4 +197,15 @@ export const LemonFileInput = ({
 const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
     const blobReducer = (await import('image-blob-reduce')).default()
     return blobReducer.toBlob(blob, { max: 2000 })
+}
+
+function acceptToDisplayName(accept: string): string {
+    const match = accept.match(/(\w+)\/\*/)
+    if (match) {
+        return `${match[1]}s`
+    }
+    if (accept.startsWith('.')) {
+        return `${accept.slice(1).toUpperCase()} files`
+    }
+    return `files`
 }
