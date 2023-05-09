@@ -24,13 +24,12 @@ const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters
 
     return {
         actions: [],
-        events: [],
-        new_entity: [
+        events: [
             {
-                id: 'empty',
-                type: EntityTypes.NEW_ENTITY,
+                id: '',
+                type: EntityTypes.EVENTS,
                 order: 0,
-                name: 'empty',
+                name: '',
             },
         ],
     }

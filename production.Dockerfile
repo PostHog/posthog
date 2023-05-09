@@ -158,8 +158,8 @@ RUN apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # Install and use a non-root user.
-RUN groupadd posthog && \
-    useradd -r -g posthog posthog && \
+RUN groupadd -g 1000 posthog && \
+    useradd -u 999 -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
 

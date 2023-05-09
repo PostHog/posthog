@@ -20,6 +20,7 @@ from posthog.models.cohort.sql import (
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
+    GET_STATIC_COHORT_SIZE_SQL,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
     STALE_COHORTPEOPLE,
@@ -227,6 +228,21 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
         for person_uuid in person_uuids
     )
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+
+
+def get_static_cohort_size(cohort: Cohort) -> Optional[int]:
+    count_result = sync_execute(
+        GET_STATIC_COHORT_SIZE_SQL,
+        {
+            "cohort_id": cohort.pk,
+            "team_id": cohort.team_id,
+        },
+    )
+
+    if count_result and len(count_result) and len(count_result[0]):
+        return count_result[0][0]
+    else:
+        return None
 
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:

@@ -9,10 +9,11 @@ from posthog.hogql.constants import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
-from posthog.models import Action, ActionStep, Cohort, Property, Team
+from posthog.models import Action, ActionStep, Cohort, Property, Team, PropertyDefinition
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import build_selector_regex
+from posthog.models.property_definition import PropertyType
 from posthog.schema import PropertyOperator
 
 
@@ -134,6 +135,26 @@ def property_to_expr(
             op = ast.CompareOperationOp.GtE
         else:
             raise NotImplementedException(f"PropertyOperator {operator} not implemented")
+
+        # For Boolean and untyped properties, treat "true" and "false" as boolean values
+        if (
+            op == ast.CompareOperationOp.Eq
+            or op == ast.CompareOperationOp.NotEq
+            and team is not None
+            and (value == "true" or value == "false")
+        ):
+            property_types = PropertyDefinition.objects.filter(
+                team=team,
+                name=property.key,
+                type=PropertyDefinition.Type.PERSON if property.type == "person" else PropertyDefinition.Type.EVENT,
+            )[0:1].values_list("property_type", flat=True)
+            property_type = property_types[0] if property_types else None
+
+            if not property_type or property_type == PropertyType.Boolean:
+                if value == "true":
+                    value = True
+                if value == "false":
+                    value = False
 
         return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
 

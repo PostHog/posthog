@@ -1,7 +1,9 @@
-import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
 import { Consumer, KafkaJSProtocolError } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes } from 'kafkajs'
+// @ts-expect-error no type definitions
+import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
@@ -14,9 +16,10 @@ import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createPostgresPool, delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { createPostgresPool, delay, stalenessCheck } from '../utils/utils'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import { makePiscina as defaultMakePiscina } from '../worker/piscina'
+import Piscina from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
@@ -32,6 +35,8 @@ import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-
 import { createHttpServer } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
+CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
+
 const { version } = require('../../package.json')
 
 // TODO: refactor this into a class, removing the need for many different Servers
@@ -44,7 +49,7 @@ export type ServerInstance = {
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (config: PluginsServerConfig) => Piscina = defaultMakePiscina,
+    makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
     capabilities: PluginServerCapabilities | undefined
 ): Promise<Partial<ServerInstance>> {
     const timer = new Date()
@@ -234,14 +239,16 @@ export async function startPluginsServer(
             // it's that heavy so it may be fine, but something to watch out
             // for.
             await graphileWorker.connectProducer()
-            piscina = piscina ?? makePiscina(serverConfig)
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            status.info('👷', 'Starting graphile worker...')
             await startGraphileWorker(hub, graphileWorker, piscina)
+            status.info('👷', 'Graphile worker is ready!')
 
             if (capabilities.pluginScheduledTasks) {
                 schedulerTasksConsumer = await startScheduledTasksConsumer({
                     piscina: piscina,
+                    producer: hub.kafkaProducer,
                     kafka: hub.kafka,
-                    producer: hub.kafkaProducer.producer,
                     partitionConcurrency: serverConfig.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                     statsd: hub.statsd,
                 })
@@ -250,7 +257,7 @@ export async function startPluginsServer(
             if (capabilities.processPluginJobs) {
                 jobsConsumer = await startJobsConsumer({
                     kafka: hub.kafka,
-                    producer: hub.kafkaProducer.producer,
+                    producer: hub.kafkaProducer,
                     graphileWorker: graphileWorker,
                     statsd: hub.statsd,
                 })
@@ -261,7 +268,7 @@ export async function startPluginsServer(
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
-            piscina = piscina ?? makePiscina(serverConfig)
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(
                 {
                     hub: hub,
@@ -285,7 +292,7 @@ export async function startPluginsServer(
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
-            piscina = piscina ?? makePiscina(serverConfig)
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             analyticsEventsIngestionOverflowConsumer = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
                 piscina: piscina,
@@ -296,7 +303,7 @@ export async function startPluginsServer(
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
-            piscina = piscina ?? makePiscina(serverConfig)
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startOnEventHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
@@ -345,16 +352,6 @@ export async function startPluginsServer(
                 })
                 await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
             })
-            // every 10 seconds sends stuff to StatsD
-            schedule.scheduleJob('*/10 * * * * *', () => {
-                if (piscina) {
-                    for (const [key, value] of Object.entries(getPiscinaStats(piscina))) {
-                        if (value !== undefined) {
-                            hub!.statsd?.gauge(`piscina.${key}`, value)
-                        }
-                    }
-                }
-            })
 
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
@@ -374,7 +371,6 @@ export async function startPluginsServer(
                     ) {
                         lastFoundActivity = hub?.lastActivity
                         const extra = {
-                            piscina: piscina ? JSON.stringify(getPiscinaStats(piscina)) : null,
                             ...stalenessCheckResult,
                         }
                         Sentry.captureMessage(
@@ -442,7 +438,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.http) {
-            httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer, piscina)
+            httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer)
         }
 
         // If session recordings consumer is defined, then join it. If join
@@ -485,9 +481,6 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     await Promise.race([piscina.broadcastTask({ task: 'teardownPlugins' }), delay(5000)])
     // Wait 2 seconds to flush the last queues and caches
     await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
-    try {
-        await piscina.destroy()
-    } catch {}
 }
 
 const kafkaProtocolErrors = new Counter({

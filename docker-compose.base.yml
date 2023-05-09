@@ -181,7 +181,7 @@ services:
         command: ./bin/temporal-django-worker
         restart: on-failure
         environment:
-            TEMPORAL_SCHEDULER_HOST: temporal
+            TEMPORAL_HOST: temporal
         depends_on:
             - db
             - redis

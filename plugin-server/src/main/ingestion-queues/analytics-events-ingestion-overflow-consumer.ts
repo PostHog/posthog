@@ -1,4 +1,3 @@
-import Piscina from '@posthog/piscina'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import * as schedule from 'node-schedule'
 
@@ -8,6 +7,7 @@ import { formPipelineEvent } from '../../utils/event'
 import { status } from '../../utils/status'
 import { WarningLimiter } from '../../utils/token-bucket'
 import { groupIntoBatches } from '../../utils/utils'
+import Piscina from '../../worker/piscina'
 import { captureIngestionWarning } from './../../worker/ingestion/utils'
 import { eachBatch } from './batch-processing/each-batch'
 import { eachMessageIngestion } from './batch-processing/each-batch-ingestion'
