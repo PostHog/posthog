@@ -1,27 +1,30 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { LemonTaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { LemonTaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-interface EventNameInterface {
-    value: string
-    onChange: (value: string) => void
+interface LemonEventNameProps {
+    value: string | null
+    onChange: (value: string | null) => void
     disabled?: boolean
     placeholder?: string
 }
-export function LemonEventName({ value, onChange, disabled, placeholder }: EventNameInterface): JSX.Element {
+export function LemonEventName({
+    value,
+    onChange,
+    disabled,
+    placeholder = 'Select an event',
+}: LemonEventNameProps): JSX.Element {
     return (
-        <LemonTaxonomicStringPopover
+        <LemonTaxonomicPopover
             groupType={TaxonomicFilterGroupType.Events}
             onChange={onChange}
             disabled={disabled}
             value={value}
             type="secondary"
             status="stealth"
-            placeholder={placeholder ?? 'Select an event'}
+            placeholder={placeholder}
             dataAttr="event-name-box"
-            renderValue={(v) => <PropertyKeyInfo value={v} disablePopover />}
-            excludedProperties={{ events: [null] }}
-            allowClear
+            renderValue={(v) => (v !== null ? <PropertyKeyInfo value={v} disablePopover /> : null)}
         />
     )
 }

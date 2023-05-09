@@ -10,14 +10,14 @@ import {
 } from 'lib/lemon-ui/LemonButton'
 import { IconArrowDropDown, IconClose } from 'lib/lemon-ui/icons'
 
-export interface TaxonomicPopoverProps<ValueType = TaxonomicFilterValue>
+export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
     extends Omit<LemonButtonWithDropdownProps, 'dropdown' | 'value' | 'onChange' | 'placeholder'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
 
     groupTypes?: TaxonomicFilterGroupType[]
-    renderValue?: (value: ValueType) => JSX.Element
+    renderValue?: (value: ValueType) => JSX.Element | null
     dataAttr?: string
     eventNames?: string[]
     placeholder?: React.ReactNode
@@ -88,19 +88,7 @@ export function TaxonomicPopover({
     )
 }
 
-/** Like TaxonomicPopover, but convenient when you know you will only use string values */
-export function LemonTaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JSX.Element {
-    return (
-        <LemonTaxonomicPopover
-            {...props}
-            value={String(props.value)}
-            onChange={(value, groupType, item) => props.onChange?.(String(value), groupType, item)}
-            renderValue={(value) => props.renderValue?.(String(value)) ?? <>{String(props.value)}</>}
-        />
-    )
-}
-
-export function LemonTaxonomicPopover({
+export function LemonTaxonomicPopover<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
     groupType,
     value,
     onChange,
@@ -113,7 +101,7 @@ export function LemonTaxonomicPopover({
     allowClear = false,
     excludedProperties,
     ...buttonProps
-}: TaxonomicPopoverProps): JSX.Element {
+}: TaxonomicPopoverProps<ValueType>): JSX.Element {
     const [localValue, setLocalValue] = useState<TaxonomicFilterValue>(value || '')
     const [visible, setVisible] = useState(false)
 
