@@ -11,7 +11,7 @@ export function EventName({ query, setQuery }: EventNameProps): JSX.Element {
         <LemonEventName
             value={query.event ?? ''}
             disabled={!setQuery}
-            onChange={(value: string) => setQuery?.({ ...query, event: value })}
+            onChange={(value) => setQuery?.({ ...query, event: value })}
         />
     )
 }

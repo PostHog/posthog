@@ -64,6 +64,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                     })
                                 }
                                 placeholder="All events"
+                                includeAllEventsOption
                             />
 
                             <small>

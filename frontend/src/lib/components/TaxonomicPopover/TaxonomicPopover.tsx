@@ -83,7 +83,7 @@ export function TaxonomicPopover({
             <span className="TaxonomicPopover__button__label truncate">
                 {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
             </span>
-            <div style={{ flexGrow: 1 }} />
+            <div className="grow-1" />
         </LemonButtonWithDropdown>
     )
 }
@@ -102,14 +102,14 @@ export function LemonTaxonomicPopover<ValueType extends TaxonomicFilterValue = T
     excludedProperties,
     ...buttonProps
 }: TaxonomicPopoverProps<ValueType>): JSX.Element {
-    const [localValue, setLocalValue] = useState<TaxonomicFilterValue>(value || '')
+    const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
 
     const isClearButtonShown = allowClear && !!localValue
 
     useEffect(() => {
         if (!buttonProps.loading) {
-            setLocalValue(value || '')
+            setLocalValue(value || ('' as ValueType))
         }
     }, [value])
 
@@ -126,7 +126,7 @@ export function LemonTaxonomicPopover<ValueType extends TaxonomicFilterValue = T
                             groupType={groupType}
                             value={value}
                             onChange={({ type }, payload, item) => {
-                                onChange?.(payload, type, item)
+                                onChange?.(payload as ValueType, type, item)
                                 setVisible(false)
                             }}
                             taxonomicGroupTypes={groupTypes ?? [groupType]}
@@ -156,8 +156,8 @@ export function LemonTaxonomicPopover<ValueType extends TaxonomicFilterValue = T
                                 noPadding
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    onChange?.('', groupType, null)
-                                    setLocalValue('')
+                                    onChange?.('' as ValueType, groupType, null)
+                                    setLocalValue('' as ValueType)
                                 }}
                             />
                         ) : (
