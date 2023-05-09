@@ -162,7 +162,7 @@ class Team(UUIDClassicModel):
     # Generic field for storing any team-specific context that is more temporary in nature and thus
     # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
     # during feature releases.
-    extra_settings: models.JSONField = models.JSONField(default=dict())
+    extra_settings: models.JSONField = models.JSONField(default=dict(), null=True, blank=True)
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
