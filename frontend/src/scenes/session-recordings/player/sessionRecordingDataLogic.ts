@@ -565,7 +565,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadPerformanceEvents: async ({}, breakpoint) => {
                     const { start, end } = values.sessionPlayerData
 
-                    if (!start || !end || !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)) {
+                    if (
+                        !props.sessionRecordingId ||
+                        !start ||
+                        !end ||
+                        !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
+                    ) {
                         return []
                     }
 
