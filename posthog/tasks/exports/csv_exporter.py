@@ -200,7 +200,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             # Figure out how to handle funnel polling....
             data = response.json()
 
-            if data is None:
+            if data is None:  # type: ignore
                 unexpected_empty_json_response = UnexpectedEmptyJsonResponse("JSON is None when calling API for data")
                 logger.error(
                     "csv_exporter.json_was_none",
