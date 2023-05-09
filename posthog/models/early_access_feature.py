@@ -25,6 +25,7 @@ class EarlyAccessFeature(UUIDModel):
     stage: models.CharField = models.CharField(max_length=40, choices=Stage.choices)
     documentation_url: models.URLField = models.URLField(max_length=800, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    deleted: models.BooleanField = models.BooleanField(default=False)
 
     def __str__(self) -> str:
         return self.name

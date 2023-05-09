@@ -32,7 +32,8 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature(): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote } = useActions(earlyAccessFeatureLogic)
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote, deleteEarlyAccessFeature } =
+        useActions(earlyAccessFeatureLogic)
 
     return (
         <Form formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
@@ -64,16 +65,28 @@ export function EarlyAccessFeature(): JSX.Element {
                                 </LemonButton>
                             </>
                         ) : (
-                            <LemonButton
-                                type="secondary"
-                                htmlType="submit"
-                                onClick={() => {
-                                    editFeature(true)
-                                }}
-                                loading={false}
-                            >
-                                Edit
-                            </LemonButton>
+                            <>
+                                <LemonButton
+                                    data-attr="delete-feature-flag"
+                                    status="danger"
+                                    type="secondary"
+                                    onClick={() => {
+                                        deleteEarlyAccessFeature(earlyAccessFeature)
+                                    }}
+                                >
+                                    Delete
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    htmlType="submit"
+                                    onClick={() => {
+                                        editFeature(true)
+                                    }}
+                                    loading={false}
+                                >
+                                    Edit
+                                </LemonButton>
+                            </>
                         )
                     ) : undefined
                 }

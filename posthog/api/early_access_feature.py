@@ -20,6 +20,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.utils import cors_response
 from typing import Any
+from django.db.models import QuerySet
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
@@ -33,14 +34,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = EarlyAccessFeature
-        fields = [
-            "id",
-            "name",
-            "description",
-            "stage",
-            "documentationUrl",
-            "flagKey",
-        ]
+        fields = ["id", "name", "description", "stage", "documentationUrl", "flagKey", "deleted"]
         read_only_fields = fields
 
 
@@ -49,15 +43,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = EarlyAccessFeature
-        fields = [
-            "id",
-            "feature_flag",
-            "name",
-            "description",
-            "stage",
-            "documentation_url",
-            "created_at",
-        ]
+        fields = ["id", "feature_flag", "name", "description", "stage", "documentation_url", "created_at", "deleted"]
         read_only_fields = ["id", "feature_flag", "created_at"]
 
 
@@ -138,6 +124,14 @@ class EarlyAccessFeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet): 
         TeamMemberAccessPermission,
     ]
 
+    def get_queryset(self) -> QuerySet:
+        queryset = super().get_queryset()
+
+        if self.action == "list":
+            queryset = queryset.filter(deleted=False)
+
+        return queryset
+
     def get_serializer_class(self) -> Type[serializers.Serializer]:
         if self.request.method == "POST":
             return EarlyAccessFeatureSerializerCreateOnly
@@ -183,7 +177,7 @@ def early_access_features(request: Request):
         )
 
     early_access_features = MinimalEarlyAccessFeatureSerializer(
-        EarlyAccessFeature.objects.filter(team_id=team.id)
+        EarlyAccessFeature.objects.filter(team_id=team.id, deleted=False)
         .exclude(stage=EarlyAccessFeature.Stage.GENERAL_AVAILABILITY)
         .select_related("feature_flag"),
         many=True,
