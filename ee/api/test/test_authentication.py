@@ -210,7 +210,6 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
 @pytest.mark.skip_on_multitenancy
 @override_settings(**SAML_MOCK_SETTINGS)
-@override_settings(DEBUG_PROPAGATE_EXCEPTIONS=True)  # Propagate exceptions for assertRaises, bypassing handler500
 class TestEESAMLAuthenticationAPI(APILicensedTest):
     CONFIG_AUTO_LOGIN = False
     organization_domain: OrganizationDomain = None  # type: ignore
