@@ -108,7 +108,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 breakdown_type: breakdownType,
                 breakdown:
                     taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
-                        ? [...values.breakdownCohortArray, breakdown].filter((b): b is string | number => !!b)
+                        ? // TODO: We're preventing duplicated cohorts with a Set. A better fix would be
+                          // to make exlcudedProperties work for cohorts in the TaxonomicFilter.
+                          Array.from(new Set([...values.breakdownCohortArray, breakdown])).filter(
+                              (b): b is string | number => !!b
+                          )
                         : breakdown,
                 breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
                 breakdown_histogram_bin_count: isHistogramable ? 10 : undefined,
