@@ -1,10 +1,7 @@
-import * as schedule from 'node-schedule'
-
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
-import { makeHealthCheck } from './analytics-events-ingestion-consumer'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { IngestionConsumer } from './kafka-queue'
 
@@ -28,15 +25,9 @@ export const startOnEventHandlerConsumer = async ({
 
     const queue = buildOnEventIngestionConsumer({ hub, piscina })
 
-    await queue.start()
+    const { isHealthy } = await queue.start()
 
-    schedule.scheduleJob('0 * * * * *', async () => {
-        await queue.emitConsumerGroupMetrics()
-    })
-
-    const isHealthy = makeHealthCheck(queue)
-
-    return { queue, isHealthy: () => isHealthy() }
+    return { queue, isHealthy }
 }
 
 export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {

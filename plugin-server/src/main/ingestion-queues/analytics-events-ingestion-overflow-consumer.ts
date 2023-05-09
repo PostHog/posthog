@@ -1,5 +1,4 @@
-import { EachBatchPayload, KafkaMessage } from 'kafkajs'
-import * as schedule from 'node-schedule'
+import { Message } from 'node-rdkafka-acosom'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
@@ -49,21 +48,14 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
 
     await queue.start()
 
-    schedule.scheduleJob('0 * * * * *', async () => {
-        await queue.emitConsumerGroupMetrics()
-    })
-
     return queue
 }
 
-export async function eachBatchIngestionFromOverflow(
-    payload: EachBatchPayload,
-    queue: IngestionConsumer
-): Promise<void> {
-    await eachBatch(payload, queue, eachMessageIngestionFromOverflow, groupIntoBatches, 'ingestion')
+export async function eachBatchIngestionFromOverflow(messages: Message[], queue: IngestionConsumer): Promise<void> {
+    await eachBatch(messages, queue, eachMessageIngestionFromOverflow, groupIntoBatches, 'ingestion')
 }
 
-export async function eachMessageIngestionFromOverflow(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
+export async function eachMessageIngestionFromOverflow(message: Message, queue: IngestionConsumer): Promise<void> {
     const pluginEvent = formPipelineEvent(message)
     // Warnings are limited to 1/key/hour to avoid spamming.
     // TODO: now that we use lightweight capture, we need to ensure that we

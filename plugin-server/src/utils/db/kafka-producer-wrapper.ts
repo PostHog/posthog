@@ -1,5 +1,5 @@
-import { Message, ProducerRecord } from 'kafkajs'
-import { HighLevelProducer, LibrdKafkaError } from 'node-rdkafka-acosom'
+import { IHeaders, Message, ProducerRecord } from 'kafkajs'
+import { HighLevelProducer, LibrdKafkaError, Message as RdKafkaMessage } from 'node-rdkafka-acosom'
 
 import { disconnectProducer, flushProducer, produce } from '../../kafka/producer'
 import { status } from '../../utils/status'
@@ -32,15 +32,6 @@ export class KafkaProducerWrapper {
                         topic: kafkaMessage.topic,
                         key: message.key ? Buffer.from(message.key) : null,
                         value: message.value ? Buffer.from(message.value) : null,
-                        // We need to convert from KafkaJS headers to rdkafka
-                        // headers format. The former has type
-                        // { [key: string]: string | Buffer | (string |
-                        // Buffer)[] | undefined }
-                        // while the latter has type
-                        // { [key: string]: Buffer }[]. The formers values that
-                        // are arrays need to be converted into an array of
-                        // objects with a single key-value pair, and the
-                        // undefined values need to be filtered out.
                         headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
                     })
                 )
@@ -79,13 +70,55 @@ export class KafkaProducerWrapper {
     }
 }
 
-export const convertKafkaJSHeadersToRdKafkaHeaders = (headers: Message['headers'] = {}) =>
-    Object.entries(headers)
-        .flatMap(([key, value]) =>
-            value === undefined
-                ? []
-                : Array.isArray(value)
-                ? value.map((v) => ({ key, value: Buffer.from(v) }))
-                : [{ key, value: Buffer.from(value) }]
-        )
-        .map(({ key, value }) => ({ [key]: value }))
+export const convertKafkaJSHeadersToRdKafkaHeaders = (headers: Message['headers'] = undefined) =>
+    // We need to convert from KafkaJS headers to rdkafka
+    // headers format. The former has type
+    // { [key: string]: string | Buffer | (string |
+    // Buffer)[] | undefined }
+    // while the latter has type
+    // { [key: string]: Buffer }[]. The formers values that
+    // are arrays need to be converted into an array of
+    // objects with a single key-value pair, and the
+    // undefined values need to be filtered out.
+    headers
+        ? Object.entries(headers)
+              .flatMap(([key, value]) =>
+                  value === undefined
+                      ? []
+                      : Array.isArray(value)
+                      ? value.map((v) => ({ key, value: Buffer.from(v) }))
+                      : [{ key, value: Buffer.from(value) }]
+              )
+              .map(({ key, value }) => ({ [key]: value }))
+        : undefined
+
+export const convertRdKafkaHeadersToKafkaJSHeaders = (headers: RdKafkaMessage['headers'] = undefined) =>
+    // While we still have KafkaJS consumers, we need to convert from rdkafka
+    // headers to KafkaJS headers format. The former has type { [key: string]:
+    // Buffer }[], while the latter has type { [key: string]: string | Buffer |
+    // (string | Buffer)[] | undefined }. The former's values that are arrays
+    // need to be converted into an array of objects with a single key-value
+    // pair, and the undefined values need to be filtered out.
+    //
+    // When we have removed kafkajs consumers we can refactor this Producer
+    // wrapper to just use rdkafka format headers.
+    headers
+        ?.flatMap((header) => Object.entries(header))
+        .reduce((acc, [key, value]) => {
+            const existing = acc[key]
+            if (existing === undefined) {
+                return { ...acc, [key]: value }
+            }
+            if (Array.isArray(existing)) {
+                return { ...acc, [key]: [...existing, value] }
+            }
+            return { ...acc, [key]: [existing, value] }
+        }, {} as IHeaders)
+
+export const convertRdKafkaMessageToKafkaJSMessage = (message: RdKafkaMessage) => ({
+    key: message.key,
+    value: message.value,
+    offset: message.offset,
+    timestamp: message.timestamp ? message.timestamp.toString() : undefined,
+    headers: convertRdKafkaHeadersToKafkaJSHeaders(message.headers),
+})
