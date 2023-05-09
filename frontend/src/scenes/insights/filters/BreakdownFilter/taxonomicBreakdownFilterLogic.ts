@@ -43,33 +43,25 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             normalizeBreakdownURL,
         }),
     }),
-    reducers(({ props }) => ({
-        histogramBinsUsed: [
-            props.breakdownFilter &&
-                props.isTrends &&
-                props.breakdownFilter.breakdown_histogram_bin_count !== undefined,
-            {
-                setHistogramBinsUsed: (_, { value }) => value,
-            },
-        ],
-        histogramBinCount: [
-            ((props.breakdownFilter && props.isTrends && props.breakdownFilter.breakdown_histogram_bin_count) ?? 10) as
-                | number
-                | undefined,
+    reducers({
+        localHistogramBinCount: [
+            10 as number | undefined,
             {
                 setHistogramBinCount: (_, { count }) => count,
             },
         ],
-    })),
+    }),
     selectors({
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
-        hasBreakdown: [(_, p) => [p.breakdownFilter], ({ breakdown_type }) => !!breakdown_type],
+        isViewOnly: [(_, p) => [p.updateBreakdown], (updateBreakdown) => !updateBreakdown],
+        includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
+        hasBreakdown: [(s) => [s.breakdownFilter], ({ breakdown_type }) => !!breakdown_type],
         hasNonCohortBreakdown: [
-            (_, p) => [p.breakdownFilter],
+            (s) => [s.breakdownFilter],
             ({ breakdown }) => breakdown && typeof breakdown === 'string',
         ],
         taxonomicBreakdownType: [
-            (_, p) => [p.breakdownFilter],
+            (s) => [s.breakdownFilter],
             ({ breakdown_type }) => {
                 let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
                 if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
@@ -79,7 +71,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             },
         ],
         breakdownArray: [
-            (_, p) => [p.breakdownFilter],
+            (s) => [s.breakdownFilter],
             ({ breakdown }) =>
                 (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b),
         ],
@@ -87,8 +79,15 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (s) => [s.breakdownArray],
             (breakdownArray) => breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b))),
         ],
-        isViewOnly: [(_, p) => [p.updateBreakdown], (updateBreakdown) => !updateBreakdown],
-        includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
+        histogramBinsUsed: [
+            (s) => [s.breakdownFilter],
+            ({ breakdown_histogram_bin_count }) => breakdown_histogram_bin_count !== undefined,
+        ],
+        histogramBinCount: [
+            (s) => [s.breakdownFilter, s.localHistogramBinCount],
+            (breakdownFilter, localHistogramBinCount) =>
+                localHistogramBinCount || breakdownFilter?.breakdown_histogram_bin_count,
+        ],
     }),
     listeners(({ props, values }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
