@@ -133,6 +133,7 @@ class TrendsEventQueryBase(EventQuery):
             table_name=self.EVENT_TABLE_ALIAS,
             person_properties_mode=get_person_properties_mode(self._team),
             hogql_context=self._filter.hogql_context,
+            person_id_joined_alias=self._person_id_alias,
         )
 
         return entity_format_params["entity_query"], entity_params

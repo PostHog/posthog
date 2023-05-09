@@ -4,12 +4,13 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import { DataNode, DataTableNode } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { isEventsQuery, isPersonsNode } from '~/queries/utils'
+import { isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { getEventsEndpoint, getPersonsEndpoint } from '~/queries/query'
 import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 
 const EXPORT_LIMIT_EVENTS = 3500
 const EXPORT_LIMIT_PERSONS = 10000
+const EXPORT_LIMIT_HOGQL = 65536
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
     const exportContext = isEventsQuery(query.source)
@@ -19,6 +20,8 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
           }
         : isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source), max_limit: EXPORT_LIMIT_PERSONS }
+        : isHogQLQuery(query.source)
+        ? { source: query.source, max_limit: EXPORT_LIMIT_HOGQL }
         : undefined
     if (!exportContext) {
         throw new Error('Unsupported node type')

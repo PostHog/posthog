@@ -372,7 +372,6 @@ jobs:
             - name: Install requirements.txt dependencies with pip at current branch
               run: |
                   cd current
-                  python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt -r requirements-dev.txt
 
             - name: Link posthog-cloud at current branch

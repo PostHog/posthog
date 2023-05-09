@@ -25,7 +25,6 @@ import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
-import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
@@ -278,14 +277,6 @@ export async function startPluginsServer(
 
             analyticsEventsIngestionConsumer = queue
             healthChecks['analytics-ingestion'] = isAnalyticsEventsIngestionHealthy
-
-            bufferConsumer = await startAnonymousEventBufferConsumer({
-                hub: hub,
-                piscina: piscina,
-                kafka: hub.kafka,
-                producer: hub.kafkaProducer,
-                statsd: hub.statsd,
-            })
         }
 
         if (capabilities.ingestionOverflow) {
@@ -414,6 +405,7 @@ export async function startPluginsServer(
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
                 consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+                summaryIngestionEnabledTeams: serverConfig.SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS,
             })
             stopSessionRecordingEventsConsumer = stop
             joinSessionRecordingEventsConsumer = join

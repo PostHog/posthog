@@ -148,7 +148,6 @@ export const FEATURE_FLAGS = {
     BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith
     RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
-    DATA_MANAGEMENT_HISTORY: 'data-management-history', // owner: @pauldambra
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SESSION_RECORDING_INFINITE_LIST: 'session-recording-infinite-list', // owner: #team-monitoring
 }
