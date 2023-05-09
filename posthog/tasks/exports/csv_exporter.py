@@ -174,8 +174,8 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
 
     if resource.get("source"):
         query = resource.get("source")
-        response = process_query(team=exported_asset.team, query_json=query, is_hogql_enabled=True)
-        all_csv_rows = _convert_response_to_csv_data(response)
+        query_response = process_query(team=exported_asset.team, query_json=query, is_hogql_enabled=True)
+        all_csv_rows = _convert_response_to_csv_data(query_response)
 
     else:
         path: str = resource["path"]
