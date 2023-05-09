@@ -13,8 +13,8 @@
 
 ruff>=0.0.257
 pip-tools==6.13.0
-mypy==1.2.0
-mypy-extensions==1.0.0
+mypy==0.981
+mypy-extensions==0.4.3
 datamodel-code-generator==0.16.1
 djangorestframework-stubs==1.4.0
 django-stubs==1.8.0
