@@ -36,7 +36,7 @@ export function SessionRecordingFilePlayback(): JSX.Element {
             {sessionRecordingLoading ? (
                 <SpinnerOverlay />
             ) : sessionRecording ? (
-                <div className="flex flex-col gap-2 h-screen">
+                <div className="flex flex-col gap-2 h-screen pb-4">
                     <LemonBanner
                         type="info"
                         action={{
