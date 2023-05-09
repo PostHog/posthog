@@ -20,7 +20,8 @@ type LemonSelectOptionBase = Omit<LemonMenuItemBase, 'active' | 'status'> // Sel
 
 export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
     value: T
-    element?: React.ReactElement
+    /** Extra element shown next to the label in the select menu. */
+    labelInMenuExtra?: React.ReactElement
 }
 
 export interface LemonSelectOptionNode<T> extends LemonSelectOptionBase {
@@ -107,6 +108,7 @@ export function LemonSelect<T>({
         [options, activeValue]
     )
 
+    const activeLeaf = allLeafOptions.find((o) => o.value === activeValue)
     const isClearButtonShown = allowClear && !!activeValue
 
     return (
@@ -125,7 +127,7 @@ export function LemonSelect<T>({
         >
             <LemonButton
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
-                icon={allLeafOptions.find((o) => o.value === activeValue)?.icon}
+                icon={activeLeaf?.icon}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
@@ -133,9 +135,7 @@ export function LemonSelect<T>({
                 {...buttonProps}
             >
                 <span>
-                    {allLeafOptions.find((o) => o.value === activeValue)?.label ?? activeValue ?? (
-                        <span className="text-muted">{placeholder}</span>
-                    )}
+                    {activeLeaf ? activeLeaf.label : activeValue ?? <span className="text-muted">{placeholder}</span>}
                 </span>
                 {isClearButtonShown && (
                     <LemonButton
@@ -195,9 +195,17 @@ function convertToMenuSingle<T>(
         } as LemonMenuItemNode
     } else {
         acc.push(option)
-        const { value, ...leaf } = option
+        const { value, label, labelInMenuExtra: element, ...leaf } = option
         return {
             ...leaf,
+            label: element ? (
+                <>
+                    {label}
+                    {element}
+                </>
+            ) : (
+                label
+            ),
             active: value === activeValue,
             onClick: () => onSelect(value),
         } as LemonMenuItemLeaf

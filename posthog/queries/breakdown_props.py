@@ -159,10 +159,8 @@ def get_breakdown_prop_values(
         filter.breakdown_group_type_index,
         filter.hogql_context,
         filter.breakdown_normalize_url,
-        direct_on_events=True
-        if person_properties_mode
-        in [PersonPropertiesMode.DIRECT_ON_EVENTS, PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2]
-        else False,
+        direct_on_events=person_properties_mode
+        in [PersonPropertiesMode.DIRECT_ON_EVENTS, PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2],
         cast_as_float=filter.using_histogram,
     )
 

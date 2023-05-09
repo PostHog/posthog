@@ -317,7 +317,7 @@ def parse_prop_clauses(
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
             filter_query, filter_params = method(cohort, idx, prepend=prepend)  # type: ignore
-            filter_query = f"""{person_id_joined_alias if person_properties_mode not in [PersonPropertiesMode.DIRECT_ON_EVENTS] else 'person_id'} IN ({filter_query})"""
+            filter_query = f"""{person_id_joined_alias if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'person_id'} IN ({filter_query})"""
 
             if has_person_id_joined or person_properties_mode in [
                 PersonPropertiesMode.DIRECT_ON_EVENTS,

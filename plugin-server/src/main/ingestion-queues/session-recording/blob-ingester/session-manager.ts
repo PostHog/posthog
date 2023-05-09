@@ -32,8 +32,7 @@ type SessionBuffer = {
     id: string
     count: number
     size: number
-    createdAt: Date
-    lastMessageReceivedAt: number | null
+    oldestKafkaTimestamp: number
     file: string
     offsets: number[]
 }
@@ -83,6 +82,7 @@ export class SessionManager {
     }
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
+        this.buffer.oldestKafkaTimestamp = Math.min(this.buffer.oldestKafkaTimestamp, message.metadata.timestamp)
         // TODO: Check that the offset is higher than the lastProcessed
         // If not - ignore it
         // If it is - update lastProcessed and process it
@@ -92,7 +92,6 @@ export class SessionManager {
             await this.addToChunks(message)
         }
 
-        this.buffer.lastMessageReceivedAt = message.metadata.timestamp || Date.now()
         await this.flushIfBufferExceedsCapacity()
     }
 
@@ -113,9 +112,8 @@ export class SessionManager {
 
     public async flushIfSessionIsIdle(): Promise<void> {
         if (
-            this.buffer.lastMessageReceivedAt !== null &&
-            Date.now() - this.buffer.lastMessageReceivedAt >=
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+            Date.now() - this.buffer.oldestKafkaTimestamp >=
+            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
         ) {
             // return the promise and let the caller decide whether to await
             return this.flush()
@@ -152,7 +150,7 @@ export class SessionManager {
 
         try {
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
-            const dataKey = `${baseKey}/data/${this.flushBuffer.createdAt.getTime()}` // TODO: Change to be based on events times
+            const dataKey = `${baseKey}/data/${this.flushBuffer.oldestKafkaTimestamp}` // TODO: Change to be based on events times
 
             // TODO should only compress over some threshold? Depends how many uncompressed files we see below c200kb
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
@@ -187,12 +185,11 @@ export class SessionManager {
 
     private createBuffer(): SessionBuffer {
         const id = randomUUID()
-        const buffer = {
+        const buffer: SessionBuffer = {
             id,
             count: 0,
             size: 0,
-            createdAt: new Date(),
-            lastMessageReceivedAt: null,
+            oldestKafkaTimestamp: Date.now(),
             file: path.join(
                 bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
                 `${this.teamId}.${this.sessionId}.${id}.jsonl`
