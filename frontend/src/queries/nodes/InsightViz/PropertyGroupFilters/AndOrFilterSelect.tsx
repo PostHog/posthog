@@ -28,7 +28,7 @@ export function AndOrFilterSelect({
                     {
                         label: 'all',
                         value: FilterLogicalOperator.And,
-                        element: (
+                        labelInMenuExtra: (
                             <SelectOption
                                 title="All filter"
                                 description="All filters must be met (logical and)"
@@ -40,7 +40,7 @@ export function AndOrFilterSelect({
                     {
                         label: 'any',
                         value: FilterLogicalOperator.Or,
-                        element: (
+                        labelInMenuExtra: (
                             <SelectOption
                                 title="Any filter"
                                 description="Any filter can be met (logical or)"
