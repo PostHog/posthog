@@ -46,17 +46,16 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     reducers(({ props }) => ({
         histogramBinsUsed: [
             props.breakdownFilter &&
-                isTrendsFilter(props.breakdownFilter) &&
+                props.isTrends &&
                 props.breakdownFilter.breakdown_histogram_bin_count !== undefined,
             {
                 setHistogramBinsUsed: (_, { value }) => value,
             },
         ],
         histogramBinCount: [
-            ((props.breakdownFilter &&
-                isTrendsFilter(props.breakdownFilter) &&
-                props.breakdownFilter.breakdown_histogram_bin_count) ??
-                10) as number | undefined,
+            ((props.breakdownFilter && props.isTrends && props.breakdownFilter.breakdown_histogram_bin_count) ?? 10) as
+                | number
+                | undefined,
             {
                 setHistogramBinCount: (_, { count }) => count,
             },
