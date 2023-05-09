@@ -393,7 +393,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_breakdown_cumulative(self):
         self._create_events()
-        with freeze_time("2020-01-04T13:00:01Z"), self.settings(SHELL_PLUS_PRINT_SQL=True):
+        with freeze_time("2020-01-04T13:00:01Z"):
 
             response = Trends().run(
                 Filter(
