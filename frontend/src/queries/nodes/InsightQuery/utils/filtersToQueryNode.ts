@@ -154,7 +154,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             breakdown_normalize_url: filters.breakdown_normalize_url,
             breakdowns: filters.breakdowns,
             breakdown_group_type_index: filters.breakdown_group_type_index,
-            ...(filters.actions ? { actions: filters.actions } : {}),
             ...(isTrendsFilter(filters)
                 ? { breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count }
                 : {}),
