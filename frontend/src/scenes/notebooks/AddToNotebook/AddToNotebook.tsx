@@ -30,12 +30,11 @@ export function AddToNotebook({
                 e.stopPropagation()
                 addNodeToNotebook(node, properties)
             }}
-            size="small"
             tooltip="Add to notebook"
+            icon={icon}
             {...buttonProps}
         >
             {children}
-            {icon}
         </LemonButton>
     )
 }

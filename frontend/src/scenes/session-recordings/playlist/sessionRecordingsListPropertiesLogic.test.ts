@@ -21,38 +21,52 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     })
 
     beforeEach(() => {
-        logic = sessionRecordingsListPropertiesLogic({ key: 'test', sessionIds: [] })
+        logic = sessionRecordingsListPropertiesLogic()
         logic.mount()
     })
 
-    describe('core', () => {
-        it('loads properties when sessionIds prop changes', () => {
-            const nextSessionIds = ['1', '2', '3']
+    it('loads properties', async () => {
+        const nextSessionIds = ['1', '2', '3']
 
-            expectLogic(logic, async () => {
-                sessionRecordingsListPropertiesLogic({ key: 'test', sessionIds: nextSessionIds }).mount()
-            })
-                .toMatchValues({
-                    sessionRecordingsPropertiesResponse: {
-                        results: [],
-                    },
-                })
-                .toDispatchActions([
-                    logic.actionCreators.getSessionRecordingsProperties(nextSessionIds),
-                    'getSessionRecordingsPropertiesSuccess',
-                ])
-                .toMatchValues({
-                    sessionRecordingsPropertiesResponse: {
-                        results: [
-                            { id: 's1', properties: { blah: 'blah1' } },
-                            { id: 's2', properties: { blah: 'blah2' } },
-                        ],
-                    },
-                    sessionRecordingIdToProperties: {
-                        s1: { blah: 'blah1' },
-                        s2: { blah: 'blah2' },
-                    },
-                })
+        await expectLogic(logic, async () => {
+            logic.actions.loadPropertiesForSessions(nextSessionIds)
+        }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
+
+        expect(logic.values).toMatchObject({
+            recordingProperties: [
+                { id: 's1', properties: { blah: 'blah1' } },
+                { id: 's2', properties: { blah: 'blah2' } },
+            ],
+            recordingPropertiesById: {
+                s1: { blah: 'blah1' },
+                s2: { blah: 'blah2' },
+            },
+        })
+    })
+
+    it('does not loads cached properties', async () => {
+        const nextSessionIds = ['1', '2', '3']
+
+        await expectLogic(logic, async () => {
+            logic.actions.loadPropertiesForSessions(nextSessionIds)
+        }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
+
+        expect(logic.values).toMatchObject({
+            recordingPropertiesById: {
+                s1: { blah: 'blah1' },
+                s2: { blah: 'blah2' },
+            },
+        })
+
+        await expectLogic(logic, async () => {
+            logic.actions.maybeLoadPropertiesForSessions(nextSessionIds)
+        }).toNotHaveDispatchedActions(['loadPropertiesForSessionsSuccess'])
+
+        expect(logic.values).toMatchObject({
+            recordingPropertiesById: {
+                s1: { blah: 'blah1' },
+                s2: { blah: 'blah2' },
+            },
         })
     })
 })

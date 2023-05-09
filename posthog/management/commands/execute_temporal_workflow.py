@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from temporalio.common import RetryPolicy
 
 from posthog.temporal.client import connect
 from posthog.temporal.workflows import WORKFLOWS
@@ -29,10 +30,11 @@ class Command(BaseCommand):
         )
         parser.add_argument("--client-cert", default=settings.TEMPORAL_CLIENT_CERT, help="Optional client cert")
         parser.add_argument("--client-key", default=settings.TEMPORAL_CLIENT_KEY, help="Optional client key")
+        parser.add_argument(
+            "--max-attempts", default=settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS, help="Number of max attempts"
+        )
 
     def handle(self, *args, **options):
-        logging.info(f"Executing Temporal Workflow with options: {options}")
-
         temporal_host = options["temporal_host"]
         temporal_port = options["temporal_port"]
         namespace = options["namespace"]
@@ -42,6 +44,10 @@ class Command(BaseCommand):
         client_key = options.get("client_key", None)
         workflow_id = str(uuid4())
         workflow_name = options["workflow"]
+
+        if options["client_key"]:
+            options["client_key"] = "--SECRET--"
+        logging.info(f"Executing Temporal Workflow with options: {options}")
 
         client = asyncio.run(
             connect(
@@ -53,6 +59,7 @@ class Command(BaseCommand):
                 client_key=client_key,
             )
         )
+        retry_policy = RetryPolicy(maximum_attempts=int(options["max_attempts"]))
 
         try:
             workflow = [workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name)][0]
@@ -65,7 +72,11 @@ class Command(BaseCommand):
 
         result = asyncio.run(
             client.execute_workflow(
-                workflow_name, workflow.parse_inputs(options["inputs"]), id=workflow_id, task_queue=task_queue
+                workflow_name,
+                workflow.parse_inputs(options["inputs"]),
+                id=workflow_id,
+                task_queue=task_queue,
+                retry_policy=retry_policy,
             )
         )
         logging.warning(f"Workflow output: {result}")

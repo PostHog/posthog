@@ -33,6 +33,7 @@ describe('Action Events', () => {
         cy.get('[data-attr="menu-item-insight"]').click()
 
         cy.contains('Add graph series').click()
+        cy.get('[data-attr=trend-element-subject-1]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type(actionName)
         cy.get('[data-attr=taxonomic-tab-actions]').click()
         cy.get('[data-attr=prop-filter-actions-0]').click()

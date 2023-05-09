@@ -25,8 +25,6 @@ class Command(BaseCommand):
         parser.add_argument("--client-key", default=settings.TEMPORAL_CLIENT_KEY, help="Optional client key")
 
     def handle(self, *args, **options):
-        logging.info(f"Starting Temporal Worker with options: {options}")
-
         temporal_host = options["temporal_host"]
         temporal_port = options["temporal_port"]
         namespace = options["namespace"]
@@ -34,6 +32,10 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
+
+        if options["client_key"]:
+            options["client_key"] = "--SECRET--"
+        logging.info(f"Starting Temporal Worker with options: {options}")
 
         asyncio.run(
             start_worker(
