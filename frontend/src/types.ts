@@ -2693,7 +2693,13 @@ export type OnlineExportContext = {
     max_limit?: number
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext
+export type QueryExportContext = {
+    source: Record<string, any>
+    filename?: string
+    max_limit?: number
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
 
 export interface ExportedAssetType {
     id: number

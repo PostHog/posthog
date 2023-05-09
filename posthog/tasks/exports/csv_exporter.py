@@ -8,6 +8,7 @@ from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.api.query import process_query
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
@@ -69,7 +70,7 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
         results = data.get("results")
 
         # query like
-        if isinstance(results[0], list) and "types" in data:
+        if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and "types" in data:
             # e.g. {'columns': ['count()'], 'hasMore': False, 'results': [[1775]], 'types': ['UInt64']}
             # or {'columns': ['count()', 'event'], 'hasMore': False, 'results': [[551, '$feature_flag_called'], [265, '$autocapture']], 'types': ['UInt64', 'String']}
             csv_rows: List[Dict[str, Any]] = []
@@ -167,52 +168,57 @@ class UnexpectedEmptyJsonResponse(Exception):
 def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500) -> None:
     resource = exported_asset.export_context
 
-    path: str = resource["path"]
     columns: List[str] = resource.get("columns", [])
 
-    method: str = resource.get("method", "GET")
-    body = resource.get("body", None)
-
-    access_token = encode_jwt(
-        {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
-    )
-
-    next_url = None
     all_csv_rows: List[Any] = []
 
-    while len(all_csv_rows) < max_limit:
-        response = make_api_call(access_token, body, limit, method, next_url, path)
+    if resource.get("source"):
+        query = resource.get("source")
+        data = process_query(team=exported_asset.team, query_json=query, is_hogql_enabled=True)
+        all_csv_rows = _convert_response_to_csv_data(data)
 
-        if response.status_code != 200:
-            # noinspection PyBroadException
-            try:
-                response_json = response.json()
-            except Exception:
-                response_json = "no response json to parse"
-            raise Exception(f"export API call failed with status_code: {response.status_code}. {response_json}")
+    else:
+        path: str = resource["path"]
+        method: str = resource.get("method", "GET")
+        body = resource.get("body", None)
+        next_url = None
+        access_token = encode_jwt(
+            {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
+        )
 
-        # Figure out how to handle funnel polling....
-        data = response.json()
+        while len(all_csv_rows) < max_limit:
+            response = make_api_call(access_token, body, limit, method, next_url, path)
 
-        if data is None:
-            unexpected_empty_json_response = UnexpectedEmptyJsonResponse("JSON is None when calling API for data")
-            logger.error(
-                "csv_exporter.json_was_none",
-                exc=unexpected_empty_json_response,
-                exc_info=True,
-                response_text=response.text,
-            )
+            if response.status_code != 200:
+                # noinspection PyBroadException
+                try:
+                    response_json = response.json()
+                except Exception:
+                    response_json = "no response json to parse"
+                raise Exception(f"export API call failed with status_code: {response.status_code}. {response_json}")
 
-            raise unexpected_empty_json_response
+            # Figure out how to handle funnel polling....
+            data = response.json()
 
-        csv_rows = _convert_response_to_csv_data(data)
+            if data is None:
+                unexpected_empty_json_response = UnexpectedEmptyJsonResponse("JSON is None when calling API for data")
+                logger.error(
+                    "csv_exporter.json_was_none",
+                    exc=unexpected_empty_json_response,
+                    exc_info=True,
+                    response_text=response.text,
+                )
 
-        all_csv_rows = all_csv_rows + csv_rows
+                raise unexpected_empty_json_response
 
-        if not data.get("next") or not csv_rows:
-            break
+            csv_rows = _convert_response_to_csv_data(data)
 
-        next_url = data.get("next")
+            all_csv_rows = all_csv_rows + csv_rows
+
+            if not data.get("next") or not csv_rows:
+                break
+
+            next_url = data.get("next")
 
     renderer = OrderedCsvRenderer()
 
