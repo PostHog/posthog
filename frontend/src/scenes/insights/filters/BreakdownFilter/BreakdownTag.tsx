@@ -6,10 +6,11 @@ import { BreakdownTagMenu } from './BreakdownTagMenu'
 
 type BreakdownTagProps = {
     breakdown: string | number
+    isTrends: boolean
 }
 
-export function BreakdownTag({ breakdown }: BreakdownTagProps): JSX.Element {
-    const logicProps = { breakdown }
+export function BreakdownTag({ breakdown, isTrends }: BreakdownTagProps): JSX.Element {
+    const logicProps = { breakdown, isTrends }
     const { isViewOnly, shouldShowMenu, propertyName } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
 

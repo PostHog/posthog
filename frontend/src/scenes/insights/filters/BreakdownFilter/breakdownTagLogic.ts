@@ -8,6 +8,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 
 export interface BreakdownTagLogicProps {
     breakdown: string | number
+    isTrends: boolean
 }
 
 export const breakdownTagLogic = kea<breakdownTagLogicType>([
@@ -46,7 +47,10 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 }
             },
         ],
-        isHistogramable: [(s) => [s.propertyDefinition], (propertyDefinition) => !!propertyDefinition?.is_numerical],
+        isHistogramable: [
+            (s, p) => [p.isTrends, s.propertyDefinition],
+            (isTrends, propertyDefinition) => isTrends && !!propertyDefinition?.is_numerical,
+        ],
         isNormalizeable: [
             (s) => [s.propertyDefinition],
             (propertyDefinition) => isURLNormalizeable(propertyDefinition?.name || ''),

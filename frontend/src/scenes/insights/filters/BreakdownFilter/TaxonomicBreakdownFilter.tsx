@@ -50,7 +50,7 @@ export function TaxonomicBreakdownFilterComponent({
 
     const tags = !hasBreakdown
         ? []
-        : breakdownArray.map((breakdown) => <BreakdownTag key={breakdown} breakdown={breakdown} />)
+        : breakdownArray.map((breakdown) => <BreakdownTag key={breakdown} breakdown={breakdown} isTrends={isTrends} />)
 
     return (
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
