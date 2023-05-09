@@ -1119,6 +1119,9 @@ const api = {
         async list(): Promise<PaginatedResponse<EarlyAccsesFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
         },
+        async promote(featureId: EarlyAccsesFeatureType['id']): Promise<PaginatedResponse<EarlyAccsesFeatureType>> {
+            return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
+        },
     },
 
     subscriptions: {

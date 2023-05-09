@@ -60,7 +60,7 @@ services:
         restart: on-failure
 
     worker: &worker
-        command: ./bin/start-worker
+        command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
         environment:
             DISABLE_SECURE_SSL_REDIRECT: 'true'
