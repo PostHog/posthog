@@ -23,7 +23,7 @@ describe('session-manager', () => {
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
         })
-        const messageTimestamp = DateTime.local().toMillis()
+        const messageTimestamp = Date.now() - 10000
         event.metadata.timestamp = messageTimestamp
         await sessionManager.add(event)
 
