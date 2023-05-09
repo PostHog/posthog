@@ -79,8 +79,7 @@ class Command(BaseCommand):
                 f"Workflow '{workflow_name}' is not a CommandableWorkflow that can invoked by execute_temporal_workflow."
             )
 
-        logging.info(f"Executing Temporal Workflow %s with ID %s", workflow_name, workflow_id)
-
+        logging.info("Executing Temporal Workflow %s with ID %s", workflow_name, workflow_id)
         result = asyncio.run(
             client.execute_workflow(
                 workflow_name,
@@ -91,4 +90,4 @@ class Command(BaseCommand):
                 retry_policy=retry_policy,
             )
         )
-        logging.warning(f"Workflow output: {result}")
+        logging.info("Workflow output: %s", result)
