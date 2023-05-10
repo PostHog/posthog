@@ -3,7 +3,6 @@ from datetime import timedelta
 from typing import Dict, List, Literal, Tuple, Union, cast
 
 from clickhouse_driver.errors import ServerException
-from django.utils.timezone import now
 
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
@@ -142,7 +141,6 @@ def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
 def backfill_materialized_columns(
     table: TableWithProperties,
     properties: List[Tuple[PropertyName, TableColumn]],
-    backfill_period: timedelta,
     test_settings=None,
 ) -> None:
     """
@@ -160,37 +158,16 @@ def backfill_materialized_columns(
 
     materialized_columns = get_materialized_columns(table, use_cache=False)
 
-    # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
-    # Note that for this to work all inserts should list columns explicitly
-    # Improve this if https://github.com/ClickHouse/ClickHouse/issues/27730 ever gets resolved
     for property, table_column in properties:
         sync_execute(
             f"""
             ALTER TABLE {updated_table}
             {execute_on_cluster}
-            MODIFY COLUMN
-            {materialized_columns[(property, table_column)]} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
+            MATERIALIZE COLUMN
+            {materialized_columns[(property, table_column)]}
             """,
-            {"property": property},
             settings=test_settings,
         )
-
-    # Kick off mutations which will update clickhouse partitions in the background. This will return immediately
-    assignments = ", ".join(
-        f"{materialized_columns[property_and_column]} = {materialized_columns[property_and_column]}"
-        for property_and_column in properties
-    )
-
-    sync_execute(
-        f"""
-        ALTER TABLE {updated_table}
-        {execute_on_cluster}
-        UPDATE {assignments}
-        WHERE {"timestamp > %(cutoff)s" if table == "events" else "1 = 1"}
-        """,
-        {"cutoff": (now() - backfill_period).strftime("%Y-%m-%d")},
-        settings=test_settings,
-    )
 
 
 def _materialized_column_name(

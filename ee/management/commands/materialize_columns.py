@@ -6,7 +6,6 @@ from ee.clickhouse.materialized_columns.analyze import logger, materialize_prope
 from ee.clickhouse.materialized_columns.columns import DEFAULT_TABLE_COLUMN
 from posthog.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
-    MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
@@ -27,13 +26,6 @@ class Command(BaseCommand):
             help="The column to which --property should be materialised from.",
             default=DEFAULT_TABLE_COLUMN,
         )
-        parser.add_argument(
-            "--backfill-period",
-            type=int,
-            default=MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
-            help="How many days worth of data to backfill. 0 to disable. Same as MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS env variable.",
-        )
-
         parser.add_argument(
             "--min-query-time",
             type=int,
@@ -64,7 +56,6 @@ class Command(BaseCommand):
 
             materialize_properties_task(
                 columns_to_materialize=[(options["property_table"], options["table_column"], options["property"], 0)],
-                backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],
             )
         else:
@@ -72,6 +63,5 @@ class Command(BaseCommand):
                 time_to_analyze_hours=options["analyze_period"],
                 maximum=options["max_columns"],
                 min_query_time=options["min_query_time"],
-                backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],
             )

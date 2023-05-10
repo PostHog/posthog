@@ -1,6 +1,5 @@
 import re
 from collections import defaultdict
-from datetime import timedelta
 from typing import Dict, Generator, List, Optional, Set, Tuple
 
 import structlog
@@ -13,7 +12,6 @@ from ee.clickhouse.materialized_columns.columns import (
 )
 from ee.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
-    MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
@@ -167,7 +165,6 @@ def materialize_properties_task(
     time_to_analyze_hours: int = MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     maximum: int = MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     min_query_time: int = MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
-    backfill_period_days: int = MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     dry_run: bool = False,
 ) -> None:
     """
@@ -195,7 +192,7 @@ def materialize_properties_task(
             materialize(table, property_name, table_column=table_column)
         properties[table].append((property_name, table_column))
 
-    if backfill_period_days > 0 and not dry_run:
-        logger.info(f"Starting backfill for new materialized columns. period_days={backfill_period_days}")
-        backfill_materialized_columns("events", properties["events"], timedelta(days=backfill_period_days))
-        backfill_materialized_columns("person", properties["person"], timedelta(days=backfill_period_days))
+    if not dry_run:
+        logger.info(f"Starting backfill for new materialized columns.")
+        backfill_materialized_columns("events", properties["events"])
+        backfill_materialized_columns("person", properties["person"])

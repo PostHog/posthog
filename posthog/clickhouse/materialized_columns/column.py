@@ -29,7 +29,6 @@ def materialize(
 def backfill_materialized_columns(
     table: TableWithProperties,
     properties: List[Tuple[PropertyName, TableColumn]],
-    backfill_period: timedelta,
     test_settings=None,
 ) -> None:
     pass
