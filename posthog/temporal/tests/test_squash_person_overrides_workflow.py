@@ -128,6 +128,7 @@ async def test_prepare_dictionary(activity_environment, person_overrides_data):
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
+        dry_run=False,
     )
 
     latest_merge_at = await activity_environment.run(prepare_dictionary, query_inputs)
@@ -225,6 +226,7 @@ async def test_prepare_dictionary_with_older_overrides_present(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
+        dry_run=False,
     )
 
     latest_merge_at = await activity_environment.run(prepare_dictionary, query_inputs)
@@ -268,6 +270,7 @@ async def test_drop_dictionary(activity_environment, person_overrides_data):
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
+        dry_run=False,
     )
 
     # Ensure we are starting from scratch
@@ -310,6 +313,7 @@ async def test_select_persons_to_delete(activity_environment, person_overrides_d
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
         _latest_merged_at=OVERRIDES_MERGED_AT,
+        dry_run=False,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -346,6 +350,7 @@ async def test_select_persons_to_delete_selects_persons_in_older_partitions(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
         _latest_merged_at=OVERRIDES_MERGED_AT,
+        dry_run=False,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -394,6 +399,7 @@ async def test_select_persons_to_squash_with_empty_table(activity_environment, p
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
         _latest_merged_at=OVERRIDES_MERGED_AT,
+        dry_run=False,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -414,6 +420,7 @@ async def test_select_persons_to_squash_with_different_partition(activity_enviro
         partition_ids=["202002"],
         database=settings.CLICKHOUSE_DATABASE,
         _latest_merged_at=OVERRIDES_MERGED_AT,
+        dry_run=False,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -458,6 +465,7 @@ async def test_select_persons_to_delete_with_newer_merges(activity_environment, 
         database=settings.CLICKHOUSE_DATABASE,
         # Our latest_merged_at is before the newer values happened
         _latest_merged_at=OVERRIDES_MERGED_AT,
+        dry_run=False,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -564,6 +572,7 @@ async def test_squash_events_partition(activity_environment, person_overrides_da
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
         _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=False,
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -632,6 +641,7 @@ async def test_squash_events_partition_with_older_overrides(
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
         _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=False,
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -662,6 +672,7 @@ async def test_squash_events_partition_with_newer_overrides(
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
         _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=False,
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -689,6 +700,7 @@ async def test_squash_events_partition_with_limited_team_ids(
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
         team_ids=[random_team],
+        dry_run=False,
     )
     latest_merged_at = await activity_environment.run(prepare_dictionary, query_inputs)
     query_inputs._latest_merged_at = latest_merged_at
@@ -735,6 +747,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
         person_overrides_to_delete=persons_to_delete,
         database=settings.CLICKHOUSE_DATABASE,
         _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=False,
     )
 
     not_overriden_id = uuid4()
@@ -1045,6 +1058,7 @@ async def test_delete_squashed_person_overrides_from_postgres(activity_environme
                 OLDEST_EVENT_AT.isoformat(),
             )
         ],
+        dry_run=False,
     )
 
     with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
@@ -1163,6 +1177,7 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
                 OLDEST_EVENT_AT.isoformat(),
             )
         ],
+        dry_run=False,
     )
 
     with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
@@ -1210,6 +1225,7 @@ async def test_squash_person_overrides_workflow(events_to_override, person_overr
         clickhouse_database=settings.CLICKHOUSE_DATABASE,
         postgres_database=settings.DATABASES["default"]["NAME"],
         partition_ids=["202001"],
+        dry_run=False,
     )
 
     async with Worker(
@@ -1258,6 +1274,7 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         clickhouse_database=settings.CLICKHOUSE_DATABASE,
         postgres_database=settings.DATABASES["default"]["NAME"],
         partition_ids=["202001"],
+        dry_run=False,
     )
 
     async with Worker(
@@ -1305,6 +1322,7 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
         postgres_database=settings.DATABASES["default"]["NAME"],
         partition_ids=["202001"],
         team_ids=[random_team],
+        dry_run=False,
     )
 
     async with Worker(

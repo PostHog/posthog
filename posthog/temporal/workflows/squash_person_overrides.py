@@ -185,7 +185,7 @@ class QueryInputs:
     password: str = ""
     cluster_name: str = ""
     dictionary_name: str = "person_overrides_join_dict"
-    dry_run: bool = False
+    dry_run: bool = True
     _latest_merged_at: str | datetime | None = None
 
     def __post_init__(self):
@@ -567,7 +567,7 @@ class SquashPersonOverridesInputs:
     partition_ids: list[str] | None = None
     dictionary_name: str = "person_overrides_join_dict"
     last_n_months: int = 1
-    dry_run: bool = False
+    dry_run: bool = True
 
     def iter_partition_ids(self) -> Iterator[str]:
         """Iterate over configured partition ids.
