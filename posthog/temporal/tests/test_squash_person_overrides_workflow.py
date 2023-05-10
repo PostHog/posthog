@@ -576,6 +576,32 @@ async def test_squash_events_partition(activity_environment, person_overrides_da
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+async def test_squash_events_partition_dry_run(activity_environment, person_overrides_data, events_to_override):
+    """Test events are not squashed by running squash_events_partition with dry_run=True."""
+    dictionary_name = "exciting_dictionary"
+
+    query_inputs = QueryInputs(
+        partition_ids=["202001"],
+        database=settings.CLICKHOUSE_DATABASE,
+        dictionary_name=dictionary_name,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster_name=settings.CLICKHOUSE_CLUSTER,
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=True,
+    )
+    await activity_environment.run(prepare_dictionary, query_inputs)
+
+    await activity_environment.run(squash_events_partition, query_inputs)
+
+    await activity_environment.run(drop_dictionary, query_inputs)
+
+    with pytest.raises(AssertionError):
+        assert_events_have_been_overriden(events_to_override, person_overrides_data)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
 async def test_squash_events_partition_with_older_overrides(
     activity_environment, person_overrides_data, events_to_override, older_overrides
 ):
@@ -719,6 +745,51 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
     assert len(rows) == 1
     assert rows[0][0] == 1
     assert rows[0][1] == not_overriden_id
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_delete_squashed_person_overrides_from_clickhouse_dry_run(activity_environment, person_overrides_data):
+    """Test we do not delete person overrides when dry_run=True."""
+    persons_to_delete = [
+        SerializablePersonOverrideToDelete(
+            team_id,
+            person_override.old_person_id,
+            person_override.override_person_id,
+            OVERRIDES_MERGED_AT.isoformat(),
+            1,
+            OLDEST_EVENT_AT.isoformat(),
+        )
+        for team_id, person_overrides in person_overrides_data.items()
+        for person_override in person_overrides
+    ]
+
+    query_inputs = QueryInputs(
+        partition_ids=["202001"],
+        person_overrides_to_delete=persons_to_delete,
+        database=settings.CLICKHOUSE_DATABASE,
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=True,
+    )
+
+    not_overriden_id = uuid4()
+    not_overriden_person: PersonOverrideValues = {
+        "team_id": 1,
+        "old_person_id": not_overriden_id,
+        "override_person_id": uuid4(),
+        "merged_at": OVERRIDES_MERGED_AT,
+        "oldest_event": OLDEST_EVENT_AT,
+        "created_at": OVERRIDES_MERGED_AT,
+        "version": 1,
+    }
+
+    sync_execute("INSERT INTO person_overrides (*) VALUES", [not_overriden_person])
+
+    await activity_environment.run(delete_squashed_person_overrides_from_clickhouse, query_inputs)
+
+    rows = sync_execute("SELECT team_id, old_person_id FROM person_overrides")
+
+    assert len(rows) == len(persons_to_delete) + 1
 
 
 @pytest.fixture(scope="session")
@@ -978,6 +1049,52 @@ async def test_delete_squashed_person_overrides_from_postgres(activity_environme
             cursor.execute("SELECT * FROM posthog_personoverride")
             overrides = cursor.fetchall()
             assert len(overrides) == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_delete_squashed_person_overrides_from_postgres_dry_run(activity_environment, team_id, person_overrides):
+    """Test we do not delete person overrides when dry_run=True."""
+    with psycopg2.connect(DATABASE_URL) as connection:
+        # These are sanity checks to ensure the fixtures are working properly.
+        # If any assertions fail here, its likely a test setup issue.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
+            mappings = cursor.fetchall()
+            assert len(mappings) == 2
+
+            cursor.execute("SELECT * FROM posthog_personoverride")
+            overrides = cursor.fetchall()
+            assert len(overrides) == 1
+
+    query_inputs = QueryInputs(
+        person_overrides_to_delete=[
+            SerializablePersonOverrideToDelete(
+                team_id,
+                person_overrides.old_person_id,
+                person_overrides.override_person_id,
+                OVERRIDES_MERGED_AT.isoformat(),
+                1,
+                OLDEST_EVENT_AT.isoformat(),
+            )
+        ],
+        dry_run=True,
+    )
+
+    with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+        # Unit tests run in their own separate database, so we need to patch it.
+        await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
+
+    with psycopg2.connect(DATABASE_URL) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
+            mappings = cursor.fetchall()
+            assert len(mappings) == 2
+            assert mappings[0][1] == person_overrides.override_person_id
+
+            cursor.execute("SELECT * FROM posthog_personoverride")
+            overrides = cursor.fetchall()
+            assert len(overrides) == 1
 
 
 @pytest.mark.django_db

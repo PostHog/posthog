@@ -185,6 +185,7 @@ class QueryInputs:
     password: str = ""
     cluster_name: str = ""
     dictionary_name: str = "person_overrides_join_dict"
+    dry_run: bool = False
     _latest_merged_at: str | datetime | None = None
 
     def __post_init__(self):
@@ -384,10 +385,19 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
 
     for partition_id in inputs.partition_ids:
         activity.logger.info("Executing squash query on partition %s", partition_id)
-        sync_execute(
-            query,
-            {"partition_id": partition_id, "team_ids": inputs.team_ids, "latest_merged_at": inputs.latest_merged_at},
-        )
+
+        parameters = {
+            "partition_id": partition_id,
+            "team_ids": inputs.team_ids,
+            "latest_merged_at": inputs.latest_merged_at,
+        }
+
+        if inputs.dry_run is True:
+            activity.logger.info("This is a DRY RUN so nothing will be squashed.")
+            activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
+            continue
+
+        sync_execute(query, parameters)
 
 
 @activity.defn
@@ -397,13 +407,19 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
 
     old_person_ids_to_delete = tuple(person.old_person_id for person in inputs.iter_person_overides_to_delete())
     activity.logger.debug("%s", old_person_ids_to_delete)
-    sync_execute(
-        DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=inputs.database),
-        {
-            "old_person_ids": old_person_ids_to_delete,
-            "latest_merged_at": inputs.latest_merged_at,
-        },
-    )
+
+    query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=inputs.database)
+    parameters = {
+        "old_person_ids": old_person_ids_to_delete,
+        "latest_merged_at": inputs.latest_merged_at,
+    }
+
+    if inputs.dry_run is True:
+        activity.logger.info("This is a DRY RUN so nothing will be deleted.")
+        activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
+        return
+
+    sync_execute(query, parameters)
 
 
 @activity.defn
@@ -446,17 +462,24 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
                 row = cursor.fetchone()
                 if not row:
                     continue
+
                 override_person_id = row[0]
 
-                cursor.execute(
-                    DELETE_FROM_PERSON_OVERRIDES,
-                    {
-                        "team_id": person_override_to_delete.team_id,
-                        "old_person_id": old_person_id,
-                        "override_person_id": override_person_id,
-                        "latest_version": person_override_to_delete.latest_version,
-                    },
-                )
+                parameters = {
+                    "team_id": person_override_to_delete.team_id,
+                    "old_person_id": old_person_id,
+                    "override_person_id": override_person_id,
+                    "latest_version": person_override_to_delete.latest_version,
+                }
+
+                if inputs.dry_run is True:
+                    activity.logger.info("This is a DRY RUN so nothing will be deleted.")
+                    activity.logger.info(
+                        "Would have run query: %s with parameters %s", DELETE_FROM_PERSON_OVERRIDES, parameters
+                    )
+                    continue
+
+                cursor.execute(DELETE_FROM_PERSON_OVERRIDES, parameters)
 
                 row = cursor.fetchone()
                 if not row:
@@ -535,6 +558,7 @@ class SquashPersonOverridesInputs:
         team_ids: List of team ids to squash. If None, will squash all.
         partition_ids: Partitions to squash, preferred over last_n_months.
         last_n_months: Execute the squash on the partitions for the last_n_months.
+        dry_run: If True, queries that mutate or delete data will not execute and instead will be logged.
     """
 
     clickhouse_database: str = "default"
@@ -543,6 +567,7 @@ class SquashPersonOverridesInputs:
     partition_ids: list[str] | None = None
     dictionary_name: str = "person_overrides_join_dict"
     last_n_months: int = 1
+    dry_run: bool = False
 
     def iter_partition_ids(self) -> Iterator[str]:
         """Iterate over configured partition ids.
@@ -665,6 +690,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
             password=settings.CLICKHOUSE_PASSWORD,
             cluster_name=settings.CLICKHOUSE_CLUSTER,
             team_ids=inputs.team_ids,
+            dry_run=inputs.dry_run,
         )
 
         async with person_overrides_dictionary(
@@ -678,6 +704,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
                     partition_ids=list(inputs.iter_partition_ids()),
                     database=inputs.clickhouse_database,
                     _latest_merged_at=latest_merged_at,
+                    dry_run=inputs.dry_run,
                 ),
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=retry_policy,
@@ -695,6 +722,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
                     team_ids=inputs.team_ids,
                     dictionary_name=inputs.dictionary_name,
                     _latest_merged_at=latest_merged_at,
+                    dry_run=inputs.dry_run,
                 ),
                 start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=retry_policy,
@@ -708,6 +736,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
                     person_overrides_to_delete=persons_to_delete,
                     database=inputs.clickhouse_database,
                     _latest_merged_at=latest_merged_at,
+                    dry_run=inputs.dry_run,
                 ),
                 start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=retry_policy,
@@ -718,6 +747,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
                 QueryInputs(
                     person_overrides_to_delete=persons_to_delete,
                     database=inputs.postgres_database,
+                    dry_run=inputs.dry_run,
                 ),
                 start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=retry_policy,
