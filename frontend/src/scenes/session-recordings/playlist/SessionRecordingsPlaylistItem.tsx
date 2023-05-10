@@ -9,7 +9,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { RecordingDebugInfo } from '../debug/RecordingDebugInfo'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { urls } from 'scenes/urls'
 
 export interface SessionRecordingPlaylistItemProps {

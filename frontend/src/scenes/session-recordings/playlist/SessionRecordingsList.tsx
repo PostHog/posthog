@@ -15,7 +15,6 @@ import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPro
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { urls } from 'scenes/urls'
 
 const SCROLL_TRIGGER_OFFSET = 100
 

@@ -77,7 +77,7 @@ export const NotebookNodePlaylist = Node.create({
     addAttributes() {
         return {
             filters: {
-                default: {},
+                default: '{}',
             },
         }
     },

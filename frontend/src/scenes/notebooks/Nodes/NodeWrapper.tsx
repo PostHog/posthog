@@ -12,9 +12,7 @@ export interface NodeWrapperProps extends NodeViewProps {
     href?: string
 }
 
-export function NodeWrapper({ title, className, children, preview, selected, href }: NodeWrapperProps): JSX.Element {
-    const content = selected ? children : preview ?? children
-
+export function NodeWrapper({ title, className, children, selected, href }: NodeWrapperProps): JSX.Element {
     return (
         <NodeViewWrapper
             as="div"
@@ -44,12 +42,7 @@ export function NodeWrapper({ title, className, children, preview, selected, hre
                 </div>
             </div>
             <div className="flex flex-row gap-4 relative z-10">
-                <div
-                    // className={clsx('relative mb-2 flex-1 overflow-y-auto')}
-                    className={clsx('relative mb-2 overflow-y-auto flex-1')}
-                >
-                    {content}
-                </div>
+                <div className={clsx('relative mb-2 overflow-y-auto flex-1')}>{children}</div>
             </div>
         </NodeViewWrapper>
     )
