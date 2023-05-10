@@ -184,7 +184,7 @@ class QueryInputs:
     user: str = ""
     password: str = ""
     cluster_name: str = ""
-    dictionary_name: str = "person_overrides_dict"
+    dictionary_name: str = "person_overrides_join_dict"
     _latest_created_at: str | datetime | None = None
 
     def __post_init__(self):
@@ -544,7 +544,7 @@ class SquashPersonOverridesInputs:
     postgres_database: str = "posthog"
     team_ids: list[int] = field(default_factory=list)
     partition_ids: list[str] | None = None
-    dictionary_name: str = "person_overrides_join"
+    dictionary_name: str = "person_overrides_join_dict"
     last_n_months: int = 1
 
     def iter_partition_ids(self) -> Iterator[str]:
@@ -599,7 +599,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
     | ------------- + ------------------ |
     | 1             | 2                  |
 
-    The activity select_persons_to_squash will select the uuid with id 1 as safe to delete
+    The activity select_persons_to_delete will select the uuid with id 1 as safe to delete
     as its the only old_person_id at the time of starting.
 
     While executing this job, a new override (2->3) may be inserted, leaving both tables as:
@@ -686,6 +686,10 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
                 retry_policy=retry_policy,
             )
 
+            if not persons_to_delete:
+                workflow.logger.info("No overrides to delete were found, workflow done")
+                return
+
             await workflow.execute_activity(
                 squash_events_partition,
                 QueryInputs(
@@ -700,10 +704,6 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
             )
 
             workflow.logger.info("Squash finished for all requested partitions, running clean up activities")
-
-            if not persons_to_delete:
-                workflow.logger.info("No overrides to delete were found, workflow done")
-                return
 
             await workflow.execute_activity(
                 delete_squashed_person_overrides_from_clickhouse,
