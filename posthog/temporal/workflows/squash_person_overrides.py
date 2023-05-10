@@ -228,28 +228,44 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
     up what we do here.
     """
     activity.logger.info("Detaching %s.person_overrides_mv", inputs.database)
-    sync_execute(
-        "DETACH VIEW {database}.person_overrides_mv ON CLUSTER {cluster}".format(
-            database=inputs.database, cluster=inputs.cluster_name
-        )
+
+    detach_query = "DETACH VIEW {database}.person_overrides_mv ON CLUSTER {cluster}".format(
+        database=inputs.database, cluster=inputs.cluster_name
     )
-    activity.logger.info("Optimizing %s.person_overrides", inputs.database)
-    sync_execute(
+    optimize_query = (
         "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL SETTINGS mutations_sync = 2".format(
             database=inputs.database, cluster=inputs.cluster_name
         )
     )
+
+    if inputs.dry_run is True:
+        activity.logger.info("This is a DRY RUN so nothing will be detached or optimized.")
+        activity.logger.info("Would have run query: %s", detach_query)
+        activity.logger.info("Would have run query: %s", optimize_query)
+        return
+
+    sync_execute(detach_query)
+
+    activity.logger.info("Optimizing %s.person_overrides", inputs.database)
+
+    sync_execute(optimize_query)
 
 
 @activity.defn
 async def re_attach_person_overrides(inputs: QueryInputs) -> None:
     """Re-attach the person_overrides mat view after it was used in a squash."""
     activity.logger.info("Re-attaching %s.person_overrides_mv", inputs.database)
-    sync_execute(
-        "ATTACH TABLE {database}.person_overrides_mv ON CLUSTER {cluster}".format(
-            database=inputs.database, cluster=inputs.cluster_name
-        )
+
+    attach_query = "ATTACH TABLE {database}.person_overrides_mv ON CLUSTER {cluster}".format(
+        database=inputs.database, cluster=inputs.cluster_name
     )
+
+    if inputs.dry_run is True:
+        activity.logger.info("This is a DRY RUN so nothing will be re-attached.")
+        activity.logger.info("Would have run query: %s", attach_query)
+        return
+
+    sync_execute(attach_query)
 
 
 @activity.defn
