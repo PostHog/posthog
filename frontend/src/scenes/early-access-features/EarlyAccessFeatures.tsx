@@ -1,7 +1,6 @@
-import { LemonButton, LemonDivider, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { EarlyAccsesFeatureType } from '~/types'
@@ -74,38 +73,6 @@ export function EarlyAccessFeatures(): JSX.Element {
                             )
                         },
                         sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
-                    },
-                    {
-                        width: 0,
-                        render(_, feature) {
-                            return (
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                status="stealth"
-                                                to={urls.earlyAccessFeature(feature.id)}
-                                                fullWidth
-                                            >
-                                                View
-                                            </LemonButton>
-                                            <LemonDivider />
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() => {
-                                                    // TODO: Allow archival
-                                                }}
-                                                fullWidth
-                                            >
-                                                {/* Using "Archive" as "Deleting" a feature is very close to implying
-                                    that it'll be deleted from code */}
-                                                Archive feature
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                            )
-                        },
                     },
                 ]}
                 dataSource={earlyAccessFeatures}
