@@ -272,7 +272,27 @@ export class SessionManager {
         }
     }
 
+    private waitForFlushToComplete(checkInterval = 100): Promise<void> {
+        return new Promise((resolve) => {
+            // Check if the variable is already undefined
+            if (typeof this.flushBuffer === 'undefined') {
+                resolve()
+                return
+            }
+
+            // If the variable is not undefined, set an interval to check its value
+            const intervalId = setInterval(() => {
+                if (typeof this.flushBuffer === 'undefined') {
+                    clearInterval(intervalId)
+                    resolve()
+                }
+            }, checkInterval)
+        })
+    }
+
     public async destroy(): Promise<void> {
+        await this.waitForFlushToComplete()
+
         status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
