@@ -3,6 +3,7 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
+import { activeMilliseconds, RRWebEventSummary } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
     Element,
     GroupTypeIndex,
@@ -272,6 +273,85 @@ export const createSessionRecordingEvent = (
 
     return data
 }
+
+export interface SummarizedSessionRecordingEvent {
+    uuid: string
+    first_timestamp: string
+    last_timestamp: string
+    team_id: number
+    distinct_id: string
+    session_id: string
+    first_url: string | undefined
+    click_count: number
+    keypress_count: number
+    mouse_activity_count: number
+    active_milliseconds: number
+}
+
+export const createSessionReplayEvent = (
+    uuid: string,
+    team_id: number,
+    distinct_id: string,
+    ip: string | null,
+    properties: Properties
+) => {
+    const eventsSummaries: RRWebEventSummary[] = properties['$snapshot_data']?.['events_summary'] || []
+
+    const timestamps = eventsSummaries
+        .filter((eventSummary: RRWebEventSummary) => {
+            return !!eventSummary?.timestamp
+        })
+        .map((eventSummary: RRWebEventSummary) => {
+            return castTimestampOrNow(DateTime.fromMillis(eventSummary.timestamp), TimestampFormat.ClickHouse)
+        })
+        .sort()
+
+    if (eventsSummaries.length === 0 || timestamps.length === 0) {
+        status.warn('🙈', 'ignoring an empty session recording event', {
+            session_id: properties['$session_id'],
+            properties: properties,
+        })
+        return null
+    }
+
+    let clickCount = 0
+    let keypressCount = 0
+    let mouseActivity = 0
+    let url: string | undefined = undefined
+    eventsSummaries.forEach((eventSummary: RRWebEventSummary) => {
+        if (eventSummary.type === 3) {
+            mouseActivity += 1
+            if (eventSummary.data?.source === 2) {
+                clickCount += 1
+            }
+            if (eventSummary.data?.source === 5) {
+                keypressCount += 1
+            }
+        }
+        if (!!eventSummary.data?.href?.trim().length && url === undefined) {
+            url = eventSummary.data.href
+        }
+    })
+
+    const activeTime = activeMilliseconds(eventsSummaries)
+
+    const data: SummarizedSessionRecordingEvent = {
+        uuid,
+        team_id: team_id,
+        distinct_id: distinct_id,
+        session_id: properties['$session_id'],
+        first_timestamp: timestamps[0],
+        last_timestamp: timestamps[timestamps.length - 1],
+        click_count: clickCount,
+        keypress_count: keypressCount,
+        mouse_activity_count: mouseActivity,
+        first_url: url,
+        active_milliseconds: activeTime,
+    }
+
+    return data
+}
+
 export function createPerformanceEvent(uuid: string, team_id: number, distinct_id: string, properties: Properties) {
     const data: Partial<RawPerformanceEvent> = {
         uuid,

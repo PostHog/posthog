@@ -20,13 +20,14 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
     // The actual stored billing limit
     const customLimitUsd = billing?.custom_limits_usd?.[product.type]
+    const discountPercent = billing?.discount_percent
     const [isEditingBillingLimit, setIsEditingBillingLimit] = useState(false)
     const [billingLimitInput, setBillingLimitInput] = useState<number | undefined>(DEFAULT_BILLING_LIMIT)
 
     const billingLimitAsUsage = product.tiers
         ? isEditingBillingLimit
-            ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
-            : convertAmountToUsage(customLimitUsd || '', product.tiers)
+            ? convertAmountToUsage(`${billingLimitInput}`, product.tiers, discountPercent)
+            : convertAmountToUsage(customLimitUsd || '', product.tiers, discountPercent)
         : 0
 
     const usageKey = product.usage_key ?? product.type ?? ''
@@ -42,7 +43,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         setBillingLimitInput(
             parseInt(customLimitUsd || '0') ||
                 (product.tiers
-                    ? parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers))
+                    ? parseInt(
+                          convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers, discountPercent)
+                      )
                     : 0) ||
                 DEFAULT_BILLING_LIMIT
         )
@@ -63,7 +66,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             return actuallyUpdateLimit()
         }
 
-        const newAmountAsUsage = product.tiers ? convertAmountToUsage(`${value}`, product.tiers) : 0
+        const newAmountAsUsage = product.tiers ? convertAmountToUsage(`${value}`, product.tiers, discountPercent) : 0
 
         if (product.current_usage && newAmountAsUsage < product.current_usage) {
             LemonDialog.open({

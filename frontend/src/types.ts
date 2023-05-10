@@ -1062,7 +1062,7 @@ export interface BillingV2TierType {
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
-    projected_amount_usd: number | null
+    projected_amount_usd: string | null
     up_to: number | null
 }
 
@@ -2693,7 +2693,13 @@ export type OnlineExportContext = {
     max_limit?: number
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext
+export type QueryExportContext = {
+    source: Record<string, any>
+    filename?: string
+    max_limit?: number
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
 
 export interface ExportedAssetType {
     id: number

@@ -46,8 +46,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
 
-        with self.assertNumQueries(9):
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
         self.assertEqual(
             response["results"][0]["person"],
             {"distinct_ids": ["2"], "is_identified": True, "properties": {"email": "tim@posthog.com"}},

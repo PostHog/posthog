@@ -26,7 +26,9 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
             return actuallyUpdateLimit()
         }
 
-        const newAmountAsUsage = product.tiers ? convertAmountToUsage(`${value}`, product.tiers) : 0
+        const newAmountAsUsage = product.tiers
+            ? convertAmountToUsage(`${value}`, product.tiers, billing?.discount_percent)
+            : 0
 
         if (product.current_usage && newAmountAsUsage < product.current_usage) {
             LemonDialog.open({

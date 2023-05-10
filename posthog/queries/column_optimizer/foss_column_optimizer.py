@@ -70,7 +70,11 @@ class FOSSColumnOptimizer:
     @cached_property
     def is_using_cohort_propertes(self) -> bool:
         # make backend tests run
-        return len(self.used_properties_with_type("cohort")) > 0
+        return (
+            len(self.used_properties_with_type("cohort")) > 0
+            or len(self.used_properties_with_type("precalculated-cohort")) > 0
+            or len(self.used_properties_with_type("static-cohort")) > 0
+        )
 
     @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
