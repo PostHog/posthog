@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import timedelta
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
@@ -14,7 +15,8 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
 
 
-class EventFiltersSQL(NamedTuple):
+@dataclasses.dataclass(frozen=True)
+class EventFiltersSQL:
     non_aggregate_select_condition_clause: str
     aggregate_event_select_clause: str
     aggregate_select_clause: str
