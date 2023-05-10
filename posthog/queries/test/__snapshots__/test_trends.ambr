@@ -64,6 +64,66 @@
      ORDER BY day_start)
   '
 ---
+# name: TestTrends.test_action_filtering_with_cohort_poe_v2
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
+  '
+---
+# name: TestTrends.test_action_filtering_with_cohort_poe_v2.1
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 2
+  '
+---
+# name: TestTrends.test_action_filtering_with_cohort_poe_v2.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT argMax(override_person_id, version) as person_id,
+                  old_person_id
+           FROM person_overrides
+           WHERE team_id = 2
+           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+        WHERE team_id = 2
+          AND ((event = 'sign up'
+                AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
+                       (SELECT DISTINCT person_id
+                        FROM cohortpeople
+                        WHERE team_id = 2
+                          AND cohort_id = 2
+                          AND version = 2 ))))
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+          AND (has(['x'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$bool_prop'), '^"|"$', '')))
+          AND notEmpty(e.person_id)
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
   '
   
@@ -249,6 +309,130 @@
              AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
              AND notEmpty(e.person_id)
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_breakdown_filter_by_precalculated_cohort
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
+  '
+---
+# name: TestTrends.test_breakdown_filter_by_precalculated_cohort.1
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestTrends.test_breakdown_filter_by_precalculated_cohort.2
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, version) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
+     WHERE team_id = 2
+       AND event = 'event_name'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2023-05-03 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-10 23:59:59', 'UTC')
+       AND (pdi.person_id IN
+              (SELECT DISTINCT person_id
+               FROM cohortpeople
+               WHERE team_id = 2
+                 AND cohort_id = 2
+                 AND version = 0 ))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_breakdown_filter_by_precalculated_cohort.3
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2023-05-10 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2023-05-03 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['Jane'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(properties, version) as person_props
+              FROM person
+              WHERE team_id = 2
+              GROUP BY id
+              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+           WHERE e.team_id = 2
+             AND event = 'event_name'
+             AND (pdi.person_id IN
+                    (SELECT DISTINCT person_id
+                     FROM cohortpeople
+                     WHERE team_id = 2
+                       AND cohort_id = 2
+                       AND version = 0 ))
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2023-05-03 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-10 23:59:59', 'UTC')
+             AND replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '') in (['Jane'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -686,6 +870,12 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     LEFT OUTER JOIN
+       (SELECT argMax(override_person_id, version) as person_id,
+               old_person_id
+        FROM person_overrides
+        WHERE team_id = 2
+        GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
      LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -909,6 +1099,179 @@
   ORDER BY breakdown_value
   '
 ---
+# name: TestTrends.test_filter_events_by_cohort_poe_v2.1
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestTrends.test_filter_events_by_cohort_poe_v2.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2023-05-09 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2023-05-02 00:00:00', 'UTC')), toDateTime('2023-05-09 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2023-05-02 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT argMax(override_person_id, version) as person_id,
+                  old_person_id
+           FROM person_overrides
+           WHERE team_id = 2
+           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+        WHERE team_id = 2
+          AND event = 'event_name'
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2023-05-02 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-09 23:59:59', 'UTC')
+          AND (person_id IN
+                 (SELECT DISTINCT person_id
+                  FROM cohortpeople
+                  WHERE team_id = 2
+                    AND cohort_id = 2
+                    AND version = 0 ))
+          AND notEmpty(e.person_id)
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_filter_events_by_precalculated_cohort
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
+  '
+---
+# name: TestTrends.test_filter_events_by_precalculated_cohort.1
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestTrends.test_filter_events_by_precalculated_cohort.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2023-05-10 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2023-05-03 00:00:00', 'UTC')), toDateTime('2023-05-10 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2023-05-03 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 2
+           GROUP BY id
+           HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+        WHERE team_id = 2
+          AND event = 'event_name'
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2023-05-03 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-10 23:59:59', 'UTC')
+          AND (pdi.person_id IN
+                 (SELECT DISTINCT person_id
+                  FROM cohortpeople
+                  WHERE team_id = 2
+                    AND cohort_id = 2
+                    AND version = 0 ))
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
+  '
+---
+# name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.1
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2023-05-10 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2023-05-03 00:00:00', 'UTC')), toDateTime('2023-05-10 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2023-05-03 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT argMax(override_person_id, version) as person_id,
+                  old_person_id
+           FROM person_overrides
+           WHERE team_id = 2
+           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+        WHERE team_id = 2
+          AND event = 'event_name'
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2023-05-03 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-10 23:59:59', 'UTC')
+          AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
+                 (SELECT DISTINCT person_id
+                  FROM cohortpeople
+                  WHERE team_id = 2
+                    AND cohort_id = 2
+                    AND version = 0 ))
+          AND notEmpty(e.person_id)
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events
   '
   
@@ -1027,6 +1390,225 @@
      ORDER BY day_start)
   '
 ---
+# name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
+            count(DISTINCT pdi.person_id) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, version) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', '')))) person ON pdi.person_id = person.id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['some_val2', 'some_val'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT counts AS total,
+                            timestamp AS day_start,
+                            breakdown_value
+           FROM
+             (SELECT d.timestamp,
+                     COUNT(DISTINCT person_id) counts,
+                     breakdown_value
+              FROM
+                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp
+                 FROM events e
+                 WHERE team_id = 2
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-28 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                 GROUP BY timestamp) d
+              CROSS JOIN
+                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
+                        pdi.person_id AS person_id,
+                        replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS breakdown_value
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 INNER JOIN
+                   (SELECT id,
+                           argMax(properties, version) as person_props
+                    FROM person
+                    WHERE team_id = 2
+                    GROUP BY id
+                    HAVING max(is_deleted) = 0
+                    AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                 WHERE e.team_id = 2
+                   AND event = 'sign up'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-28 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                 GROUP BY timestamp, person_id,
+                                     breakdown_value) e
+              WHERE e.timestamp <= d.timestamp
+                AND e.timestamp > d.timestamp - INTERVAL 29 DAY
+              GROUP BY d.timestamp,
+                       breakdown_value
+              ORDER BY d.timestamp)
+           WHERE 11111 = 11111
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(person_properties, '$some_prop'), '^"|"$', '') AS value,
+            count(DISTINCT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) as count
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT argMax(override_person_id, version) as person_id,
+               old_person_id
+        FROM person_overrides
+        WHERE team_id = 2
+        GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'filter_prop'), '^"|"$', '')))
+       AND notEmpty(e.person_id)
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['some_val2', 'some_val'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT counts AS total,
+                            timestamp AS day_start,
+                            breakdown_value
+           FROM
+             (SELECT d.timestamp,
+                     COUNT(DISTINCT person_id) counts,
+                     breakdown_value
+              FROM
+                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp
+                 FROM events e
+                 WHERE team_id = 2
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-28 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                 GROUP BY timestamp) d
+              CROSS JOIN
+                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
+                        if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS person_id,
+                        replaceRegexpAll(JSONExtractRaw(person_properties, '$some_prop'), '^"|"$', '') AS breakdown_value
+                 FROM events e
+                 LEFT OUTER JOIN
+                   (SELECT argMax(override_person_id, version) as person_id,
+                           old_person_id
+                    FROM person_overrides
+                    WHERE team_id = 2
+                    GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+                 WHERE e.team_id = 2
+                   AND event = 'sign up'
+                   AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'filter_prop'), '^"|"$', '')))
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-28 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                   AND notEmpty(e.person_id)
+                   AND notEmpty(e.person_id)
+                 GROUP BY timestamp, person_id,
+                                     breakdown_value) e
+              WHERE e.timestamp <= d.timestamp
+                AND e.timestamp > d.timestamp - INTERVAL 29 DAY
+              GROUP BY d.timestamp,
+                       breakdown_value
+              ORDER BY d.timestamp)
+           WHERE 11111 = 11111
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
 # name: TestTrends.test_non_deterministic_timezones
   '
   
@@ -1051,6 +1633,191 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_person_filtering_in_cohort_in_action
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 2
+       AND ((event = 'sign up'
+             AND (pdi.person_id IN
+                    (SELECT id
+                     FROM person
+                     WHERE team_id = 2
+                     GROUP BY id
+                     HAVING max(is_deleted) = 0
+                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_person_filtering_in_cohort_in_action.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['', 'value', 'other_value'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           WHERE e.team_id = 2
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value'])
+             AND ((event = 'sign up'
+                   AND (pdi.person_id IN
+                          (SELECT id
+                           FROM person
+                           WHERE team_id = 2
+                           GROUP BY id
+                           HAVING max(is_deleted) = 0
+                           AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT argMax(override_person_id, version) as person_id,
+               old_person_id
+        FROM person_overrides
+        WHERE team_id = 2
+        GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+     WHERE team_id = 2
+       AND ((event = 'sign up'
+             AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
+                    (SELECT id
+                     FROM person
+                     WHERE team_id = 2
+                     GROUP BY id
+                     HAVING max(is_deleted) = 0
+                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND notEmpty(e.person_id)
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['', 'value', 'other_value'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+           FROM events e
+           LEFT OUTER JOIN
+             (SELECT argMax(override_person_id, version) as person_id,
+                     old_person_id
+              FROM person_overrides
+              WHERE team_id = 2
+              GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+           WHERE e.team_id = 2
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+             AND notEmpty(e.person_id)
+             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value'])
+             AND ((event = 'sign up'
+                   AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
+                          (SELECT id
+                           FROM person
+                           WHERE team_id = 2
+                           GROUP BY id
+                           HAVING max(is_deleted) = 0
+                           AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
+             AND notEmpty(e.person_id)
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: TestTrends.test_person_property_filtering
@@ -3275,6 +4042,172 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_trends_breakdown_cumulative
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_trends_breakdown_cumulative.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['', 'value', 'other_value'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT person_id) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            breakdown_value
+           FROM
+             (SELECT person_id,
+                     min(timestamp) as timestamp,
+                     breakdown_value
+              FROM
+                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE e.team_id = 2
+                   AND event = 'sign up'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value']) )
+              GROUP BY person_id,
+                       breakdown_value) AS pdi
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_trends_breakdown_cumulative_poe_v2
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT argMax(override_person_id, version) as person_id,
+               old_person_id
+        FROM person_overrides
+        WHERE team_id = 2
+        GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND notEmpty(e.person_id)
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_trends_breakdown_cumulative_poe_v2.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['', 'value', 'other_value'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT person_id) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            breakdown_value
+           FROM
+             (SELECT person_id,
+                     min(timestamp) as timestamp,
+                     breakdown_value
+              FROM
+                (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                 FROM events e
+                 LEFT OUTER JOIN
+                   (SELECT argMax(override_person_id, version) as person_id,
+                           old_person_id
+                    FROM person_overrides
+                    WHERE team_id = 2
+                    GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+                 WHERE e.team_id = 2
+                   AND event = 'sign up'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                   AND notEmpty(e.person_id)
+                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value'])
+                   AND notEmpty(e.person_id) )
+              GROUP BY person_id,
+                       breakdown_value) AS pdi
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown

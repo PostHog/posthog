@@ -1,3 +1,4 @@
+import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -199,8 +200,14 @@ export class SessionRecordingBlobIngester {
         status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer')
 
         // Currently we can't reuse any files stored on disk, so we opt to delete them all
-        rmSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true, force: true })
-        mkdirSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true })
+        try {
+            rmSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true, force: true })
+            mkdirSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true })
+        } catch (e) {
+            status.error('🔥', 'Failed to recreate local buffer directory', e)
+            captureException(e)
+            throw e
+        }
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
         this.producer = await createKafkaProducer(connectionConfig)
@@ -318,7 +325,18 @@ export class SessionRecordingBlobIngester {
                 sessionManagerChunksSizes += guesstimates.chunks
                 sessionManagerBufferOffsetsSizes += guesstimates.bufferOffsets
                 sessionManangerBufferSizes += guesstimates.buffer
-                void sessionManager.flushIfSessionIsIdle()
+                void sessionManager.flushIfSessionIsIdle().catch((err) => {
+                    status.error(
+                        '🚽',
+                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
+                        {
+                            err,
+                            session_id: sessionManager.sessionId,
+                        }
+                    )
+                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                    throw err
+                })
             })
 
             status.info('🚛', 'blob_ingester_consumer - session manager size_estimate', {

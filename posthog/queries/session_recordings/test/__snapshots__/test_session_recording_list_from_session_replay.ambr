@@ -1,0 +1,20 @@
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_cohort_properties
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_cohort_properties.1
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
