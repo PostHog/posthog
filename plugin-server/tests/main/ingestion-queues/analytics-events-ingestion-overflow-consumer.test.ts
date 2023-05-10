@@ -1,3 +1,4 @@
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import { eachBatchIngestionFromOverflow } from '../../../src/main/ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { WarningLimiter } from '../../../src/utils/token-bucket'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
@@ -23,12 +24,23 @@ describe('eachBatchIngestionWithOverflow', () => {
     let queue: any
 
     function createBatchWithMultipleEventsWithKeys(events: any[], timestamp?: any): any {
-        return events.map((event) => ({
-            value: JSON.stringify(event),
-            timestamp,
-            offset: event.offset,
-            key: event.team_id + ':' + event.distinct_id,
-        }))
+        return {
+            batch: {
+                partition: 0,
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                messages: events.map((event) => ({
+                    value: JSON.stringify(event),
+                    timestamp,
+                    offset: event.offset,
+                    key: event.team_id + ':' + event.distinct_id,
+                })),
+            },
+            resolveOffset: jest.fn(),
+            heartbeat: jest.fn(),
+            commitOffsetsIfNecessary: jest.fn(),
+            isRunning: jest.fn(() => true),
+            isStale: jest.fn(() => false),
+        }
     }
 
     beforeEach(() => {

@@ -1,5 +1,5 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { Message } from 'node-rdkafka-acosom'
+import { KafkaMessage } from 'kafkajs'
 
 import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { convertDatabaseElementsToRawElements } from '../worker/vm/upgrades/utils/fetchEventsForInterval'
@@ -101,7 +101,7 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
     return event
 }
 
-export function formPipelineEvent(message: Message): PipelineEvent {
+export function formPipelineEvent(message: KafkaMessage): PipelineEvent {
     // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
     const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }

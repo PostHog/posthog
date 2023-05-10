@@ -1,9 +1,6 @@
 import {
     ClientMetrics,
     HighLevelProducer as RdKafkaProducer,
-    MessageHeader,
-    MessageKey,
-    MessageValue,
     NumberNullUndefined,
     ProducerGlobalConfig,
 } from 'node-rdkafka-acosom'
@@ -71,9 +68,9 @@ export const produce = async ({
 }: {
     producer: RdKafkaProducer
     topic: string
-    value: MessageValue
-    key: MessageKey
-    headers?: MessageHeader[]
+    value: Buffer | null
+    key: Buffer | null
+    headers?: { [key: string]: Buffer }[]
 }): Promise<number | null | undefined> => {
     status.debug('📤', 'Producing message', { topic: topic })
     return await new Promise((resolve, reject) =>

@@ -64,28 +64,41 @@ describe('eachBatchX', () => {
     let queue: any
 
     function createBatchWithMultipleEvents(events: any[], timestamp?: any): any {
-        return events.map((event, offset) => ({
-            value: JSON.stringify(event),
-            timestamp,
-            offset: offset,
-            partition: 0,
-            topic: KAFKA_EVENTS_PLUGIN_INGESTION,
-        }))
+        return {
+            batch: {
+                partition: 0,
+                messages: events.map((event) => ({
+                    value: JSON.stringify(event),
+                    timestamp,
+                    offset: event.offset,
+                })),
+            },
+            resolveOffset: jest.fn(),
+            heartbeat: jest.fn(),
+            commitOffsetsIfNecessary: jest.fn(),
+            isRunning: jest.fn(() => true),
+            isStale: jest.fn(() => false),
+        }
     }
 
-    function createBatchWithMultipleEventsWithKeys(
-        events: any[],
-        timestamp?: any,
-        topic: string = KAFKA_EVENTS_PLUGIN_INGESTION
-    ): any {
-        return events.map((event, offset) => ({
-            value: JSON.stringify(event),
-            timestamp,
-            offset: offset,
-            key: event.team_id + ':' + event.distinct_id,
-            partition: 0,
-            topic,
-        }))
+    function createBatchWithMultipleEventsWithKeys(events: any[], timestamp?: any): any {
+        return {
+            batch: {
+                partition: 0,
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                messages: events.map((event) => ({
+                    value: JSON.stringify(event),
+                    timestamp,
+                    offset: event.offset,
+                    key: event.team_id + ':' + event.distinct_id,
+                })),
+            },
+            resolveOffset: jest.fn(),
+            heartbeat: jest.fn(),
+            commitOffsetsIfNecessary: jest.fn(),
+            isRunning: jest.fn(() => true),
+            isStale: jest.fn(() => false),
+        }
     }
 
     function createBatch(event: any, timestamp?: any): any {
@@ -122,10 +135,7 @@ describe('eachBatchX', () => {
             const batch = createBatch(event)
             await eachBatch(batch, queue, eachMessage, groupIntoBatches, 'key')
 
-            expect(eachMessage).toHaveBeenCalledWith(
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION, partition: 0, offset: 0, value: JSON.stringify(event) },
-                queue
-            )
+            expect(eachMessage).toHaveBeenCalledWith({ value: JSON.stringify(event) }, queue)
         })
 
         it('tracks metrics based on the key', async () => {
@@ -179,11 +189,8 @@ describe('eachBatchX', () => {
         })
 
         it('does not reproduce if already consuming from overflow', async () => {
-            const batch = createBatchWithMultipleEventsWithKeys(
-                [captureEndpointEvent],
-                undefined,
-                KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW
-            )
+            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
+            batch.batch.topic = KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW
             const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
 
             await eachBatchIngestion(batch, queue)
@@ -211,6 +218,15 @@ describe('eachBatchX', () => {
             ])
 
             await eachBatchIngestion(batch, queue)
+
+            // Check the breakpoints in the batches matching repeating teamId:distinctId
+            expect(batch.resolveOffset).toBeCalledTimes(6)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(1)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(2)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(7)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(9)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(12)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(13)
 
             expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith(
                 'ingest_event_batching.input_length',

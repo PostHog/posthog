@@ -1,4 +1,5 @@
-import { Message } from 'node-rdkafka-acosom'
+import { EachBatchPayload, KafkaMessage } from 'kafkajs'
+import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
 import {
@@ -65,17 +66,54 @@ export const startAnalyticsEventsIngestionConsumer = async ({
         batchHandler
     )
 
-    const { isHealthy } = await queue.start()
+    await queue.start()
+
+    schedule.scheduleJob('0 * * * * *', async () => {
+        await queue.emitConsumerGroupMetrics()
+    })
+
+    // Subscribe to the heatbeat event to track when the consumer has last
+    // successfully consumed a message. This is used to determine if the
+    // consumer is healthy.
+    const isHealthy = makeHealthCheck(queue)
 
     return { queue, isHealthy }
 }
 
-export async function eachBatchIngestionWithOverflow(payload: Message[], queue: IngestionConsumer): Promise<void> {
-    function groupIntoBatchesIngestion(kafkaMessages: Message[], batchSize: number): Message[][] {
+export function makeHealthCheck(queue: IngestionConsumer) {
+    const sessionTimeout = 30000
+    const { HEARTBEAT } = queue.consumer.events
+    let lastHeartbeat: number = Date.now()
+    queue.consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
+
+    const isHealthy = async () => {
+        // Consumer has heartbeat within the session timeout, so it is healthy.
+        if (Date.now() - lastHeartbeat < sessionTimeout) {
+            return true
+        }
+
+        // Consumer has not heartbeat, but maybe it's because the group is
+        // currently rebalancing.
+        try {
+            const { state } = await queue.consumer.describeGroup()
+
+            return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
+        } catch (error) {
+            return false
+        }
+    }
+    return isHealthy
+}
+
+export async function eachBatchIngestionWithOverflow(
+    payload: EachBatchPayload,
+    queue: IngestionConsumer
+): Promise<void> {
+    function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], batchSize: number): KafkaMessage[][] {
         // Once we see a distinct ID we've already seen break up the batch
         const batches = []
         const seenIds: Set<string> = new Set()
-        let currentBatch: Message[] = []
+        let currentBatch: KafkaMessage[] = []
 
         for (const message of kafkaMessages) {
             const pluginEvent = formPipelineEvent(message)
@@ -125,15 +163,13 @@ export async function eachBatchIngestionWithOverflow(payload: Message[], queue: 
     await eachBatch(payload, queue, eachMessageIngestionWithOverflow, groupIntoBatchesIngestion, 'ingestion')
 }
 
-export async function eachMessageIngestionWithOverflow(message: Message, queue: IngestionConsumer): Promise<void> {
+export async function eachMessageIngestionWithOverflow(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
     // Events are marked to have a null key during batch break-up if they should go to the *_OVERFLOW topic.
     // So we do not ingest them here.
     if (message.key == null) {
-        await queue.pluginsServer.kafkaProducer.produce({
+        await queue.pluginsServer.kafkaProducer.queueMessage({
             topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-            value: message.value,
-            key: message.key,
-            headers: message.headers,
+            messages: [message],
         })
 
         return
