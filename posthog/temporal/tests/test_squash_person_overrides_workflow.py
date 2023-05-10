@@ -596,8 +596,20 @@ async def test_squash_events_partition_dry_run(activity_environment, person_over
 
     await activity_environment.run(drop_dictionary, query_inputs)
 
-    with pytest.raises(AssertionError):
-        assert_events_have_been_overriden(events_to_override, person_overrides_data)
+    for event in events_to_override:
+        rows = sync_execute(
+            "SELECT uuid, event, team_id, person_id FROM events WHERE uuid = %(uuid)s", {"uuid": event["uuid"]}
+        )
+        new_event = {
+            "uuid": rows[0][0],
+            "event": rows[0][1],
+            "team_id": rows[0][2],
+            "person_id": rows[0][3],
+        }
+
+        assert event["uuid"] == new_event["uuid"]  # Sanity check
+        assert event["team_id"] == new_event["team_id"]  # Sanity check
+        assert event["person_id"] == new_event["person_id"]
 
 
 @pytest.mark.django_db
