@@ -2253,6 +2253,25 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
+    @skip("is this not how things work?")
+    def test_cannot_create_insight_in_another_team(
+        self,
+    ) -> None:
+        another_team = Team.objects.create(organization=self.organization)
+
+        # logged in to self.team and trying to create an insight in another_team
+        self.dashboard_api.create_insight(
+            team_id=another_team.pk,
+            data={
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
     def test_cannot_update_insight_with_dashboard_from_another_team(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
         dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)

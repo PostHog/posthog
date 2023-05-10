@@ -35,6 +35,7 @@ from . import (
     uploaded_media,
     user,
     person_communication,
+    notebook,
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
@@ -249,5 +250,12 @@ projects_router.register(
     r"person_communications",
     person_communication.PersonCommunicationViewSet,
     "project_person_communications",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"notebooks",
+    notebook.NotebookViewSet,
+    "project_notebooks",
     ["team_id"],
 )
