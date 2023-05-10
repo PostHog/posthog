@@ -11,12 +11,11 @@ import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, KafkaConfig } from '../utils/db/hub'
-import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createPostgresPool, delay, stalenessCheck } from '../utils/utils'
+import { createPostgresPool, delay } from '../utils/utils'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import Piscina from '../worker/piscina'
@@ -346,39 +345,6 @@ export async function startPluginsServer(
 
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
-            }
-
-            if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
-                // check every 10 sec how long it has been since the last activity
-
-                let lastFoundActivity: number
-                lastActivityCheck = setInterval(() => {
-                    const stalenessCheckResult = stalenessCheck(hub, serverConfig.STALENESS_RESTART_SECONDS)
-
-                    if (
-                        hub?.lastActivity &&
-                        stalenessCheckResult.isServerStale &&
-                        lastFoundActivity !== hub?.lastActivity
-                    ) {
-                        lastFoundActivity = hub?.lastActivity
-                        const extra = {
-                            ...stalenessCheckResult,
-                        }
-                        Sentry.captureMessage(
-                            `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
-                            {
-                                extra,
-                            }
-                        )
-                        console.log(
-                            `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
-                            extra
-                        )
-                        hub?.statsd?.increment(`alerts.stale_plugin_server_restarted`)
-
-                        killProcess()
-                    }
-                }, Math.min(serverConfig.STALENESS_RESTART_SECONDS, 10000))
             }
 
             serverInstance.piscina = piscina
