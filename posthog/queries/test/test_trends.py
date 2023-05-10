@@ -5836,6 +5836,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
+    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_trends_count_per_user_average_daily(self):
         self._create_event_count_per_actor_events()
@@ -5884,6 +5885,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert weekly_response[0]["days"] == ["2019-12-29", "2020-01-05"]
         assert weekly_response[0]["data"] == [1.3333333333333333, 2.0]
 
+    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_trends_count_per_user_average_aggregated(self):
         self._create_event_count_per_actor_events()
