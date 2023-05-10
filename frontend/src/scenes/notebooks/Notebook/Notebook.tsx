@@ -13,6 +13,7 @@ import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
 import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
 import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 
 export type NotebookProps = {
     id: string
@@ -32,6 +33,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             NotebookNodeQuery,
             NotebookNodeRecording,
             NotebookNodePlaylist,
+            NotebookNodePerson,
             NotebookNodeFlag,
         ],
         content,
@@ -42,19 +44,26 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             handleDrop: (view, event, slice, moved) => {
                 console.log(view, event, slice, moved)
 
-                if (event.dataTransfer?.getData('node')) {
-                    const nodeType = event.dataTransfer.getData('node')
-                    const properties = JSON.parse(event.dataTransfer.getData('properties'))
+                if (!moved && event.dataTransfer) {
+                    const text = event.dataTransfer.getData('text/plain')
 
-                    const { schema } = view.state
-                    const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
-                    if (!coordinates) {
-                        return false
+                    if (text.indexOf(window.location.origin) === 0) {
+                        // PostHog link - ensure this gets input as a proper link
+                        const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
+
+                        if (!coordinates) {
+                            return false
+                        }
+
+                        editor?.chain().focus().setTextSelection(coordinates.pos).run()
+                        view.pasteText(text)
+
+                        return true
                     }
-                    const node = schema.nodes[nodeType].create(properties)
-                    const transaction = view.state.tr.insert(coordinates.pos, node) // places it in the correct position
-                    return view.dispatch(transaction)
+
+                    return false
                 }
+
                 if (!moved && event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]) {
                     // if dropping external files
                     const file = event.dataTransfer.files[0] // the dropped file

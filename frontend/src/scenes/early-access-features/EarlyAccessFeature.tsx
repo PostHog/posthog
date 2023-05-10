@@ -16,7 +16,7 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { PersonLogicProps, personsLogic } from 'scenes/persons/personsLogic'
+import { PersonsLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
 import { Col } from 'antd'
@@ -231,7 +231,7 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
     const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
 
     const key = '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
-    const personLogicProps: PersonLogicProps = {
+    const personsLogicProps: PersonsLogicProps = {
         cohort: undefined,
         syncWithUrl: false,
         fixedProperties: [
@@ -243,13 +243,12 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
             },
         ],
     }
-    const logic = personsLogic(personLogicProps)
+    const logic = personsLogic(personsLogicProps)
     const { persons } = useValues(logic)
-
     const { featureFlag } = useValues(featureFlagLogic({ id: earlyAccessFeature.feature_flag.id || 'link' }))
 
     return (
-        <BindLogic logic={personsLogic} props={personLogicProps}>
+        <BindLogic logic={personsLogic} props={personsLogicProps}>
             <h3 className="text-xl font-semibold">Opted-In Users</h3>
             <PersonsScene
                 showSearch={persons.results.length > 0}

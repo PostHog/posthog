@@ -1,4 +1,4 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import {
     SessionRecordingPlayer,
@@ -7,6 +7,7 @@ import {
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { urls } from 'scenes/urls'
+import { createUrlRegex } from './utils'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const recordingLogicProps: SessionRecordingPlayerProps = {
@@ -59,5 +60,17 @@ export const NotebookNodeRecording = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            nodePasteRule({
+                find: createUrlRegex(urls.sessionRecording('') + '(.+)'),
+                type: this.type,
+                getAttributes: (match) => {
+                    return { sessionRecordingId: match[1] }
+                },
+            }),
+        ]
     },
 })

@@ -9,7 +9,6 @@ export interface NodeWrapperProps extends NodeViewProps {
     title: string
     className: string
     children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
-    preview?: ReactNode // Minified preview mode to show in small screen situations and unexpanded modes. If not defined, children are mounted and rendered.
     href?: string
 }
 

@@ -108,7 +108,7 @@ export const defaultPageviewPropertyEntityFilter = (
 }
 
 export function generateSessionRecordingListLogicKey(props: SessionRecordingListLogicProps): string {
-    return `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ?? '-with-search'}`
+    return `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
 }
 
 export interface SessionRecordingListLogicProps {

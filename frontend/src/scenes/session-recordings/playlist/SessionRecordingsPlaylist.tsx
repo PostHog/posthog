@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { RecordingFilters, SessionRecordingType } from '~/types'
+import { RecordingFilters, SessionRecordingType, SessionRecordingsTabs } from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
@@ -20,6 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { urls } from 'scenes/urls'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -186,6 +187,7 @@ export function RecordingsLists({
                             </>
                         ) : null
                     }
+                    draggableHref={urls.sessionRecordings(SessionRecordingsTabs.Recent, filters)}
                 />
             </div>
         </>

@@ -10,6 +10,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { RecordingDebugInfo } from '../debug/RecordingDebugInfo'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { urls } from 'scenes/urls'
 
 export interface SessionRecordingPlaylistItemProps {
     recording: SessionRecordingType
@@ -81,9 +82,8 @@ export function SessionRecordingPlaylistItem({
     const firstPath = recording.start_url?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
 
     // TODO: Modify onClick to only react to shift+click
-
     return (
-        <DraggableToNotebook node={NotebookNodeType.Recording} properties={{ sessionRecordingId: recording.id }}>
+        <DraggableToNotebook href={urls.sessionRecording(recording.id)}>
             <li
                 key={recording.id}
                 className={clsx(
