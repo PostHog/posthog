@@ -3,6 +3,7 @@ import random
 from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta
 from typing import TypedDict
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import psycopg2
@@ -963,7 +964,9 @@ async def test_delete_squashed_person_overrides_from_postgres(activity_environme
         ],
     )
 
-    await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
+    with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+        # Unit tests run in their own separate database, so we need to patch it.
+        await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
     with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
@@ -1033,7 +1036,8 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
         ],
     )
 
-    await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
+    with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+        await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
     with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
@@ -1095,12 +1099,13 @@ async def test_squash_person_overrides_workflow(events_to_override, person_overr
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
-        await client.execute_workflow(
-            SquashPersonOverridesWorkflow.run,
-            inputs,
-            id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-        )
+        with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+            await client.execute_workflow(
+                SquashPersonOverridesWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
     assert_events_have_been_overriden(events_to_override, person_overrides_data)
 
@@ -1142,12 +1147,13 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
-        await client.execute_workflow(
-            SquashPersonOverridesWorkflow.run,
-            inputs,
-            id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-        )
+        with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+            await client.execute_workflow(
+                SquashPersonOverridesWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
     assert_events_have_been_overriden(events_to_override, newer_overrides)
 
@@ -1188,12 +1194,13 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
-        await client.execute_workflow(
-            SquashPersonOverridesWorkflow.run,
-            inputs,
-            id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-        )
+        with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+            await client.execute_workflow(
+                SquashPersonOverridesWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
     with pytest.raises(AssertionError):
         # Some checks will fail as we have limited the teams overriden.

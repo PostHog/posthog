@@ -1,6 +1,5 @@
 import contextlib
 import json
-import os
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -126,7 +125,7 @@ class PersonOverrideToDelete(NamedTuple):
         team_id: The id of the team that the person belongs to.
         old_person_id: The uuid of the person being overriden.
         override_person_id: The uuid of the person used as the override.
-        latest_created_at: The latest override creation date for overrides with this pair of ids.
+        latest_merged_at: The latest override merged timestamp for overrides with this pair of ids.
         latest_version: The latest version for overrides with this pair of ids.
         oldest_event_at: The creation date of the oldest event for old_person_id.
     """
@@ -171,10 +170,11 @@ class QueryInputs:
         partition_ids: When necessary, the partition ids this query should run on.
         person_overrides_to_delete: For delete queries, a list of PersonOverrideToDelete.
         database: The database where the query is supposed to run.
-        user:
-        password:
+        user: Database username required to create a dictionary.
+        password: Database password required to create a dictionary.
         dictionary_name: The name for a dictionary used in the join.
-        _latest_merged_at: A timestamp representing an upper bound for creation.
+        _latest_merged_at: A timestamp representing an upper bound for events to squash. Obtained
+            as the latest timestamp of a person merge.
     """
 
     partition_ids: list[str] = field(default_factory=list)
@@ -415,12 +415,9 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
     """
     activity.logger.info("Deleting squashed persons from Postgres")
 
-    db_name_prefix = "test_" if os.getenv("TEST", os.getenv("DEBUG", False)) is not False else ""
-    DATABASE_URL = os.getenv(
-        "DATABASE_URL",
-        f"postgres://{settings.PG_USER}:{settings.PG_PASSWORD}@{settings.PG_HOST}:{settings.PG_PORT}/{db_name_prefix}{settings.PG_DATABASE}",
-    )
-    with psycopg2.connect(DATABASE_URL) as connection:
+    database_url = settings.DATABASE_URL
+
+    with psycopg2.connect(database_url) as connection:
         with connection.cursor() as cursor:
             for person_override_to_delete in inputs.iter_person_overides_to_delete():
                 activity.logger.debug("%s", person_override_to_delete)
