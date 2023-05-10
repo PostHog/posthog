@@ -1,3 +1,4 @@
+import { captureException } from '@sentry/react'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -318,7 +319,18 @@ export class SessionRecordingBlobIngester {
                 sessionManagerChunksSizes += guesstimates.chunks
                 sessionManagerBufferOffsetsSizes += guesstimates.bufferOffsets
                 sessionManangerBufferSizes += guesstimates.buffer
-                void sessionManager.flushIfSessionIsIdle()
+                void sessionManager.flushIfSessionIsIdle().catch((err) => {
+                    status.error(
+                        '🚽',
+                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
+                        {
+                            err,
+                            session_id: sessionManager.sessionId,
+                        }
+                    )
+                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                    throw err
+                })
             })
 
             status.info('🚛', 'blob_ingester_consumer - session manager size_estimate', {
