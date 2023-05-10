@@ -156,7 +156,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         }
         if (props.id === 'new') {
             actions.resetEarlyAccessFeature()
-            actions.editFeature
         }
     }),
 ])
