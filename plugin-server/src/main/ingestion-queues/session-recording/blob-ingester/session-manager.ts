@@ -48,6 +48,7 @@ async function deleteFile(file: string, context: string) {
                 {
                     err,
                     file,
+                    context,
                 }
             )
             return
@@ -55,6 +56,7 @@ async function deleteFile(file: string, context: string) {
         status.error('🧨', `blob_ingester_session_manager failed deleting file ${context}path: ${file}`, {
             err,
             file,
+            context,
         })
         captureException(err)
         throw err
