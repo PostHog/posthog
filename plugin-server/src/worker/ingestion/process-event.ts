@@ -307,6 +307,10 @@ export const createSessionReplayEvent = (
         .sort()
 
     if (eventsSummaries.length === 0 || timestamps.length === 0) {
+        status.warn('🙈', 'ignoring an empty session recording event', {
+            session_id: properties['$session_id'],
+            properties: properties,
+        })
         return null
     }
 
