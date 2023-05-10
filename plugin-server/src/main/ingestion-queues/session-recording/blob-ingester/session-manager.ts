@@ -194,23 +194,29 @@ export class SessionManager {
     }
 
     private createBuffer(): SessionBuffer {
-        const id = randomUUID()
-        const buffer: SessionBuffer = {
-            id,
-            count: 0,
-            size: 0,
-            oldestKafkaTimestamp: Date.now(),
-            file: path.join(
-                bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                `${this.teamId}.${this.sessionId}.${id}.jsonl`
-            ),
-            offsets: [],
+        try {
+            const id = randomUUID()
+            const buffer: SessionBuffer = {
+                id,
+                count: 0,
+                size: 0,
+                oldestKafkaTimestamp: Date.now(),
+                file: path.join(
+                    bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
+                    `${this.teamId}.${this.sessionId}.${id}.jsonl`
+                ),
+                offsets: [],
+            }
+
+            // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
+            writeFileSync(buffer.file, '', 'utf-8')
+
+            return buffer
+        } catch (e) {
+            status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', e)
+            captureException(e, { tags: { team_id: this.teamId, session_id: this.sessionId } })
+            throw e
         }
-
-        // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
-        writeFileSync(buffer.file, '', 'utf-8')
-
-        return buffer
     }
 
     /**
@@ -270,7 +276,13 @@ export class SessionManager {
         status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
-            .map((x) => deleteFile(x, 'on destroy'))
-        await Promise.all(filePromises)
+            .map((x) =>
+                deleteFile(x, 'on destroy').catch((e) => {
+                    status.error('🧨', 'blob_ingester_session_manager failed deleting session recording buffer', e)
+                    captureException(e, { tags: { team_id: this.teamId, session_id: this.sessionId } })
+                    throw e
+                })
+            )
+        await Promise.allSettled(filePromises)
     }
 }
