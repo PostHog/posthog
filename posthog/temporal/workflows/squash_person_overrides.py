@@ -28,14 +28,14 @@ SELECT
 FROM
     {database}.person_overrides
 WHERE
-    created_at <= %(latest_created_at)s
+    merged_at <= %(latest_merged_at)s
 GROUP BY
     team_id, old_person_id, override_person_id
 """
 
-SELECT_LATEST_CREATED_AT_QUERY = """
+SELECT_LATEST_MERGED_AT_QUERY = """
 SELECT
-    max(created_at)
+    max(merged_at)
 FROM {database}.person_overrides;
 """
 
@@ -61,7 +61,7 @@ IN PARTITION
 WHERE
     dictHas('{database}.{dictionary_name}', (toInt32(team_id), person_id))
     {team_id_filter}
-    AND created_at <= %(latest_created_at)s;
+    AND created_at <= %(latest_merged_at)s;
 """
 
 DROP_DICTIONARY_QUERY = """
@@ -73,7 +73,7 @@ ALTER TABLE
     {database}.person_overrides
 DELETE WHERE
     old_person_id IN %(old_person_ids)s
-    AND merged_at <= %(latest_created_at)s;
+    AND merged_at <= %(latest_merged_at)s;
 """
 
 SELECT_CREATED_AT_FOR_PERSON_EVENT_QUERY = """
@@ -134,7 +134,7 @@ class PersonOverrideToDelete(NamedTuple):
     team_id: int
     old_person_id: UUID
     override_person_id: UUID
-    latest_created_at: datetime
+    latest_merged_at: datetime
     latest_version: int
     oldest_event_at: datetime
 
@@ -158,7 +158,7 @@ class SerializablePersonOverrideToDelete(NamedTuple):
     team_id: int
     old_person_id: UUID
     override_person_id: UUID
-    latest_created_at: str
+    latest_merged_at: str
     latest_version: int
     oldest_event_at: str
 
@@ -174,7 +174,7 @@ class QueryInputs:
         user:
         password:
         dictionary_name: The name for a dictionary used in the join.
-        _latest_created_at: A timestamp representing an upper bound for creation.
+        _latest_merged_at: A timestamp representing an upper bound for creation.
     """
 
     partition_ids: list[str] = field(default_factory=list)
@@ -185,24 +185,24 @@ class QueryInputs:
     password: str = ""
     cluster_name: str = ""
     dictionary_name: str = "person_overrides_join_dict"
-    _latest_created_at: str | datetime | None = None
+    _latest_merged_at: str | datetime | None = None
 
     def __post_init__(self):
-        if isinstance(self._latest_created_at, datetime):
-            self.latest_created_at = self._latest_created_at
+        if isinstance(self._latest_merged_at, datetime):
+            self.latest_merged_at = self._latest_merged_at
 
     @property
-    def latest_created_at(self) -> datetime | None:
-        if isinstance(self._latest_created_at, str):
-            return datetime.fromisoformat(self._latest_created_at)
-        return self._latest_created_at
+    def latest_merged_at(self) -> datetime | None:
+        if isinstance(self._latest_merged_at, str):
+            return datetime.fromisoformat(self._latest_merged_at)
+        return self._latest_merged_at
 
-    @latest_created_at.setter
-    def latest_created_at(self, v: datetime | str | None):
+    @latest_merged_at.setter
+    def latest_merged_at(self, v: datetime | str | None):
         if isinstance(v, datetime):
-            self._latest_created_at = v.isoformat()
+            self._latest_merged_at = v.isoformat()
         else:
-            self._latest_created_at = v
+            self._latest_merged_at = v
 
     def iter_person_overides_to_delete(self) -> Iterable[SerializablePersonOverrideToDelete]:
         """Iterate over SerializablePersonOverrideToDelete ensuring they are of that type.
@@ -259,7 +259,7 @@ async def prepare_dictionary(inputs: QueryInputs) -> str:
     we have started the job.
     """
     activity.logger.info("Preparing DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
-    latest_created_at = sync_execute(SELECT_LATEST_CREATED_AT_QUERY.format(database=inputs.database))[0][0]
+    latest_merged_at = sync_execute(SELECT_LATEST_MERGED_AT_QUERY.format(database=inputs.database))[0][0]
 
     activity.logger.info("Creating DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
     sync_execute(
@@ -272,7 +272,7 @@ async def prepare_dictionary(inputs: QueryInputs) -> str:
         )
     )
 
-    return latest_created_at.isoformat()
+    return latest_merged_at.isoformat()
 
 
 @activity.defn
@@ -300,7 +300,7 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePers
     """
     to_delete_rows = sync_execute(
         SELECT_PERSONS_TO_DELETE_QUERY.format(database=inputs.database),
-        {"latest_created_at": inputs.latest_created_at},
+        {"latest_merged_at": inputs.latest_merged_at},
     )
 
     if not isinstance(to_delete_rows, list):
@@ -386,7 +386,7 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
         activity.logger.info("Executing squash query on partition %s", partition_id)
         sync_execute(
             query,
-            {"partition_id": partition_id, "team_ids": inputs.team_ids, "latest_created_at": inputs.latest_created_at},
+            {"partition_id": partition_id, "team_ids": inputs.team_ids, "latest_merged_at": inputs.latest_merged_at},
         )
 
 
@@ -401,7 +401,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
         DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=inputs.database),
         {
             "old_person_ids": old_person_ids_to_delete,
-            "latest_created_at": inputs.latest_created_at,
+            "latest_merged_at": inputs.latest_merged_at,
         },
     )
 
@@ -674,13 +674,13 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
             workflow,
             query_inputs,
             retry_policy=retry_policy,
-        ) as latest_created_at:
+        ) as latest_merged_at:
             persons_to_delete = await workflow.execute_activity(
                 select_persons_to_delete,
                 QueryInputs(
                     partition_ids=list(inputs.iter_partition_ids()),
                     database=inputs.clickhouse_database,
-                    _latest_created_at=latest_created_at,
+                    _latest_merged_at=latest_merged_at,
                 ),
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=retry_policy,
@@ -697,7 +697,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
                     database=inputs.clickhouse_database,
                     team_ids=inputs.team_ids,
                     dictionary_name=inputs.dictionary_name,
-                    _latest_created_at=latest_created_at,
+                    _latest_merged_at=latest_merged_at,
                 ),
                 start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=retry_policy,
@@ -710,7 +710,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
                 QueryInputs(
                     person_overrides_to_delete=persons_to_delete,
                     database=inputs.clickhouse_database,
-                    _latest_created_at=latest_created_at,
+                    _latest_merged_at=latest_merged_at,
                 ),
                 start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=retry_policy,

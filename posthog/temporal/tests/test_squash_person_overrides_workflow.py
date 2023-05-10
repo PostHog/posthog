@@ -77,8 +77,8 @@ def person_overrides_table():
 PersonOverrideTuple = namedtuple("PersonOverrideTuple", ("old_person_id", "override_person_id"))
 
 
-OVERRIDES_CREATED_AT = datetime.fromisoformat("2020-01-02T00:00:00+00:00")
-OLDEST_EVENT_AT = OVERRIDES_CREATED_AT - timedelta(days=1)
+OVERRIDES_MERGED_AT = datetime.fromisoformat("2020-01-02T00:00:00+00:00")
+OLDEST_EVENT_AT = OVERRIDES_MERGED_AT - timedelta(days=1)
 
 
 @pytest.fixture
@@ -103,9 +103,9 @@ def person_overrides_data(person_overrides_table):
                 "team_id": team_id,
                 "old_person_id": old_person_id,
                 "override_person_id": override_person_id,
-                "merged_at": OVERRIDES_CREATED_AT,
+                "merged_at": OVERRIDES_MERGED_AT,
                 "oldest_event": OLDEST_EVENT_AT,
-                "created_at": OVERRIDES_CREATED_AT,
+                "created_at": OVERRIDES_MERGED_AT,
                 "version": 1,
             }
             all_test_values.append(values)
@@ -131,7 +131,7 @@ async def test_prepare_dictionary(activity_environment, person_overrides_data):
 
     latest_merge_at = await activity_environment.run(prepare_dictionary, query_inputs)
 
-    assert latest_merge_at == OVERRIDES_CREATED_AT.isoformat()
+    assert latest_merge_at == OVERRIDES_MERGED_AT.isoformat()
 
     for team_id, person_overrides in person_overrides_data.items():
         for person_override in person_overrides:
@@ -228,7 +228,7 @@ async def test_prepare_dictionary_with_older_overrides_present(
 
     latest_merge_at = await activity_environment.run(prepare_dictionary, query_inputs)
 
-    assert latest_merge_at == OVERRIDES_CREATED_AT.isoformat()
+    assert latest_merge_at == OVERRIDES_MERGED_AT.isoformat()
 
     for team_id, person_overrides in person_overrides_data.items():
         for person_override in person_overrides:
@@ -308,7 +308,7 @@ async def test_select_persons_to_delete(activity_environment, person_overrides_d
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        _latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_merged_at=OVERRIDES_MERGED_AT,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -318,7 +318,7 @@ async def test_select_persons_to_delete(activity_environment, person_overrides_d
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT.isoformat(),
+            OVERRIDES_MERGED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
         )
@@ -344,7 +344,7 @@ async def test_select_persons_to_delete_selects_persons_in_older_partitions(
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        _latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_merged_at=OVERRIDES_MERGED_AT,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -354,7 +354,7 @@ async def test_select_persons_to_delete_selects_persons_in_older_partitions(
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT.isoformat(),
+            OVERRIDES_MERGED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
         )
@@ -392,7 +392,7 @@ async def test_select_persons_to_squash_with_empty_table(activity_environment, p
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        _latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_merged_at=OVERRIDES_MERGED_AT,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -412,7 +412,7 @@ async def test_select_persons_to_squash_with_different_partition(activity_enviro
     query_inputs = QueryInputs(
         partition_ids=["202002"],
         database=settings.CLICKHOUSE_DATABASE,
-        _latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_merged_at=OVERRIDES_MERGED_AT,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -441,9 +441,9 @@ async def test_select_persons_to_delete_with_newer_merges(activity_environment, 
                 "old_person_id": old_person_id,
                 "override_person_id": override_person_id,
                 # But happened an hour after
-                "merged_at": OVERRIDES_CREATED_AT + timedelta(hours=1),
+                "merged_at": OVERRIDES_MERGED_AT + timedelta(hours=1),
                 "oldest_event": OLDEST_EVENT_AT + timedelta(hours=1),
-                "created_at": OVERRIDES_CREATED_AT + timedelta(hours=1),
+                "created_at": OVERRIDES_MERGED_AT + timedelta(hours=1),
                 "version": 1,
             }
 
@@ -455,8 +455,8 @@ async def test_select_persons_to_delete_with_newer_merges(activity_environment, 
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        # Our latest_created_at is before the newer values happened
-        _latest_created_at=OVERRIDES_CREATED_AT,
+        # Our latest_merged_at is before the newer values happened
+        _latest_merged_at=OVERRIDES_MERGED_AT,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -466,7 +466,7 @@ async def test_select_persons_to_delete_with_newer_merges(activity_environment, 
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT.isoformat(),
+            OVERRIDES_MERGED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
         )
@@ -562,7 +562,7 @@ async def test_squash_events_partition(activity_environment, person_overrides_da
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
-        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -592,7 +592,7 @@ async def test_squash_events_partition_with_older_overrides(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
-        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -622,7 +622,7 @@ async def test_squash_events_partition_with_newer_overrides(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
-        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -651,8 +651,8 @@ async def test_squash_events_partition_with_limited_team_ids(
         cluster_name=settings.CLICKHOUSE_CLUSTER,
         team_ids=[random_team],
     )
-    latest_created_at = await activity_environment.run(prepare_dictionary, query_inputs)
-    query_inputs._latest_created_at = latest_created_at
+    latest_merged_at = await activity_environment.run(prepare_dictionary, query_inputs)
+    query_inputs._latest_merged_at = latest_merged_at
 
     await activity_environment.run(squash_events_partition, query_inputs)
 
@@ -683,7 +683,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT.isoformat(),
+            OVERRIDES_MERGED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
         )
@@ -695,7 +695,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
         partition_ids=["202001"],
         person_overrides_to_delete=persons_to_delete,
         database=settings.CLICKHOUSE_DATABASE,
-        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
     )
 
     not_overriden_id = uuid4()
@@ -703,9 +703,9 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
         "team_id": 1,
         "old_person_id": not_overriden_id,
         "override_person_id": uuid4(),
-        "merged_at": OVERRIDES_CREATED_AT,
+        "merged_at": OVERRIDES_MERGED_AT,
         "oldest_event": OLDEST_EVENT_AT,
-        "created_at": OVERRIDES_CREATED_AT,
+        "created_at": OVERRIDES_MERGED_AT,
         "version": 1,
     }
 
@@ -956,7 +956,7 @@ async def test_delete_squashed_person_overrides_from_postgres(activity_environme
                 team_id,
                 person_overrides.old_person_id,
                 person_overrides.override_person_id,
-                OVERRIDES_CREATED_AT.isoformat(),
+                OVERRIDES_MERGED_AT.isoformat(),
                 1,
                 OLDEST_EVENT_AT.isoformat(),
             )
@@ -1026,7 +1026,7 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
                 team_id,
                 person_overrides.old_person_id,
                 person_overrides.override_person_id,
-                OVERRIDES_CREATED_AT.isoformat(),
+                OVERRIDES_MERGED_AT.isoformat(),
                 1,
                 OLDEST_EVENT_AT.isoformat(),
             )
