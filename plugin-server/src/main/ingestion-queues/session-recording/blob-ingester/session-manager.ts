@@ -217,12 +217,11 @@ export class SessionManager {
      * Full messages (all chunks) are added to the buffer directly
      */
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
-        const content = JSON.stringify(convertToPersistedMessage(message)) + '\n'
-        this.buffer.count += 1
-        this.buffer.size += Buffer.byteLength(content)
-        this.buffer.offsets.push(message.metadata.offset)
-
         try {
+            const content = JSON.stringify(convertToPersistedMessage(message)) + '\n'
+            this.buffer.count += 1
+            this.buffer.size += Buffer.byteLength(content)
+            this.buffer.offsets.push(message.metadata.offset)
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (e) {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', e)
