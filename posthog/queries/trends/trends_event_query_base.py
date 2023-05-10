@@ -79,7 +79,9 @@ class TrendsEventQueryBase(EventQuery):
             *COUNT_PER_ACTOR_MATH_FUNCTIONS.keys(),
         )
         if (
-            is_entity_per_user and not self._aggregate_users_by_distinct_id
+            is_entity_per_user
+            and not self._aggregate_users_by_distinct_id
+            and self._entity.math_group_type_index is None
         ) or self._column_optimizer.is_using_cohort_propertes:
             self._should_join_distinct_ids = True
 
