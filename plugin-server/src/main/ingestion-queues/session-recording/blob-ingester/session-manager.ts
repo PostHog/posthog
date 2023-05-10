@@ -37,18 +37,25 @@ type SessionBuffer = {
     offsets: number[]
 }
 
-async function deleteFile(file: string) {
+async function deleteFile(file: string, context: string) {
     try {
         await unlink(file)
     } catch (err) {
         if (err && err.code === 'ENOENT') {
-            status.warn('⚠️', 'blob_ingester_session_manager failed deleting file ' + file + ', file not found', {
-                err,
-                file,
-            })
+            status.warn(
+                '⚠️',
+                `blob_ingester_session_manager failed deleting file ${context} path: ${file}, file not found`,
+                {
+                    err,
+                    file,
+                }
+            )
             return
         }
-        status.error('🧨', 'blob_ingester_session_manager failed deleting file ' + file, { err, file })
+        status.error('🧨', `blob_ingester_session_manager failed deleting file ${context}path: ${file}`, {
+            err,
+            file,
+        })
         captureException(err)
         throw err
     }
@@ -164,6 +171,7 @@ export class SessionManager {
                 },
             })
             await parallelUploads3.done()
+            fileStream.close()
 
             counterS3FilesWritten.inc(1)
             status.info('🚽', `blob_ingester_session_manager Flushed buffer ${this.sessionId}`)
@@ -173,7 +181,7 @@ export class SessionManager {
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
-            await deleteFile(this.flushBuffer.file)
+            await deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
@@ -261,7 +269,7 @@ export class SessionManager {
         status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
-            .map((x) => deleteFile(x))
+            .map((x) => deleteFile(x, 'on destroy'))
         await Promise.all(filePromises)
     }
 }
