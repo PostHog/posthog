@@ -226,7 +226,7 @@ export class SessionManager {
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (e) {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', e)
-            captureException(e)
+            captureException(e, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw e
         }
     }
