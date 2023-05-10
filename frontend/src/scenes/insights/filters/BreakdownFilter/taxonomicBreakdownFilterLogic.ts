@@ -21,6 +21,7 @@ export type TaxonomicBreakdownFilterLogicProps = {
     isTrends: boolean
     updateBreakdown: ((breakdown: BreakdownFilter) => void) | null
     updateDisplay: ((display: ChartDisplayType | undefined) => void) | null
+    isDataExploration: boolean
 }
 
 export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicType>([
@@ -134,13 +135,14 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             } else {
                 props.updateBreakdown({
                     ...props.breakdownFilter,
+                    ...(!props.isDataExploration ? { display: undefined } : {}),
                     breakdown: undefined,
                     breakdown_type: undefined,
                     breakdown_histogram_bin_count: undefined,
                 })
 
                 // Make sure we are no longer in map view after removing the Country Code breakdown
-                if (props.isTrends && props.display === ChartDisplayType.WorldMap) {
+                if (props.isDataExploration && props.isTrends && props.display === ChartDisplayType.WorldMap) {
                     props.updateDisplay?.(undefined)
                 }
             }
