@@ -39,6 +39,7 @@ type SessionBuffer = {
 async function deleteFile(file: string, context: string) {
     try {
         await unlink(file)
+        status.info('🗑️', `blob_ingester_session_manager deleted file ${context}`, { file, context })
     } catch (err) {
         if (err && err.code === 'ENOENT') {
             status.warn(
