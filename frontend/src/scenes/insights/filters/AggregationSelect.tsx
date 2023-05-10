@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonTextArea } from '@posthog/lemon-ui'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -10,6 +10,7 @@ import { isFunnelsQuery, isInsightQueryNode } from '~/queries/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
+import { useEffect, useState } from 'react'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
@@ -124,24 +125,21 @@ function AggregationSelectComponent({
 }: AggregationSelectComponentProps): JSX.Element {
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
+    const [localValue, setLocalValue] = useState(value)
+    useEffect(() => {
+        setLocalValue(value)
+    }, [value])
 
-    const optionSections: LemonSelectSection<string>[] = [
+    const options: { value: string; label: string }[] = [
         {
-            title: 'Event Aggregation',
-            options: [
-                {
-                    value: UNIQUE_USERS,
-                    label: 'Unique users',
-                },
-            ],
+            value: UNIQUE_USERS,
+            label: 'Unique users',
         },
     ]
 
-    if (needsUpgradeForGroups || canStartUsingGroups) {
-        optionSections[0].footer = <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
-    } else {
+    if (!needsUpgradeForGroups && !canStartUsingGroups) {
         groupTypes.forEach((groupType) => {
-            optionSections[0].options.push({
+            options.push({
                 value: `$group_${groupType.group_type_index}`,
                 label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
             })
@@ -149,24 +147,109 @@ function AggregationSelectComponent({
     }
 
     if (hogqlAvailable) {
-        optionSections[0].options.push({
+        options.push({
             value: `properties.$session_id`,
             label: `Unique sessions`,
         })
     }
 
+    const selectedLabel = options.find((o) => o.value === value)?.label ?? value
+
+    const [open, setOpen] = useState(false)
+    const [hogQLOpen, setHogQLOpen] = useState(false)
+    const closeBoth = (): void => {
+        setOpen(false)
+        setHogQLOpen(false)
+    }
+
     return (
-        <LemonSelect
+        <LemonButtonWithDropdown
+            status="stealth"
+            type="secondary"
+            onClick={() => setOpen(!open)}
             className={className}
-            value={value}
-            onChange={(newValue) => {
-                if (newValue !== null) {
-                    onChange(newValue)
-                }
+            dropdown={{
+                actionable: true,
+                onClickOutside: closeBoth,
+                closeOnClickInside: false,
+                visible: open,
+                overlay: (
+                    <>
+                        {options.map((option) => (
+                            <LemonButton
+                                key={option.value}
+                                onClick={() => {
+                                    onChange(option.value)
+                                    closeBoth()
+                                }}
+                                status="stealth"
+                                fullWidth
+                                active={option.value === value}
+                            >
+                                {option.label}
+                            </LemonButton>
+                        ))}
+                        <LemonButtonWithDropdown
+                            status="stealth"
+                            onClick={() => setHogQLOpen(!hogQLOpen)}
+                            active={selectedLabel === value}
+                            fullWidth
+                            dropdown={{
+                                actionable: true,
+                                closeParentPopoverOnClickInside: false,
+                                closeOnClickInside: false,
+                                visible: hogQLOpen,
+                                overlay: (
+                                    <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                        <LemonTextArea
+                                            data-attr="inline-hogql-editor"
+                                            value={String(localValue ?? '')}
+                                            onChange={(e) => setLocalValue(e)}
+                                            onFocus={(e) => {
+                                                // move caret to end of input
+                                                const val = e.target.value
+                                                e.target.value = ''
+                                                e.target.value = val
+                                            }}
+                                            className="font-mono"
+                                            minRows={6}
+                                            maxRows={6}
+                                            autoFocus
+                                            placeholder={
+                                                'Enter HogQL Expression. Person property access is not enabled.'
+                                            }
+                                        />
+                                        <LemonButton
+                                            fullWidth
+                                            type="primary"
+                                            onClick={() => {
+                                                onChange(String(localValue))
+                                                closeBoth()
+                                            }}
+                                            disabled={!localValue}
+                                            center
+                                        >
+                                            Aggregate by HogQL expression
+                                        </LemonButton>
+                                        <div className="text-right">
+                                            <a href="https://posthog.com/manual/hogql" target={'_blank'}>
+                                                Learn more about HogQL
+                                            </a>
+                                        </div>
+                                    </div>
+                                ),
+                            }}
+                        >
+                            Custom HogQL expression
+                        </LemonButtonWithDropdown>
+                        {needsUpgradeForGroups || canStartUsingGroups ? (
+                            <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
+                        ) : null}
+                    </>
+                ),
             }}
-            data-attr="retention-aggregation-selector"
-            dropdownMatchSelectWidth={false}
-            options={optionSections}
-        />
+        >
+            {selectedLabel}
+        </LemonButtonWithDropdown>
     )
 }
