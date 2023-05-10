@@ -24,14 +24,23 @@ describe('eachBatchIngestionWithOverflow', () => {
     let queue: any
 
     function createBatchWithMultipleEventsWithKeys(events: any[], timestamp?: any): any {
-        return events.map((event) => ({
-            partition: 0,
-            topic: KAFKA_EVENTS_PLUGIN_INGESTION,
-            value: JSON.stringify(event),
-            timestamp,
-            offset: event.offset,
-            key: event.team_id + ':' + event.distinct_id,
-        }))
+        return {
+            batch: {
+                partition: 0,
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                messages: events.map((event) => ({
+                    value: JSON.stringify(event),
+                    timestamp,
+                    offset: event.offset,
+                    key: event.team_id + ':' + event.distinct_id,
+                })),
+            },
+            resolveOffset: jest.fn(),
+            heartbeat: jest.fn(),
+            commitOffsetsIfNecessary: jest.fn(),
+            isRunning: jest.fn(() => true),
+            isStale: jest.fn(() => false),
+        }
     }
 
     beforeEach(() => {
@@ -48,7 +57,7 @@ describe('eachBatchIngestionWithOverflow', () => {
                     gauge: jest.fn(),
                 },
                 kafkaProducer: {
-                    produce: jest.fn(),
+                    queueMessage: jest.fn(),
                 },
                 db: 'database',
             },
@@ -70,12 +79,16 @@ describe('eachBatchIngestionWithOverflow', () => {
             1
         )
         expect(captureIngestionWarning).not.toHaveBeenCalled()
-        expect(queue.pluginsServer.kafkaProducer.produce).toHaveBeenCalledWith({
+        expect(queue.pluginsServer.kafkaProducer.queueMessage).toHaveBeenCalledWith({
             topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-            value: JSON.stringify(captureEndpointEvent),
-            timestamp: captureEndpointEvent['timestamp'],
-            offset: captureEndpointEvent['offset'],
-            key: null,
+            messages: [
+                {
+                    value: JSON.stringify(captureEndpointEvent),
+                    timestamp: captureEndpointEvent['timestamp'],
+                    offset: captureEndpointEvent['offset'],
+                    key: null,
+                },
+            ],
         })
     })
 
@@ -90,7 +103,7 @@ describe('eachBatchIngestionWithOverflow', () => {
             1
         )
         expect(captureIngestionWarning).not.toHaveBeenCalled()
-        expect(queue.pluginsServer.kafkaProducer.produce).not.toHaveBeenCalled()
+        expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
     })
 
     it('does not run the rest of the pipeline if overflowing', async () => {
@@ -103,12 +116,16 @@ describe('eachBatchIngestionWithOverflow', () => {
             captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
             1
         )
-        expect(queue.pluginsServer.kafkaProducer.produce).toHaveBeenCalledWith({
+        expect(queue.pluginsServer.kafkaProducer.queueMessage).toHaveBeenCalledWith({
             topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-            value: JSON.stringify(captureEndpointEvent),
-            timestamp: captureEndpointEvent['timestamp'],
-            offset: captureEndpointEvent['offset'],
-            key: null,
+            messages: [
+                {
+                    value: JSON.stringify(captureEndpointEvent),
+                    timestamp: captureEndpointEvent['timestamp'],
+                    offset: captureEndpointEvent['offset'],
+                    key: null,
+                },
+            ],
         })
         // This is "the rest of the pipeline"
         expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
