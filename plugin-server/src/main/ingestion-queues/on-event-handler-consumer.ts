@@ -4,7 +4,6 @@ import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-to
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
-import { makeHealthCheck } from './analytics-events-ingestion-consumer'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { IngestionConsumer } from './kafka-queue'
 
@@ -34,9 +33,7 @@ export const startOnEventHandlerConsumer = async ({
         await queue.emitConsumerGroupMetrics()
     })
 
-    const isHealthy = makeHealthCheck(queue)
-
-    return { queue, isHealthy: () => isHealthy() }
+    return queue
 }
 
 export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {

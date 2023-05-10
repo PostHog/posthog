@@ -102,6 +102,16 @@ export class IngestionConsumer {
         return await startPromise
     }
 
+    isReady: () => boolean = () => this.consumerReady
+
+    isHealthy: () => boolean = () => this.consumerGroupMemberId !== null
+
+    join(): Promise<void> {
+        return new Promise((resolve) => {
+            this.consumer.on(this.consumer.events.STOP, () => resolve())
+        })
+    }
+
     async eachBatchConsumer(payload: EachBatchPayload): Promise<void> {
         const topic = payload.batch.topic
         await instrumentEachBatch(topic, (payload) => this.eachBatch(payload, this), payload, this.pluginsServer.statsd)

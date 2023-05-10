@@ -16,40 +16,48 @@ export const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
     // Creates a node-rdkafka consumer and connects it to the brokers, resolving
     // only when the connection is established.
 
-    return await new Promise<RdKafkaConsumer>((resolve, reject) => {
-        const consumer = new RdKafkaConsumer(config, {})
+    const consumer = new RdKafkaConsumer(config, {})
 
-        consumer.on('event.log', (log) => {
-            status.info('📝', 'librdkafka log', { log: log })
-        })
+    consumer.on('event.log', (log) => {
+        status.info('📝', 'librdkafka log', { log: log })
+    })
 
-        consumer.on('event.error', (error: LibrdKafkaError) => {
-            status.error('📝', 'librdkafka error', { log: error })
-        })
+    consumer.on('event.error', (error: LibrdKafkaError) => {
+        status.error('📝', 'librdkafka error', { log: error })
+    })
 
-        consumer.on('subscribed', (topics) => {
-            status.info('📝', 'librdkafka consumer subscribed', { topics })
-        })
+    consumer.on('subscribed', (topics) => {
+        status.info('📝', 'librdkafka consumer subscribed', { topics })
+    })
 
-        consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
-            status.error('📝', 'librdkafka connection failure', { error, metrics })
-        })
+    consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
+        status.error('📝', 'librdkafka connection failure', { error, metrics })
+    })
 
-        consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
-            if (error) {
-                status.warn('📝', 'librdkafka_offet_commit_error', { error, topicPartitionOffsets })
-            } else {
-                status.debug('📝', 'librdkafka_offset_commit', { topicPartitionOffsets })
-            }
-        })
+    consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
+        if (error) {
+            status.warn('📝', 'librdkafka_offet_commit_error', { error, topicPartitionOffsets })
+        } else {
+            status.debug('📝', 'librdkafka_offset_commit', { topicPartitionOffsets })
+        }
+    })
 
+    const isReady = () => {
+        // Returns true if the consumer is ready to consume messages.
+        // Intended for use a k8s readiness probe, but also useful for other
+        // cases such as waiting for the consumer to be ready before
+        // running tests.
+        return consumer.assignments().length > 0
+    }
+
+    return await new Promise<{ consumer: RdKafkaConsumer; isReady: () => boolean }>((resolve, reject) => {
         consumer.connect({}, (error, data) => {
             if (error) {
                 status.error('⚠️', 'connect_error', { error: error })
                 reject(error)
             } else {
                 status.info('📝', 'librdkafka consumer connected', { brokers: data?.brokers })
-                resolve(consumer)
+                resolve({ consumer, isReady })
             }
         })
     })

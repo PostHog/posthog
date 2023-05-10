@@ -16,6 +16,7 @@ export interface BatchConsumer {
     join: () => Promise<void>
     stop: () => Promise<void>
     isHealthy: () => boolean
+    isReady: () => boolean
 }
 
 export const startBatchConsumer = async ({
@@ -61,7 +62,7 @@ export const startBatchConsumer = async ({
     //
     // We also instrument the consumer with Prometheus metrics, which are
     // exposed on the /_metrics endpoint by the global prom-client registry.
-    const consumer = await createKafkaConsumer({
+    const { consumer, isReady } = await createKafkaConsumer({
         ...connectionConfig,
         'group.id': groupId,
         'session.timeout.ms': sessionTimeout,
@@ -210,7 +211,7 @@ export const startBatchConsumer = async ({
         }
     }
 
-    return { isHealthy, stop, join, consumer }
+    return { isHealthy, stop, join, consumer, isReady }
 }
 
 export const consumerBatchSize = new Histogram({

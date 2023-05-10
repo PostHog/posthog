@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { Consumer, KafkaJSProtocolError } from 'kafkajs'
+import { KafkaJSProtocolError } from 'kafkajs'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
@@ -83,21 +83,6 @@ export async function startPluginsServer(
     // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
     //    listening.
     let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
-    let analyticsEventsIngestionOverflowConsumer: IngestionConsumer | undefined
-
-    let onEventHandlerConsumer: IngestionConsumer | undefined
-
-    // Kafka consumer. Handles events that we couldn't find an existing person
-    // to associate. The buffer handles delaying the ingestion of these events
-    // (default 60 seconds) to allow for the person to be created in the
-    // meantime.
-    let bufferConsumer: Consumer | undefined
-    let stopSessionRecordingEventsConsumer: (() => void) | undefined
-    let stopSessionRecordingBlobConsumer: (() => void) | undefined
-    let joinSessionRecordingEventsConsumer: ((timeout?: number) => Promise<void>) | undefined
-    let joinSessionRecordingBlobConsumer: ((timeout?: number) => Promise<void>) | undefined
-    let jobsConsumer: Consumer | undefined
-    let schedulerTasksConsumer: Consumer | undefined
 
     let httpServer: Server | undefined // healthcheck server
 
@@ -128,14 +113,7 @@ export async function startPluginsServer(
         await Promise.allSettled([
             pubSub?.stop(),
             graphileWorker?.stop(),
-            analyticsEventsIngestionConsumer?.stop(),
-            analyticsEventsIngestionOverflowConsumer?.stop(),
-            onEventHandlerConsumer?.stop(),
-            bufferConsumer?.disconnect(),
-            jobsConsumer?.disconnect(),
-            stopSessionRecordingEventsConsumer?.(),
-            stopSessionRecordingBlobConsumer?.(),
-            schedulerTasksConsumer?.disconnect(),
+            ...Object.values(services).map(({ stop }) => stop()),
         ])
 
         if (piscina) {
@@ -211,7 +189,14 @@ export async function startPluginsServer(
     // health of the plugin-server. These are used by the /_health endpoint
     // to determine if we should trigger a restart of the pod. These should
     // be super lightweight and ideally not do any IO.
-    const healthChecks: { [service: string]: () => Promise<boolean> | boolean } = {}
+    const services: {
+        [service: string]: {
+            isHealthy: () => Promise<boolean> | boolean
+            isReady: () => Promise<boolean> | boolean
+            stop: () => Promise<void>
+            join: () => Promise<void>
+        }
+    } = {}
 
     try {
         // Based on the mode the plugin server was started, we start a number of
@@ -244,7 +229,7 @@ export async function startPluginsServer(
             status.info('👷', 'Graphile worker is ready!')
 
             if (capabilities.pluginScheduledTasks) {
-                schedulerTasksConsumer = await startScheduledTasksConsumer({
+                services['scheduled-tasks-consumer'] = await startScheduledTasksConsumer({
                     piscina: piscina,
                     producer: hub.kafkaProducer,
                     kafka: hub.kafka,
@@ -254,7 +239,7 @@ export async function startPluginsServer(
             }
 
             if (capabilities.processPluginJobs) {
-                jobsConsumer = await startJobsConsumer({
+                services['jobs-consumer'] = await startJobsConsumer({
                     kafka: hub.kafka,
                     producer: hub.kafkaProducer,
                     graphileWorker: graphileWorker,
@@ -266,17 +251,11 @@ export async function startPluginsServer(
         if (capabilities.ingestion) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
-
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(
-                {
-                    hub: hub,
-                    piscina: piscina,
-                }
-            )
-
-            analyticsEventsIngestionConsumer = queue
-            healthChecks['analytics-ingestion'] = isAnalyticsEventsIngestionHealthy
+            services['analytics-ingestion'] = await startAnalyticsEventsIngestionConsumer({
+                hub: hub,
+                piscina: piscina,
+            })
         }
 
         if (capabilities.ingestionOverflow) {
@@ -284,7 +263,7 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            analyticsEventsIngestionOverflowConsumer = await startAnalyticsEventsIngestionOverflowConsumer({
+            services['analytics-ingestion-overflow'] = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
                 piscina: piscina,
             })
@@ -295,14 +274,10 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startOnEventHandlerConsumer({
+            services['on-event-ingestion'] = await startOnEventHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
             })
-
-            onEventHandlerConsumer = onEventQueue
-
-            healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
         }
 
         // If we have
@@ -395,11 +370,8 @@ export async function startPluginsServer(
         if (capabilities.sessionRecordingIngestion) {
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const {
-                stop,
-                isHealthy: isSessionRecordingsHealthy,
-                join,
-            } = await startSessionRecordingEventsConsumer({
+
+            services['session-recordings'] = await startSessionRecordingEventsConsumer({
                 teamManager: teamManager,
                 kafkaConfig: serverConfig as KafkaConfig,
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
@@ -407,9 +379,6 @@ export async function startPluginsServer(
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
                 summaryIngestionEnabledTeams: serverConfig.SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS,
             })
-            stopSessionRecordingEventsConsumer = stop
-            joinSessionRecordingEventsConsumer = join
-            healthChecks['session-recordings'] = isSessionRecordingsHealthy
         }
 
         if (capabilities.sessionRecordingBlobIngestion) {
@@ -423,14 +392,12 @@ export async function startPluginsServer(
             await ingester.start()
             const batchConsumer = ingester.batchConsumer
             if (batchConsumer) {
-                stopSessionRecordingBlobConsumer = () => ingester.stop()
-                joinSessionRecordingBlobConsumer = () => batchConsumer.join()
-                healthChecks['session-recordings-blob'] = () => batchConsumer.isHealthy() ?? false
+                services['session-recordings-blob'] = batchConsumer
             }
         }
 
         if (capabilities.http) {
-            httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer)
+            httpServer = createHttpServer(services)
         }
 
         // If session recordings consumer is defined, then join it. If join
@@ -451,12 +418,8 @@ export async function startPluginsServer(
         //      await closeJobs()
         // }
         // ```
-        if (joinSessionRecordingEventsConsumer) {
-            joinSessionRecordingEventsConsumer().catch(closeJobs)
-        }
-        if (joinSessionRecordingBlobConsumer) {
-            joinSessionRecordingBlobConsumer().catch(closeJobs)
-        }
+
+        await Promise.all(Object.values(services).map(({ join }) => join?.()))
 
         return serverInstance ?? { stop: closeJobs }
     } catch (error) {

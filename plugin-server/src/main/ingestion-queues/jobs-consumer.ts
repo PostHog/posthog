@@ -118,10 +118,23 @@ export const startJobsConsumer = async ({
         },
     })
 
+    let hasJoined = false
+    consumer.on(consumer.events.GROUP_JOIN, () => {
+        hasJoined = true
+    })
+
     return {
-        ...consumer,
+        isReady: () => {
+            return hasJoined
+        },
+        isHealthy: () => {
+            return true
+        },
         stop: async () => {
             await consumer.stop()
+        },
+        join: async () => {
+            return await new Promise<void>((resolve) => consumer.on(consumer.events.STOP, () => resolve()))
         },
     }
 }
