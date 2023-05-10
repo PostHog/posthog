@@ -208,13 +208,20 @@ class SessionRecording(UUIDModel):
             recording.keypress_count = ch_recording["keypress_count"]
             recording.duration = ch_recording["duration"]
             recording.distinct_id = ch_recording["distinct_id"]
-            recording.matching_events = ch_recording["matching_events"]
-            recording.set_start_url_from_urls(ch_recording["urls"])
+            recording.matching_events = ch_recording.get("matching_events", None)
+            # TODO add these new fields when we can add postgres migrations again
+            # recording.mouse_activity_count = ch_recording.get('mouse_activity_count', 0)
+            # recording.active_time = ch_recording.get('active_time', 0)
+            recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recordings.append(recording)
 
         return recordings
 
-    def set_start_url_from_urls(self, urls: Optional[List[str]] = None):
+    def set_start_url_from_urls(self, urls: Optional[List[str]] = None, first_url: Optional[str] = None):
+        if first_url:
+            self.start_url = first_url[:512]
+            return
+
         url = urls[0] if urls else None
         self.start_url = url.split("?")[0][:512] if url else None
 

@@ -362,7 +362,7 @@ export enum ActionStepUrlMatching {
 }
 
 export interface ActionStepType {
-    event?: string
+    event?: string | null
     href?: string | null
     id?: number
     name?: string
@@ -700,7 +700,6 @@ export interface Entity {
 export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
-    NEW_ENTITY = 'new_entity',
 }
 
 export type EntityFilter = {
@@ -1063,7 +1062,7 @@ export interface BillingV2TierType {
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
-    projected_amount_usd: number | null
+    projected_amount_usd: string | null
     up_to: number | null
 }
 
@@ -1984,7 +1983,6 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
-    feature_preview?: string
 }
 
 export interface MultivariateFlagVariant {
@@ -2002,6 +2000,7 @@ export interface FeatureFlagFilters {
     multivariate: MultivariateFlagOptions | null
     aggregation_group_type_index?: number | null
     payloads: Record<string, JsonType>
+    super_groups?: FeatureFlagGroupType[]
 }
 
 export interface FeatureFlagBasicType {
@@ -2044,13 +2043,20 @@ export interface CombinedFeatureFlagAndValueType {
     value: boolean | string
 }
 
+export enum EarlyAccessFeatureStage {
+    Concept = 'concept',
+    Alpha = 'alpha',
+    Beta = 'beta',
+    GeneralAvailability = 'general-availability',
+}
+
 export interface EarlyAccsesFeatureType {
     /** UUID */
     id: string
     feature_flag: FeatureFlagBasicType
     name: string
     description: string
-    stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
+    stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string
@@ -2687,7 +2693,13 @@ export type OnlineExportContext = {
     max_limit?: number
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext
+export type QueryExportContext = {
+    source: Record<string, any>
+    filename?: string
+    max_limit?: number
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
 
 export interface ExportedAssetType {
     id: number

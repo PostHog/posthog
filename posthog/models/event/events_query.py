@@ -139,7 +139,7 @@ def run_events_query(
         offset=ast.Constant(value=offset),
     )
 
-    query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.OFFLINE, query_type="EventsQuery")
+    query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.ONLINE, query_type="EventsQuery")
 
     # Convert star field from tuple to dict in each result
     if "*" in select_input_raw:

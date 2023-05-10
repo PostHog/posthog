@@ -33,7 +33,34 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "concept"
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert isinstance(response_data["created_at"], str)
+
+    def test_can_promote_early_access_feature(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling",
+                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
+                "stage": "concept",
+                "feature_flag_key": "hick-bondoogling",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/{str(response_data['id'])}/promote/",
+            format="json",
+        )
+        response_data = response.json()
+
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert response_data["feature_flag"]["filters"]["super_groups"][0]["properties"] == []
+        assert response_data["feature_flag"]["filters"]["super_groups"][0]["rollout_percentage"] == 100
 
     def test_can_edit_feature(self):
         feature = EarlyAccessFeature.objects.create(

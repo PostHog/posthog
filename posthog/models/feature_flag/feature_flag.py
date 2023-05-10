@@ -65,6 +65,11 @@ class FeatureFlag(models.Model):
         return self.get_filters().get("groups", []) or []
 
     @property
+    def super_conditions(self):
+        "Each feature flag can have multiple super conditions to match, they are OR-ed together."
+        return self.get_filters().get("super_groups", []) or []
+
+    @property
     def _payloads(self):
         return self.get_filters().get("payloads", {}) or {}
 

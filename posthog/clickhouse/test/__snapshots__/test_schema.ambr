@@ -318,6 +318,25 @@
   
   '
 ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_session_replay_events ON CLUSTER 'posthog'
+  (
+      session_id VARCHAR,
+      team_id Int64,
+      distinct_id VARCHAR,
+      first_timestamp DateTime64(6, 'UTC'),
+      last_timestamp DateTime64(6, 'UTC'),
+      first_url Nullable(VARCHAR),
+      click_count Int64,
+      keypress_count Int64,
+      mouse_activity_count Int64,
+      active_milliseconds Int64
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_table_query[app_metrics]
   '
   
@@ -880,6 +899,25 @@
   
   '
 ---
+# name: test_create_table_query[kafka_session_replay_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_session_replay_events ON CLUSTER 'posthog'
+  (
+      session_id VARCHAR,
+      team_id Int64,
+      distinct_id VARCHAR,
+      first_timestamp DateTime64(6, 'UTC'),
+      last_timestamp DateTime64(6, 'UTC'),
+      first_url Nullable(VARCHAR),
+      click_count Int64,
+      keypress_count Int64,
+      mouse_activity_count Int64,
+      active_milliseconds Int64
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_table_query[performance_events]
   '
   
@@ -1273,6 +1311,60 @@
   
   '
 ---
+# name: test_create_table_query[session_replay_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS session_replay_events ON CLUSTER 'posthog'
+  (
+      -- part of order by so will aggregate correctly
+      session_id VARCHAR,
+      -- part of order by so will aggregate correctly
+      team_id Int64,
+      -- ClickHouse will pick any value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
+      distinct_id VARCHAR,
+      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+      click_count SimpleAggregateFunction(sum, Int64),
+      keypress_count SimpleAggregateFunction(sum, Int64),
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      active_milliseconds SimpleAggregateFunction(sum, Int64)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
+  
+  '
+---
+# name: test_create_table_query[session_replay_events_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER 'posthog'
+  TO posthog_test.writable_session_replay_events
+  AS SELECT
+  session_id,
+  team_id,
+  any(distinct_id) as distinct_id,
+  min(first_timestamp) AS min_first_timestamp,
+  max(last_timestamp) AS max_last_timestamp,
+  -- TRICKY: ClickHouse will pick a relatively random first_url
+  -- when it collapses the aggregating merge tree
+  -- unless we teach it what we want...
+  -- argMin ignores null values
+  -- so this will get the first non-null value of first_url
+  -- for each group of session_id and team_id
+  -- by min of first_timestamp in the batch
+  -- this is an aggregate function, not a simple aggregate function
+  -- so we have to write to argMinState, and query with argMinMerge
+  argMinState(first_url, first_timestamp) as first_url,
+  sum(click_count) as click_count,
+  sum(keypress_count) as keypress_count,
+  sum(mouse_activity_count) as mouse_activity_count,
+  sum(active_milliseconds) as active_milliseconds
+  FROM posthog_test.kafka_session_replay_events
+  group by session_id, team_id
+  
+  '
+---
 # name: test_create_table_query[sharded_app_metrics]
   '
   
@@ -1471,6 +1563,44 @@
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   
+  SETTINGS index_granularity=512
+  
+  '
+---
+# name: test_create_table_query[sharded_session_replay_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS sharded_session_replay_events ON CLUSTER 'posthog'
+  (
+      -- part of order by so will aggregate correctly
+      session_id VARCHAR,
+      -- part of order by so will aggregate correctly
+      team_id Int64,
+      -- ClickHouse will pick any value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
+      distinct_id VARCHAR,
+      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+      click_count SimpleAggregateFunction(sum, Int64),
+      keypress_count SimpleAggregateFunction(sum, Int64),
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      active_milliseconds SimpleAggregateFunction(sum, Int64)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
+  
+      PARTITION BY toYYYYMM(min_first_timestamp)
+      -- order by is used by the aggregating merge tree engine to
+      -- identify candidates to merge, e.g. toDate(min_first_timestamp)
+      -- would mean we would have one row per day per session_id
+      -- if CH could completely merge to match the order by
+      -- it is also used to organise data to make queries faster
+      -- we want the fewest rows possible but also the fastest queries
+      -- since we query by date and not by time
+      -- and order by must be in order of increasing cardinality
+      -- so we order by date first, then team_id, then session_id
+      -- hopefully, this is a good balance between the two
+      ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
   '
@@ -2047,6 +2177,44 @@
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   
+  SETTINGS index_granularity=512
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[sharded_session_replay_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS sharded_session_replay_events ON CLUSTER 'posthog'
+  (
+      -- part of order by so will aggregate correctly
+      session_id VARCHAR,
+      -- part of order by so will aggregate correctly
+      team_id Int64,
+      -- ClickHouse will pick any value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
+      distinct_id VARCHAR,
+      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+      click_count SimpleAggregateFunction(sum, Int64),
+      keypress_count SimpleAggregateFunction(sum, Int64),
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      active_milliseconds SimpleAggregateFunction(sum, Int64)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
+  
+      PARTITION BY toYYYYMM(min_first_timestamp)
+      -- order by is used by the aggregating merge tree engine to
+      -- identify candidates to merge, e.g. toDate(min_first_timestamp)
+      -- would mean we would have one row per day per session_id
+      -- if CH could completely merge to match the order by
+      -- it is also used to organise data to make queries faster
+      -- we want the fewest rows possible but also the fastest queries
+      -- since we query by date and not by time
+      -- and order by must be in order of increasing cardinality
+      -- so we order by date first, then team_id, then session_id
+      -- hopefully, this is a good balance between the two
+      ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
   '

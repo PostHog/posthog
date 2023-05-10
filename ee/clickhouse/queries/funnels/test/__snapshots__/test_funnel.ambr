@@ -6,7 +6,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -111,7 +111,7 @@
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
-                          INNER JOIN
+                          LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
@@ -280,7 +280,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -390,7 +390,7 @@
                              WHERE team_id = 2
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
+                          LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
@@ -420,7 +420,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -523,7 +523,7 @@
                              WHERE team_id = 2
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
+                          LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
@@ -557,7 +557,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -660,7 +660,7 @@
                              WHERE team_id = 2
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
+                          LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
@@ -694,7 +694,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -797,7 +797,7 @@
                              WHERE team_id = 2
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
+                          LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
@@ -831,7 +831,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -934,7 +934,7 @@
                              WHERE team_id = 2
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
+                          LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
@@ -968,7 +968,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -1073,7 +1073,7 @@
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
-                          INNER JOIN
+                          LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
@@ -1242,7 +1242,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -1352,7 +1352,7 @@
                              WHERE team_id = 2
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
+                          LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
@@ -1382,7 +1382,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -1466,7 +1466,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -1497,7 +1497,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -1581,7 +1581,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -1612,7 +1612,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -1696,7 +1696,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -1727,7 +1727,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -1811,7 +1811,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -1842,7 +1842,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -1947,7 +1947,7 @@
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
-                          INNER JOIN
+                          LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
@@ -2116,7 +2116,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2226,7 +2226,7 @@
                              WHERE team_id = 2
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
+                          LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
@@ -2256,7 +2256,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2281,7 +2281,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2306,7 +2306,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2388,7 +2388,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2447,7 +2447,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2506,7 +2506,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2540,7 +2540,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2565,7 +2565,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2590,7 +2590,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2672,7 +2672,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2731,7 +2731,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2790,7 +2790,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -2824,7 +2824,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2849,7 +2849,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2874,7 +2874,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -2956,7 +2956,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -3015,7 +3015,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -3074,7 +3074,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -3108,7 +3108,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -3133,7 +3133,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -3158,7 +3158,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -3240,7 +3240,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -3299,7 +3299,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
@@ -3358,7 +3358,7 @@
                        WHERE team_id = 2
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
+                    LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups

@@ -32,23 +32,32 @@ type SessionBuffer = {
     id: string
     count: number
     size: number
-    createdAt: Date
+    oldestKafkaTimestamp: number
     file: string
     offsets: number[]
 }
 
-async function deleteFile(file: string) {
+async function deleteFile(file: string, context: string) {
     try {
         await unlink(file)
     } catch (err) {
         if (err && err.code === 'ENOENT') {
-            status.warn('⚠️', 'blob_ingester_session_manager failed deleting file ' + file + ', file not found', {
-                err,
-                file,
-            })
+            status.warn(
+                '⚠️',
+                `blob_ingester_session_manager failed deleting file ${context} path: ${file}, file not found`,
+                {
+                    err,
+                    file,
+                    context,
+                }
+            )
             return
         }
-        status.error('🧨', 'blob_ingester_session_manager failed deleting file ' + file, { err, file })
+        status.error('🧨', `blob_ingester_session_manager failed deleting file ${context}path: ${file}`, {
+            err,
+            file,
+            context,
+        })
         captureException(err)
         throw err
     }
@@ -73,11 +82,16 @@ export class SessionManager {
         // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
-    public guesstimateSizes = (): { chunks: number; buffer: number } => {
-        return { chunks: getMapByteSize(this.chunks), buffer: getArrayBytesSize(this.buffer.offsets, 'buffer') }
+    public guesstimateSizes = (): { chunks: number; buffer: number; bufferOffsets: number } => {
+        return {
+            chunks: getMapByteSize(this.chunks),
+            bufferOffsets: getArrayBytesSize(this.buffer.offsets, 'buffer'),
+            buffer: this.buffer.size,
+        }
     }
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
+        this.buffer.oldestKafkaTimestamp = Math.min(this.buffer.oldestKafkaTimestamp, message.metadata.timestamp)
         // TODO: Check that the offset is higher than the lastProcessed
         // If not - ignore it
         // If it is - update lastProcessed and process it
@@ -87,26 +101,31 @@ export class SessionManager {
             await this.addToChunks(message)
         }
 
-        await this.flushIfNecessary()
+        await this.flushIfBufferExceedsCapacity()
     }
 
     public get isEmpty(): boolean {
         return this.buffer.count === 0 && this.chunks.size === 0
     }
 
-    public async flushIfNecessary(): Promise<void> {
+    public async flushIfBufferExceedsCapacity(): Promise<void> {
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
-        const overCapacity = gzippedCapacity > 1
-        const timeSinceLastFlushTooLong =
-            Date.now() - this.buffer.createdAt.getTime() >=
-            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        const readyToFlush = overCapacity || timeSinceLastFlushTooLong
+        if (gzippedCapacity > 1) {
+            // return the promise and let the caller decide whether to await
+            return this.flush()
+        }
+    }
 
-        if (readyToFlush) {
-            await this.flush()
+    public async flushIfSessionIsIdle(): Promise<void> {
+        if (
+            Date.now() - this.buffer.oldestKafkaTimestamp >=
+            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+        ) {
+            // return the promise and let the caller decide whether to await
+            return this.flush()
         }
     }
 
@@ -140,7 +159,7 @@ export class SessionManager {
 
         try {
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
-            const dataKey = `${baseKey}/data/${this.flushBuffer.createdAt.getTime()}` // TODO: Change to be based on events times
+            const dataKey = `${baseKey}/data/${this.flushBuffer.oldestKafkaTimestamp}` // TODO: Change to be based on events times
 
             // TODO should only compress over some threshold? Depends how many uncompressed files we see below c200kb
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
@@ -154,6 +173,7 @@ export class SessionManager {
                 },
             })
             await parallelUploads3.done()
+            fileStream.close()
 
             counterS3FilesWritten.inc(1)
             status.info('🚽', `blob_ingester_session_manager Flushed buffer ${this.sessionId}`)
@@ -163,7 +183,7 @@ export class SessionManager {
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
-            await deleteFile(this.flushBuffer.file)
+            await deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
@@ -174,39 +194,44 @@ export class SessionManager {
     }
 
     private createBuffer(): SessionBuffer {
-        const id = randomUUID()
-        const buffer = {
-            id,
-            count: 0,
-            size: 0,
-            createdAt: new Date(),
-            file: path.join(
-                bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                `${this.teamId}.${this.sessionId}.${id}.jsonl`
-            ),
-            offsets: [],
+        try {
+            const id = randomUUID()
+            const buffer: SessionBuffer = {
+                id,
+                count: 0,
+                size: 0,
+                oldestKafkaTimestamp: Date.now(),
+                file: path.join(
+                    bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
+                    `${this.teamId}.${this.sessionId}.${id}.jsonl`
+                ),
+                offsets: [],
+            }
+
+            // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
+            writeFileSync(buffer.file, '', 'utf-8')
+
+            return buffer
+        } catch (e) {
+            status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', e)
+            captureException(e, { tags: { team_id: this.teamId, session_id: this.sessionId } })
+            throw e
         }
-
-        // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
-        writeFileSync(buffer.file, '', 'utf-8')
-
-        return buffer
     }
 
     /**
      * Full messages (all chunks) are added to the buffer directly
      */
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
-        const content = JSON.stringify(convertToPersistedMessage(message)) + '\n'
-        this.buffer.count += 1
-        this.buffer.size += Buffer.byteLength(content)
-        this.buffer.offsets.push(message.metadata.offset)
-
         try {
+            const content = JSON.stringify(convertToPersistedMessage(message)) + '\n'
+            this.buffer.count += 1
+            this.buffer.size += Buffer.byteLength(content)
+            this.buffer.offsets.push(message.metadata.offset)
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (e) {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', e)
-            captureException(e)
+            captureException(e, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw e
         }
     }
@@ -251,7 +276,13 @@ export class SessionManager {
         status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
-            .map((x) => deleteFile(x))
-        await Promise.all(filePromises)
+            .map((x) =>
+                deleteFile(x, 'on destroy').catch((e) => {
+                    status.error('🧨', 'blob_ingester_session_manager failed deleting session recording buffer', e)
+                    captureException(e, { tags: { team_id: this.teamId, session_id: this.sessionId } })
+                    throw e
+                })
+            )
+        await Promise.allSettled(filePromises)
     }
 }

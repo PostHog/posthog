@@ -4,14 +4,14 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, EarlyAccsesFeatureType, NewEarlyAccessFeatureType } from '~/types'
+import { Breadcrumb, EarlyAccessFeatureStage, EarlyAccsesFeatureType, NewEarlyAccessFeatureType } from '~/types'
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
 const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
-    stage: 'alpha',
+    stage: EarlyAccessFeatureStage.Beta,
     documentation_url: '',
     feature_flag_id: undefined,
 }
@@ -32,6 +32,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
+        promote: true,
     }),
     loaders(({ props }) => ({
         earlyAccessFeature: {
@@ -96,6 +97,10 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 actions.resetEarlyAccessFeature()
                 router.actions.push(urls.earlyAccessFeatures())
             }
+        },
+        promote: async () => {
+            'id' in values.earlyAccessFeature && (await api.earlyAccessFeatures.promote(values.earlyAccessFeature.id))
+            actions.loadEarlyAccessFeature()
         },
     })),
     afterMount(async ({ props, actions }) => {
