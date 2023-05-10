@@ -83,7 +83,7 @@ export function TaxonomicPopover({
             <span className="TaxonomicPopover__button__label truncate">
                 {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
             </span>
-            <div className="grow-1" />
+            <div className="grow" />
         </LemonButtonWithDropdown>
     )
 }
