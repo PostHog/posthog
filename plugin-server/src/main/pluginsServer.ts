@@ -35,8 +35,6 @@ import { getObjectStorage } from './services/object_storage'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
-const { version } = require('../../package.json')
-
 // TODO: refactor this into a class, removing the need for many different Servers
 export type ServerInstance = {
     hub: Hub
@@ -334,13 +332,6 @@ export async function startPluginsServer(
             // every 5 minutes all ActionManager caches are reloaded for eventual consistency
             schedule.scheduleJob('*/5 * * * *', async () => {
                 await piscina?.broadcastTask({ task: 'reloadAllActions' })
-            })
-            // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
-            schedule.scheduleJob('*/5 * * * * *', async () => {
-                await hub!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
-                    jsonSerialize: false,
-                })
-                await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
             })
 
             if (hub.statsd) {
