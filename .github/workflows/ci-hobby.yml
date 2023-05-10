@@ -9,8 +9,10 @@ on:
             - 'release-*.*'
     pull_request:
         paths:
+            - docker-compose.base.yml
             - docker-compose.hobby.yml
-            - bin/deploy-hobby
+            - bin/*
+            - docker/*
             - .github/workflows/ci-hobby.yml
 
 concurrency:

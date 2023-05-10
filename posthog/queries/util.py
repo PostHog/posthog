@@ -20,6 +20,7 @@ class PersonPropertiesMode(Enum):
     # Used for generating query on Person table
     DIRECT = auto()
     DIRECT_ON_EVENTS = auto()
+    DIRECT_ON_EVENTS_WITH_POE_V2 = auto()
     DIRECT_ON_PERSONS = auto()
 
 
@@ -137,5 +138,8 @@ def correct_result_for_sampling(
 def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
     if team.person_on_events_mode == PersonOnEventsMode.DISABLED:
         return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+
+    if team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+        return PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
 
     return PersonPropertiesMode.DIRECT_ON_EVENTS

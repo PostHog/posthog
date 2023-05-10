@@ -37,18 +37,27 @@ type SessionBuffer = {
     offsets: number[]
 }
 
-async function deleteFile(file: string) {
+async function deleteFile(file: string, context: string) {
     try {
         await unlink(file)
     } catch (err) {
         if (err && err.code === 'ENOENT') {
-            status.warn('⚠️', 'blob_ingester_session_manager failed deleting file ' + file + ', file not found', {
-                err,
-                file,
-            })
+            status.warn(
+                '⚠️',
+                `blob_ingester_session_manager failed deleting file ${context} path: ${file}, file not found`,
+                {
+                    err,
+                    file,
+                    context,
+                }
+            )
             return
         }
-        status.error('🧨', 'blob_ingester_session_manager failed deleting file ' + file, { err, file })
+        status.error('🧨', `blob_ingester_session_manager failed deleting file ${context}path: ${file}`, {
+            err,
+            file,
+            context,
+        })
         captureException(err)
         throw err
     }
@@ -164,6 +173,7 @@ export class SessionManager {
                 },
             })
             await parallelUploads3.done()
+            fileStream.close()
 
             counterS3FilesWritten.inc(1)
             status.info('🚽', `blob_ingester_session_manager Flushed buffer ${this.sessionId}`)
@@ -173,7 +183,7 @@ export class SessionManager {
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
-            await deleteFile(this.flushBuffer.file)
+            await deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
@@ -207,16 +217,15 @@ export class SessionManager {
      * Full messages (all chunks) are added to the buffer directly
      */
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
-        const content = JSON.stringify(convertToPersistedMessage(message)) + '\n'
-        this.buffer.count += 1
-        this.buffer.size += Buffer.byteLength(content)
-        this.buffer.offsets.push(message.metadata.offset)
-
         try {
+            const content = JSON.stringify(convertToPersistedMessage(message)) + '\n'
+            this.buffer.count += 1
+            this.buffer.size += Buffer.byteLength(content)
+            this.buffer.offsets.push(message.metadata.offset)
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (e) {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', e)
-            captureException(e)
+            captureException(e, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw e
         }
     }
@@ -261,7 +270,7 @@ export class SessionManager {
         status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
-            .map((x) => deleteFile(x))
+            .map((x) => deleteFile(x, 'on destroy'))
         await Promise.all(filePromises)
     }
 }
