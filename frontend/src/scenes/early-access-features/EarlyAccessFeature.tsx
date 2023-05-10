@@ -81,7 +81,14 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                 }
                 delimited
             />
-            <div className={clsx('flex', 'flex-row', 'gap-6', isEditingFeature ? 'max-w-160' : null)}>
+            <div
+                className={clsx(
+                    'flex',
+                    'flex-row',
+                    'gap-6',
+                    isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null
+                )}
+            >
                 <div className="flex flex-col gap-4" style={{ flex: 2 }}>
                     {isNewEarlyAccessFeature && (
                         <Field name="name" label="Name">
