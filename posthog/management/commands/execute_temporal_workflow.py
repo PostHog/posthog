@@ -23,7 +23,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--workflow-id",
-            default=None,
+            default=str(uuid4()),
             help=(
                 "Optionally, set an id for this workflow. If the ID is already in use, "
                 "the workflow will not execute unless it failed. If not used, a random UUID "
@@ -52,7 +52,7 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
-        workflow_id = options.get("workflow_id", str(uuid4()))
+        workflow_id = options["workflow_id"]
         workflow_name = options["workflow"]
 
         if options["client_key"]:
