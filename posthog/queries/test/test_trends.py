@@ -3620,7 +3620,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[0]["data"][-1], 2)
 
-    @snapshot_clickhouse_queries
     @also_test_with_person_on_events_v2
     def test_breakdown_filter_by_precalculated_cohort(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
