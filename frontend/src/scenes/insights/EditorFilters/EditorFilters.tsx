@@ -1,5 +1,4 @@
 import {
-    AvailableFeature,
     ChartDisplayType,
     FunnelVizType,
     InsightEditorFilter,
@@ -11,14 +10,12 @@ import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/T
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
-import { PathsTargetEnd, PathsTargetStart } from './PathsTarget'
 import { PathsAdvanced } from './PathsAdvanced'
 import { FunnelsQuerySteps } from './FunnelsQuerySteps'
 import { FunnelsAdvanced } from './FunnelsAdvanced'
 import { PathsExclusions } from './PathsExclusions'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -39,9 +36,6 @@ export interface EditorFiltersProps {
 }
 
 export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JSX.Element {
-    const { user } = useValues(userLogic)
-    const availableFeatures = user?.organization?.available_features || []
-
     const logic = insightLogic(insightProps)
     const { filters, insight } = useValues(logic)
 
@@ -63,7 +57,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
             (filters as any).display !== ChartDisplayType.ActionsLineGraph) ||
         (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
-    const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isFunnels && filters.funnel_viz_type === FunnelVizType.Steps
 
     const advancedOptionsCount = advancedOptionsUsedCount + (isTrends && filters.formula ? 1 : 0)
@@ -73,20 +66,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
         {
             title: 'General',
             editorFilters: filterFalsy([
-                ...(isPaths
-                    ? filterFalsy([
-                          {
-                              key: 'start-target',
-                              label: 'Starts at',
-                              component: PathsTargetStart,
-                          },
-                          hasPathsAdvanced && {
-                              key: 'ends-target',
-                              label: 'Ends at',
-                              component: PathsTargetEnd,
-                          },
-                      ])
-                    : []),
                 ...(isFunnels
                     ? filterFalsy([
                           {

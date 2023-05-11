@@ -1,20 +1,20 @@
 import { useValues, useActions } from 'kea'
 import { combineUrl, encodeParams, router } from 'kea-router'
 
-import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { FunnelPathType, EditorFilterProps, QueryEditorFilterProps, PathsFilterType } from '~/types'
+import { FunnelPathType, QueryEditorFilterProps } from '~/types'
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { IconClose, IconFunnelVertical } from 'lib/lemon-ui/icons'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-export function PathsTargetStartDataExploration(props: QueryEditorFilterProps): JSX.Element {
+import { PathsFilter } from '~/queries/schema'
+
+export function PathsTargetStart(props: QueryEditorFilterProps): JSX.Element {
     return <PathsTargetDataExploration position="start" {...props} />
 }
 
-export function PathsTargetEndDataExploration(props: QueryEditorFilterProps): JSX.Element {
+export function PathsTargetEnd(props: QueryEditorFilterProps): JSX.Element {
     return <PathsTargetDataExploration position="end" {...props} />
 }
 
@@ -26,68 +26,18 @@ function PathsTargetDataExploration({ position, insightProps }: PathTargetDataEx
     const { insightFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    return (
-        <PathsTargetComponent
-            position={position}
-            setFilter={updateInsightFilter}
-            taxonomicGroupTypes={taxonomicGroupTypes}
-            {...insightFilter}
-        />
-    )
-}
+    const { funnel_paths, funnel_filter, start_point, end_point, path_groupings } = insightFilter || ({} as PathsFilter)
 
-export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
-    return <PathsTarget position="start" {...props} />
-}
-
-export function PathsTargetEnd(props: EditorFilterProps): JSX.Element {
-    return <PathsTarget position="end" {...props} />
-}
-
-type PathsTargetProps = {
-    position: 'start' | 'end'
-} & EditorFilterProps
-
-function PathsTarget({ position, insightProps }: PathsTargetProps): JSX.Element {
-    const { filter, taxonomicGroupTypes } = useValues(pathsLogic(insightProps))
-    const { setFilter } = useActions(pathsLogic(insightProps))
-
-    return (
-        <PathsTargetComponent
-            position={position}
-            setFilter={setFilter}
-            taxonomicGroupTypes={taxonomicGroupTypes}
-            {...filter}
-        />
-    )
-}
-
-type PathsTargetComponentProps = {
-    position: 'start' | 'end'
-    setFilter: (filter: PathsFilterType) => void
-    taxonomicGroupTypes: TaxonomicFilterGroupType[]
-} & PathsFilterType
-
-function PathsTargetComponent({
-    position,
-    funnel_paths,
-    funnel_filter,
-    start_point,
-    end_point,
-    path_groupings,
-    setFilter,
-    taxonomicGroupTypes,
-}: PathsTargetComponentProps): JSX.Element {
     const overrideStartInput = funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(funnel_paths)
     const overrideEndInput = funnel_paths && [FunnelPathType.between, FunnelPathType.before].includes(funnel_paths)
     const overrideInputs = overrideStartInput || overrideEndInput
 
     const key = position === 'start' ? 'start_point' : 'end_point'
     const onChange = (item: string): void => {
-        setFilter({ [key]: item })
+        updateInsightFilter({ [key]: item })
     }
     const onReset = (): void => {
-        setFilter({ [key]: undefined, funnel_filter: undefined, funnel_paths: undefined })
+        updateInsightFilter({ [key]: undefined, funnel_filter: undefined, funnel_paths: undefined })
     }
 
     function _getStepNameAtIndex(filters: Record<string, any>, index: number): string {

@@ -23,10 +23,7 @@ import { TrendsFormulaLabel } from './TrendsFormulaLabel'
 import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
 import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
-import {
-    PathsTargetEndDataExploration,
-    PathsTargetStartDataExploration,
-} from 'scenes/insights/EditorFilters/PathsTarget'
+import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
@@ -96,12 +93,12 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                           {
                               key: 'start-target',
                               label: 'Starts at',
-                              component: PathsTargetStartDataExploration,
+                              component: PathsTargetStart,
                           },
                           hasPathsAdvanced && {
                               key: 'ends-target',
                               label: 'Ends at',
-                              component: PathsTargetEndDataExploration,
+                              component: PathsTargetEnd,
                           },
                       ])
                     : []),
