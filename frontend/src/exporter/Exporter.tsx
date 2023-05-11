@@ -11,7 +11,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { SessionRecording } from 'scenes/project/Settings/SessionRecording'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
 export function Exporter(props: ExportedData): JSX.Element {
@@ -30,8 +29,9 @@ export function Exporter(props: ExportedData): JSX.Element {
     return (
         <div
             className={clsx('Exporter', {
-                'Export--insight': !!insight,
-                'Export--dashboard': !!dashboard,
+                'Exporter--insight': !!insight,
+                'Exporter--dashboard': !!dashboard,
+                'Exporter--recording': !!recording,
             })}
             ref={elementRef}
         >
@@ -76,6 +76,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                 <SessionRecordingPlayer
                     playerKey="exporter"
                     sessionRecordingId={recording.id}
+                    autoPlay={false}
                     // sharingAccessToken={accessToken}
                 />
             ) : (
