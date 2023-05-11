@@ -11,7 +11,6 @@ import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/T
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
-import { PathsEventTypes } from './PathsEventTypes'
 import { PathsWildcardGroups } from './PathsWildcardGroups'
 import { PathsTargetEnd, PathsTargetStart } from './PathsTarget'
 import { PathsAdvanced } from './PathsAdvanced'
@@ -78,11 +77,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             editorFilters: filterFalsy([
                 ...(isPaths
                     ? filterFalsy([
-                          {
-                              key: 'event-types',
-                              label: 'Event Types',
-                              component: PathsEventTypes,
-                          },
                           hasPathsAdvanced && {
                               key: 'wildcard-groups',
                               label: 'Wildcard Groups',

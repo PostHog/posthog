@@ -22,7 +22,7 @@ import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 import { TrendsFormulaLabel } from './TrendsFormulaLabel'
 import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
-import { PathsEventsTypesDataExploration } from 'scenes/insights/EditorFilters/PathsEventTypes'
+import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
 import {
     PathsTargetEndDataExploration,
     PathsTargetStartDataExploration,
@@ -75,7 +75,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                           {
                               key: 'event-types',
                               label: 'Event Types',
-                              component: PathsEventsTypesDataExploration,
+                              component: PathsEventsTypes,
                           },
                           hasPathsAdvanced && {
                               key: 'wildcard-groups',
