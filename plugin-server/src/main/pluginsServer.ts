@@ -335,13 +335,8 @@ export async function startPluginsServer(
             schedule.scheduleJob('*/5 * * * *', async () => {
                 await piscina?.broadcastTask({ task: 'reloadAllActions' })
             })
-            // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
-            schedule.scheduleJob('*/5 * * * * *', async () => {
-                await hub!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
-                    jsonSerialize: false,
-                })
-                await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
-            })
+
+            startPreflightSchedules(hub)
 
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
@@ -432,6 +427,17 @@ export async function startPluginsServer(
         await closeJobs()
         process.exit(1)
     }
+}
+
+const startPreflightSchedules = (hub: Hub) => {
+    // These are used by the preflight checks in the Django app to determine if
+    // the plugin-server is running.
+    schedule.scheduleJob('*/5 * * * * *', async () => {
+        await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
+            jsonSerialize: false,
+        })
+        await hub.db.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
+    })
 }
 
 export async function stopPiscina(piscina: Piscina): Promise<void> {
