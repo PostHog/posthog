@@ -1,14 +1,13 @@
 import { InsightEditorFilter, InsightEditorFilterGroup, InsightLogicProps } from '~/types'
 import { CSSTransition } from 'react-transition-group'
 
-import { PathsAdvanced } from './PathsAdvanced'
 import { FunnelsAdvanced } from './FunnelsAdvanced'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { useValues } from 'kea'
 import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import clsx from 'clsx'
-import { isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -22,7 +21,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
 
     const isTrends = isTrendsFilter(filters)
-    const isPaths = isPathsFilter(filters)
     const isFunnels = isFunnelsFilter(filters)
 
     const advancedOptionsCount = advancedOptionsUsedCount + (isTrends && filters.formula ? 1 : 0)
@@ -35,10 +33,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             defaultExpanded: advancedOptionsExpanded,
             count: advancedOptionsCount,
             editorFilters: filterFalsy([
-                isPaths && {
-                    key: 'paths-advanced',
-                    component: PathsAdvanced,
-                },
                 isFunnels && {
                     key: 'funnels-advanced',
                     component: FunnelsAdvanced,

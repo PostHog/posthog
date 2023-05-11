@@ -26,7 +26,7 @@ import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
 import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
-import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
+import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
@@ -213,7 +213,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                 isPaths && {
                     key: 'paths-advanced',
                     position: 'left',
-                    component: PathsAdvancedDataExploration,
+                    component: PathsAdvanced,
                 },
                 isFunnels && {
                     key: 'funnels-advanced',
