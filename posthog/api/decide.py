@@ -222,18 +222,6 @@ def get_decide(request: HttpRequest):
                         "project": str(team.uuid),
                     },
                 )
-        else:
-            # no auth provided
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "decide",
-                    "No project API key provided. You can find your project API key in PostHog project settings.",
-                    code="no_api_key",
-                    type="authentication_error",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

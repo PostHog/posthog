@@ -12,7 +12,6 @@ from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.plugin import sync_team_inject_web_apps
-from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
@@ -1448,7 +1447,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user
         )
         response = self._post_decide({"distinct_id": "example_id", "api_key": None, "project_id": self.team.id})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["featureFlags"], [])
+        self.assertFalse(response_json["sessionRecording"])
 
     def test_invalid_payload_on_decide_endpoint(self):
 
@@ -1639,136 +1641,3 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=2, distinct_id={"x": "z"})
             self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
             # need to pass in exact string to get the property flag
-
-    def test_rate_limits(self):
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_RATE_LIMIT="3/m"):
-            self.client.logout()
-            Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
-            FeatureFlag.objects.create(
-                team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
-            )
-            FeatureFlag.objects.create(
-                team=self.team,
-                filters={"groups": [{"properties": [], "rollout_percentage": None}]},
-                name="This is a feature flag with default params, no filters.",
-                key="default-flag",
-                created_by=self.user,
-            )  # Should be enabled for everyone
-
-            for i in range(3):
-                response = self._post_decide(api_version=i + 1)
-                self.assertEqual(response.status_code, 200)
-
-            response = self._post_decide(api_version=2)
-            self.assertEqual(response.status_code, 429)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "rate_limit_exceeded",
-                    "detail": "Rate limit exceeded ",
-                    "attr": None,
-                },
-            )
-
-    def test_rate_limits_work_with_invalid_tokens(self):
-        self.client.logout()
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_RATE_LIMIT="3/m"):
-
-            for _ in range(3):
-                response = self._post_decide(api_version=3, data={"token": "aloha?", "distinct_id": "123"})
-                self.assertEqual(response.status_code, 401)
-
-            response = self._post_decide(api_version=3, data={"token": "aloha?", "distinct_id": "123"})
-            self.assertEqual(response.status_code, 429)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "rate_limit_exceeded",
-                    "detail": "Rate limit exceeded ",
-                    "attr": None,
-                },
-            )
-
-    def test_rate_limits_work_with_missing_tokens(self):
-        self.client.logout()
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_RATE_LIMIT="3/m"):
-
-            for _ in range(3):
-                response = self._post_decide(api_version=3, data={"distinct_id": "123"})
-                self.assertEqual(response.status_code, 401)
-
-            response = self._post_decide(api_version=3, data={"distinct_id": "123"})
-            self.assertEqual(response.status_code, 429)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "rate_limit_exceeded",
-                    "detail": "Rate limit exceeded ",
-                    "attr": None,
-                },
-            )
-
-    def test_rate_limits_work_with_malformed_request(self):
-        self.client.logout()
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_RATE_LIMIT="4/m"):
-
-            def invalid_request():
-                return self.client.post("/decide/", {"data": "1==1"}, HTTP_ORIGIN="http://127.0.0.1:8000")
-
-            for _ in range(4):
-                response = invalid_request()
-                self.assertEqual(response.status_code, 400)
-
-            response = invalid_request()
-            self.assertEqual(response.status_code, 429)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "rate_limit_exceeded",
-                    "detail": "Rate limit exceeded ",
-                    "attr": None,
-                },
-            )
-
-    def test_rate_limits_dont_apply_when_disabled(self):
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="n"):
-            self.client.logout()
-
-            for _ in range(3):
-                response = self._post_decide(api_version=3)
-                self.assertEqual(response.status_code, 200)
-
-            response = self._post_decide(api_version=2)
-            self.assertEqual(response.status_code, 200)
-
-    def test_rate_limits_dont_mix_teams(self):
-        new_token = "bazinga"
-        Team.objects.create(
-            organization=self.organization,
-            api_token=new_token,
-            test_account_filters=[
-                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
-            ],
-        )
-        self.client.logout()
-
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_RATE_LIMIT="3/m"):
-
-            for _ in range(3):
-                response = self._post_decide(api_version=3)
-                self.assertEqual(response.status_code, 200)
-
-            response = self._post_decide(api_version=2)
-            self.assertEqual(response.status_code, 429)
-
-            # other team is fine
-            for _ in range(3):
-                response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "123"})
-                self.assertEqual(response.status_code, 200)
-
-            response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
-            self.assertEqual(response.status_code, 429)

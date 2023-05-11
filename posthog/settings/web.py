@@ -20,11 +20,6 @@ AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
 AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 
-# Decide rate limit setting
-
-DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
-DECIDE_RATE_LIMIT = os.getenv("DECIDE_RATE_LIMIT", "400/s")
-
 # Application definition
 
 INSTALLED_APPS = [

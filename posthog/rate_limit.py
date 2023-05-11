@@ -5,9 +5,9 @@ from typing import List, Optional
 
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle
-from rest_framework.request import Request
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
+
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
@@ -23,12 +23,6 @@ RATE_LIMIT_BYPASSED_COUNTER = Counter(
     "rate_limit_bypassed_total",
     "Requests that should be dropped by rate-limiting but allowed by configuration.",
     labelnames=[LABEL_TEAM_ID, LABEL_PATH],
-)
-
-DECIDE_RATE_LIMIT_EXCEEDED_COUNTER = Counter(
-    "decide_rate_limit_exceeded_total",
-    "Dropped requests due to rate-limiting, per token.",
-    labelnames=["token"],
 )
 
 
@@ -48,17 +42,6 @@ def is_rate_limit_enabled(_ttl: int) -> bool:
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
     """
     return get_instance_setting("RATE_LIMIT_ENABLED")
-
-
-def is_decide_rate_limit_enabled() -> bool:
-    """
-    The setting will change way less frequently than it will be called
-    _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
-    """
-    from django.conf import settings
-    from posthog.utils import str_to_bool
-
-    return str_to_bool(settings.DECIDE_RATE_LIMIT_ENABLED)
 
 
 path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
@@ -145,65 +128,6 @@ class TeamRateThrottle(SimpleRateThrottle):
     def team_is_allowed_to_bypass_throttle(self, team_id: Optional[int]) -> bool:
         allow_list = get_team_allow_list(round(time.time() / 60))
         return team_id is not None and str(team_id) in allow_list
-
-
-class DecideRateThrottle(SimpleRateThrottle):
-
-    scope = "decide"
-
-    def __init__(self, rate: str = "400/m") -> None:
-        self.rate = rate
-        super().__init__()
-
-    @staticmethod
-    def safely_get_token_from_request(request: Request) -> Optional[str]:
-        """
-        Gets the token from a request without throwing.
-
-        Not all requests are valid, and might not have a token.
-        Accessing it when it does not exist throws a KeyError. Hence, this method.
-        """
-        try:
-            from posthog.api.utils import get_token
-            from posthog.utils import load_data_from_request
-
-            if request.method != "POST":
-                return None
-
-            data = load_data_from_request(request)
-            return get_token(data, request)
-        except Exception:
-            return None
-
-    def allow_request(self, request, view):
-
-        if not is_decide_rate_limit_enabled():
-            return True
-
-        try:
-            request_would_be_allowed = super().allow_request(request, view)
-            if not request_would_be_allowed:
-                token = self.safely_get_token_from_request(request)
-                DECIDE_RATE_LIMIT_EXCEEDED_COUNTER.labels(token=token).inc()
-
-            return request_would_be_allowed
-        except Exception as e:
-            capture_exception(e)
-            return True
-
-    def get_cache_key(self, request, view):
-        """
-        Attempts to throttle based on the team_id of the request. If it can't do that, it falls back to the user_id.
-        And then finally to the IP address.
-        """
-        ident = None
-        token = self.safely_get_token_from_request(request)
-        if token:
-            ident = token
-        else:
-            ident = self.get_ident(request)
-
-        return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
 class BurstRateThrottle(TeamRateThrottle):

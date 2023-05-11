@@ -19,15 +19,10 @@ from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
-from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
-from posthog.rate_limit import DecideRateThrottle
 from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
-from posthog.utils import cors_response
-from rest_framework import status
-
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -271,7 +266,6 @@ def shortcircuitmiddleware(f):
 class ShortCircuitMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
-        self.decide_throttler = DecideRateThrottle(rate=settings.DECIDE_RATE_LIMIT)
 
     def __call__(self, request: HttpRequest):
         if request.path == "/decide/" or request.path == "/decide":
@@ -285,18 +279,7 @@ class ShortCircuitMiddleware:
                     http_referer=request.META.get("HTTP_REFERER"),
                     http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
-                if self.decide_throttler.allow_request(request, None):
-                    return get_decide(request)
-                else:
-                    return cors_response(
-                        request,
-                        generate_exception_response(
-                            "decide",
-                            f"Rate limit exceeded ",
-                            code="rate_limit_exceeded",
-                            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        ),
-                    )
+                return get_decide(request)
             finally:
                 reset_query_tags()
         response: HttpResponse = self.get_response(request)
