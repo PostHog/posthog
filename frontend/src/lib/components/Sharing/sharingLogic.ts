@@ -17,6 +17,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 export interface SharingLogicProps {
     dashboardId?: number
     insightShortId?: InsightShortId
+    recordingId?: string
 }
 
 export interface EmbedConfig extends ExportOptions {
@@ -32,11 +33,14 @@ const defaultEmbedConfig: EmbedConfig = {
     noHeader: false,
 }
 
-const propsToApiParams = async (props: SharingLogicProps): Promise<{ dashboardId?: number; insightId?: number }> => {
+const propsToApiParams = async (
+    props: SharingLogicProps
+): Promise<{ dashboardId?: number; insightId?: number; recordingId?: string }> => {
     const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
     return {
         dashboardId: props.dashboardId,
         insightId,
+        recordingId: props.recordingId,
     }
 }
 
