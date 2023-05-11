@@ -64,7 +64,6 @@ describe('eachBatchIngestionWithOverflow', () => {
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(),
-                runBufferEventPipeline: jest.fn(),
             },
         }
     })

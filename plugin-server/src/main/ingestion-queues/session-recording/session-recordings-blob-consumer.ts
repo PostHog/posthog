@@ -1,3 +1,4 @@
+import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -19,6 +20,8 @@ import { IncomingRecordingMessage } from './blob-ingester/types'
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
+
+const flushIntervalTimeoutMs = 30000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
@@ -118,8 +121,9 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        if (!message.value) {
-            return statusWarn('message value is empty')
+        if (!message.value || !message.timestamp) {
+            // Typing says this can happen but in practice it shouldn't
+            return statusWarn('message value or timestamp is empty')
         }
 
         let messagePayload: RawEventMessage
@@ -196,8 +200,14 @@ export class SessionRecordingBlobIngester {
         status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer')
 
         // Currently we can't reuse any files stored on disk, so we opt to delete them all
-        rmSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true, force: true })
-        mkdirSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true })
+        try {
+            rmSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true, force: true })
+            mkdirSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true })
+        } catch (e) {
+            status.error('🔥', 'Failed to recreate local buffer directory', e)
+            captureException(e)
+            throw e
+        }
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
         this.producer = await createKafkaProducer(connectionConfig)
@@ -267,7 +277,7 @@ export class SessionRecordingBlobIngester {
 
                 this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
 
-                await Promise.all(sessionsToDrop.map((session) => session.destroy()))
+                await this.destroySessions(sessionsToDrop)
 
                 status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
                     currentPartitions: currentPartitions,
@@ -315,7 +325,18 @@ export class SessionRecordingBlobIngester {
                 sessionManagerChunksSizes += guesstimates.chunks
                 sessionManagerBufferOffsetsSizes += guesstimates.bufferOffsets
                 sessionManangerBufferSizes += guesstimates.buffer
-                void sessionManager.flushIfSessionIsIdle()
+                void sessionManager.flushIfSessionIsIdle().catch((err) => {
+                    status.error(
+                        '🚽',
+                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
+                        {
+                            err,
+                            session_id: sessionManager.sessionId,
+                        }
+                    )
+                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                    throw err
+                })
             })
 
             status.info('🚛', 'blob_ingester_consumer - session manager size_estimate', {
@@ -326,7 +347,7 @@ export class SessionRecordingBlobIngester {
 
             gaugeSessionsHandled.set(this.sessions.size)
             gaugeBytesBuffered.set(sessionManangerBufferSizes)
-        }, 10000)
+        }, flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {
@@ -346,13 +367,19 @@ export class SessionRecordingBlobIngester {
         await this.batchConsumer?.stop()
 
         // This is inefficient but currently necessary due to new instances restarting from the committed offset point
+        await this.destroySessions([...this.sessions.values()])
+
+        this.sessions = new Map()
+    }
+
+    private async destroySessions(sessionsToDestroy: SessionManager[]): Promise<void> {
         const destroyPromises: Promise<void>[] = []
-        this.sessions.forEach((sessionManager) => {
+
+        sessionsToDestroy.forEach((sessionManager) => {
+            this.sessions.delete(sessionManager.sessionId)
             destroyPromises.push(sessionManager.destroy())
         })
 
         await Promise.allSettled(destroyPromises)
-
-        this.sessions = new Map()
     }
 }

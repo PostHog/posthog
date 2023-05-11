@@ -1063,7 +1063,7 @@ export interface BillingV2TierType {
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
-    projected_amount_usd: number | null
+    projected_amount_usd: string | null
     up_to: number | null
 }
 
@@ -1555,7 +1555,6 @@ export interface FilterType {
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
 }
@@ -2694,7 +2693,13 @@ export type OnlineExportContext = {
     max_limit?: number
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext
+export type QueryExportContext = {
+    source: Record<string, any>
+    filename?: string
+    max_limit?: number
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
 
 export interface ExportedAssetType {
     id: number

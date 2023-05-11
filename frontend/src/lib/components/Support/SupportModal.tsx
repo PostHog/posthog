@@ -49,7 +49,7 @@ export function SupportModal(): JSX.Element {
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
-            setSendSupportRequestValue('message', sendSupportRequest.message + `\n\n![${fileName}](${url})`)
+            setSendSupportRequestValue('message', sendSupportRequest.message + `\n\nAttachment "${fileName}": ${url}`)
         },
         onError: (detail) => {
             lemonToast.error(`Error uploading image: ${detail}`)

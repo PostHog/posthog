@@ -139,7 +139,6 @@ export interface PluginsServerConfig {
     JOB_QUEUE_S3_BUCKET_NAME: string
     JOB_QUEUE_S3_PREFIX: string // S3 filename prefix for the S3 job queue
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
-    STALENESS_RESTART_SECONDS: number // trigger a restart if no event ingested for this duration
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     PISCINA_USE_ATOMICS: boolean // corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)
     PISCINA_ATOMICS_TIMEOUT: number // (advanced) corresponds to the length of time a piscina worker should block for when looking for tasks
@@ -188,6 +187,8 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
+
+    SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {

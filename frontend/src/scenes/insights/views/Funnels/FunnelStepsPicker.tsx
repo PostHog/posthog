@@ -76,11 +76,11 @@ export function FunnelStepsPickerComponent({
                     ? {
                           value: stepIndex,
                           label: `Step ${stepIndex + 1}`,
-                          element: (
-                              <div className="flex flex-row">
-                                  <span className="mr-1">Step {stepIndex + 1}:</span>
+                          labelInMenuExtra: (
+                              <>
+                                  <span> – </span>
                                   <EntityFilterInfo filter={stepFilter as EntityFilter} />
-                              </div>
+                              </>
                           ),
                       }
                     : null

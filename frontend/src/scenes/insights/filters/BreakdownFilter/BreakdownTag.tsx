@@ -4,7 +4,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FilterType } from '~/types'
 import { breakdownTagLogic } from './breakdownTagLogic'
-import { isAllCohort, isCohort, isPersonEventOrGroup } from './TaxonomicBreakdownFilter'
+import { isAllCohort, isCohort, isPersonEventOrGroup } from './taxonomicBreakdownFilterUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
 

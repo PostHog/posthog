@@ -11,12 +11,11 @@ import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, KafkaConfig } from '../utils/db/hub'
-import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createPostgresPool, delay, stalenessCheck } from '../utils/utils'
+import { createPostgresPool, delay } from '../utils/utils'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import Piscina from '../worker/piscina'
@@ -25,7 +24,6 @@ import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
-import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
@@ -278,14 +276,6 @@ export async function startPluginsServer(
 
             analyticsEventsIngestionConsumer = queue
             healthChecks['analytics-ingestion'] = isAnalyticsEventsIngestionHealthy
-
-            bufferConsumer = await startAnonymousEventBufferConsumer({
-                hub: hub,
-                piscina: piscina,
-                kafka: hub.kafka,
-                producer: hub.kafkaProducer,
-                statsd: hub.statsd,
-            })
         }
 
         if (capabilities.ingestionOverflow) {
@@ -357,39 +347,6 @@ export async function startPluginsServer(
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
             }
 
-            if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
-                // check every 10 sec how long it has been since the last activity
-
-                let lastFoundActivity: number
-                lastActivityCheck = setInterval(() => {
-                    const stalenessCheckResult = stalenessCheck(hub, serverConfig.STALENESS_RESTART_SECONDS)
-
-                    if (
-                        hub?.lastActivity &&
-                        stalenessCheckResult.isServerStale &&
-                        lastFoundActivity !== hub?.lastActivity
-                    ) {
-                        lastFoundActivity = hub?.lastActivity
-                        const extra = {
-                            ...stalenessCheckResult,
-                        }
-                        Sentry.captureMessage(
-                            `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
-                            {
-                                extra,
-                            }
-                        )
-                        console.log(
-                            `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
-                            extra
-                        )
-                        hub?.statsd?.increment(`alerts.stale_plugin_server_restarted`)
-
-                        killProcess()
-                    }
-                }, Math.min(serverConfig.STALENESS_RESTART_SECONDS, 10000))
-            }
-
             serverInstance.piscina = piscina
             serverInstance.queue = analyticsEventsIngestionConsumer
             serverInstance.stop = closeJobs
@@ -414,6 +371,7 @@ export async function startPluginsServer(
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
                 consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+                summaryIngestionEnabledTeams: serverConfig.SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS,
             })
             stopSessionRecordingEventsConsumer = stop
             joinSessionRecordingEventsConsumer = join

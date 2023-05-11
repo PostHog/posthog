@@ -77,7 +77,6 @@ def sentry_init() -> None:
 
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"],
-            environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration(), sentry_logging],
             request_bodies="always",
             sample_rate=1.0,

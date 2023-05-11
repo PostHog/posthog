@@ -91,7 +91,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
         <div className="event-properties-wrapper">
             <span className="event-properties-header">Top properties</span>
             <p className="event-properties-subtext">
-                Please note that description and tags are shared across events. Posthog properties are excluded from
+                Please note that description and tags are shared across events. PostHog properties are excluded from
                 this list.
             </p>
             <LemonTable

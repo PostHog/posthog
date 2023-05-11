@@ -178,7 +178,7 @@ export interface EventsQuery extends DataNode {
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
     /** Limit to events matching this string */
-    event?: string
+    event?: string | null
     /**
      * Number of rows to return
      * @asType integer
@@ -492,9 +492,7 @@ export interface BreakdownFilter {
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */

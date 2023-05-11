@@ -10,14 +10,14 @@ import {
 } from 'lib/lemon-ui/LemonButton'
 import { IconArrowDropDown, IconClose } from 'lib/lemon-ui/icons'
 
-export interface TaxonomicPopoverProps<ValueType = TaxonomicFilterValue>
+export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
     extends Omit<LemonButtonWithDropdownProps, 'dropdown' | 'value' | 'onChange' | 'placeholder'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
 
     groupTypes?: TaxonomicFilterGroupType[]
-    renderValue?: (value: ValueType) => JSX.Element
+    renderValue?: (value: ValueType) => JSX.Element | null
     dataAttr?: string
     eventNames?: string[]
     placeholder?: React.ReactNode
@@ -83,24 +83,12 @@ export function TaxonomicPopover({
             <span className="TaxonomicPopover__button__label truncate">
                 {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
             </span>
-            <div style={{ flexGrow: 1 }} />
+            <div className="grow" />
         </LemonButtonWithDropdown>
     )
 }
 
-/** Like TaxonomicPopover, but convenient when you know you will only use string values */
-export function LemonTaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JSX.Element {
-    return (
-        <LemonTaxonomicPopover
-            {...props}
-            value={String(props.value)}
-            onChange={(value, groupType, item) => props.onChange?.(String(value), groupType, item)}
-            renderValue={(value) => props.renderValue?.(String(value)) ?? <>{String(props.value)}</>}
-        />
-    )
-}
-
-export function LemonTaxonomicPopover({
+export function LemonTaxonomicPopover<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
     groupType,
     value,
     onChange,
@@ -113,15 +101,15 @@ export function LemonTaxonomicPopover({
     allowClear = false,
     excludedProperties,
     ...buttonProps
-}: TaxonomicPopoverProps): JSX.Element {
-    const [localValue, setLocalValue] = useState<TaxonomicFilterValue>(value || '')
+}: TaxonomicPopoverProps<ValueType>): JSX.Element {
+    const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
 
     const isClearButtonShown = allowClear && !!localValue
 
     useEffect(() => {
         if (!buttonProps.loading) {
-            setLocalValue(value || '')
+            setLocalValue(value || ('' as ValueType))
         }
     }, [value])
 
@@ -138,7 +126,7 @@ export function LemonTaxonomicPopover({
                             groupType={groupType}
                             value={value}
                             onChange={({ type }, payload, item) => {
-                                onChange?.(payload, type, item)
+                                onChange?.(payload as ValueType, type, item)
                                 setVisible(false)
                             }}
                             taxonomicGroupTypes={groupTypes ?? [groupType]}
@@ -168,8 +156,8 @@ export function LemonTaxonomicPopover({
                                 noPadding
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    onChange?.('', groupType, null)
-                                    setLocalValue('')
+                                    onChange?.('' as ValueType, groupType, null)
+                                    setLocalValue('' as ValueType)
                                 }}
                             />
                         ) : (
@@ -186,9 +174,7 @@ export function LemonTaxonomicPopover({
                 {...buttonProps}
             >
                 {(localValue && (renderValue?.(localValue) ?? String(localValue))) || (
-                    <span style={{ minWidth: '10rem' }} className={placeholderClass ?? 'text-muted'}>
-                        {placeholder}
-                    </span>
+                    <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
                 )}
             </LemonButtonWithDropdown>
         </div>
