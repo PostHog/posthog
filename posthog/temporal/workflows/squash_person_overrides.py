@@ -403,13 +403,18 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
         team_id_filter="AND team_id in %(team_ids)s" if inputs.team_ids else "",
     )
 
+    latest_merged_at = inputs.latest_merged_at.isoformat() if inputs.latest_merged_at else inputs.latest_merged_at
+
     for partition_id in inputs.partition_ids:
         activity.logger.info("Executing squash query on partition %s", partition_id)
 
         parameters = {
             "partition_id": partition_id,
             "team_ids": inputs.team_ids,
-            "latest_merged_at": inputs.latest_merged_at,
+            # We pass this as a string ourselves as clickhouse-driver will drop any microseconds from the string.
+            # This would cause the latest merge event to be ignored.
+            # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
+            "latest_merged_at": latest_merged_at,
         }
 
         if inputs.dry_run is True:
