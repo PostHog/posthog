@@ -10,7 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { IconSettings } from 'lib/lemon-ui/icons'
 
-import { PathCleaningFilterDataExploration } from '../filters/PathCleaningFilter'
+import { PathCleaningFilter } from '../filters/PathCleaningFilter'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PathsFilter } from '~/queries/schema'
 
@@ -110,7 +110,7 @@ export function PathsAdvanced({ insightProps, ...rest }: QueryEditorFilterProps)
                             Configure Project Rules
                         </Link>
                     </div>
-                    <PathCleaningFilterDataExploration insightProps={insightProps} {...rest} />
+                    <PathCleaningFilter insightProps={insightProps} {...rest} />
                 </div>
             </div>
         </PayGateMini>

@@ -1,37 +1,20 @@
 import { useActions, useValues } from 'kea'
 
-import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { EditorFilterProps, PathsFilterType, QueryEditorFilterProps } from '~/types'
+import { QueryEditorFilterProps } from '~/types'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { PathsFilter } from '~/queries/schema'
 
-export function PathCleaningFilterDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function PathCleaningFilter({ insightProps }: QueryEditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    return <PathCleaningFilterComponent setFilter={updateInsightFilter} {...insightFilter} />
-}
+    const { local_path_cleaning_filters, path_replacements } = (insightFilter || {}) as PathsFilter
 
-export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Element {
-    const { filter } = useValues(pathsLogic(insightProps))
-    const { setFilter } = useActions(pathsLogic(insightProps))
-
-    return <PathCleaningFilterComponent setFilter={setFilter} {...filter} />
-}
-
-type PathCleaningFilterComponentProps = {
-    setFilter: (filter: PathsFilterType) => void
-} & PathsFilterType
-
-export function PathCleaningFilterComponent({
-    setFilter,
-    local_path_cleaning_filters,
-    path_replacements,
-}: PathCleaningFilterComponentProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.path_cleaning_filters || []).length > 0
 
@@ -39,7 +22,7 @@ export function PathCleaningFilterComponent({
         <>
             <PathCleanFilters
                 filters={local_path_cleaning_filters}
-                setFilters={(filters) => setFilter({ local_path_cleaning_filters: filters })}
+                setFilters={(filters) => updateInsightFilter({ local_path_cleaning_filters: filters })}
             />
             <Tooltip
                 title={
@@ -55,7 +38,7 @@ export function PathCleaningFilterComponent({
                         checked={hasFilters ? path_replacements || false : false}
                         onChange={(checked: boolean) => {
                             localStorage.setItem('default_path_clean_filters', checked.toString())
-                            setFilter({ path_replacements: checked })
+                            updateInsightFilter({ path_replacements: checked })
                         }}
                         label="Apply global path URL cleaning"
                         bordered
