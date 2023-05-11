@@ -605,24 +605,9 @@ export const insightLogic = kea<insightLogicType>([
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
         derivedName: [
-            (s) => [
-                s.insight,
-                s.aggregationLabel,
-                s.cohortsById,
-                s.mathDefinitions,
-                s.isUsingDataExploration,
-                s.isUsingDashboardQueries,
-            ],
-            (
-                insight,
-                aggregationLabel,
-                cohortsById,
-                mathDefinitions,
-                isUsingDataExploration,
-                isUsingDashboardQueries
-            ) =>
+            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions, s.isUsingDashboardQueries],
+            (insight, aggregationLabel, cohortsById, mathDefinitions, isUsingDashboardQueries) =>
                 summarizeInsight(insight.query, insight.filters || {}, {
-                    isUsingDataExploration,
                     aggregationLabel,
                     cohortsById,
                     mathDefinitions,
