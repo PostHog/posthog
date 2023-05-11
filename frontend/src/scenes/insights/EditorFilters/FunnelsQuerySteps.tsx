@@ -9,7 +9,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { FunnelVizTypeDataExploration } from '../views/Funnels/FunnelVizType'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { AggregationSelectDataExploration } from '../filters/AggregationSelect'
-import { FunnelConversionWindowFilterDataExploration } from '../views/Funnels/FunnelConversionWindowFilter'
+import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { FunnelsQuery } from '~/queries/schema'
@@ -77,7 +77,7 @@ export function FunnelsQuerySteps({ insightProps }: QueryEditorFilterProps): JSX
                     </div>
                 )}
 
-                <FunnelConversionWindowFilterDataExploration insightProps={insightProps} />
+                <FunnelConversionWindowFilter insightProps={insightProps} />
             </div>
         </>
     )
