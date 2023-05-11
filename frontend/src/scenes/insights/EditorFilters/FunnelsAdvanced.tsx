@@ -2,7 +2,7 @@ import { useValues, useActions } from 'kea'
 import { QueryEditorFilterProps } from '~/types'
 import { FunnelStepOrderPickerDataExploration } from '../views/Funnels/FunnelStepOrderPicker'
 import { FunnelExclusionsFilterDataExploration } from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
-import { FunnelStepReferencePickerDataExploration } from '../filters/FunnelStepReferencePicker'
+import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PureField } from 'lib/forms/Field'
 import { Noun } from '~/models/groupsModel'
@@ -18,7 +18,7 @@ export function FunnelsAdvanced({ insightProps }: QueryEditorFilterProps): JSX.E
                 <FunnelStepOrderPickerDataExploration />
             </PureField>
             <PureField label="Conversion rate calculation">
-                <FunnelStepReferencePickerDataExploration />
+                <FunnelStepReferencePicker />
             </PureField>
 
             <PureField
