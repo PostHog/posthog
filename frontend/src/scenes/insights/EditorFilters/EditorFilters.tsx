@@ -1,14 +1,6 @@
-import {
-    ChartDisplayType,
-    FunnelVizType,
-    InsightEditorFilter,
-    InsightEditorFilterGroup,
-    InsightLogicProps,
-} from '~/types'
+import { FunnelVizType, InsightEditorFilter, InsightEditorFilterGroup, InsightLogicProps } from '~/types'
 import { CSSTransition } from 'react-transition-group'
 
-import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
 import { PathsAdvanced } from './PathsAdvanced'
 import { FunnelsAdvanced } from './FunnelsAdvanced'
 import { PathsExclusions } from './PathsExclusions'
@@ -16,10 +8,9 @@ import { EditorFilterGroup } from './EditorFilterGroup'
 import { useValues } from 'kea'
 import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 import { Attribution } from './AttributionFilter'
-import { isFunnelsFilter, isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -32,19 +23,10 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
 
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const isTrends = isTrendsFilter(filters)
-    const isRetention = isRetentionFilter(filters)
     const isPaths = isPathsFilter(filters)
     const isFunnels = isFunnelsFilter(filters)
 
-    const hasBreakdown =
-        (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)) ||
-        (isRetention &&
-            featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
-            (filters as any).display !== ChartDisplayType.ActionsLineGraph) ||
-        (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasAttribution = isFunnels && filters.funnel_viz_type === FunnelVizType.Steps
 
     const advancedOptionsCount = advancedOptionsUsedCount + (isTrends && filters.formula ? 1 : 0)
@@ -56,21 +38,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             count: filters.breakdowns?.length || (filters.breakdown ? 1 : 0),
             position: 'right',
             editorFilters: filterFalsy([
-                hasBreakdown
-                    ? {
-                          key: 'breakdown',
-                          label: 'Breakdown by',
-                          position: 'right',
-                          tooltip: (
-                              <>
-                                  Use breakdown to see the aggregation (total volume, active users, etc.) for each value
-                                  of that property. For example, breaking down by Current URL with total volume will
-                                  give you the event volume for each URL your users have visited.
-                              </>
-                          ),
-                          component: Breakdown,
-                      }
-                    : null,
                 hasAttribution
                     ? {
                           key: 'attribution',
