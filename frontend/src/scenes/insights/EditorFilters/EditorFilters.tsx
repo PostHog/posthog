@@ -11,7 +11,6 @@ import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/T
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
-import { PathsWildcardGroups } from './PathsWildcardGroups'
 import { PathsTargetEnd, PathsTargetStart } from './PathsTarget'
 import { PathsAdvanced } from './PathsAdvanced'
 import { FunnelsQuerySteps } from './FunnelsQuerySteps'
@@ -76,20 +75,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             editorFilters: filterFalsy([
                 ...(isPaths
                     ? filterFalsy([
-                          hasPathsAdvanced && {
-                              key: 'wildcard-groups',
-                              label: 'Wildcard Groups',
-                              showOptional: true,
-                              component: PathsWildcardGroups,
-                              tooltip: (
-                                  <>
-                                      Use wildcard matching to group events by unique values in path item names. Use an
-                                      asterisk (*) in place of unique values. For example, instead of
-                                      /merchant/1234/payment, replace the unique value with an asterisk
-                                      /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
-                                  </>
-                              ),
-                          },
                           {
                               key: 'start-target',
                               label: 'Starts at',

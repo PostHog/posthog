@@ -28,7 +28,7 @@ import {
     PathsTargetStartDataExploration,
 } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
-import { PathsWildcardGroupsDataExploration } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
+import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -83,7 +83,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                               key: 'wildcard-groups',
                               label: 'Wildcard Groups',
                               showOptional: true,
-                              component: PathsWildcardGroupsDataExploration,
+                              component: PathsWildcardGroups,
                               tooltip: (
                                   <>
                                       Use wildcard matching to group events by unique values in path item names. Use an
