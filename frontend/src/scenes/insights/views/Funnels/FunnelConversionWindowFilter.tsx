@@ -1,7 +1,7 @@
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useState } from 'react'
-import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
+import { QueryEditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useDebouncedCallback } from 'use-debounce'
 import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
@@ -18,7 +18,9 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Month]: [1, 12],
 }
 
-export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
+export function FunnelConversionWindowFilter({
+    insightProps,
+}: Pick<QueryEditorFilterProps, 'insightProps'>): JSX.Element {
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
     const { insightFilter, querySource } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
