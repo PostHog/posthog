@@ -9,7 +9,6 @@ import {
 import { CSSTransition } from 'react-transition-group'
 import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/TrendsSeries'
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { GlobalAndOrFilters } from 'scenes/insights/EditorFilters/GlobalAndOrFilters'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
 import { RetentionSummary } from './RetentionSummary'
@@ -49,7 +48,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const availableFeatures = user?.organization?.available_features || []
 
     const logic = insightLogic(insightProps)
-    const { filters, insight, filterPropertiesCount } = useValues(logic)
+    const { filters, insight } = useValues(logic)
 
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
 
@@ -143,19 +142,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           component: TrendsFormula,
                       }
                     : null,
-            ]),
-        },
-        {
-            title: 'Filters',
-            count: filterPropertiesCount,
-
-            editorFilters: filterFalsy([
-                {
-                    key: 'properties',
-                    label: 'Filters',
-                    position: 'right',
-                    component: GlobalAndOrFilters,
-                },
             ]),
         },
         {
