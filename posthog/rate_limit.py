@@ -158,10 +158,10 @@ class DecideRateThrottle(SimpleRateThrottle):
     @staticmethod
     def safely_get_token_from_request(request: Request) -> Optional[str]:
         """
-        Gets the team_id from a view without throwing.
+        Gets the token from a request without throwing.
 
-        Not all views have a team_id (e.g. the /organization endpoints),
-        and accessing it when it does not exist throws a KeyError. Hence, this method.
+        Not all requests are valid, and might not have a token.
+        Accessing it when it does not exist throws a KeyError. Hence, this method.
         """
         try:
             from posthog.api.utils import get_token
