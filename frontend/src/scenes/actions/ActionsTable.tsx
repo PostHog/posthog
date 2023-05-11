@@ -332,12 +332,7 @@ export function ActionsTable(): JSX.Element {
                     </>
                 }
             >
-                <LemonInput
-                    type="text"
-                    placeholder="Enter name for duplicated action"
-                    onChange={setDupName}
-                    value={dupName}
-                />
+                <LemonInput type="text" placeholder="Enter name" onChange={setDupName} value={dupName} />
             </LemonModal>
         </div>
     )
