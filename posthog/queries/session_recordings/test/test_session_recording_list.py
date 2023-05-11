@@ -281,7 +281,7 @@ def session_recording_list_test_factory(session_recording_list):
                             "id": None,
                             "type": "events",
                             "order": 0,
-                            "name": "$pageview",
+                            "name": "",
                             "properties": [
                                 {"key": "$browser", "value": ["Firefox"], "operator": "exact", "type": "event"}
                             ],
