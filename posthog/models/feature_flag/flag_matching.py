@@ -383,7 +383,7 @@ class FeatureFlagMatcher:
                     # super release conditions
                     if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
                         condition = feature_flag.super_conditions[0]
-                        prop_key = condition.get("properties", [{}])[0].get("key", None)
+                        prop_key = (condition.get("properties") or [{}])[0].get("key")
                         if prop_key:
                             key = f"flag_{feature_flag.pk}_super_condition"
                             condition_eval(key, condition)
