@@ -86,6 +86,7 @@ export class SessionManager {
     public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager add called after destroy ${this.sessionId}`, { message })
+            return
         }
         this.buffer.oldestKafkaTimestamp = Math.min(this.buffer.oldestKafkaTimestamp, message.metadata.timestamp)
         // TODO: Check that the offset is higher than the lastProcessed
@@ -123,6 +124,7 @@ export class SessionManager {
     public async flushIfSessionBufferIsOld(): Promise<void> {
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy ${this.sessionId}`)
+            return
         }
 
         const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
@@ -145,6 +147,11 @@ export class SessionManager {
     public async flush(): Promise<void> {
         if (this.flushBuffer) {
             status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing")
+            return
+        }
+
+        if (this.destroying) {
+            status.warn('⚠️', 'blob_ingester_session_manager somehow flush called after destroy')
             return
         }
 

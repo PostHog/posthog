@@ -82,6 +82,21 @@ describe('session-manager', () => {
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(mockFinish).toBeCalledTimes(1)
         expect(fs.existsSync(file)).toEqual(false)
+        expect(mockS3Client.send).toHaveBeenCalled()
+    })
+
+    it('does not flush messages if destroy has been called', async () => {
+        const event = createIncomingRecordingMessage()
+        await sessionManager.add(event)
+        expect(sessionManager.buffer.count).toEqual(1)
+        const file = sessionManager.buffer.file
+        expect(fs.existsSync(file)).toEqual(true)
+
+        await sessionManager.destroy()
+        await sessionManager.flush()
+
+        expect(fs.existsSync(file)).toEqual(false)
+        expect(mockS3Client.send).not.toHaveBeenCalled()
     })
 
     it('flushes messages and whilst collecting new ones', async () => {
