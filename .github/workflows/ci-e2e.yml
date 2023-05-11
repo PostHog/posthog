@@ -25,6 +25,7 @@ jobs:
             - name: Wait for the container image to be ready
               uses: lewagon/wait-on-check-action@v1.2.0
               with:
+                  check-name: Build PostHog Cloud
                   ref: ${{ github.event.pull_request.head.sha }}
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   wait-interval: 10
