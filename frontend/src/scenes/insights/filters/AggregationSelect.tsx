@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { LemonButton, LemonButtonWithDropdown, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSelectSection, LemonTextArea } from '@posthog/lemon-ui'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -11,6 +11,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 import { useEffect, useState } from 'react'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
@@ -125,21 +126,26 @@ function AggregationSelectComponent({
 }: AggregationSelectComponentProps): JSX.Element {
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
-    const [localValue, setLocalValue] = useState(value)
-    useEffect(() => {
-        setLocalValue(value)
-    }, [value])
 
-    const options: { value: string; label: string }[] = [
+    const baseValues = [UNIQUE_USERS]
+    const optionSections: LemonSelectSection<string>[] = [
         {
-            value: UNIQUE_USERS,
-            label: 'Unique users',
+            title: 'Event Aggregation',
+            options: [
+                {
+                    value: UNIQUE_USERS,
+                    label: 'Unique users',
+                },
+            ],
         },
     ]
 
-    if (!needsUpgradeForGroups && !canStartUsingGroups) {
+    if (needsUpgradeForGroups || canStartUsingGroups) {
+        optionSections[0].footer = <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
+    } else {
         groupTypes.forEach((groupType) => {
-            options.push({
+            baseValues.push(`$group_${groupType.group_type_index}`)
+            optionSections[0].options.push({
                 value: `$group_${groupType.group_type_index}`,
                 label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
             })
@@ -147,109 +153,87 @@ function AggregationSelectComponent({
     }
 
     if (hogqlAvailable) {
-        options.push({
-            value: `properties.$session_id`,
+        baseValues.push(`properties.$session_id`)
+        optionSections[0].options.push({
+            value: 'properties.$session_id',
             label: `Unique sessions`,
         })
     }
-
-    const selectedLabel = options.find((o) => o.value === value)?.label ?? value
-
-    const [open, setOpen] = useState(false)
-    const [hogQLOpen, setHogQLOpen] = useState(false)
-    const closeBoth = (): void => {
-        setOpen(false)
-        setHogQLOpen(false)
-    }
+    optionSections[0].options.push({
+        label: 'Custom HogQL expression',
+        options: [
+            {
+                // This is a bit of a hack so that the HogQL option is only highlighted as active when the user has
+                // set a custom value (because actually _all_ the options are HogQL)
+                value: !value || baseValues.includes(value) ? '' : value,
+                label: <span className="font-mono">{value}</span>,
+                CustomControl: function CustomHogQLOptionWrapped({ onSelect }) {
+                    return <CustomHogQLOption actualValue={value} onSelect={onSelect} />
+                },
+            },
+        ],
+    })
 
     return (
-        <LemonButtonWithDropdown
-            status="stealth"
-            type="secondary"
-            onClick={() => setOpen(!open)}
+        <LemonSelect
             className={className}
-            dropdown={{
-                actionable: true,
-                onClickOutside: closeBoth,
-                closeOnClickInside: false,
-                visible: open,
-                overlay: (
-                    <>
-                        {options.map((option) => (
-                            <LemonButton
-                                key={option.value}
-                                onClick={() => {
-                                    onChange(option.value)
-                                    closeBoth()
-                                }}
-                                status="stealth"
-                                fullWidth
-                                active={option.value === value}
-                            >
-                                {option.label}
-                            </LemonButton>
-                        ))}
-                        <LemonButtonWithDropdown
-                            status="stealth"
-                            onClick={() => setHogQLOpen(!hogQLOpen)}
-                            active={selectedLabel === value}
-                            fullWidth
-                            dropdown={{
-                                actionable: true,
-                                closeParentPopoverOnClickInside: false,
-                                closeOnClickInside: false,
-                                visible: hogQLOpen,
-                                overlay: (
-                                    <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                                        <LemonTextArea
-                                            data-attr="inline-hogql-editor"
-                                            value={String(localValue ?? '')}
-                                            onChange={(e) => setLocalValue(e)}
-                                            onFocus={(e) => {
-                                                // move caret to end of input
-                                                const val = e.target.value
-                                                e.target.value = ''
-                                                e.target.value = val
-                                            }}
-                                            className="font-mono"
-                                            minRows={6}
-                                            maxRows={6}
-                                            autoFocus
-                                            placeholder={
-                                                'Enter HogQL Expression. Person property access is not enabled.'
-                                            }
-                                        />
-                                        <LemonButton
-                                            fullWidth
-                                            type="primary"
-                                            onClick={() => {
-                                                onChange(String(localValue))
-                                                closeBoth()
-                                            }}
-                                            disabled={!localValue}
-                                            center
-                                        >
-                                            Aggregate by HogQL expression
-                                        </LemonButton>
-                                        <div className="text-right">
-                                            <a href="https://posthog.com/manual/hogql" target={'_blank'}>
-                                                Learn more about HogQL
-                                            </a>
-                                        </div>
-                                    </div>
-                                ),
-                            }}
-                        >
-                            Custom HogQL expression
-                        </LemonButtonWithDropdown>
-                        {needsUpgradeForGroups || canStartUsingGroups ? (
-                            <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
-                        ) : null}
-                    </>
-                ),
+            value={value}
+            onChange={(newValue) => {
+                if (newValue !== null) {
+                    onChange(newValue)
+                }
             }}
-        >
-            {selectedLabel}
-        </LemonButtonWithDropdown>
+            data-attr="retention-aggregation-selector"
+            dropdownMatchSelectWidth={false}
+            options={optionSections}
+        />
+    )
+}
+
+function CustomHogQLOption({
+    onSelect,
+    actualValue,
+}: {
+    onSelect: (value: string) => void
+    actualValue: string | undefined
+}): JSX.Element {
+    const [localValue, setLocalValue] = useState(actualValue || '')
+    useEffect(() => {
+        setLocalValue(actualValue || '')
+    }, [actualValue])
+
+    return (
+        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+            <LemonTextArea
+                data-attr="inline-hogql-editor"
+                value={localValue || ''}
+                onChange={(newValue) => setLocalValue(newValue)}
+                onFocus={(e) => {
+                    e.target.selectionStart = localValue.length // Focus at the end of the input
+                }}
+                className={`font-mono ${CLICK_OUTSIDE_BLOCK_CLASS}`}
+                minRows={6}
+                maxRows={6}
+                autoFocus
+                placeholder={'Enter HogQL expression. Note: person property access is not enabled.'}
+            />
+            <LemonButton
+                fullWidth
+                type="primary"
+                onClick={() => {
+                    console.log(actualValue, localValue)
+                    onSelect(localValue)
+                }}
+                disabledReason={!localValue ? 'Please enter a HogQL expression' : undefined}
+                center
+            >
+                Aggregate by HogQL expression
+            </LemonButton>
+            <div className={`text-right ${CLICK_OUTSIDE_BLOCK_CLASS}`}>
+                <a href="https://posthog.com/manual/hogql" target={'_blank'}>
+                    Learn more about HogQL
+                </a>
+            </div>
+        </div>
     )
 }
