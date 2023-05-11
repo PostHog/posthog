@@ -11,6 +11,7 @@ from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models import Q
 from django.db.models.query import QuerySet
+from django.conf import settings
 from sentry_sdk.api import capture_exception
 
 from posthog.models.filters import Filter
@@ -43,6 +44,8 @@ FLAG_EVALUATION_ERROR_COUNTER = Counter(
     labelnames=["reason"],
 )
 
+print('flag_matching.py',"decide" not in settings.READ_REPLICA_OPT_IN)
+DATABASE_FOR_FLAG_MATCHING = lambda: "default" if "decide" not in settings.READ_REPLICA_OPT_IN else "replica"
 
 class FeatureFlagMatchReason(str, Enum):
     SUPER_CONDITION_VALUE = "super_condition_value"
@@ -91,7 +94,7 @@ class FlagsMatcherCache:
         if self.failed_to_fetch_flags:
             raise DatabaseError("Failed to fetch group type mapping previously, not trying again.")
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING):
                 group_type_mapping_rows = GroupTypeMapping.objects.filter(team_id=self.team_id)
                 return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
         except DatabaseError as err:
@@ -292,12 +295,14 @@ class FeatureFlagMatcher:
     @cached_property
     def query_conditions(self) -> Dict[str, bool]:
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+            print('query_conditions executing', DATABASE_FOR_FLAG_MATCHING(), settings.READ_REPLICA_OPT_IN)
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING()):
                 all_conditions: Dict = {}
                 team_id = self.feature_flags[0].team_id
-                person_query: QuerySet = Person.objects.filter(
+                person_query: QuerySet = Person.objects.using(DATABASE_FOR_FLAG_MATCHING()).filter(
                     team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
                 )
+                print('person query is using connection: ', person_query.db)
                 basic_group_query: QuerySet = Group.objects.filter(team_id=team_id)
                 group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.

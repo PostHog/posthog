@@ -1,9 +1,11 @@
 import base64
 import json
+import os
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import modify_settings, override_settings
 from django.test.client import Client
 from rest_framework import status
 
@@ -14,6 +16,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.settings.data_stores import postgres_config
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
@@ -1772,3 +1775,106 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
             self.assertEqual(response.status_code, 429)
+
+class TestDecideUsesReadReplica(BaseTest):
+    """
+    To prepare the db, do:
+
+    docker exec -it d9e506cc71b5 bash
+    psql -U posthog
+    CREATE USER posthog2 WITH PASSWORD 'password';
+    \c test_posthog
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO posthog2;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO posthog2;
+
+    then run this test:
+
+    POSTHOG_DB_NAME='posthog' READ_REPLICA_OPT_IN='decide' POSTHOG_POSTGRES_READ_HOST='localhost'  POSTHOG_DB_PASSWORD='password' POSTHOG_DB_USER='posthog2'  ./bin/tests posthog/api/test/test_decide.py::TestDecideUsesReadReplica
+
+    django seems pretty shite at nagivating tested cursors to the right db. Would need to manually add them all the time? _sigh_ :/
+    need an automated way to test this at minimum.
+    At best, don't have to think about this at all.
+    """
+    databases = ["default", "replica"]
+
+
+
+
+    def setUp(self):
+        cache.clear()
+        super().setUp()
+        # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
+        self.client = Client(enforce_csrf_checks=True)
+        self.client.force_login(self.user)
+
+    def _dict_to_b64(self, data: dict) -> str:
+        return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
+
+    def _post_decide(
+        self,
+        data=None,
+        origin="http://127.0.0.1:8000",
+        api_version=1,
+        distinct_id="example_id",
+        groups={},
+        geoip_disable=False,
+        ip="127.0.0.1",
+    ):
+        return self.client.post(
+            f"/decide/?v={api_version}",
+            {
+                "data": self._dict_to_b64(
+                    data
+                    or {
+                        "token": self.team.api_token,
+                        "distinct_id": distinct_id,
+                        "groups": groups,
+                        "geoip_disable": geoip_disable,
+                    },
+                )
+            },
+            HTTP_ORIGIN=origin,
+            REMOTE_ADDR=ip,
+        )
+
+
+    # @override_settings(READ_REPLICA_OPT_IN=["decide"], DATABASE_ROUTERS = ["posthog.dbrouter.ReplicaRouter"])
+    # @modify_settings(DATABASES={"append": {"replica": postgres_config("localhost")}})
+    def test_decide_uses_read_replica(self):
+            self.client.logout()
+        # with self.settings(READ_REPLICA_OPT_IN=["decide"], POSTHOG_POSTGRES_READ_HOST="localhost"):
+            Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+            FeatureFlag.objects.create(
+                team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+            )
+            FeatureFlag.objects.create(
+                team=self.team,
+                filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+                name="This is a feature flag with default params, no filters.",
+                key="default-flag",
+                created_by=self.user,
+            )  # Should be enabled for everyone
+
+            # Test number of queries with multiple property filter feature flags
+            FeatureFlag.objects.create(
+                team=self.team,
+                filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
+                rollout_percentage=50,
+                name="Filter by property",
+                key="filer-by-property",
+                created_by=self.user,
+            )
+            FeatureFlag.objects.create(
+                team=self.team,
+                filters={"groups": [{"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]}]},
+                name="Filter by property 2",
+                key="filer-by-property-2",
+                created_by=self.user,
+            )
+
+            with self.assertNumQueries(4):
+                response = self._post_decide(api_version=3)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIn("default-flag", response.json()["featureFlags"])
+            self.assertIn("beta-feature", response.json()["featureFlags"])
+            self.assertIn("filer-by-property-2", response.json()["featureFlags"])
