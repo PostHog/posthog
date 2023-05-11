@@ -138,14 +138,12 @@ class FeatureFlagMatcher:
 
         # Match for boolean super condition first
         if feature_flag.filters.get("super_groups", None):
-            super_condition_value_is_set = self._super_condition_is_set(feature_flag)
-            super_condition_value = self._super_condition_matches(feature_flag)
-
-            if super_condition_value_is_set:
+            is_match, super_condition_value, evaluation_reason = self.is_super_condition_match(feature_flag)
+            if is_match:
                 payload = self.get_matching_payload(super_condition_value, None, feature_flag)
                 return FeatureFlagMatch(
                     match=super_condition_value,
-                    reason=FeatureFlagMatchReason.SUPER_CONDITION_VALUE,
+                    reason=evaluation_reason,
                     condition_index=0,
                     payload=payload,
                 )
@@ -231,6 +229,27 @@ class FeatureFlagMatcher:
                 return feature_flag.get_payload("true")
         else:
             return None
+
+    def is_super_condition_match(self, feature_flag: FeatureFlag) -> Tuple[bool, bool, FeatureFlagMatchReason]:
+        super_condition_value_is_set = self._super_condition_is_set(feature_flag)
+        super_condition_value = self._super_condition_matches(feature_flag)
+
+        if super_condition_value_is_set:
+            return True, super_condition_value, FeatureFlagMatchReason.SUPER_CONDITION_VALUE
+
+        # Evaluate if properties are empty
+        if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
+            condition = feature_flag.super_conditions[0]
+            if not condition.get("properties"):
+                rollout_percentage = condition.get("rollout_percentage")
+
+                if rollout_percentage is not None:
+                    if self.get_hash(feature_flag) > (rollout_percentage / 100):
+                        return True, False, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND
+                    else:
+                        return True, True, FeatureFlagMatchReason.SUPER_CONDITION_VALUE
+
+        return False, False, FeatureFlagMatchReason.NO_CONDITION_MATCH
 
     def is_condition_match(
         self, feature_flag: FeatureFlag, condition: Dict, condition_index: int
