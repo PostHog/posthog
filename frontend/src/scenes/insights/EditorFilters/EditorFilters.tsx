@@ -36,7 +36,6 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { SamplingFilter } from './SamplingFilter'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -219,18 +218,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                 isFunnels && {
                     key: 'funnels-advanced',
                     component: FunnelsAdvanced,
-                },
-            ]),
-        },
-        {
-            title: 'Sampling',
-            position: 'right',
-            editorFilters: filterFalsy([
-                {
-                    key: 'sampling',
-                    label: '',
-                    position: 'right',
-                    component: SamplingFilter,
                 },
             ]),
         },
