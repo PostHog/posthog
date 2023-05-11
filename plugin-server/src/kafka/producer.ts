@@ -5,6 +5,7 @@ import {
     ProducerGlobalConfig,
 } from 'node-rdkafka-acosom'
 
+import { getSpan } from '../sentry'
 import { status } from '../utils/status'
 
 // Kafka production related functions using node-rdkafka.
@@ -73,8 +74,12 @@ export const produce = async ({
     headers?: { [key: string]: Buffer }[]
 }): Promise<number | null | undefined> => {
     status.debug('📤', 'Producing message', { topic: topic })
+    const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
+
     return await new Promise((resolve, reject) =>
         producer.produce(topic, null, value, key, Date.now(), headers, (error: any, offset: NumberNullUndefined) => {
+            produceSpan?.finish()
+
             if (error) {
                 status.error('⚠️', 'produce_error', { error: error, topic: topic })
                 reject(error)
