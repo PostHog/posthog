@@ -2,9 +2,9 @@
 
 ## Background
 
-We're getting ready to make a substantial change to the way [persons](https://posthog.com/docs/data/persons) and [events](https://posthog.com/docs/data/events) work by essentially combining them and adding person ids and properties onto events. This is the way we’ll be querying data for all teams using PostHog in the near future.
+We're getting ready to make a substantial change to the way [persons](https://posthog.com/docs/data/persons) and [events](https://posthog.com/docs/data/events) work by combining them and adding person IDs and properties onto events. This is the way we’ll be querying data for all teams using PostHog in the near future.
 
-Why are we doing this? Firstly, it makes queries significantly faster because we no longer have to join tables to get a result; we can just look up everything in the events table instead. One query in our internal tests showed a 400x increase in speed, though 10x is the most common figure...but this beta will help us understand the improvement in real-world conditions.
+Why are we doing this? First, it makes queries significantly faster since we no longer have to join tables to get a result (JOINs are particularly expensive in ClickHouse); we can just look up everything in the events table instead. One query in our internal tests showed a 400x increase in speed, though 3-5x is the most common figure for speed improvements. This beta will help us understand this better in real-world conditions.
 
 Secondly, feedback showed that users weren't able to create queries based on person properties at the time of an event. By putting person properties on events, this becomes the new default, while still enabling you to filter insights based on the latest properties using cohorts.
 
@@ -14,7 +14,7 @@ We're currently offering the new query experience for Beta testers. As it is in 
 
 Since this isn't fully ready yet we might offer you one of the roll-out stage options from below:
 
-## None: JOIN based queries
+## None: JOIN-based queries
 
 As reference here are the two aspects of queries that might change and how they work before PoE:
 
@@ -48,7 +48,7 @@ In this case, if we ran a query asking for the number of unique users who viewed
 
 The way we write the `person_id` to each event has some implications for the number of unique users that are displayed:
 
-1. Some users are counted twice on the trend graph.
+1. Some users might be counted twice on the trend graph.
    The source of truth for data is the events table. Since this is point-in-time data, it is not possible to determine whether two `person_id`'s were later merged into a single user, which results in them being counted separately.
 2. In the person modal, the count may be lower than the count displayed in the graph.
    Persons who've been merged into one have one of their old IDs deleted. We remove these people from the persons modal, as there's no place to link them to.
