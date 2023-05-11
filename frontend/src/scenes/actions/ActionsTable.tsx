@@ -5,7 +5,7 @@ import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
-import { ActionType, AvailableFeature, ChartDisplayType, InsightType } from '~/types'
+import { ActionStepType, ActionType, AvailableFeature, ChartDisplayType, InsightType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from '../teamLogic'
@@ -22,7 +22,7 @@ import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonModal, lemonToast } from '@posthog/lemon-ui'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { IconCheckmark, IconPlayCircle } from 'lib/lemon-ui/icons'
 
@@ -46,8 +46,39 @@ export function ActionsTable(): JSX.Element {
     const { loadActions } = useActions(actionsModel)
     const [searchTerm, setSearchTerm] = useState('')
     const [filterByMe, setFilterByMe] = useState(false)
+    const [dupVisible, setDupVisible] = useState(false)
+    const [dupName, setDupName] = useState('')
+    const [dupAction, setDupAction] = useState<ActionType>()
     const { user, hasAvailableFeature } = useValues(userLogic)
 
+    const duplicateAction = async (action: ActionType | undefined): Promise<void> => {
+        if (action) {
+            try {
+                const { id, action_id, ...partialAction } = action
+                const newActionSteps: ActionStepType[] | undefined = action.steps?.map(({ id, ...partialStep }) => ({
+                    ...partialStep,
+                }))
+                await api.actions.create({
+                    ...partialAction,
+                    name: dupName,
+                    steps: newActionSteps,
+                })
+                loadActions()
+                lemonToast.success('Action duplicated')
+            } catch (response: any) {
+                if (response.type === 'validation_error' && response.code === 'unique') {
+                } else {
+                    lemonToast.error(
+                        <>
+                            Couldn't create this action. You can try{' '}
+                            <Link to={urls.createAction()}>manually creating an action instead.</Link>
+                        </>
+                    )
+                    return
+                }
+            }
+        }
+    }
     const columns: LemonTableColumns<ActionType> = [
         {
             title: 'Name',
@@ -197,6 +228,17 @@ export function ActionsTable(): JSX.Element {
                                 >
                                     Try out in Insights
                                 </LemonButton>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => {
+                                        setDupName(action.name?.toString() ?? '')
+                                        setDupVisible(true)
+                                        setDupAction(action)
+                                    }}
+                                    fullWidth
+                                >
+                                    Duplicate
+                                </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
                                     status="danger"
@@ -260,6 +302,43 @@ export function ActionsTable(): JSX.Element {
                 }}
                 emptyState="The first step to standardized analytics is creating your first action."
             />
+            <LemonModal
+                isOpen={dupVisible}
+                onClose={() => {
+                    setDupVisible(false)
+                }}
+                title={`Duplicate action`}
+                footer={
+                    <>
+                        <LemonButton
+                            key="duplicate-button"
+                            type="primary"
+                            onClick={() => {
+                                setDupVisible(false)
+                                duplicateAction(dupAction)
+                            }}
+                        >
+                            Duplicate
+                        </LemonButton>
+                        <LemonButton
+                            key="cancel-button"
+                            type="secondary"
+                            onClick={() => {
+                                setDupVisible(false)
+                            }}
+                        >
+                            Cancel
+                        </LemonButton>
+                    </>
+                }
+            >
+                <LemonInput
+                    type="text"
+                    placeholder="Enter name for duplicated action"
+                    onChange={setDupName}
+                    value={dupName}
+                />
+            </LemonModal>
         </div>
     )
 }
