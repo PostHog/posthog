@@ -60,9 +60,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             id: 'saveAndRunPostHog',
                                             label: 'Save and run query',
                                             keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-                                            run: () => {
-                                                saveQuery()
-                                            },
+                                            run: () => saveQuery(),
                                         })
                                     )
                                 }}
