@@ -289,6 +289,10 @@ class ApiRequest {
             .addPathComponent(String(playlistId))
     }
 
+    public recordingSharing(id: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.recording(id, teamId).addPathComponent('sharing')
+    }
+
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboards')
@@ -944,14 +948,18 @@ const api = {
         async get({
             dashboardId,
             insightId,
+            recordingId,
         }: {
             dashboardId?: DashboardType['id']
             insightId?: InsightModel['id']
+            recordingId?: SessionRecordingType['id']
         }): Promise<SharingConfigurationType | null> {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
                 : insightId
                 ? new ApiRequest().insightSharing(insightId).get()
+                : recordingId
+                ? new ApiRequest().recordingSharing(recordingId).get()
                 : null
         },
 
@@ -959,9 +967,11 @@ const api = {
             {
                 dashboardId,
                 insightId,
+                recordingId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: InsightModel['id']
+                recordingId?: SessionRecordingType['id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
@@ -969,6 +979,8 @@ const api = {
                 ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
                 : insightId
                 ? new ApiRequest().insightSharing(insightId).update({ data })
+                : recordingId
+                ? new ApiRequest().recordingSharing(recordingId).update({ data })
                 : null
         },
     },

@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { SharingModal } from 'lib/components/Sharing/SharingModal'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -19,10 +20,22 @@ export function PlayerMetaLinks(): JSX.Element {
         setPause()
         // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
         const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
-        openPlayerShareDialog({
-            seconds: Math.floor(currentPlayerTime / 1000),
-            id: sessionRecordingId,
+        // openPlayerShareDialog({
+        //     seconds: Math.floor(currentPlayerTime / 1000),
+        //     id: sessionRecordingId,
+        // })
+
+        SharingModal.open({
+            title: 'Share Permissions',
+            recordingId: sessionRecordingId,
+            previewIframe: true,
         })
+        // <SharingModal
+        //                 title="Dashboard Permissions"
+        //                 isOpen={dashboardMode === DashboardMode.Sharing}
+        //                 closeModal={() => push(urls.dashboard(dashboard.id))}
+        //                 dashboardId={dashboard.id}
+        //             />
     }
 
     const onDelete = (): void => {

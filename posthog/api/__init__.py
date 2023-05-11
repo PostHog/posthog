@@ -204,7 +204,7 @@ projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
-projects_router.register(
+project_session_recordings_router = projects_router.register(
     r"session_recordings",
     SessionRecordingViewSet,
     "project_session_recordings",
@@ -243,6 +243,13 @@ project_insights_router.register(
     sharing.SharingConfigurationViewSet,
     "project_insight_sharing",
     ["team_id", "insight_id"],
+)
+
+project_session_recordings_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_recording_sharing",
+    ["team_id", "recording_id"],
 )
 
 projects_router.register(

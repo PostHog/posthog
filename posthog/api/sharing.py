@@ -11,10 +11,12 @@ from rest_framework.request import Request
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.session_recording import SessionRecordingSerializer
 from posthog.models import SharingConfiguration
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
+from posthog.models.session_recording import SessionRecording
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissions
@@ -41,55 +43,72 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         read_only_fields = ["created_at", "access_token"]
 
 
-def _get_sharing_configuration(team_id: int, dashboard: Optional[Dashboard] = None, insight: Optional[Insight] = None):
-    instance, created = SharingConfiguration.objects.get_or_create(
-        insight=insight, dashboard=dashboard, team_id=team_id
-    )
-    instance = cast(SharingConfiguration, instance)
-    if dashboard:
-        # Ensure the legacy dashboard fields are in sync with the sharing configuration
-        if dashboard.share_token and dashboard.share_token != instance.access_token:
-            instance.enabled = dashboard.is_shared
-            instance.access_token = dashboard.share_token
-            instance.save()
-
-    return instance
-
-
 class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     pagination_class = None
-    queryset = SharingConfiguration.objects.select_related("dashboard", "insight")
+    queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
     serializer_class = SharingConfigurationSerializer
     include_in_docs = False
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(
+        self,
+    ) -> Dict[str, Any]:
         context = super().get_serializer_context()
 
         dashboard_id = context.get("dashboard_id")
         insight_id = context.get("insight_id")
+        recording_id = context.get("recording_id")
 
-        if not dashboard_id and not insight_id:
-            raise ValidationError("Either a dashboard or insight must be specified")
+        if not dashboard_id and not insight_id and not recording_id:
+            raise ValidationError("Either a dashboard, insight or recording must be specified")
 
         if dashboard_id:
             try:
-                context["dashboard"] = Dashboard.objects.get(id=dashboard_id)
+                context["dashboard"] = Dashboard.objects.get(id=dashboard_id, team=self.team)
             except Dashboard.DoesNotExist:
                 raise NotFound("Dashboard not found.")
         if insight_id:
             try:
-                context["insight"] = Insight.objects.get(id=insight_id)
+                context["insight"] = Insight.objects.get(id=insight_id, team=self.team)
             except Insight.DoesNotExist:
                 raise NotFound("Insight not found.")
+        if recording_id:
+            try:
+                # TODO: These are special as we create them on the fly...
+                context["recording"] = SessionRecording.get_or_build(recording_id, team=self.team)
+            except SessionRecording.DoesNotExist:
+                raise NotFound("Recording not found.")
 
         return context
 
+    def _get_sharing_configuration(self, context: Dict[str, Any]):
+        """
+        Gets but does not create a SharingConfiguration. Only once enabled do we actually store it
+        """
+        context = context or self.get_serializer_context()
+        dashboard = context.get("dashboard")
+        insight = context.get("insight")
+        recording = context.get("recording")
+
+        config_kwargs = dict(team_id=self.team_id, insight=insight, dashboard=dashboard, recording=recording)
+
+        try:
+            instance = SharingConfiguration.objects.get(**config_kwargs)
+        except SharingConfiguration.DoesNotExist:
+            instance = SharingConfiguration(**config_kwargs)
+
+        if dashboard:
+            # Ensure the legacy dashboard fields are in sync with the sharing configuration
+            if dashboard.share_token and dashboard.share_token != instance.access_token:
+                instance.enabled = dashboard.is_shared
+                instance.access_token = dashboard.share_token
+                instance.save()
+
+        return instance
+
     def list(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         context = self.get_serializer_context()
-        instance = _get_sharing_configuration(
-            self.team_id, dashboard=context.get("dashboard"), insight=context.get("insight")
-        )
+        instance = self._get_sharing_configuration(context)
 
         serializer = self.get_serializer(instance, context)
         serializer.is_valid(raise_exception=True)
@@ -98,11 +117,16 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
 
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         context = self.get_serializer_context()
-        instance = _get_sharing_configuration(
-            self.team_id, dashboard=context.get("dashboard"), insight=context.get("insight")
-        )
+        instance = self._get_sharing_configuration(context)
 
         check_can_edit_sharing_configuration(self, request, instance)
+
+        print(instance, context.get("recording"))
+
+        if context.get("recording"):
+            recording = cast(SessionRecording, context.get("recording"))
+            # Special case where we need to save the instance for recordings so that the actual record gets created
+            recording.save()
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -137,9 +161,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         if access_token:
             sharing_configuration = None
             try:
-                sharing_configuration = SharingConfiguration.objects.select_related("dashboard", "insight").get(
-                    access_token=access_token
-                )
+                sharing_configuration = SharingConfiguration.objects.select_related(
+                    "dashboard", "insight", "recording"
+                ).get(access_token=access_token)
             except SharingConfiguration.DoesNotExist:
                 raise NotFound()
 
@@ -180,6 +204,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
             # We don't want the dashboard to be accidentally loaded via the shared endpoint
             exported_data.update({"dashboard": dashboard_data})
+        elif resource.recording and not resource.recording.deleted:
+            recording_data = SessionRecordingSerializer(resource.recording, context=context).data
+            exported_data.update({"recording": recording_data})
         else:
             raise NotFound()
 

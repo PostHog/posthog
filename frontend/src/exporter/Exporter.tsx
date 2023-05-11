@@ -11,9 +11,11 @@ import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
+import { SessionRecording } from 'scenes/project/Settings/SessionRecording'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
 export function Exporter(props: ExportedData): JSX.Element {
-    const { type, dashboard, insight, accessToken, ...exportOptions } = props
+    const { type, dashboard, insight, recording, accessToken, ...exportOptions } = props
     const { whitelabel } = exportOptions
 
     const { currentTeam } = useValues(teamLogic)
@@ -69,6 +71,12 @@ export function Exporter(props: ExportedData): JSX.Element {
                     dashboard={dashboard}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                     sharingAccessToken={accessToken}
+                />
+            ) : recording ? (
+                <SessionRecordingPlayer
+                    playerKey="exporter"
+                    sessionRecordingId={recording.id}
+                    // sharingAccessToken={accessToken}
                 />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>
