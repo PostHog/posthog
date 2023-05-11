@@ -12,7 +12,6 @@ import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { GlobalAndOrFilters } from 'scenes/insights/EditorFilters/GlobalAndOrFilters'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
-import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
 import { RetentionSummary } from './RetentionSummary'
 import { PathsEventTypes } from './PathsEventTypes'
 import { PathsWildcardGroups } from './PathsWildcardGroups'
@@ -151,14 +150,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             count: filterPropertiesCount,
 
             editorFilters: filterFalsy([
-                isLifecycle
-                    ? {
-                          key: 'toggles',
-                          label: 'Lifecycle Toggles',
-                          position: 'right',
-                          component: LifecycleToggles,
-                      }
-                    : null,
                 {
                     key: 'properties',
                     label: 'Filters',
