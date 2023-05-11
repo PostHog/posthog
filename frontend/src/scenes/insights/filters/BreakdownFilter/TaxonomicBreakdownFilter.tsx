@@ -1,9 +1,10 @@
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
-import { FilterType, InsightType } from '~/types'
+import { BreakdownFilter } from '~/queries/schema'
+import { ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
-import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -11,24 +12,55 @@ export interface TaxonomicBreakdownFilterProps {
 }
 
 export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
-    const logicProps = { filters, setFilters: setFilters || null }
+    return (
+        <TaxonomicBreakdownFilterComponent
+            breakdownFilter={filters}
+            display={(filters as TrendsFilterType).display}
+            isTrends={filters.insight === InsightType.TRENDS}
+            updateBreakdown={(breakdownFilter) => setFilters?.(breakdownFilter, true)}
+            updateDisplay={(display) => setFilters?.({ display } as TrendsFilterType, true)}
+        />
+    )
+}
+
+export interface TaxonomicBreakdownFilterComponentProps {
+    breakdownFilter?: BreakdownFilter | null
+    display?: ChartDisplayType | null
+    isTrends: boolean
+    updateBreakdown?: (breakdown: BreakdownFilter) => void
+    updateDisplay?: (display: ChartDisplayType | undefined) => void
+    isDataExploration?: boolean
+}
+
+export function TaxonomicBreakdownFilterComponent({
+    breakdownFilter,
+    display,
+    isTrends,
+    updateBreakdown,
+    updateDisplay,
+    isDataExploration = false,
+}: TaxonomicBreakdownFilterComponentProps): JSX.Element {
+    const logicProps: TaxonomicBreakdownFilterLogicProps = {
+        isTrends,
+        display,
+        breakdownFilter: breakdownFilter || {},
+        updateBreakdown: updateBreakdown || null,
+        updateDisplay: updateDisplay || null,
+        isDataExploration,
+    }
     const { hasBreakdown, hasNonCohortBreakdown, breakdownArray, isViewOnly } = useValues(
         taxonomicBreakdownFilterLogic(logicProps)
     )
 
     const tags = !hasBreakdown
         ? []
-        : breakdownArray.map((breakdown) => <BreakdownTag key={breakdown} breakdown={breakdown} filters={filters} />)
+        : breakdownArray.map((breakdown) => <BreakdownTag key={breakdown} breakdown={breakdown} isTrends={isTrends} />)
 
     return (
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                {!isViewOnly && !hasNonCohortBreakdown ? (
-                    <TaxonomicBreakdownButton
-                        includeSessions={filters.insight === InsightType.TRENDS} // TODO: convert to data exploration
-                    />
-                ) : null}
+                {!isViewOnly && !hasNonCohortBreakdown ? <TaxonomicBreakdownButton /> : null}
             </div>
         </BindLogic>
     )

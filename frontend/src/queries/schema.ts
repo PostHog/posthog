@@ -493,6 +493,7 @@ export interface BreakdownFilter {
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
