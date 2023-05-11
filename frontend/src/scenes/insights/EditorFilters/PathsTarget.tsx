@@ -26,7 +26,7 @@ function PathsTargetDataExploration({ position, insightProps }: PathTargetDataEx
     const { insightFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { funnel_paths, funnel_filter, start_point, end_point, path_groupings } = insightFilter || ({} as PathsFilter)
+    const { funnel_paths, funnel_filter, start_point, end_point, path_groupings } = (insightFilter || {}) as PathsFilter
 
     const overrideStartInput = funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(funnel_paths)
     const overrideEndInput = funnel_paths && [FunnelPathType.between, FunnelPathType.before].includes(funnel_paths)
