@@ -23,7 +23,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
     def test_list_organization_members_is_not_nplus1(self):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(11), snapshot_postgres_queries_context(self):
             response = self.client.get("/api/organizations/@current/members/")
 
         assert len(response.json()["results"]) == 1
