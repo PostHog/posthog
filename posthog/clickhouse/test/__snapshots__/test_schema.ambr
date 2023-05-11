@@ -408,13 +408,13 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64
       
-      , $group_0 Nullable(VARCHAR) COMMENT 'column_materializer::$group_0'
-      , $group_1 Nullable(VARCHAR) COMMENT 'column_materializer::$group_1'
-      , $group_2 Nullable(VARCHAR) COMMENT 'column_materializer::$group_2'
-      , $group_3 Nullable(VARCHAR) COMMENT 'column_materializer::$group_3'
-      , $group_4 Nullable(VARCHAR) COMMENT 'column_materializer::$group_4'
-      , $window_id Nullable(VARCHAR) COMMENT 'column_materializer::$window_id'
-      , $session_id Nullable(VARCHAR) COMMENT 'column_materializer::$session_id'
+      , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
+      , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
+      , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
+      , $group_3 VARCHAR COMMENT 'column_materializer::$group_3'
+      , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
+      , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
+      , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
   
       
   , _timestamp DateTime
@@ -1328,13 +1328,13 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64
       
-      , $group_0 Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$group_0'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
-      , $group_1 Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$group_1'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
-      , $group_2 Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$group_2'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
-      , $group_3 Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$group_3'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$group_3'
-      , $group_4 Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$group_4'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
-      , $window_id Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$window_id'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
-      , $session_id Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$session_id'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
+      , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
+      , $group_2 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
+      , $group_3 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3'
+      , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
+      , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
+      , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
       , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
@@ -1904,13 +1904,13 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64
       
-      , $group_0 Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$group_0'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
-      , $group_1 Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$group_1'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
-      , $group_2 Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$group_2'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
-      , $group_3 Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$group_3'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$group_3'
-      , $group_4 Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$group_4'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
-      , $window_id Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$window_id'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
-      , $session_id Nullable(VARCHAR) MATERIALIZED replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$session_id'), ''), 'null'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
+      , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
+      , $group_2 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
+      , $group_3 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3'
+      , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
+      , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
+      , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
       , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
