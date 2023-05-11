@@ -281,6 +281,7 @@ export async function startPluginsServer(
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
             }
 
+            serverInstance.piscina = piscina
             serverInstance.stop = closeJobs
 
             hub.statsd?.timing('total_setup_time', timer)
