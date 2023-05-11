@@ -1709,18 +1709,16 @@ export interface QueryEditorFilterProps {
     insightProps: InsightLogicProps
 }
 
-export interface InsightEditorFilter<T = EditorFilterProps> {
+export interface QueryInsightEditorFilter {
     key: string
-    label?: string | ((props: T) => JSX.Element | null)
+    label?: string | ((props: QueryEditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
-    component?: (props: T) => JSX.Element | null
+    component?: (props: QueryEditorFilterProps) => JSX.Element | null
 }
-
-export type QueryInsightEditorFilter = InsightEditorFilter<QueryEditorFilterProps>
 
 export type QueryInsightEditorFilterGroup = {
     title?: string
