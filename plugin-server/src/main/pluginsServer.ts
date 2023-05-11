@@ -321,7 +321,7 @@ export async function startPluginsServer(
         }
 
         // If one of the services completes, we want to shut down everything.
-        Promise.all(Object.values(services).map(({ join }) => join?.())).finally(closeJobs)
+        Promise.race(Object.values(services).map(({ join }) => join?.())).finally(closeJobs)
 
         if (capabilities.http) {
             httpServer = createHttpServer(services)
