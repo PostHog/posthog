@@ -36,6 +36,11 @@ CONSTANCE_CONFIG = {
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),
+    "PERSON_ON_EVENTS_V2_ENABLED": (
+        get_from_env("PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
+        "Whether to use query path using person_id and person_properties on events or the old query",
+        bool,
+    ),
     "GROUPS_ON_EVENTS_ENABLED": (
         get_from_env("GROUPS_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
         "Whether to use query path using group_properties on events or the old query",
@@ -202,6 +207,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
+    "PERSON_ON_EVENTS_V2_ENABLED",
     "GROUPS_ON_EVENTS_ENABLED",
     "STRICT_CACHING_TEAMS",
     "SLACK_APP_CLIENT_ID",

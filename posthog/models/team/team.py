@@ -245,7 +245,7 @@ class Team(UUIDClassicModel):
                 send_feature_flag_events=False,
             )
 
-        return False
+        return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
 
     @property
     def strict_caching_enabled(self) -> bool:
