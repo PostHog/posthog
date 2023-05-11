@@ -95,11 +95,13 @@ class PersonQuery:
         else:
             limit_offset = ""
             limit_params = {}
-        search_clause, search_params = self._get_search_clause(prepend=prepend)
+        search_prefiltering_clause, search_finalization_clause, search_params = self._get_search_clauses(
+            prepend=prepend
+        )
         distinct_id_clause, distinct_id_params = self._get_distinct_id_clause()
         email_clause, email_params = self._get_email_clause()
         filter_future_persons_query = (
-            "and argMax(created_at, version) < now() + interval '1 day'" if filter_future_persons else ""
+            "AND argMax(created_at, version) < now() + INTERVAL 1 DAY" if filter_future_persons else ""
         )
         updated_after_clause, updated_after_params = self._get_updated_after_clause()
 
@@ -118,28 +120,17 @@ class PersonQuery:
             f"""
             SELECT {fields}
             FROM person
+            {cohort_query if not person_filters else ""}
             WHERE team_id = %(team_id)s
-            {cohort_subquery}
+            {cohort_subquery if person_filters else ""}
+            {search_prefiltering_clause}
             {cohort_filters}
             GROUP BY id
             HAVING max(is_deleted) = 0 {filter_future_persons_query} {updated_after_clause}
-            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {grouped_person_filters} {search_finalization_clause} {distinct_id_clause} {email_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
-        """
-            if person_filters
-            else f"""
-            SELECT {fields}
-            FROM person
-            {cohort_query}
-            WHERE team_id = %(team_id)s
-            {cohort_filters}
-            GROUP BY id
-            HAVING max(is_deleted) = 0 {filter_future_persons_query} {updated_after_clause}
-            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
-            {"ORDER BY max(created_at) DESC, id" if paginate else ""}
-            {limit_offset}
-        """,
+            """,
             {
                 **updated_after_params,
                 **person_params,
@@ -272,39 +263,62 @@ class PersonQuery:
 
         return clause, params
 
-    def _get_search_clause(self, prepend: str = "") -> Tuple[str, Dict]:
-
+    def _get_search_clauses(self, prepend: str = "") -> Tuple[str, str, Dict]:
+        """
+        Return - respectively - the prefiltering search clause (not aggregated by is_deleted or version, which is great
+        for memory usage), the final search clause (aggregated for true results, more expensive), and new params.
+        """
         if not isinstance(self._filter, Filter):
-            return "", {}
+            return "", "", {}
 
         if self._filter.search:
+            distinct_id_param = f"distinct_id_{prepend}"
+            distinct_id_clause = f"""
+            id IN (
+                SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)}) WHERE distinct_id = %({distinct_id_param})s
+            )
+            """
+
             prop_group = PropertyGroup(
                 type=PropertyOperatorType.AND,
                 values=[Property(key="email", operator="icontains", value=self._filter.search, type="person")],
             )
-            search_clause, params = parse_prop_grouped_clauses(
-                self._team_id,
-                prop_group,
-                prepend=f"search_{prepend}",
+            finalization_conditions_clause, params = parse_prop_grouped_clauses(
+                team_id=self._team_id,
+                property_group=prop_group,
+                prepend=f"final_search_{prepend}",
                 has_person_id_joined=False,
                 group_properties_joined=False,
                 person_properties_mode=PersonPropertiesMode.DIRECT,
                 _top_level=False,
                 hogql_context=self._filter.hogql_context,
             )
+            finalization_clause = f"AND (({finalization_conditions_clause}) OR ({distinct_id_clause}))"
 
-            distinct_id_param = f"distinct_id_{prepend}"
-            distinct_id_clause = f"""
-            id IN (
-                SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)}) where distinct_id = %({distinct_id_param})s
+            prefiltering_conditions_clause, prefiltering_params = parse_prop_grouped_clauses(
+                team_id=self._team_id,
+                property_group=prop_group,
+                prepend=f"early_search_{prepend}",
+                has_person_id_joined=False,
+                group_properties_joined=False,
+                person_properties_mode=PersonPropertiesMode.DIRECT,
+                _top_level=False,
+                hogql_context=self._filter.hogql_context,
+                # The above kwargs are the same as for finalization BUT we do not aggregate by person version here
+                aggregate_by_person_version=False,
             )
-            """
+            params.update(prefiltering_params)
+            prefiltering_clause = f"""
+            AND id IN (
+                SELECT id FROM person
+                WHERE team_id = %(team_id)s AND (({prefiltering_conditions_clause}) OR ({distinct_id_clause}))
+            )"""
 
             params.update({distinct_id_param: self._filter.search})
 
-            return f"AND (({search_clause}) OR ({distinct_id_clause}))", params
+            return prefiltering_clause, finalization_clause, params
 
-        return "", {}
+        return "", "", {}
 
     def _get_distinct_id_clause(self) -> Tuple[str, Dict]:
         if not isinstance(self._filter, Filter):

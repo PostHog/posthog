@@ -69,6 +69,7 @@ from posthog.utils import is_json, is_valid_regex
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
+    *,
     hogql_context: HogQLContext,
     prepend: str = "global",
     table_name: str = "",
@@ -77,6 +78,7 @@ def parse_prop_grouped_clauses(
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
+    aggregate_by_person_version: bool = True,  # Only use this for prefiltering
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
     if not property_group or len(property_group.values) == 0:
@@ -98,6 +100,7 @@ def parse_prop_grouped_clauses(
                     person_id_joined_alias=person_id_joined_alias,
                     group_properties_joined=group_properties_joined,
                     hogql_context=hogql_context,
+                    aggregate_by_person_version=aggregate_by_person_version,
                     _top_level=False,
                 )
                 group_clauses.append(clause)
@@ -119,6 +122,7 @@ def parse_prop_grouped_clauses(
             property_operator=property_group.type,
             team_id=team_id,
             hogql_context=hogql_context,
+            aggregate_by_person_version=aggregate_by_person_version,
         )
 
     if not _final:
@@ -150,6 +154,7 @@ def parse_prop_clauses(
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
     property_operator: PropertyOperatorType = PropertyOperatorType.AND,
+    aggregate_by_person_version: bool = True,  # Only use this for prefiltering
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -244,7 +249,11 @@ def parse_prop_clauses(
                 idx,
                 prepend=f"personquery_{prepend}",
                 allow_denormalized_props=True,
-                transform_expression=lambda column_name: f"argMax(person.{column_name}, version)",
+                transform_expression=(
+                    (lambda column_name: f"argMax(person.{column_name}, version)")
+                    if aggregate_by_person_version
+                    else (lambda column_name: f"person.{column_name}")
+                ),
                 property_operator=property_operator,
             )
             final.append(filter_query)
