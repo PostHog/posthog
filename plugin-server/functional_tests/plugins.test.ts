@@ -546,7 +546,6 @@ test.concurrent(
 test.concurrent(`liveness check endpoint works`, async () => {
     await waitForExpect(async () => {
         const response = await fetch('http://localhost:6738/_health')
-        expect(response.status).toBe(200)
 
         const body = await response.json()
         expect(body).toEqual(

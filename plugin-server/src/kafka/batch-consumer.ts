@@ -16,6 +16,7 @@ export interface BatchConsumer {
     join: () => Promise<void>
     stop: () => Promise<void>
     isHealthy: () => boolean
+    isReady: () => boolean
 }
 
 export const startBatchConsumer = async ({
@@ -191,6 +192,11 @@ export const startBatchConsumer = async ({
         return Date.now() - lastLoopTime < 60000
     }
 
+    const isReady = () => {
+        // A crude check to see is
+        return consumer.assignments.length > 0
+    }
+
     const stop = async () => {
         status.info('🔁', 'Stopping session recordings consumer')
 
@@ -210,7 +216,7 @@ export const startBatchConsumer = async ({
         }
     }
 
-    return { isHealthy, stop, join, consumer }
+    return { isHealthy, isReady, stop, join, consumer }
 }
 
 export const consumerBatchSize = new Histogram({

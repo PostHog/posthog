@@ -26,8 +26,18 @@ const jobsExecutionFailureCounter = new Counter({
     labelNames: ['job_type'],
 })
 
-export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina) {
+export async function startGraphileWorker(hub: Hub, piscina: Piscina) {
     status.info('🔄', 'Starting Graphile Worker...')
+
+    const graphileWorker = new GraphileWorker(hub)
+    // `connectProducer` just runs the PostgreSQL migrations. Ideally it
+    // would be great to move the migration to bin/migrate and ensure we
+    // have a way for the pods to wait for the migrations to complete as
+    // we do with other migrations. However, I couldn't find a
+    // `graphile-worker` supported way to do this, and I don't think
+    // it's that heavy so it may be fine, but something to watch out
+    // for.
+    await graphileWorker.connectProducer()
 
     piscina.on('drain', () => {
         void graphileWorker.resumeConsumer()

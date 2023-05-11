@@ -350,6 +350,14 @@ export class SessionRecordingBlobIngester {
         }, flushIntervalTimeoutMs)
     }
 
+    public isReady(): boolean {
+        return this.batchConsumer?.isReady() ?? false
+    }
+
+    public isHealthy(): boolean {
+        return this.batchConsumer?.isHealthy() ?? false
+    }
+
     public async stop(): Promise<void> {
         status.info('🔁', 'blob_ingester_consumer Stopping session recordings consumer')
 

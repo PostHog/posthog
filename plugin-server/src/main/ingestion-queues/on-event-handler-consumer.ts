@@ -4,9 +4,9 @@ import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-to
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
-import { makeHealthCheck } from './analytics-events-ingestion-consumer'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { IngestionConsumer } from './kafka-queue'
+import { makeServiceFromKafkaJSConsumer } from './scheduled-tasks-consumer'
 
 export const startOnEventHandlerConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
@@ -34,9 +34,12 @@ export const startOnEventHandlerConsumer = async ({
         await queue.emitConsumerGroupMetrics()
     })
 
-    const isHealthy = makeHealthCheck(queue)
+    // every 5 minutes all ActionManager caches are reloaded for eventual consistency
+    schedule.scheduleJob('*/5 * * * *', async () => {
+        await piscina?.broadcastTask({ task: 'reloadAllActions' })
+    })
 
-    return { queue, isHealthy: () => isHealthy() }
+    return makeServiceFromKafkaJSConsumer(queue.consumer)
 }
 
 export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {

@@ -1,5 +1,6 @@
 import { StatsD } from 'hot-shots'
 import { Batch, EachBatchHandler, Kafka } from 'kafkajs'
+import { Consumer } from 'kafkajs'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/kafka-topics'
@@ -134,12 +135,7 @@ export const startScheduledTasksConsumer = async ({
         },
     })
 
-    return {
-        ...consumer,
-        stop: async () => {
-            await consumer.stop()
-        },
-    }
+    return makeServiceFromKafkaJSConsumer(consumer)
 }
 
 const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) => {
@@ -206,4 +202,53 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
         .map((tasksByPluginConfigId) => Object.values(tasksByPluginConfigId))
         .flat()
         .sort((a, b) => Number.parseInt(a.message.offset) - Number.parseInt(b.message.offset))
+}
+
+export const makeServiceFromKafkaJSConsumer = (consumer: Consumer) => {
+    let isReady = false
+    consumer.on(consumer.events.GROUP_JOIN, () => {
+        isReady = true
+    })
+
+    const SESSION_TIMEOUT = 30000
+
+    const { HEARTBEAT } = consumer.events
+    let lastHeartbeat = Date.now()
+    consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
+
+    return {
+        isReady: () => {
+            return isReady
+        },
+        isHealthy: async () => {
+            // Consumer has heartbeat within the session timeout,
+            // so it is healthy
+            if (Date.now() - lastHeartbeat < SESSION_TIMEOUT) {
+                return true
+            }
+
+            // Consumer has not heartbeat, but maybe it's because the group is currently rebalancing
+            try {
+                const { state } = await consumer.describeGroup()
+
+                return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
+            } catch (error) {
+                return false
+            }
+        },
+        stop: async () => {
+            await consumer.stop()
+        },
+        join: async () => {
+            await new Promise<void>((resolve) => {
+                const handler = consumer.on(consumer.events.STOP, () => {
+                    try {
+                        handler()
+                    } finally {
+                        resolve()
+                    }
+                })
+            })
+        },
+    }
 }

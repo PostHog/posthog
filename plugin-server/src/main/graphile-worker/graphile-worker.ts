@@ -247,6 +247,15 @@ export class GraphileWorker {
         return this.paused
     }
 
+    isReady(): boolean {
+        return this.started
+    }
+
+    isHealthy(): boolean {
+        // TODO: check if the worker is running
+        return true
+    }
+
     async resumeConsumer(): Promise<void> {
         if (this.paused) {
             status.info('🔄', 'Resuming Graphile worker...')

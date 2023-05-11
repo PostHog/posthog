@@ -9,6 +9,7 @@ import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 import { latestOffsetTimestampGauge } from './metrics'
+import { makeServiceFromKafkaJSConsumer } from './scheduled-tasks-consumer'
 
 const jobsConsumerSuccessCounter = new Counter({
     name: 'jobs_consumer_enqueue_success_total',
@@ -118,10 +119,5 @@ export const startJobsConsumer = async ({
         },
     })
 
-    return {
-        ...consumer,
-        stop: async () => {
-            await consumer.stop()
-        },
-    }
+    return makeServiceFromKafkaJSConsumer(consumer)
 }

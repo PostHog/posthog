@@ -12,6 +12,7 @@ import { captureIngestionWarning } from './../../worker/ingestion/utils'
 import { eachBatch } from './batch-processing/each-batch'
 import { eachMessageIngestion } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
+import { makeServiceFromKafkaJSConsumer } from './scheduled-tasks-consumer'
 
 export const startAnalyticsEventsIngestionOverflowConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
@@ -53,7 +54,7 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
         await queue.emitConsumerGroupMetrics()
     })
 
-    return queue
+    return makeServiceFromKafkaJSConsumer(queue.consumer)
 }
 
 export async function eachBatchIngestionFromOverflow(
