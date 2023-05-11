@@ -315,10 +315,10 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePers
     The output of this activity is a dictionary that maps integer team_ids to sets of
     person ids that are safe to delete. Team_id is used as a filter in later queries.
     """
-    latest_merged_at = inputs.latest_merged_at.isoformat() if inputs.latest_merged_at else inputs.latest_merged_at
+    latest_merged_at = inputs.latest_merged_at.timestamp() if inputs.latest_merged_at else inputs.latest_merged_at
     to_delete_rows = sync_execute(
         SELECT_PERSONS_TO_DELETE_QUERY.format(database=inputs.database),
-        # We pass this as a string ourselves as clickhouse-driver will drop any microseconds from the string.
+        # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
         # This would cause the latest merge event to be ignored.
         # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
         {"latest_merged_at": latest_merged_at},
@@ -403,7 +403,7 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
         team_id_filter="AND team_id in %(team_ids)s" if inputs.team_ids else "",
     )
 
-    latest_merged_at = inputs.latest_merged_at.isoformat() if inputs.latest_merged_at else inputs.latest_merged_at
+    latest_merged_at = inputs.latest_merged_at.timestamp() if inputs.latest_merged_at else inputs.latest_merged_at
 
     for partition_id in inputs.partition_ids:
         activity.logger.info("Executing squash query on partition %s", partition_id)
@@ -411,7 +411,7 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
         parameters = {
             "partition_id": partition_id,
             "team_ids": inputs.team_ids,
-            # We pass this as a string ourselves as clickhouse-driver will drop any microseconds from the string.
+            # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
             # This would cause the latest merge event to be ignored.
             # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
             "latest_merged_at": latest_merged_at,
@@ -434,11 +434,10 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
     activity.logger.debug("%s", old_person_ids_to_delete)
 
     query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=inputs.database)
-    latest_merged_at = inputs.latest_merged_at.isoformat() if inputs.latest_merged_at else inputs.latest_merged_at
-
+    latest_merged_at = inputs.latest_merged_at.timestamp() if inputs.latest_merged_at else inputs.latest_merged_at
     parameters = {
         "old_person_ids": old_person_ids_to_delete,
-        # We pass this as a string ourselves as clickhouse-driver will drop any microseconds from the string.
+        # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
         # This would cause the latest merge event to be ignored.
         # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
         "latest_merged_at": latest_merged_at,
