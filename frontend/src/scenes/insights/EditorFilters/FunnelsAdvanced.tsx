@@ -1,7 +1,7 @@
 import { useValues, useActions } from 'kea'
 import { QueryEditorFilterProps } from '~/types'
 import { FunnelStepOrderPicker } from '../views/Funnels/FunnelStepOrderPicker'
-import { FunnelExclusionsFilterDataExploration } from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
+import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PureField } from 'lib/forms/Field'
@@ -30,7 +30,7 @@ export function FunnelsAdvanced({ insightProps }: QueryEditorFilterProps): JSX.E
                     />
                 }
             >
-                <FunnelExclusionsFilterDataExploration />
+                <FunnelExclusionsFilter />
             </PureField>
 
             {!!advancedOptionsUsedCount && (
