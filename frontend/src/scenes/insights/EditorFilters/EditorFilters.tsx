@@ -6,7 +6,7 @@ import {
     InsightLogicProps,
 } from '~/types'
 import { CSSTransition } from 'react-transition-group'
-import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/TrendsSeries'
+
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
@@ -20,14 +20,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 import { Attribution } from './AttributionFilter'
-import {
-    isFunnelsFilter,
-    isLifecycleFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isStickinessFilter,
-    isTrendsFilter,
-} from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter, isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -43,12 +36,9 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isTrends = isTrendsFilter(filters)
-    const isLifecycle = isLifecycleFilter(filters)
-    const isStickiness = isStickinessFilter(filters)
     const isRetention = isRetentionFilter(filters)
     const isPaths = isPathsFilter(filters)
     const isFunnels = isFunnelsFilter(filters)
-    const isTrendsLike = isTrends || isLifecycle || isStickiness
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)) ||
@@ -65,11 +55,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
         {
             title: 'Series',
             editorFilters: filterFalsy([
-                isTrendsLike && {
-                    key: 'series',
-                    label: isTrends ? TrendsSeriesLabel : undefined,
-                    component: TrendsSeries,
-                },
                 isTrends
                     ? {
                           key: 'formula',
