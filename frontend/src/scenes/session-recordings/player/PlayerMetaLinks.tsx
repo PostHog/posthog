@@ -58,7 +58,7 @@ export function PlayerMetaLinks(): JSX.Element {
                 <AddToNotebook
                     tooltip="Add to Notebook"
                     node={NotebookNodeType.Recording}
-                    properties={{ sessionRecordingId }}
+                    properties={{ id: sessionRecordingId }}
                     {...commonProps}
                 />
             )}

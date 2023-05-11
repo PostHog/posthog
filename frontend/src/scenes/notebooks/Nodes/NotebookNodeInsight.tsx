@@ -10,10 +10,10 @@ import { createUrlRegex } from './utils'
 import { urls } from 'scenes/urls'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const logic = insightLogic({ dashboardItemId: props.node.attrs.shortId })
+    const logic = insightLogic({ dashboardItemId: props.node.attrs.id })
     const { insightProps } = useValues(logic)
 
-    const href = `/insights/${props.node.attrs.shortId}`
+    const href = `/insights/${props.node.attrs.id}`
 
     return (
         <NodeWrapper className={NotebookNodeType.Insight} title="Insight" href={href} {...props}>

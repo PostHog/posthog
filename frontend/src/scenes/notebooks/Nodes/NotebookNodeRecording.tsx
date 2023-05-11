@@ -10,9 +10,10 @@ import { urls } from 'scenes/urls'
 import { createUrlRegex } from './utils'
 
 const Component = (props: NodeViewProps): JSX.Element => {
+    const id = props.node.attrs.id
     const recordingLogicProps: SessionRecordingPlayerProps = {
-        sessionRecordingId: props.node.attrs.sessionRecordingId,
-        playerKey: `notebook-${props.node.attrs.sessionRecordingId}`,
+        sessionRecordingId: id,
+        playerKey: `notebook-${id}`,
         autoPlay: false,
     }
 
@@ -40,7 +41,7 @@ export const NotebookNodeRecording = Node.create({
 
     addAttributes() {
         return {
-            sessionRecordingId: {
+            id: {
                 default: null,
             },
         }
@@ -68,7 +69,7 @@ export const NotebookNodeRecording = Node.create({
                 find: createUrlRegex(urls.sessionRecording('') + '(.+)'),
                 type: this.type,
                 getAttributes: (match) => {
-                    return { sessionRecordingId: match[1] }
+                    return { id: match[1] }
                 },
             }),
         ]
