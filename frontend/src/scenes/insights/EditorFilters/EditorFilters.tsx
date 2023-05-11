@@ -11,7 +11,6 @@ import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/T
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
-import { RetentionSummary } from './RetentionSummary'
 import { PathsEventTypes } from './PathsEventTypes'
 import { PathsWildcardGroups } from './PathsWildcardGroups'
 import { PathsTargetEnd, PathsTargetStart } from './PathsTarget'
@@ -77,11 +76,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
         {
             title: 'General',
             editorFilters: filterFalsy([
-                isRetention && {
-                    key: 'retention-summary',
-                    label: 'Retention Summary',
-                    component: RetentionSummary,
-                },
                 ...(isPaths
                     ? filterFalsy([
                           {

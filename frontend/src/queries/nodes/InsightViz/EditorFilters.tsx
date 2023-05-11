@@ -33,7 +33,7 @@ import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/Path
 import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
-import { RetentionSummaryDataExploration } from 'scenes/insights/EditorFilters/RetentionSummary'
+import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
 import { SamplingFilterDataExploration } from 'scenes/insights/EditorFilters/SamplingFilter'
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -68,7 +68,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                 isRetention && {
                     key: 'retention-summary',
                     label: 'Retention Summary',
-                    component: RetentionSummaryDataExploration,
+                    component: RetentionSummary,
                 },
                 ...(isPaths
                     ? filterFalsy([
