@@ -26,7 +26,7 @@ export async function eachBatch(
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', messageBatches.length, { key: key })
 
         for (const messageBatch of messageBatches) {
-            const batchSpan = transaction.startChild({ op: 'messageBatch' })
+            const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: messageBatch.length } })
 
             if (!isRunning() || isStale()) {
                 status.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
@@ -39,16 +39,7 @@ export async function eachBatch(
             }
 
             const lastBatchMessage = messageBatch[messageBatch.length - 1]
-            await Promise.all(
-                messageBatch.map((message: KafkaMessage) => {
-                    const eachMessageSpan = batchSpan.startChild({ op: 'eachMessage' })
-                    try {
-                        return eachMessage(message, queue)
-                    } finally {
-                        eachMessageSpan.finish()
-                    }
-                })
-            )
+            await Promise.all(messageBatch.map((message: KafkaMessage) => eachMessage(message, queue)))
 
             // this if should never be false, but who can trust computers these days
             if (lastBatchMessage) {
@@ -64,7 +55,7 @@ export async function eachBatch(
 
             await heartbeat()
 
-            batchSpan.finish()
+            batchSpan?.finish()
         }
 
         status.debug(
@@ -75,6 +66,6 @@ export async function eachBatch(
         )
     } finally {
         queue.pluginsServer.statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
-        transaction.finish()
+        transaction?.finish()
     }
 }
