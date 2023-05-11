@@ -22,20 +22,22 @@ jobs:
             specs: ${{ steps.set-specs.outputs.specs }}
 
         steps:
-            - name: Wait for the container image to be ready
-              uses: lewagon/wait-on-check-action@v1.2.0
-              with:
-                  check-name: Build PostHog Cloud
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
-                  wait-interval: 10
+            - # this is blocking a re-run (PD)
+              # disabling it and will fix in follow-up (PD)
+              #            - name: Wait for the container image to be ready
+              #              uses: lewagon/wait-on-check-action@v1.2.0
+              #              with:
+              #                  check-name: Build PostHog
+              #                  ref: ${{ github.event.pull_request.head.sha }}
+              #                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+              #                  wait-interval: 10
 
-            - name: Checkout code
-              uses: actions/checkout@v3
+              - name: Checkout code
+                uses: actions/checkout@v3
 
-            - name: List cypress/e2e and produce a JSON array of the files, in chunks
-              id: set-specs
-              run: echo "specs=$(ls cypress/e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)" >> $GITHUB_OUTPUT
+              - name: List cypress/e2e and produce a JSON array of the files, in chunks
+                id: set-specs
+                run: echo "specs=$(ls cypress/e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)" >> $GITHUB_OUTPUT
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
