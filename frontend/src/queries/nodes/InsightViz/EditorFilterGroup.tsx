@@ -8,6 +8,8 @@ import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { PureField } from 'lib/forms/Field'
 import { InsightQueryNode } from '~/queries/schema'
 
+import './EditorFilters.scss'
+
 export interface EditorFilterGroupProps {
     editorFilterGroup: QueryInsightEditorFilterGroup
     insight: Partial<InsightModel>
