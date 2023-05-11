@@ -153,7 +153,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
-        reportViewed: true,
+        reportViewed: (loadedFromBlobStorage: boolean) => ({ loadedFromBlobStorage }),
         reportUsageIfFullyLoaded: true,
     }),
     reducers(() => ({
@@ -224,7 +224,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
 
-                actions.reportViewed()
+                actions.reportViewed(values.loadedFromBlobStorage)
             }
 
             if (!values.sessionPlayerSnapshotData?.next) {
@@ -339,7 +339,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 cache.firstPaintDurationRow = null
             }
         },
-        reportViewed: async (_, breakpoint) => {
+        reportViewed: async ({ loadedFromBlobStorage }, breakpoint) => {
             const durations = generateRecordingReportDurations(cache, values)
 
             await breakpoint()
@@ -348,14 +348,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.VIEWED,
-                0
+                0,
+                loadedFromBlobStorage
             )
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportRecording(
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.ANALYZED,
-                10
+                10,
+                loadedFromBlobStorage
             )
         },
     })),

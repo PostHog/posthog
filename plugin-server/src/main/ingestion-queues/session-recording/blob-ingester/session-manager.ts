@@ -11,7 +11,6 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
-import { getArrayBytesSize, getMapByteSize } from '../shonky-ram-measurement'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
@@ -40,6 +39,7 @@ type SessionBuffer = {
 async function deleteFile(file: string, context: string) {
     try {
         await unlink(file)
+        status.info('🗑️', `blob_ingester_session_manager deleted file ${context}`, { file, context })
     } catch (err) {
         if (err && err.code === 'ENOENT') {
             status.warn(
@@ -67,6 +67,7 @@ export class SessionManager {
     chunks: Map<string, IncomingRecordingMessage[]> = new Map()
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
+    destroying = false
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -82,15 +83,10 @@ export class SessionManager {
         // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
-    public guesstimateSizes = (): { chunks: number; buffer: number; bufferOffsets: number } => {
-        return {
-            chunks: getMapByteSize(this.chunks),
-            bufferOffsets: getArrayBytesSize(this.buffer.offsets, 'buffer'),
-            buffer: this.buffer.size,
-        }
-    }
-
     public async add(message: IncomingRecordingMessage): Promise<void> {
+        if (this.destroying) {
+            status.warn('⚠️', `blob_ingester_session_manager add called after destroy ${this.sessionId}`, { message })
+        }
         this.buffer.oldestKafkaTimestamp = Math.min(this.buffer.oldestKafkaTimestamp, message.metadata.timestamp)
         // TODO: Check that the offset is higher than the lastProcessed
         // If not - ignore it
@@ -115,16 +111,29 @@ export class SessionManager {
 
         if (gzippedCapacity > 1) {
             // return the promise and let the caller decide whether to await
+            status.info('🚽', `blob_ingester_session_manager flushing buffer ${this.sessionId} due to size`, {
+                gzippedCapacity,
+                gzipSizeKb,
+                sessionId: this.sessionId,
+            })
             return this.flush()
         }
     }
 
-    public async flushIfSessionIsIdle(): Promise<void> {
-        if (
-            Date.now() - this.buffer.oldestKafkaTimestamp >=
-            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        ) {
+    public async flushIfSessionBufferIsOld(): Promise<void> {
+        if (this.destroying) {
+            status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy ${this.sessionId}`)
+        }
+
+        const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
+        const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+        if (bufferAge >= tolerance) {
             // return the promise and let the caller decide whether to await
+            status.info('🚽', `blob_ingester_session_manager flushing buffer ${this.sessionId} due to age`, {
+                bufferAge,
+                tolerance,
+                sessionId: this.sessionId,
+            })
             return this.flush()
         }
     }
@@ -138,20 +147,6 @@ export class SessionManager {
             status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing")
             return
         }
-
-        const bufferSizeKb = this.buffer.size / 1024
-        const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
-        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-        status.info('🚽', `blob_ingester_session_manager flushing buffer ${this.sessionId}`, {
-            sizeInBufferKB: bufferSizeKb,
-            chunksSize: this.chunks.size,
-            estimatedSizeInGzipKB: Math.round(gzipSizeKb),
-            bufferThreshold: this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB,
-            calculatedCapacity: gzippedCapacity,
-            percentageCapacityUsed: (gzippedCapacity * 100).toFixed(2),
-            count: this.buffer.count,
-            sessionId: this.sessionId,
-        })
 
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
@@ -291,6 +286,7 @@ export class SessionManager {
     }
 
     public async destroy(): Promise<void> {
+        this.destroying = true
         await this.waitForFlushToComplete()
 
         status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
