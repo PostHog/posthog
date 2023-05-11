@@ -7,7 +7,7 @@ import { FunnelStepRangeEntityFilter, EntityTypes, FilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { ExclusionRowSuffixDataExploration } from './ExclusionRowSuffix'
+import { ExclusionRowSuffix } from './ExclusionRowSuffix'
 import { ExclusionRow } from './ExclusionRow'
 
 export function FunnelExclusionsFilter(): JSX.Element {
@@ -51,7 +51,7 @@ export function FunnelExclusionsFilter(): JSX.Element {
             hideDeleteBtn
             seriesIndicatorType="alpha"
             renderRow={(props) => <ExclusionRow {...props} isVertical={isVerticalLayout} />}
-            customRowSuffix={(props) => <ExclusionRowSuffixDataExploration {...props} isVertical={isVerticalLayout} />}
+            customRowSuffix={(props) => <ExclusionRowSuffix {...props} isVertical={isVerticalLayout} />}
         />
     )
 }
