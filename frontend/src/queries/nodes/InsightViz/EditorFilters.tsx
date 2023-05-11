@@ -28,7 +28,7 @@ import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/Pa
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
-import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
+import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
 import { SamplingFilterDataExploration } from 'scenes/insights/EditorFilters/SamplingFilter'
@@ -188,7 +188,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                                   </ul>
                               </div>
                           ),
-                          component: AttributionDataExploration,
+                          component: Attribution,
                       }
                     : null,
             ]),
