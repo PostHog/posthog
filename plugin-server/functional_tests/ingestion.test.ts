@@ -105,6 +105,19 @@ test.concurrent(`liveness check endpoint works`, async () => {
     })
 })
 
+test.concurrent(`readiness check endpoint works`, async () => {
+    await waitForExpect(async () => {
+        const response = await fetch('http://localhost:6738/_ready')
+
+        const body = await response.json()
+        expect(body).toEqual(
+            expect.objectContaining({
+                checks: expect.objectContaining({ 'analytics-ingestion': 'ok' }),
+            })
+        )
+    })
+})
+
 test.concurrent(`event ingestion: handles $groupidentify with no properties`, async () => {
     const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
