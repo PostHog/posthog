@@ -146,7 +146,7 @@ def backfill_materialized_columns(
     """
     Backfills the materialized column after its creation.
 
-    This will require reading and writing a lot of data on clickhouse disk.
+    This starts an async process that will backfill the materialized column.
     """
 
     if len(properties) == 0:

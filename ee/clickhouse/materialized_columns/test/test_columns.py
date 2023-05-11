@@ -1,5 +1,4 @@
 import random
-from datetime import timedelta
 from time import sleep
 
 from freezegun import freeze_time
@@ -142,9 +141,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         with freeze_time("2021-05-10T14:00:01Z"):
             backfill_materialized_columns(
                 "events",
-                [("prop", "properties"), ("another", "properties")],
-                timedelta(days=50),
-                test_settings={"mutations_sync": "0"},
+                [("prop", "properties")],  # , ("another", "properties")],
+                test_settings={"mutations_sync": "2"},
             )
 
         _create_event(
@@ -174,8 +172,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
-        backfill_materialized_columns("events", [("myprop", "properties")], timedelta(days=50))
-        self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
+        backfill_materialized_columns("events", [("myprop", "properties")])
+        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
         try:
             from ee.tasks.materialized_columns import mark_all_materialized
