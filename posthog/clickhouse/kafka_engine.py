@@ -46,4 +46,4 @@ def ttl_period(field: str = "created_at", weeks: int = 3):
 
 
 def trim_quotes_expr(expr: str) -> str:
-    return f"replaceRegexpAll(nullIf(nullIf({expr}, ''), 'null'), '^\"|\"$', '')"
+    return f"replaceRegexpAll({expr}, '^\"|\"$', '')"
