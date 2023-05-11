@@ -1,6 +1,6 @@
 import { useValues, useActions } from 'kea'
 import { QueryEditorFilterProps } from '~/types'
-import { FunnelStepOrderPickerDataExploration } from '../views/Funnels/FunnelStepOrderPicker'
+import { FunnelStepOrderPicker } from '../views/Funnels/FunnelStepOrderPicker'
 import { FunnelExclusionsFilterDataExploration } from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -15,7 +15,7 @@ export function FunnelsAdvanced({ insightProps }: QueryEditorFilterProps): JSX.E
     return (
         <div className="space-y-4">
             <PureField label="Step order" info={<StepOrderInfo />}>
-                <FunnelStepOrderPickerDataExploration />
+                <FunnelStepOrderPicker />
             </PureField>
             <PureField label="Conversion rate calculation">
                 <FunnelStepReferencePicker />
