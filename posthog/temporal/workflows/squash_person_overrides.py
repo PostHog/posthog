@@ -21,7 +21,7 @@ SELECT
     team_id,
     old_person_id,
     override_person_id,
-    max(created_at) AS latest_created_at,
+    max(merged_at) AS latest_merged_at,
     max(version) AS latest_version,
     min(oldest_event) AS oldest_event_at
 FROM
@@ -315,9 +315,13 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePers
     The output of this activity is a dictionary that maps integer team_ids to sets of
     person ids that are safe to delete. Team_id is used as a filter in later queries.
     """
+    latest_merged_at = inputs.latest_merged_at.isoformat() if inputs.latest_merged_at else inputs.latest_merged_at
     to_delete_rows = sync_execute(
         SELECT_PERSONS_TO_DELETE_QUERY.format(database=inputs.database),
-        {"latest_merged_at": inputs.latest_merged_at},
+        # We pass this as a string ourselves as clickhouse-driver will drop any microseconds from the string.
+        # This would cause the latest merge event to be ignored.
+        # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
+        {"latest_merged_at": latest_merged_at},
     )
 
     if not isinstance(to_delete_rows, list):
@@ -425,9 +429,14 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
     activity.logger.debug("%s", old_person_ids_to_delete)
 
     query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=inputs.database)
+    latest_merged_at = inputs.latest_merged_at.isoformat() if inputs.latest_merged_at else inputs.latest_merged_at
+
     parameters = {
         "old_person_ids": old_person_ids_to_delete,
-        "latest_merged_at": inputs.latest_merged_at,
+        # We pass this as a string ourselves as clickhouse-driver will drop any microseconds from the string.
+        # This would cause the latest merge event to be ignored.
+        # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
+        "latest_merged_at": latest_merged_at,
     }
 
     if inputs.dry_run is True:
@@ -521,7 +530,7 @@ async def person_overrides_dictionary(
     Managing the DICTIONARY involves setup activities:
     - Prepare the underlying person_overrides table by: stopping ingestion of new overrides and optimizing
         the table to remove any duplicates.
-    - Creating the DICTIONARY itself, returning latest_created_at.
+    - Creating the DICTIONARY itself, returning latest_merged_at.
 
     And clean-up activities:
     - Re-attaching the underlying person_overrides table after we are done.
@@ -538,7 +547,7 @@ async def person_overrides_dictionary(
         start_to_close_timeout=timedelta(seconds=60),
         retry_policy=retry_policy,
     )
-    latest_created_at = await workflow.execute_activity(
+    latest_merged_at = await workflow.execute_activity(
         prepare_dictionary,
         query_inputs,
         start_to_close_timeout=timedelta(seconds=60),
@@ -546,7 +555,7 @@ async def person_overrides_dictionary(
     )
 
     try:
-        yield latest_created_at
+        yield latest_merged_at
 
     finally:
         await workflow.execute_activity(
