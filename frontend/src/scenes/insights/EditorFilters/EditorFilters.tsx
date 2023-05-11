@@ -8,7 +8,6 @@ import {
 import { CSSTransition } from 'react-transition-group'
 
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
 import { PathsAdvanced } from './PathsAdvanced'
 import { FunnelsAdvanced } from './FunnelsAdvanced'
@@ -52,18 +51,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const advancedOptionsExpanded = !!advancedOptionsCount
 
     const editorFilters: InsightEditorFilterGroup[] = [
-        {
-            title: 'Series',
-            editorFilters: filterFalsy([
-                isTrends
-                    ? {
-                          key: 'formula',
-                          label: TrendsFormulaLabel,
-                          component: TrendsFormula,
-                      }
-                    : null,
-            ]),
-        },
         {
             title: 'Breakdown',
             count: filters.breakdowns?.length || (filters.breakdown ? 1 : 0),
