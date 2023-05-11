@@ -55,12 +55,11 @@ testing:
 There are also a few alternative utility options on how to boot plugin-server.
 Each one does a single thing. They are listed in the table below, in order of precedence.
 
-| Name        | Description                                                | CLI flags         |
-| ----------- | ---------------------------------------------------------- | ----------------- |
-| Help        | Show plugin server [configuration options](#configuration) | `-h`, `--help`    |
-| Version     | Only show currently running plugin server version          | `-v`, `--version` |
-| Healthcheck | Check plugin server health and exit with 0 or 1            | `--healthcheck`   |
-| Migrate     | Migrate Graphile Worker                                    | `--migrate`       |
+| Name    | Description                                                | CLI flags         |
+| ------- | ---------------------------------------------------------- | ----------------- |
+| Help    | Show plugin server [configuration options](#configuration) | `-h`, `--help`    |
+| Version | Only show currently running plugin server version          | `-v`, `--version` |
+| Migrate | Migrate Graphile Worker                                    | `--migrate`       |
 
 ## Alternative modes
 
