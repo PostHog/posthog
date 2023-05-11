@@ -164,6 +164,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
         params = {**params, "event_names": list(event_names_to_filter)}
 
+        if len(event_names_to_filter) == 0:
+            # using "All events"
+            where_conditions = ""
+
         return SummaryEventFiltersSQL(
             simple_event_matching_select_condition_clause=simple_event_matching_select_condition_clause,
             non_aggregate_select_condition_clause=non_aggregate_select_condition_clause,

@@ -304,6 +304,10 @@ class SessionRecordingList(EventQuery):
 
         params = {**params, "event_names": list(event_names_to_filter)}
 
+        if len(event_names_to_filter) == 0:
+            # using "All events"
+            where_conditions = ""
+
         return EventFiltersSQL(
             non_aggregate_select_condition_clause,
             aggregate_event_select_clause,
@@ -562,6 +566,10 @@ class SessionRecordingListV2(SessionRecordingList):
             params = {**params, **filter_params}
 
         params = {**params, "event_names": list(event_names_to_filter)}
+
+        if len(event_names_to_filter) == 0:
+            # using "All events"
+            where_conditions = ""
 
         return EventFiltersSQL(
             non_aggregate_select_condition_clause,
