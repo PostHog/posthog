@@ -45,6 +45,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
+        KAFKA_PRODUCER_WAIT_FOR_ACK: true, // Turning it off can lead to dropped data
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
@@ -80,7 +81,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         JOB_QUEUE_S3_BUCKET_NAME: '',
         JOB_QUEUE_S3_PREFIX: '',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
-        STALENESS_RESTART_SECONDS: 0,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,

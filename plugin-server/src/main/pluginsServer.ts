@@ -11,12 +11,11 @@ import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, KafkaConfig } from '../utils/db/hub'
-import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createPostgresPool, delay, stalenessCheck } from '../utils/utils'
+import { createPostgresPool, delay } from '../utils/utils'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import Piscina from '../worker/piscina'
@@ -336,49 +335,11 @@ export async function startPluginsServer(
             schedule.scheduleJob('*/5 * * * *', async () => {
                 await piscina?.broadcastTask({ task: 'reloadAllActions' })
             })
-            // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
-            schedule.scheduleJob('*/5 * * * * *', async () => {
-                await hub!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
-                    jsonSerialize: false,
-                })
-                await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
-            })
+
+            startPreflightSchedules(hub)
 
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
-            }
-
-            if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
-                // check every 10 sec how long it has been since the last activity
-
-                let lastFoundActivity: number
-                lastActivityCheck = setInterval(() => {
-                    const stalenessCheckResult = stalenessCheck(hub, serverConfig.STALENESS_RESTART_SECONDS)
-
-                    if (
-                        hub?.lastActivity &&
-                        stalenessCheckResult.isServerStale &&
-                        lastFoundActivity !== hub?.lastActivity
-                    ) {
-                        lastFoundActivity = hub?.lastActivity
-                        const extra = {
-                            ...stalenessCheckResult,
-                        }
-                        Sentry.captureMessage(
-                            `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
-                            {
-                                extra,
-                            }
-                        )
-                        console.log(
-                            `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
-                            extra
-                        )
-                        hub?.statsd?.increment(`alerts.stale_plugin_server_restarted`)
-
-                        killProcess()
-                    }
-                }, Math.min(serverConfig.STALENESS_RESTART_SECONDS, 10000))
             }
 
             serverInstance.piscina = piscina
@@ -466,6 +427,17 @@ export async function startPluginsServer(
         await closeJobs()
         process.exit(1)
     }
+}
+
+const startPreflightSchedules = (hub: Hub) => {
+    // These are used by the preflight checks in the Django app to determine if
+    // the plugin-server is running.
+    schedule.scheduleJob('*/5 * * * * *', async () => {
+        await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
+            jsonSerialize: false,
+        })
+        await hub.db.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
+    })
 }
 
 export async function stopPiscina(piscina: Piscina): Promise<void> {

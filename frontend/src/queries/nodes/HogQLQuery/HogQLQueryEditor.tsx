@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { HogQLQuery } from '~/queries/schema'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 import MonacoEditor from '@monaco-editor/react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -8,6 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+import { IDisposable } from 'monaco-editor'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -20,6 +21,14 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key }
     const { queryInput } = useValues(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
     const { setQueryInput, saveQuery } = useActions(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
+
+    // Using useRef, not useState, as we don't want to reload the component when this changes.
+    const monacoDisposables = useRef([] as IDisposable[])
+    useEffect(() => {
+        return () => {
+            monacoDisposables.current.forEach((d) => d?.dispose())
+        }
+    }, [])
 
     return (
         <div className="space-y-2">
@@ -45,6 +54,16 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 value={queryInput}
                                 onChange={(v) => setQueryInput(v ?? '')}
                                 height={height}
+                                onMount={(editor, monaco) => {
+                                    monacoDisposables.current.push(
+                                        editor.addAction({
+                                            id: 'saveAndRunPostHog',
+                                            label: 'Save and run query',
+                                            keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+                                            run: () => saveQuery(),
+                                        })
+                                    )
+                                }}
                                 options={{
                                     minimap: {
                                         enabled: false,

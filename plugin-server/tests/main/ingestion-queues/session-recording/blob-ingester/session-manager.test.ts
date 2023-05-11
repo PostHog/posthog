@@ -47,7 +47,7 @@ describe('session-manager', () => {
         event.metadata.timestamp = DateTime.local().minus({ minutes: 9 }).toMillis()
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionIsIdle()
+        await sessionManager.flushIfSessionBufferIsOld()
 
         expect(sessionManager.buffer.count).toEqual(1)
     })
@@ -60,7 +60,7 @@ describe('session-manager', () => {
         event.metadata.timestamp = DateTime.local().minus({ minutes: 11 }).toMillis()
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionIsIdle()
+        await sessionManager.flushIfSessionBufferIsOld()
 
         expect(sessionManager.buffer.count).toEqual(0)
     })

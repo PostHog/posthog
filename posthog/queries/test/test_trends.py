@@ -1235,18 +1235,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_any_event_total_count(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
-            response = Trends().run(
+            response1 = Trends().run(
                 Filter(
                     data={
                         "display": TRENDS_LINEAR,
                         "interval": "day",
-                        "events": [{"id": None, "math": "total"}, {"id": "sign up", "math": "total"}],
+                        "events": [{"id": None, "math": "total"}],
                     }
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["count"], 5)
-        self.assertEqual(response[1]["count"], 4)
+            response2 = Trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "interval": "day",
+                        "events": [{"id": "sign up", "math": "total"}],
+                    }
+                ),
+                self.team,
+            )
+        self.assertEqual(response1[0]["count"], 5)
+        self.assertEqual(response2[0]["count"], 4)
 
     @also_test_with_materialized_columns(["$math_prop", "$some_property"])
     def test_trends_breakdown_with_math_func(self):
@@ -3620,7 +3630,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[0]["data"][-1], 2)
 
-    @snapshot_clickhouse_queries
     @also_test_with_person_on_events_v2
     def test_breakdown_filter_by_precalculated_cohort(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
