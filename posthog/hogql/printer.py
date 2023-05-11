@@ -594,6 +594,10 @@ class _Printer(Visitor):
 
         args: List[str] = []
         if materialized_property_sql is not None:
+            # When reading materialized columns, treat the values "" and "null" as NULL-s.
+            # TODO: rematerialize all columns to support empty strings and "null" string values.
+            materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
+
             if len(type.chain) == 1:
                 return materialized_property_sql
             else:

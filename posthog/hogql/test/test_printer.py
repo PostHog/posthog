@@ -177,7 +177,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(context.values, {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"})
 
-    def test_hogql_properties_json_materialized(self):
+    def test_hogql_properties_materialized_json_access(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
@@ -189,7 +189,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
             self._expr("properties.withmat.json.yet", context),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.mat_withmat, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(nullIf(nullIf(events.mat_withmat, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
@@ -201,16 +201,23 @@ class TestPrinter(BaseTest):
             self.assertEqual(1 + 2, 3)
             return
         materialize("events", "$browser")
-        self.assertEqual(self._expr("properties['$browser']"), "events.`mat_$browser`")
+        self.assertEqual(self._expr("properties['$browser']"), "nullIf(nullIf(events.`mat_$browser`, ''), 'null')")
 
         materialize("events", "withoutdollar")
-        self.assertEqual(self._expr("properties['withoutdollar']"), "events.mat_withoutdollar")
+        self.assertEqual(
+            self._expr("properties['withoutdollar']"), "nullIf(nullIf(events.mat_withoutdollar, ''), 'null')"
+        )
 
         materialize("events", "$browser and string")
-        self.assertEqual(self._expr("properties['$browser and string']"), "events.`mat_$browser_and_string`")
+        self.assertEqual(
+            self._expr("properties['$browser and string']"),
+            "nullIf(nullIf(events.`mat_$browser_and_string`, ''), 'null')",
+        )
 
         materialize("events", "$browser%%%#@!@")
-        self.assertEqual(self._expr("properties['$browser%%%#@!@']"), "events.`mat_$browser_______`")
+        self.assertEqual(
+            self._expr("properties['$browser%%%#@!@']"), "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')"
+        )
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
