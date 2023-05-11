@@ -240,10 +240,17 @@ export const makeServiceFromKafkaJSConsumer = (consumer: Consumer) => {
             await consumer.stop()
         },
         join: async () => {
-            await new Promise<void>((resolve) => {
-                const handler = consumer.on(consumer.events.STOP, () => {
+            await new Promise<void>((resolve, reject) => {
+                const errorHandler = consumer.on(consumer.events.CRASH, (error) => {
                     try {
-                        handler()
+                        errorHandler()
+                    } finally {
+                        reject(error)
+                    }
+                })
+                const stopHandler = consumer.on(consumer.events.STOP, () => {
+                    try {
+                        stopHandler()
                     } finally {
                         resolve()
                     }

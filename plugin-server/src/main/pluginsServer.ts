@@ -73,6 +73,7 @@ export async function startPluginsServer(
             isReady: () => Promise<boolean> | boolean
             isHealthy: () => Promise<boolean> | boolean
             stop: () => Promise<void>
+            join?: () => Promise<void>
         }
     } = {}
 
@@ -311,8 +312,16 @@ export async function startPluginsServer(
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
-            services['session-recordings-blob'] = new SessionRecordingBlobIngester(teamManager, serverConfig, s3)
+            const ingester = (services['session-recordings-blob'] = new SessionRecordingBlobIngester(
+                teamManager,
+                serverConfig,
+                s3
+            ))
+            await ingester.start()
         }
+
+        // If one of the services completes, we want to shut down everything.
+        Promise.all(Object.values(services).map(({ join }) => join?.())).finally(closeJobs)
 
         if (capabilities.http) {
             httpServer = createHttpServer(services)

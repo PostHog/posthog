@@ -368,6 +368,10 @@ export class SessionRecordingBlobIngester {
         this.sessions = new Map()
     }
 
+    public async join(): Promise<void> {
+        await this.batchConsumer?.join()
+    }
+
     private async destroySessions(sessionsToDestroy: SessionManager[]): Promise<void> {
         const destroyPromises: Promise<void>[] = []
 
