@@ -5,6 +5,9 @@ import { status } from '../../../utils/status'
 import { IngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
 
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
+
 export async function eachBatch(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
     queue: IngestionConsumer,
@@ -55,7 +58,7 @@ export async function eachBatch(
 
             await heartbeat()
 
-            batchSpan?.finish()
+            batchSpan.finish()
         }
 
         status.debug(
@@ -66,6 +69,6 @@ export async function eachBatch(
         )
     } finally {
         queue.pluginsServer.statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
-        transaction?.finish()
+        transaction.finish()
     }
 }
