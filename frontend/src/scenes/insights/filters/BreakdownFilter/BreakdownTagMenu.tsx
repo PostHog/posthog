@@ -5,18 +5,13 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
 
 import { breakdownTagLogic } from './breakdownTagLogic'
-import { BreakdownFilter } from '~/queries/schema'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
-type BreakdownTagMenuProps = {
-    filters: BreakdownFilter
-}
-
-export const BreakdownTagMenu = ({ filters }: BreakdownTagMenuProps): JSX.Element => {
+export const BreakdownTagMenu = (): JSX.Element => {
     const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
     const { removeBreakdown } = useActions(breakdownTagLogic)
 
-    const { histogramBinCount, histogramBinsUsed } = useValues(taxonomicBreakdownFilterLogic)
+    const { histogramBinCount, histogramBinsUsed, breakdownFilter } = useValues(taxonomicBreakdownFilterLogic)
     const { setHistogramBinCount, setHistogramBinsUsed, setNormalizeBreakdownURL } =
         useActions(taxonomicBreakdownFilterLogic)
 
@@ -24,7 +19,7 @@ export const BreakdownTagMenu = ({ filters }: BreakdownTagMenuProps): JSX.Elemen
         <>
             {isNormalizeable && (
                 <LemonSwitch
-                    checked={!!filters.breakdown_normalize_url} // TODO move global values/actions to taxonomicBreakdownFilterLogic
+                    checked={!!breakdownFilter.breakdown_normalize_url} // TODO move global values/actions to taxonomicBreakdownFilterLogic
                     fullWidth={true}
                     onChange={(checked) => setNormalizeBreakdownURL(checked)}
                     className="min-h-10 px-2"

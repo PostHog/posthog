@@ -4,6 +4,7 @@ import { KafkaJSProtocolError } from 'kafkajs'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
+import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from '../capabilities'
@@ -32,6 +33,8 @@ import { createHttpServer } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
+
+const { version } = require('../../package.json')
 
 // TODO: refactor this into a class, removing the need for many different Servers
 export type ServerInstance = {
@@ -267,6 +270,13 @@ export async function startPluginsServer(
 
             await pubSub.start()
 
+            // every 5 minutes all ActionManager caches are reloaded for eventual consistency
+            schedule.scheduleJob('*/5 * * * *', async () => {
+                await piscina?.broadcastTask({ task: 'reloadAllActions' })
+            })
+
+            startPreflightSchedules(hub)
+
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
             }
@@ -315,6 +325,17 @@ export async function startPluginsServer(
         await closeJobs()
         process.exit(1)
     }
+}
+
+const startPreflightSchedules = (hub: Hub) => {
+    // These are used by the preflight checks in the Django app to determine if
+    // the plugin-server is running.
+    schedule.scheduleJob('*/5 * * * * *', async () => {
+        await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
+            jsonSerialize: false,
+        })
+        await hub.db.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
+    })
 }
 
 export async function stopPiscina(piscina: Piscina): Promise<void> {
