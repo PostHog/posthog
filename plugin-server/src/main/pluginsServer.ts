@@ -99,6 +99,7 @@ export async function startPluginsServer(
         httpServer?.close()
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
+        await pubSub?.stop()
         await Promise.allSettled(Object.values(services).map(({ stop }) => stop()))
 
         if (piscina) {
