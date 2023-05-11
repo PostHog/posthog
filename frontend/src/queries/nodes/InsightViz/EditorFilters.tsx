@@ -39,6 +39,8 @@ import { SamplingFilterDataExploration } from 'scenes/insights/EditorFilters/Sam
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import './EditorFilters.scss'
+
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void

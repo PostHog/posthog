@@ -23,7 +23,6 @@ import { userLogic } from 'scenes/userLogic'
 import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import './EditorFilters.scss'
 import clsx from 'clsx'
 import { Attribution } from './AttributionFilter'
 import {
