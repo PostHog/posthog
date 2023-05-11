@@ -21,7 +21,7 @@ const getPropertyDefinition = jest.fn()
 describe('taxonomic breakdown filter utils', () => {
     it('sets breakdown for events', () => {
         const onChange = onFilterChange({
-            breakdownParts: ['a', 'b'],
+            breakdownCohortArray: ['a', 'b'],
             setFilters,
             getPropertyDefinition,
         })
@@ -43,7 +43,7 @@ describe('taxonomic breakdown filter utils', () => {
 
     it('sets breakdown for cohorts', () => {
         const onChange = onFilterChange({
-            breakdownParts: ['all', 1],
+            breakdownCohortArray: ['all', 1],
             setFilters,
             getPropertyDefinition,
         })
@@ -64,7 +64,7 @@ describe('taxonomic breakdown filter utils', () => {
 
     it('sets breakdown for person properties', () => {
         const onChange = onFilterChange({
-            breakdownParts: ['country'],
+            breakdownCohortArray: ['country'],
             setFilters,
             getPropertyDefinition,
         })
@@ -85,7 +85,7 @@ describe('taxonomic breakdown filter utils', () => {
 
     it('sets breakdowns for group properties', () => {
         const onChange = onFilterChange({
-            breakdownParts: ['$lib'],
+            breakdownCohortArray: ['$lib'],
             setFilters,
             getPropertyDefinition,
         })

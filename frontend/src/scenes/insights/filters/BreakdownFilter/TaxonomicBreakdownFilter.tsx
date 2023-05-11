@@ -1,14 +1,9 @@
-import { useValues } from 'kea'
-import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { BindLogic, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
+import { FilterType, InsightType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
-import { onFilterChange, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { isCohortBreakdown } from './taxonomicBreakdownFilterUtils'
+import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -16,86 +11,25 @@ export interface TaxonomicBreakdownFilterProps {
 }
 
 export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
-    const { breakdown, breakdown_type } = filters
-    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
+    const logicProps = { filters, setFilters: setFilters || null }
+    const { hasBreakdown, hasNonCohortBreakdown, breakdownArray, isViewOnly } = useValues(
+        taxonomicBreakdownFilterLogic(logicProps)
+    )
 
-    let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
-    if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
-        breakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
-    }
-
-    const hasSelectedBreakdown = breakdown && typeof breakdown === 'string'
-
-    const breakdownArray = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b)
-
-    const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b)))
-
-    const onCloseFor = setFilters
-        ? (t: string | number, index: number): (() => void) => {
-              return () => {
-                  if (isCohortBreakdown(t)) {
-                      const newParts = breakdownParts.filter((_, i): _ is string | number => i !== index)
-                      if (newParts.length === 0) {
-                          setFilters({ breakdown: null, breakdown_type: null })
-                      } else {
-                          setFilters({ breakdown: newParts, breakdown_type: 'cohort' })
-                      }
-                  } else {
-                      const newFilters: Partial<TrendsFilterType> = {
-                          breakdown: undefined,
-                          breakdown_type: undefined,
-                          breakdown_histogram_bin_count: undefined,
-                          // Make sure we are no longer in map view after removing the Country Code breakdown
-                          display:
-                              isTrendsFilter(filters) && filters.display !== ChartDisplayType.WorldMap
-                                  ? filters.display
-                                  : undefined,
-                      }
-                      setFilters(newFilters)
-                  }
-              }
-          }
-        : undefined
-
-    const tags = !breakdown_type
+    const tags = !hasBreakdown
         ? []
-        : breakdownArray.map((t, index) => {
-              const key = `${t}-${index}`
-              const propertyDefinition = getPropertyDefinition(t)
-              const isPropertyHistogramable = !!propertyDefinition?.is_numerical
-
-              return (
-                  <BreakdownTag
-                      key={key}
-                      logicKey={key}
-                      isHistogramable={isPropertyHistogramable}
-                      isURLNormalizeable={isURLNormalizeable(propertyDefinition?.name || '')}
-                      breakdown={t}
-                      onClose={onCloseFor ? onCloseFor(t, index) : undefined}
-                      filters={filters}
-                      setFilters={setFilters}
-                  />
-              )
-          })
-
-    const onChange = setFilters
-        ? onFilterChange({
-              breakdownParts,
-              setFilters,
-              getPropertyDefinition: getPropertyDefinition,
-          })
-        : undefined
+        : breakdownArray.map((breakdown) => <BreakdownTag key={breakdown} breakdown={breakdown} filters={filters} />)
 
     return (
-        <div className="flex flex-wrap gap-2 items-center">
-            {tags}
-            {onChange && !hasSelectedBreakdown ? (
-                <TaxonomicBreakdownButton
-                    breakdownType={breakdownType}
-                    onChange={onChange}
-                    includeSessions={filters.insight === InsightType.TRENDS}
-                />
-            ) : null}
-        </div>
+        <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
+            <div className="flex flex-wrap gap-2 items-center">
+                {tags}
+                {!isViewOnly && !hasNonCohortBreakdown ? (
+                    <TaxonomicBreakdownButton
+                        includeSessions={filters.insight === InsightType.TRENDS} // TODO: convert to data exploration
+                    />
+                ) : null}
+            </div>
+        </BindLogic>
     )
 }

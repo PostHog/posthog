@@ -12,18 +12,17 @@ export const isCohort = (t: number | string): t is number => typeof t === 'numbe
 
 export const isCohortBreakdown = (t: number | string): t is number | string => isAllCohort(t) || isCohort(t)
 
-export const isPersonEventOrGroup = (t: number | string): t is string => typeof t === 'string' && t !== 'all'
-
 export const isURLNormalizeable = (propertyName: string): boolean => {
     return ['$current_url', '$pathname'].includes(propertyName)
 }
+
 interface FilterChange {
-    breakdownParts: (string | number)[]
+    breakdownCohortArray: (string | number)[]
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
     getPropertyDefinition: (propertyName: string | number) => PropertyDefinition | null
 }
 
-export function onFilterChange({ breakdownParts, setFilters, getPropertyDefinition }: FilterChange) {
+export function onFilterChange({ breakdownCohortArray, setFilters, getPropertyDefinition }: FilterChange) {
     return (changedBreakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup): void => {
         const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
 
@@ -43,7 +42,7 @@ export function onFilterChange({ breakdownParts, setFilters, getPropertyDefiniti
 
             newFilters.breakdown =
                 taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
-                    ? [...breakdownParts, changedBreakdown].filter((b): b is string | number => !!b)
+                    ? [...breakdownCohortArray, changedBreakdown].filter((b): b is string | number => !!b)
                     : changedBreakdown
 
             setFilters(newFilters, true)
