@@ -3,7 +3,6 @@ import { CSSTransition } from 'react-transition-group'
 
 import { PathsAdvanced } from './PathsAdvanced'
 import { FunnelsAdvanced } from './FunnelsAdvanced'
-import { PathsExclusions } from './PathsExclusions'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { useValues } from 'kea'
 import { insightLogic } from '../insightLogic'
@@ -30,21 +29,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const advancedOptionsExpanded = !!advancedOptionsCount
 
     const editorFilters: InsightEditorFilterGroup[] = [
-        {
-            title: 'Exclusions',
-            position: 'right',
-            editorFilters: filterFalsy([
-                isPaths && {
-                    key: 'paths-exclusions',
-                    label: 'Exclusions',
-                    position: 'right',
-                    tooltip: (
-                        <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
-                    ),
-                    component: PathsExclusions,
-                },
-            ]),
-        },
         {
             title: 'Advanced Options',
             position: 'left',

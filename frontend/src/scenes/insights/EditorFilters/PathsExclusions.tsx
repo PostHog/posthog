@@ -1,50 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import {
-    EditorFilterProps,
-    EventPropertyFilter,
-    PathsFilterType,
-    PropertyFilterType,
-    PropertyOperator,
-    QueryEditorFilterProps,
-} from '~/types'
+import { EventPropertyFilter, PropertyFilterType, PropertyOperator, QueryEditorFilterProps } from '~/types'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { PathsFilter } from '~/queries/schema'
 
-export function PathsExclusionsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function PathsExclusions({ insightProps }: QueryEditorFilterProps): JSX.Element {
     const { insightFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    return (
-        <PathsExclusionsComponent
-            setFilter={updateInsightFilter}
-            taxonomicGroupTypes={taxonomicGroupTypes}
-            {...insightFilter}
-        />
-    )
-}
-
-export function PathsExclusions({ insightProps }: EditorFilterProps): JSX.Element {
-    const { filter, taxonomicGroupTypes } = useValues(pathsLogic(insightProps))
-    const { setFilter } = useActions(pathsLogic(insightProps))
-
-    return <PathsExclusionsComponent setFilter={setFilter} taxonomicGroupTypes={taxonomicGroupTypes} {...filter} />
-}
-
-type PathsExclusionsComponentProps = {
-    setFilter: (filter: PathsFilterType) => void
-    taxonomicGroupTypes: TaxonomicFilterGroupType[]
-} & PathsFilterType
-
-export function PathsExclusionsComponent({
-    setFilter,
-    exclude_events,
-    path_groupings,
-    taxonomicGroupTypes,
-}: PathsExclusionsComponentProps): JSX.Element {
+    const { exclude_events, path_groupings } = (insightFilter || {}) as PathsFilter
     return (
         <PathItemFilters
             taxonomicGroupTypes={taxonomicGroupTypes}
@@ -61,7 +27,7 @@ export function PathsExclusionsComponent({
                 )
             }
             onChange={(values) => {
-                setFilter({ exclude_events: values.map((v) => v.value as string) })
+                updateInsightFilter({ exclude_events: values.map((v) => v.value as string) })
             }}
             wildcardOptions={path_groupings?.map((name) => ({ name }))}
         />

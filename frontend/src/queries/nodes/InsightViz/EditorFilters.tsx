@@ -24,7 +24,7 @@ import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
 import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
 import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
-import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
+import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
@@ -203,7 +203,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                     tooltip: (
                         <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
                     ),
-                    component: PathsExclusionsDataExploration,
+                    component: PathsExclusions,
                 },
             ]),
         },
