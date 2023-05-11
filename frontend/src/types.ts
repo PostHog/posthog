@@ -1696,13 +1696,6 @@ export enum RecordingWindowFilter {
     All = 'all',
 }
 
-export type InsightEditorFilterGroup<T = InsightEditorFilter> = {
-    title?: string
-    count?: number
-    editorFilters: T[]
-    defaultExpanded?: boolean
-}
-
 export interface EditorFilterProps {
     insight: Partial<InsightModel>
     insightProps: InsightLogicProps
@@ -1729,7 +1722,12 @@ export interface InsightEditorFilter<T = EditorFilterProps> {
 
 export type QueryInsightEditorFilter = InsightEditorFilter<QueryEditorFilterProps>
 
-export type QueryInsightEditorFilterGroup = InsightEditorFilterGroup<QueryInsightEditorFilter>
+export type QueryInsightEditorFilterGroup = {
+    title?: string
+    count?: number
+    editorFilters: QueryInsightEditorFilter[]
+    defaultExpanded?: boolean
+}
 
 export interface SystemStatusSubrows {
     columns: string[]
