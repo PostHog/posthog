@@ -174,7 +174,7 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
         if not is_hogql_enabled:
             raise ValidationError("HogQL is not enabled for this organization")
         hogql_query = HogQLQuery.parse_obj(query_json)
-        response = execute_hogql_query(query=hogql_query.query, team=team)
+        response = execute_hogql_query(query=hogql_query.query, team=team, query_type="HogQLQuery")
         return _response_to_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
