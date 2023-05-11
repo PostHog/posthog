@@ -492,9 +492,7 @@ export interface BreakdownFilter {
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */

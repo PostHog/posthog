@@ -44,7 +44,6 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadData: ({ queryId }) => {
-            console.debug('loadData', queryId)
             actions.startQuery(queryId)
         },
         loadDataSuccess: ({ payload }) => {
