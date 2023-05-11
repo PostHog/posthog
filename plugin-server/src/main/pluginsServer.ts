@@ -35,6 +35,8 @@ import { getObjectStorage } from './services/object_storage'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
+const { version } = require('../../package.json')
+
 // TODO: refactor this into a class, removing the need for many different Servers
 export type ServerInstance = {
     hub: Hub
@@ -334,6 +336,8 @@ export async function startPluginsServer(
                 await piscina?.broadcastTask({ task: 'reloadAllActions' })
             })
 
+            startPreflightSchedules(hub)
+
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
             }
@@ -423,6 +427,17 @@ export async function startPluginsServer(
         await closeJobs()
         process.exit(1)
     }
+}
+
+const startPreflightSchedules = (hub: Hub) => {
+    // These are used by the preflight checks in the Django app to determine if
+    // the plugin-server is running.
+    schedule.scheduleJob('*/5 * * * * *', async () => {
+        await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
+            jsonSerialize: false,
+        })
+        await hub.db.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
+    })
 }
 
 export async function stopPiscina(piscina: Piscina): Promise<void> {
