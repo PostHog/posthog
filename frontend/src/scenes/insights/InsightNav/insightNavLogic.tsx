@@ -35,7 +35,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
-        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
+        actions: [insightDataLogic(props), ['setQuery']],
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
