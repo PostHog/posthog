@@ -27,7 +27,7 @@ import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/
 import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
-import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
@@ -106,7 +106,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                     ? filterFalsy([
                           {
                               key: 'query-steps',
-                              component: FunnelsQueryStepsDataExploration,
+                              component: FunnelsQuerySteps,
                           },
                       ])
                     : []),

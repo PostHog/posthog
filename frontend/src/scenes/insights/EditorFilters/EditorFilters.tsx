@@ -11,7 +11,6 @@ import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
 import { PathsAdvanced } from './PathsAdvanced'
-import { FunnelsQuerySteps } from './FunnelsQuerySteps'
 import { FunnelsAdvanced } from './FunnelsAdvanced'
 import { PathsExclusions } from './PathsExclusions'
 import { EditorFilterGroup } from './EditorFilterGroup'
@@ -63,20 +62,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const advancedOptionsExpanded = !!advancedOptionsCount
 
     const editorFilters: InsightEditorFilterGroup[] = [
-        {
-            title: 'General',
-            editorFilters: filterFalsy([
-                ...(isFunnels
-                    ? filterFalsy([
-                          {
-                              key: 'query-steps',
-                              //   label: 'Query Steps',
-                              component: FunnelsQuerySteps,
-                          },
-                      ])
-                    : []),
-            ]),
-        },
         {
             title: 'Series',
             editorFilters: filterFalsy([
