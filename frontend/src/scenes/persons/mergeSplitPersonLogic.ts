@@ -7,14 +7,14 @@ import { PersonType } from '~/types'
 import type { mergeSplitPersonLogicType } from './mergeSplitPersonLogicType'
 import { personsLogic } from './personsLogic'
 
-export interface SplitPersonLogicProps {
+export interface SplitPersonsLogicProps {
     person: PersonType
 }
 
 export type PersonUuids = NonNullable<PersonType['uuid']>[]
 
 export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
-    props: {} as SplitPersonLogicProps,
+    props: {} as SplitPersonsLogicProps,
     key: (props) => props.person.id ?? 'new',
     path: (key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key],
     connect: () => ({

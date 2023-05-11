@@ -1,5 +1,5 @@
 .Notebook {
-    padding: 1rem;
+    padding: 2rem;
     height: 100%;
     flex: 1;
 
@@ -9,7 +9,8 @@
     }
 
     .react-renderer {
-        max-width: 1200px;
+        // max-width: 1200px;
+        max-width: 1000px;
         margin: 0 auto;
     }
 

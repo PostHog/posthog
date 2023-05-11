@@ -157,17 +157,14 @@ export function PlayerMeta(): JSX.Element {
                 {sessionRecordingId ? <PlayerMetaLinks /> : null}
             </div>
             <div
-                className={clsx(
-                    'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
-                    {
-                        'p-2': !isFullScreen,
-                        'p-1 px-3 text-xs h-12': isFullScreen,
-                    }
-                )}
+                className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
+                    'p-2 h-10': !isFullScreen,
+                    'p-1 px-3 text-xs h-12': isFullScreen,
+                })}
             >
-                {sessionPlayerMetaDataLoading || currentWindowIndex === -1 ? (
+                {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3 my-1" />
-                ) : (
+                ) : currentWindowIndex >= 0 ? (
                     <>
                         <Tooltip
                             title={
@@ -213,7 +210,7 @@ export function PlayerMeta(): JSX.Element {
                             </span>
                         )}
                     </>
-                )}
+                ) : null}
                 <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
                 {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3" />
