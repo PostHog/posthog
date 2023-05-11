@@ -6,7 +6,7 @@ import { FilterType, QueryEditorFilterProps } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { FunnelVizTypeDataExploration } from '../views/Funnels/FunnelVizType'
+import { FunnelVizType } from '../views/Funnels/FunnelVizType'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { AggregationSelect } from '../filters/AggregationSelect'
 import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
@@ -43,7 +43,7 @@ export function FunnelsQuerySteps({ insightProps }: QueryEditorFilterProps): JSX
 
                 <div className="flex items-center gap-2">
                     <span className="text-muted">Graph type</span>
-                    <FunnelVizTypeDataExploration insightProps={insightProps} />
+                    <FunnelVizType insightProps={insightProps} />
                 </div>
             </div>
             <ActionFilter
