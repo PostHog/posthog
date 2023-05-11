@@ -1,4 +1,7 @@
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
@@ -10,6 +13,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -26,7 +31,7 @@ export function PlayerMetaLinks(): JSX.Element {
         // })
 
         SharingModal.open({
-            title: 'Share Permissions',
+            title: 'Share Recording',
             recordingId: sessionRecordingId,
             previewIframe: true,
         })
@@ -57,34 +62,44 @@ export function PlayerMetaLinks(): JSX.Element {
         size: 'small',
     }
 
+    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+
+    const whitelabel = getCurrentExporterData()?.whitelabel ?? false
+
     return (
         <div className="flex flex-row gap-1 items-center flex-1 justify-end">
-            <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
-                <span>Share</span>
-            </LemonButton>
+            {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
+                <>
+                    <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
+                        <span>Share</span>
+                    </LemonButton>
 
-            <PlaylistPopoverButton {...commonProps}>
-                <span>Pin</span>
-            </PlaylistPopoverButton>
+                    <PlaylistPopoverButton {...commonProps}>
+                        <span>Pin</span>
+                    </PlaylistPopoverButton>
 
-            {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                <AddToNotebook
-                    tooltip="Add to Notebook"
-                    node={NotebookNodeType.Recording}
-                    properties={{ id: sessionRecordingId }}
-                    {...commonProps}
-                />
-            )}
+                    {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
+                        <AddToNotebook
+                            tooltip="Add to Notebook"
+                            node={NotebookNodeType.Recording}
+                            properties={{ id: sessionRecordingId }}
+                            {...commonProps}
+                        />
+                    )}
 
-            {logicProps.playerKey !== 'modal' && (
-                <LemonButton
-                    tooltip="Delete"
-                    icon={<IconDelete />}
-                    onClick={onDelete}
-                    {...commonProps}
-                    status="danger"
-                />
-            )}
+                    {logicProps.playerKey !== 'modal' && (
+                        <LemonButton
+                            tooltip="Delete"
+                            icon={<IconDelete />}
+                            onClick={onDelete}
+                            {...commonProps}
+                            status="danger"
+                        />
+                    )}
+                </>
+            ) : null}
+
+            {mode === SessionRecordingPlayerMode.Sharing && !whitelabel ? <FriendlyLogo /> : null}
         </div>
     )
 }

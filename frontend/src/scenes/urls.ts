@@ -133,18 +133,21 @@ export const urls = {
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
-    shared: (token: string, exportOptions?: ExportOptions): string =>
-        combineUrl(`/shared/${token}`, {
-            ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
-            ...(exportOptions?.legend ? { legend: null } : {}),
-            ...(exportOptions?.noHeader ? { legend: null } : {}),
-        }).url,
+    shared: (token: string, exportOptions: ExportOptions = {}): string =>
+        combineUrl(
+            `/shared/${token}`,
+            Object.entries(exportOptions)
+                .filter((x) => x[1])
+                .reduce(
+                    (acc, [key]) => ({
+                        ...acc,
+                        [key]: null,
+                    }),
+                    {}
+                )
+        ).url,
     embedded: (token: string, exportOptions?: ExportOptions): string =>
-        combineUrl(`/embedded/${token}`, {
-            ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
-            ...(exportOptions?.legend ? { legend: null } : {}),
-            ...(exportOptions?.noHeader ? { noHeader: null } : {}),
-        }).url,
+        urls.shared(token, exportOptions).replace('/shared/', '/embedded/'),
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',

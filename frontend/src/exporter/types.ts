@@ -10,6 +10,8 @@ export interface ExportOptions {
     whitelabel?: boolean
     noHeader?: boolean
     legend?: boolean
+    // Recording options
+    showInspector?: boolean
 }
 
 export interface ExportedData extends ExportOptions {

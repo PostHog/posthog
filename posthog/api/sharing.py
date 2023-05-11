@@ -214,6 +214,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             exported_data.update({"whitelabel": True})
         if "noHeader" in request.GET:
             exported_data.update({"noHeader": True})
+        if "showInspector" in request.GET:
+            exported_data.update({"showInspector": True})
         if "legend" in request.GET:
             exported_data.update({"legend": True})
 

@@ -31,6 +31,7 @@ const defaultEmbedConfig: EmbedConfig = {
     whitelabel: false,
     legend: false,
     noHeader: false,
+    showInspector: false,
 }
 
 const propsToApiParams = async (
@@ -95,17 +96,13 @@ export const sharingLogic = kea<sharingLogicType>([
         ],
         shareLink: [
             (s) => [s.siteUrl, s.sharingConfiguration, s.embedConfig],
-            (siteUrl, sharingConfiguration, { whitelabel, legend, noHeader }) =>
-                sharingConfiguration
-                    ? siteUrl + urls.shared(sharingConfiguration.access_token, { whitelabel, legend, noHeader })
-                    : '',
+            (siteUrl, sharingConfiguration, { width, height, ...params }) =>
+                sharingConfiguration ? siteUrl + urls.shared(sharingConfiguration.access_token, params) : '',
         ],
         embedLink: [
             (s) => [s.siteUrl, s.sharingConfiguration, s.embedConfig],
-            (siteUrl, sharingConfiguration, { whitelabel, legend, noHeader }) =>
-                sharingConfiguration
-                    ? siteUrl + urls.embedded(sharingConfiguration.access_token, { whitelabel, legend, noHeader })
-                    : '',
+            (siteUrl, sharingConfiguration, { width, height, ...params }) =>
+                sharingConfiguration ? siteUrl + urls.embedded(sharingConfiguration.access_token, params) : '',
         ],
         iframeProperties: [
             (s) => [s.embedLink, s.embedConfig],

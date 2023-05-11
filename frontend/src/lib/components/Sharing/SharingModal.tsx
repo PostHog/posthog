@@ -187,6 +187,19 @@ function SharingModalContent({
                                         )}
                                     </Field>
                                 )}
+                                {recordingId && (
+                                    <Field name="noInspector">
+                                        {({ value, onChange }) => (
+                                            <LemonSwitch
+                                                fullWidth
+                                                bordered
+                                                label={<div>Show inspector panel</div>}
+                                                onChange={onChange}
+                                                checked={value}
+                                            />
+                                        )}
+                                    </Field>
+                                )}
                             </Form>
                         </>
                     ) : null}

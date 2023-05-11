@@ -6,6 +6,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
+    SessionRecordingPlayerMode,
 } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
@@ -24,6 +25,7 @@ import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecording
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     includeMeta?: boolean
     noBorder?: boolean
+    noInspector?: boolean
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -42,8 +44,10 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
         matching,
         noBorder = false,
+        noInspector = false,
         autoPlay = true,
         nextSessionRecording,
+        mode = SessionRecordingPlayerMode.Standard,
     } = props
 
     const logicProps: SessionRecordingPlayerLogicProps = {
@@ -54,6 +58,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         recordingStartTime,
         autoPlay,
         nextSessionRecording,
+        mode,
     }
     const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed, closeExplorer } =
         useActions(sessionRecordingPlayerLogic(logicProps))
@@ -129,6 +134,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
                     'SessionRecordingPlayer--explorer-mode': !!explorerMode,
                     'SessionRecordingPlayer--inspector-focus': inspectorFocus,
+                    'SessionRecordingPlayer--inspector-hidden': noInspector,
                 })}
             >
                 <div className="SessionRecordingPlayer__main">
@@ -140,7 +146,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     <LemonDivider className="my-0" />
                     <PlayerController />
                 </div>
-                <PlayerInspector onFocusChange={setInspectorFocus} />
+                {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
 
                 {explorerMode && <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />}
             </div>

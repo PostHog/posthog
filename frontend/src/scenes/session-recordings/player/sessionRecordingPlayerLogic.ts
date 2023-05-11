@@ -37,6 +37,12 @@ export interface Player {
     windowId: string
 }
 
+export enum SessionRecordingPlayerMode {
+    Standard = 'standard',
+    Sharing = 'sharing',
+    Notebook = 'notebook',
+}
+
 // This is the basic props used by most sub-logics
 export interface SessionRecordingLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -50,6 +56,7 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicP
     recordingStartTime?: string
     nextSessionRecording?: Partial<SessionRecordingType>
     autoPlay?: boolean
+    mode?: SessionRecordingPlayerMode
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
