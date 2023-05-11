@@ -234,6 +234,10 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("uniq()", "Aggregation 'uniq' requires at least 1 argument, found 0")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
+        self._assert_expr_error("noway(event)", "Unsupported function call 'noway(...)'. Perhaps you meant 'now(...)'?")
+        self._assert_expr_error(
+            "tostring(event)", "Unsupported function call 'tostring(...)'. Perhaps you meant 'toString(...)'?"
+        )
         self._assert_expr_error("yeet.the.cloud", "Unable to resolve field: yeet")
         self._assert_expr_error("chipotle", "Unable to resolve field: chipotle")
         self._assert_expr_error(
