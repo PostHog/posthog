@@ -28,6 +28,8 @@ export function renderColumn(
         return <Spinner />
     } else if (value === errorColumn) {
         return <LemonTag color="red">Error</LemonTag>
+    } else if (value === null) {
+        return <LemonTag>NULL</LemonTag>
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {

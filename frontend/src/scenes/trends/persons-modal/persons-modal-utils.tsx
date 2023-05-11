@@ -12,6 +12,7 @@ import {
     GraphDataset,
     LifecycleToggle,
     StepOrderValue,
+    TrendsFilterType,
 } from '~/types'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -137,7 +138,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
         entity_type: action?.type || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
         entity_math: action?.math || undefined,
         breakdown_value,
-    })
+    } as TrendsFilterType)
 
     // casting here is not the best
     if (isStickinessFilter(filters)) {

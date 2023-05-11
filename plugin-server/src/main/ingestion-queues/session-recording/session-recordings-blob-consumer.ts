@@ -314,18 +314,12 @@ export class SessionRecordingBlobIngester {
 
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
-            const offsetSize = this.offsetManager?.estimateSize()
-            status.info('🚛', 'blob_ingester_consumer - offsets size_estimate', { offsetSize })
-
-            let sessionManagerChunksSizes = 0
-            let sessionManagerBufferOffsetsSizes = 0
             let sessionManangerBufferSizes = 0
+
             this.sessions.forEach((sessionManager) => {
-                const guesstimates = sessionManager.guesstimateSizes()
-                sessionManagerChunksSizes += guesstimates.chunks
-                sessionManagerBufferOffsetsSizes += guesstimates.bufferOffsets
-                sessionManangerBufferSizes += guesstimates.buffer
-                void sessionManager.flushIfSessionIsIdle().catch((err) => {
+                sessionManangerBufferSizes += sessionManager.buffer.size
+
+                void sessionManager.flushIfSessionBufferIsOld().catch((err) => {
                     status.error(
                         '🚽',
                         'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
@@ -337,12 +331,6 @@ export class SessionRecordingBlobIngester {
                     captureException(err, { tags: { session_id: sessionManager.sessionId } })
                     throw err
                 })
-            })
-
-            status.info('🚛', 'blob_ingester_consumer - session manager size_estimate', {
-                chunksSize: sessionManagerChunksSizes,
-                buffersOffsetsSize: sessionManagerBufferOffsetsSizes,
-                buffersSize: sessionManangerBufferSizes,
             })
 
             gaugeSessionsHandled.set(this.sessions.size)
