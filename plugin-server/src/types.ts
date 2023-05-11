@@ -107,6 +107,7 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
+    KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number

@@ -65,25 +65,44 @@ export const produce = async ({
     value,
     key,
     headers = [],
+    waitForAck = true,
 }: {
     producer: RdKafkaProducer
     topic: string
     value: Buffer | null
     key: Buffer | null
     headers?: { [key: string]: Buffer }[]
+    waitForAck?: boolean
 }): Promise<number | null | undefined> => {
     status.debug('📤', 'Producing message', { topic: topic })
-    return await new Promise((resolve, reject) =>
-        producer.produce(topic, null, value, key, Date.now(), headers, (error: any, offset: NumberNullUndefined) => {
-            if (error) {
-                status.error('⚠️', 'produce_error', { error: error, topic: topic })
-                reject(error)
-            } else {
-                status.debug('📤', 'Produced message', { topic: topic, offset: offset })
-                resolve(offset)
-            }
-        })
-    )
+    return await new Promise((resolve, reject) => {
+        if (waitForAck) {
+            producer.produce(
+                topic,
+                null,
+                value,
+                key,
+                Date.now(),
+                headers,
+                (error: any, offset: NumberNullUndefined) => {
+                    if (error) {
+                        status.error('⚠️', 'produce_error', { error: error, topic: topic })
+                        reject(error)
+                    } else {
+                        status.debug('📤', 'Produced message', { topic: topic, offset: offset })
+                        resolve(offset)
+                    }
+                }
+            )
+        } else {
+            producer.produce(topic, null, value, key, Date.now(), headers, (error: any, _: NumberNullUndefined) => {
+                if (error) {
+                    status.error('⚠️', 'produce_error', { error: error, topic: topic })
+                }
+            })
+            resolve(undefined)
+        }
+    })
 }
 export const disconnectProducer = async (producer: RdKafkaProducer) => {
     status.info('🔌', 'Disconnecting producer')
