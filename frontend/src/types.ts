@@ -1696,13 +1696,6 @@ export enum RecordingWindowFilter {
     All = 'all',
 }
 
-export interface EditorFilterProps {
-    insight: Partial<InsightModel>
-    insightProps: InsightLogicProps
-    filters: Partial<FilterType>
-    value: any
-}
-
 export interface QueryEditorFilterProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
