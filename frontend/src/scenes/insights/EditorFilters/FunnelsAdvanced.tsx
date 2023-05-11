@@ -1,5 +1,5 @@
 import { useValues, useActions } from 'kea'
-import { QueryEditorFilterProps } from '~/types'
+import { EditorFilterProps } from '~/types'
 import { FunnelStepOrderPicker } from '../views/Funnels/FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
@@ -8,7 +8,7 @@ import { PureField } from 'lib/forms/Field'
 import { Noun } from '~/models/groupsModel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-export function FunnelsAdvanced({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
     const { querySource, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 

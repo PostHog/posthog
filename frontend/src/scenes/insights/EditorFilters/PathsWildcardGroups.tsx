@@ -2,11 +2,11 @@ import { useValues, useActions } from 'kea'
 
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { QueryEditorFilterProps } from '~/types'
+import { EditorFilterProps } from '~/types'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { PathsFilter } from '~/queries/schema'
 
-export function PathsWildcardGroups({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function PathsWildcardGroups({ insightProps }: EditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 

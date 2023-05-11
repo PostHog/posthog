@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { InputNumber } from 'antd'
 
-import { AvailableFeature, PathEdgeParameters, QueryEditorFilterProps } from '~/types'
+import { AvailableFeature, PathEdgeParameters, EditorFilterProps } from '~/types'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
@@ -14,7 +14,7 @@ import { PathCleaningFilter } from '../filters/PathCleaningFilter'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PathsFilter } from '~/queries/schema'
 
-export function PathsAdvanced({ insightProps, ...rest }: QueryEditorFilterProps): JSX.Element {
+export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 

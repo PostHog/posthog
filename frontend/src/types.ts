@@ -1696,27 +1696,27 @@ export enum RecordingWindowFilter {
     All = 'all',
 }
 
-export interface QueryEditorFilterProps {
+export interface EditorFilterProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
     insightProps: InsightLogicProps
 }
 
-export interface QueryInsightEditorFilter {
+export interface InsightEditorFilter {
     key: string
-    label?: string | ((props: QueryEditorFilterProps) => JSX.Element | null)
+    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
-    component?: (props: QueryEditorFilterProps) => JSX.Element | null
+    component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
-export type QueryInsightEditorFilterGroup = {
+export type InsightEditorFilterGroup = {
     title?: string
     count?: number
-    editorFilters: QueryInsightEditorFilter[]
+    editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
 }
 

@@ -2,7 +2,7 @@ import { useValues, useActions } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import { FilterType, QueryEditorFilterProps } from '~/types'
+import { FilterType, EditorFilterProps } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -17,7 +17,7 @@ import { isInsightQueryNode } from '~/queries/utils'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
-export function FunnelsQuerySteps({ insightProps }: QueryEditorFilterProps): JSX.Element | null {
+export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { querySource, series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
 

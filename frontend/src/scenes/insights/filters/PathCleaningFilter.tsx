@@ -3,13 +3,13 @@ import { useActions, useValues } from 'kea'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { QueryEditorFilterProps } from '~/types'
+import { EditorFilterProps } from '~/types'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PathsFilter } from '~/queries/schema'
 
-export function PathCleaningFilter({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 

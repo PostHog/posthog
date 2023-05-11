@@ -7,7 +7,7 @@ import { pathsLogic, DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, QueryEditorFilterProps, PathsFilterType } from '~/types'
+import { AvailableFeature, EditorFilterProps, PathsFilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface StepOption {
@@ -23,7 +23,7 @@ export function PathStepPickerDataExploration(): JSX.Element {
     return <PathStepPickerComponent setFilter={updateInsightFilter} {...insightFilter} />
 }
 
-export function PathStepPicker({ insightProps }: Pick<QueryEditorFilterProps, 'insightProps'>): JSX.Element {
+export function PathStepPicker({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
 

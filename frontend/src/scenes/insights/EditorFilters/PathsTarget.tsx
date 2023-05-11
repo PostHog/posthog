@@ -3,24 +3,24 @@ import { combineUrl, encodeParams, router } from 'kea-router'
 
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { FunnelPathType, QueryEditorFilterProps } from '~/types'
+import { FunnelPathType, EditorFilterProps } from '~/types'
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { IconClose, IconFunnelVertical } from 'lib/lemon-ui/icons'
 
 import { PathsFilter } from '~/queries/schema'
 
-export function PathsTargetStart(props: QueryEditorFilterProps): JSX.Element {
+export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
     return <PathsTargetDataExploration position="start" {...props} />
 }
 
-export function PathsTargetEnd(props: QueryEditorFilterProps): JSX.Element {
+export function PathsTargetEnd(props: EditorFilterProps): JSX.Element {
     return <PathsTargetDataExploration position="end" {...props} />
 }
 
 type PathTargetDataExplorationProps = {
     position: 'start' | 'end'
-} & QueryEditorFilterProps
+} & EditorFilterProps
 
 function PathsTargetDataExploration({ position, insightProps }: PathTargetDataExplorationProps): JSX.Element {
     const { insightFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))

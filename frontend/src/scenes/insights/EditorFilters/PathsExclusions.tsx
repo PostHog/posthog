@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { EventPropertyFilter, PropertyFilterType, PropertyOperator, QueryEditorFilterProps } from '~/types'
+import { EventPropertyFilter, PropertyFilterType, PropertyOperator, EditorFilterProps } from '~/types'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { PathsFilter } from '~/queries/schema'
 
-export function PathsExclusions({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function PathsExclusions({ insightProps }: EditorFilterProps): JSX.Element {
     const { insightFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 

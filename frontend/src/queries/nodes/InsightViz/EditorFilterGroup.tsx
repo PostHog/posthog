@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { InsightLogicProps, InsightModel, QueryInsightEditorFilterGroup } from '~/types'
+import type { InsightLogicProps, InsightModel, InsightEditorFilterGroup } from '~/types'
 import '../../../scenes/insights/EditorFilters/EditorFilterGroup.scss'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
@@ -11,7 +11,7 @@ import { InsightQueryNode } from '~/queries/schema'
 import './EditorFilters.scss'
 
 export interface EditorFilterGroupProps {
-    editorFilterGroup: QueryInsightEditorFilterGroup
+    editorFilterGroup: InsightEditorFilterGroup
     insight: Partial<InsightModel>
     insightProps: InsightLogicProps
     query: InsightQueryNode

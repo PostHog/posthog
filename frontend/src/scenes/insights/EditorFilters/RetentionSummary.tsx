@@ -6,7 +6,7 @@ import {
     retentionOptionDescriptions,
     retentionOptions,
 } from 'scenes/retention/constants'
-import { FilterType, QueryEditorFilterProps, RetentionType } from '~/types'
+import { FilterType, EditorFilterProps, RetentionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -17,7 +17,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-export function RetentionSummary({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))

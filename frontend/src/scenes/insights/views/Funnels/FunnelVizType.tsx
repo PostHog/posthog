@@ -3,11 +3,11 @@ import { ClockCircleOutlined, LineChartOutlined, FunnelPlotOutlined } from '@ant
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import { FunnelVizType as VizType, QueryEditorFilterProps } from '~/types'
+import { FunnelVizType as VizType, EditorFilterProps } from '~/types'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { FunnelsFilter } from '~/queries/schema'
 
-export function FunnelVizType({ insightProps }: Pick<QueryEditorFilterProps, 'insightProps'>): JSX.Element | null {
+export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element | null {
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
     const { insightFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))

@@ -3,9 +3,9 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import {
-    QueryInsightEditorFilterGroup,
-    QueryInsightEditorFilter,
-    QueryEditorFilterProps,
+    InsightEditorFilterGroup,
+    InsightEditorFilter,
+    EditorFilterProps,
     ChartDisplayType,
     AvailableFeature,
 } from '~/types'
@@ -60,7 +60,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
 
-    const editorFilters: QueryInsightEditorFilterGroup[] = [
+    const editorFilters: InsightEditorFilterGroup[] = [
         {
             title: 'General',
             editorFilters: filterFalsy([
@@ -137,14 +137,14 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                           key: 'toggles',
                           label: 'Lifecycle Toggles',
                           position: 'right',
-                          component: LifecycleToggles as (props: QueryEditorFilterProps) => JSX.Element | null,
+                          component: LifecycleToggles as (props: EditorFilterProps) => JSX.Element | null,
                       }
                     : null,
                 {
                     key: 'properties',
                     label: 'Filters',
                     position: 'right',
-                    component: GlobalAndOrFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
+                    component: GlobalAndOrFilters as (props: EditorFilterProps) => JSX.Element | null,
                 },
             ]),
         },
@@ -234,15 +234,15 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
         },
     ]
 
-    let editorFilterGroups: QueryInsightEditorFilterGroup[] = []
+    let editorFilterGroups: InsightEditorFilterGroup[] = []
 
     const leftFilters = editorFilters.reduce(
         (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
-        [] as QueryInsightEditorFilter[]
+        [] as InsightEditorFilter[]
     )
     const rightFilters = editorFilters.reduce(
         (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
-        [] as QueryInsightEditorFilter[]
+        [] as InsightEditorFilter[]
     )
 
     editorFilterGroups = [
@@ -280,6 +280,6 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
     )
 }
 
-function filterFalsy(a: (QueryInsightEditorFilter | false | null | undefined)[]): QueryInsightEditorFilter[] {
-    return a.filter((e) => !!e) as QueryInsightEditorFilter[]
+function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): InsightEditorFilter[] {
+    return a.filter((e) => !!e) as InsightEditorFilter[]
 }
