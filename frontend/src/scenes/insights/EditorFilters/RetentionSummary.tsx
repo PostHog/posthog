@@ -10,7 +10,7 @@ import { FilterType, QueryEditorFilterProps, RetentionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { AggregationSelectDataExploration } from 'scenes/insights/filters/AggregationSelect'
+import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { Link } from 'lib/lemon-ui/Link'
@@ -28,11 +28,7 @@ export function RetentionSummary({ insightProps }: QueryEditorFilterProps): JSX.
             <div className="flex items-center">
                 Show
                 {showGroupsOptions ? (
-                    <AggregationSelectDataExploration
-                        className="mx-2"
-                        insightProps={insightProps}
-                        hogqlAvailable={false}
-                    />
+                    <AggregationSelect className="mx-2" insightProps={insightProps} hogqlAvailable={false} />
                 ) : (
                     <b> Unique users </b>
                 )}

@@ -8,7 +8,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { FunnelVizTypeDataExploration } from '../views/Funnels/FunnelVizType'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { AggregationSelectDataExploration } from '../filters/AggregationSelect'
+import { AggregationSelect } from '../filters/AggregationSelect'
 import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -73,7 +73,7 @@ export function FunnelsQuerySteps({ insightProps }: QueryEditorFilterProps): JSX
                 {showGroupsOptions && (
                     <div className="flex items-center w-full gap-2">
                         <span>Aggregating by</span>
-                        <AggregationSelectDataExploration insightProps={insightProps} hogqlAvailable />
+                        <AggregationSelect insightProps={insightProps} hogqlAvailable />
                     </div>
                 )}
 
