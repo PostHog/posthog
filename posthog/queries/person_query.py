@@ -50,7 +50,7 @@ class PersonQuery:
         cohort: Optional[Cohort] = None,
         *,
         entity: Optional[Entity] = None,
-        extra_fields: List[ColumnName] = [],
+        extra_fields: Optional[List[ColumnName]] = None,
         # A sub-optimal version of the `cohort` parameter above, the difference being that
         # this supports multiple cohort filters, but is not as performant as the above.
         cohort_filters: Optional[List[Property]] = None,
@@ -60,7 +60,7 @@ class PersonQuery:
         self._entity = entity
         self._cohort = cohort
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
-        self._extra_fields = set(extra_fields)
+        self._extra_fields = set(extra_fields) if extra_fields else set()
         self._cohort_filters = cohort_filters
 
         if self.PERSON_PROPERTIES_ALIAS in self._extra_fields:
@@ -83,64 +83,66 @@ class PersonQuery:
             f", argMax({column_name}, version) as {alias}" for column_name, alias in self._get_fields()
         )
 
-        grouped_person_filters, grouped_person_params = self._get_grouped_person_filters(
-            prepend=f"grouped_filters_{prepend}"
-        )
-        person_filters, person_params = self._get_person_filters(prepend=prepend)
-        cohort_filters, cohort_filter_params = self._get_cohort_filters(prepend=prepend)
-
-        cohort_query, cohort_params = self._get_cohort_query()
+        (
+            person_filters_prefiltering_condition,
+            person_filters_finalization_condition,
+            person_filters_params,
+        ) = self._get_person_filter_clauses(prepend=prepend)
+        multiple_cohorts_condition, multiple_cohorts_params = self._get_multiple_cohorts_clause(prepend=prepend)
+        single_cohort_condition, single_cohort_params = self._get_fast_single_cohort_clause()
         if paginate:
-            limit_offset, limit_params = self._get_limit_offset()
+            order = "ORDER BY max(created_at) DESC, id" if paginate else ""
+            limit_offset, limit_params = self._get_limit_offset_clause()
         else:
-            limit_offset = ""
-            limit_params = {}
-        search_prefiltering_clause, search_finalization_clause, search_params = self._get_search_clauses(
+            order = ""
+            limit_offset, limit_params = "", {}
+        search_prefiltering_condition, search_finalization_condition, search_params = self._get_search_clauses(
             prepend=prepend
         )
-        distinct_id_clause, distinct_id_params = self._get_distinct_id_clause()
-        email_clause, email_params = self._get_email_clause()
-        filter_future_persons_query = (
+        distinct_id_condition, distinct_id_params = self._get_distinct_id_clause()
+        email_condition, email_params = self._get_email_clause()
+        filter_future_persons_condition = (
             "AND argMax(created_at, version) < now() + INTERVAL 1 DAY" if filter_future_persons else ""
         )
-        updated_after_clause, updated_after_params = self._get_updated_after_clause()
+        updated_after_condition, updated_after_params = self._get_updated_after_clause()
 
-        cohort_subquery = (
+        # TODO: Explain
+        prefiltering_lookup = (
             f"""AND id IN (
             SELECT id FROM person
-            {cohort_query}
+            {single_cohort_condition}
             WHERE team_id = %(team_id)s
-            {person_filters}
+            {person_filters_prefiltering_condition}
+            {search_prefiltering_condition}
         )
         """
-            if cohort_query
+            if person_filters_prefiltering_condition or search_prefiltering_condition or single_cohort_condition
             else ""
         )
         return (
             f"""
             SELECT {fields}
             FROM person
-            {cohort_query if not person_filters else ""}
             WHERE team_id = %(team_id)s
-            {cohort_subquery if person_filters else ""}
-            {search_prefiltering_clause}
-            {cohort_filters}
+            {prefiltering_lookup}
+            {multiple_cohorts_condition}
             GROUP BY id
-            HAVING max(is_deleted) = 0 {filter_future_persons_query} {updated_after_clause}
-            {grouped_person_filters} {search_finalization_clause} {distinct_id_clause} {email_clause}
-            {"ORDER BY max(created_at) DESC, id" if paginate else ""}
+            HAVING max(is_deleted) = 0
+            {filter_future_persons_condition} {updated_after_condition}
+            {person_filters_finalization_condition} {search_finalization_condition}
+            {distinct_id_condition} {email_condition}
+            {order}
             {limit_offset}
             """,
             {
                 **updated_after_params,
-                **person_params,
-                **grouped_person_params,
-                **cohort_params,
+                **person_filters_params,
+                **single_cohort_params,
                 **limit_params,
                 **search_params,
                 **distinct_id_params,
                 **email_params,
-                **cohort_filter_params,
+                **multiple_cohorts_params,
                 "team_id": self._team_id,
             },
         )
@@ -178,8 +180,8 @@ class PersonQuery:
 
         return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in sorted(columns)]
 
-    def _get_grouped_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
-        return parse_prop_grouped_clauses(
+    def _get_person_filter_clauses(self, prepend: str = "") -> Tuple[str, str, Dict]:
+        finalization_conditions, params = parse_prop_grouped_clauses(
             self._team_id,
             self._inner_person_properties,
             has_person_id_joined=False,
@@ -188,21 +190,21 @@ class PersonQuery:
             prepend=prepend,
             hogql_context=self._filter.hogql_context,
         )
-
-    def _get_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
-        return parse_prop_grouped_clauses(
+        prefiltering_conditions, prefiltering_params = parse_prop_grouped_clauses(
             self._team_id,
             self._inner_person_properties,
             has_person_id_joined=False,
             group_properties_joined=False,
+            # The above kwargs are the same as for finalization EXCEPT this one - we use the property
+            # from the person BEFORE aggregation by version here, to eliminate persons early on
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_PERSONS,
             prepend=prepend,
-            table_name="person",
             hogql_context=self._filter.hogql_context,
         )
+        params.update(prefiltering_params)
+        return prefiltering_conditions, finalization_conditions, params
 
-    def _get_cohort_query(self) -> Tuple[str, Dict]:
-
+    def _get_fast_single_cohort_clause(self) -> Tuple[str, Dict]:
         if self._cohort:
             cohort_table = (
                 GET_STATIC_COHORTPEOPLE_BY_COHORT_ID if self._cohort.is_static else GET_COHORTPEOPLE_BY_COHORT_ID
@@ -219,7 +221,7 @@ class PersonQuery:
         else:
             return "", {}
 
-    def _get_cohort_filters(self, prepend: str = "") -> Tuple[str, Dict]:
+    def _get_multiple_cohorts_clause(self, prepend: str = "") -> Tuple[str, Dict]:
         if self._cohort_filters:
             query = []
             params: Dict[str, Any] = {}
@@ -241,7 +243,7 @@ class PersonQuery:
         else:
             return "", {}
 
-    def _get_limit_offset(self) -> Tuple[str, Dict]:
+    def _get_limit_offset_clause(self) -> Tuple[str, Dict]:
 
         if not isinstance(self._filter, Filter):
             return "", {}
@@ -283,40 +285,36 @@ class PersonQuery:
                 type=PropertyOperatorType.AND,
                 values=[Property(key="email", operator="icontains", value=self._filter.search, type="person")],
             )
-            finalization_conditions_clause, params = parse_prop_grouped_clauses(
+            finalization_conditions_sql, params = parse_prop_grouped_clauses(
                 team_id=self._team_id,
                 property_group=prop_group,
-                prepend=f"search_finalization_{prepend}",
+                prepend=f"search_{prepend}",
                 has_person_id_joined=False,
                 group_properties_joined=False,
                 person_properties_mode=PersonPropertiesMode.DIRECT,
                 _top_level=False,
                 hogql_context=self._filter.hogql_context,
             )
-            finalization_clause = f"AND (({finalization_conditions_clause}) OR ({distinct_id_clause}))"
+            finalization_sql = f"AND (({finalization_conditions_sql}) OR ({distinct_id_clause}))"
 
-            prefiltering_conditions_clause, prefiltering_params = parse_prop_grouped_clauses(
+            prefiltering_conditions_sql, prefiltering_params = parse_prop_grouped_clauses(
                 team_id=self._team_id,
                 property_group=prop_group,
-                prepend=f"search_prefiltering_{prepend}",
+                prepend=f"search_{prepend}",
                 has_person_id_joined=False,
                 group_properties_joined=False,
-                # The above kwargs are the same as for finalization BUT we use the property from the person
-                # BEFORE aggregation by version here, to eliminate persons early on
+                # The above kwargs are the same as for finalization EXCEPT this one - we use the property
+                # from the person BEFORE aggregation by version here, to eliminate persons early on
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_PERSONS,
                 _top_level=False,
                 hogql_context=self._filter.hogql_context,
             )
             params.update(prefiltering_params)
-            prefiltering_clause = f"""
-            AND id IN (
-                SELECT id FROM person
-                WHERE team_id = %(team_id)s AND (({prefiltering_conditions_clause}) OR ({distinct_id_clause}))
-            )"""
+            prefiltering_sql = f"""AND (({prefiltering_conditions_sql}) OR ({distinct_id_clause}))"""
 
             params.update({distinct_id_param: self._filter.search})
 
-            return prefiltering_clause, finalization_clause, params
+            return prefiltering_sql, finalization_sql, params
 
         return "", "", {}
 

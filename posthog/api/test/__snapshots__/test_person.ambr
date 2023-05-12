@@ -129,6 +129,11 @@
   SELECT id
   FROM person
   WHERE team_id = 2
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(created_at, version) < now() + INTERVAL 1 DAY
@@ -217,6 +222,11 @@
   SELECT id
   FROM person
   WHERE team_id = 2
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND (JSONHas(properties, 'email')) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(created_at, version) < now() + INTERVAL 1 DAY
@@ -231,6 +241,11 @@
   SELECT id
   FROM person
   WHERE team_id = 2
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%') )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(created_at, version) < now() + INTERVAL 1 DAY
@@ -245,6 +260,11 @@
   SELECT id
   FROM person
   WHERE team_id = 2
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND (notEmpty("pmat_email")) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(created_at, version) < now() + INTERVAL 1 DAY
@@ -259,6 +279,11 @@
   SELECT id
   FROM person
   WHERE team_id = 2
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND ("pmat_email" ILIKE '%another@gm%') )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(created_at, version) < now() + INTERVAL 1 DAY
