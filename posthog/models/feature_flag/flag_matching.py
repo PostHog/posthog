@@ -240,14 +240,15 @@ class FeatureFlagMatcher:
         # Evaluate if properties are empty
         if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
             condition = feature_flag.super_conditions[0]
-            if not condition.get("properties"):
-                rollout_percentage = condition.get("rollout_percentage")
 
-                if rollout_percentage is not None:
-                    if self.get_hash(feature_flag) > (rollout_percentage / 100):
-                        return True, False, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND
-                    else:
-                        return True, True, FeatureFlagMatchReason.SUPER_CONDITION_VALUE
+            is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, 0)
+            return (
+                True,
+                is_match,
+                FeatureFlagMatchReason.SUPER_CONDITION_VALUE
+                if evaluation_reason == FeatureFlagMatchReason.CONDITION_MATCH
+                else evaluation_reason,
+            )
 
         return False, False, FeatureFlagMatchReason.NO_CONDITION_MATCH
 
