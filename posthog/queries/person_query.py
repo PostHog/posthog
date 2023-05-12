@@ -106,7 +106,7 @@ class PersonQuery:
         )
         updated_after_condition, updated_after_params = self._get_updated_after_clause()
 
-        # If there are person filters or search, we do an prefiltering lookup so that the dataset is as small
+        # If there are person filters or search, we do a prefiltering lookup so that the dataset is as small
         # as possible BEFORE the `HAVING` clause (but without eliminating any rows that should be matched).
         # This greatly reduces memory usage because in this lookup we don't aggregate by person version.
         # Additionally, if we're doing prefiltering, it's more efficient to filter by the single cohort inner join here.
