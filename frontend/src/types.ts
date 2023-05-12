@@ -368,6 +368,7 @@ export interface ActionStepType {
     properties?: AnyPropertyFilter[]
     selector?: string | null
     tag_name?: string
+    text?: string | null
     /** @default StringMatching.Exact */
     text_matching?: StringMatching | null
     href?: string | null

@@ -1,5 +1,5 @@
 import { cssEscape } from 'lib/utils/cssEscape'
-import { ActionStepType, ActionStepUrlMatching } from '~/types'
+import { ActionStepType, StringMatching } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
@@ -66,7 +66,7 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
         text: getSafeText(element) || '',
         selector: query || '',
         url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-        url_matching: ActionStepUrlMatching.Exact,
+        url_matching: StringMatching.Exact,
     }
 }
 
@@ -315,7 +315,7 @@ export function actionStepToAntdForm(step: ActionStepType, isNew = false): Actio
 
     const newStep = {
         ...step,
-        url_matching: step.url_matching || ActionStepUrlMatching.Exact,
+        url_matching: step.url_matching || StringMatching.Exact,
         href_selected: typeof step.href !== 'undefined' && step.href !== null,
         text_selected: typeof step.text !== 'undefined' && step.text !== null,
         selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,

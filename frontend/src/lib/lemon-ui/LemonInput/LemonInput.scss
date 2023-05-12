@@ -40,6 +40,10 @@
             opacity: var(--opacity-disabled);
             cursor: not-allowed;
         }
+
+        &:placeholder-shown {
+            font-style: italic;
+        }
     }
 
     .LemonIcon {

@@ -11,6 +11,7 @@
     color: var(--default);
     border: 1px solid var(--border);
     outline: none;
+    display: block;
 
     &:not(:disabled):hover {
         border: 1px solid var(--primary-light);

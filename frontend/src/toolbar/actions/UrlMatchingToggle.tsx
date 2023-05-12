@@ -1,5 +1,5 @@
 import { Button } from 'antd'
-import { ActionStepType, ActionStepUrlMatching } from '~/types'
+import { ActionStepType, StringMatching } from '~/types'
 
 interface UrlMatchingToggleProps {
     value?: ActionStepType['url_matching']
@@ -12,19 +12,19 @@ export function UrlMatchingToggle({ value, onChange, style }: UrlMatchingToggleP
         <Button.Group size="small" style={style}>
             <Button
                 type={value === 'contains' ? 'primary' : 'default'}
-                onClick={() => onChange && onChange(ActionStepUrlMatching.Contains)}
+                onClick={() => onChange && onChange(StringMatching.Contains)}
             >
                 Contains
             </Button>
             <Button
                 type={value === 'regex' ? 'primary' : 'default'}
-                onClick={() => onChange && onChange(ActionStepUrlMatching.Regex)}
+                onClick={() => onChange && onChange(StringMatching.Regex)}
             >
                 Regex
             </Button>
             <Button
                 type={value === 'exact' ? 'primary' : 'default'}
-                onClick={() => onChange && onChange(ActionStepUrlMatching.Exact)}
+                onClick={() => onChange && onChange(StringMatching.Exact)}
             >
                 Exact match
             </Button>
