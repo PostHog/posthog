@@ -271,7 +271,9 @@ def shortcircuitmiddleware(f):
 class ShortCircuitMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
-        self.decide_throttler = DecideRateThrottle(rate=settings.DECIDE_RATE_LIMIT)
+        self.decide_throttler = DecideRateThrottle(
+            replenish_rate=settings.DECIDE_BUCKET_REPLENISH_RATE, bucket_capacity=settings.DECIDE_BUCKET_CAPACITY
+        )
 
     def __call__(self, request: HttpRequest):
         if request.path == "/decide/" or request.path == "/decide":
