@@ -24,6 +24,8 @@ export const counterS3WriteErrored = new Counter({
     help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
+/** change nothing meaningful.... do the tests failin CI? */
+
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
 // The buffer is a list of messages grouped
