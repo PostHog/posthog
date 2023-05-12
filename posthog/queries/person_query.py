@@ -106,7 +106,6 @@ class PersonQuery:
         )
         updated_after_condition, updated_after_params = self._get_updated_after_clause()
 
-        # TODO: Explain
         prefiltering_lookup = (
             f"""AND id IN (
             SELECT id FROM person
