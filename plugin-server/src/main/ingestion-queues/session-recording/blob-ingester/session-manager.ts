@@ -235,7 +235,7 @@ export class SessionManager {
             return buffer
         } catch (error) {
             status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', {
-                e: error,
+                error,
                 sessionId: this.sessionId,
             })
             captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
@@ -255,7 +255,7 @@ export class SessionManager {
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (error) {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', {
-                e: error,
+                error,
                 sessionId: this.sessionId,
             })
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
@@ -327,7 +327,7 @@ export class SessionManager {
             .map((x) =>
                 deleteFile(x, 'on destroy').catch((error) => {
                     status.error('🧨', 'blob_ingester_session_manager failed deleting session recording buffer', {
-                        e: error,
+                        error,
                         sessionId: this.sessionId,
                     })
                     captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
