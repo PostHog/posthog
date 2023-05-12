@@ -22,17 +22,26 @@ export interface LemonMenuItemNode extends LemonMenuItemBase {
 export type LemonMenuItemLeaf =
     | (LemonMenuItemBase & {
           onClick: () => void
+          items?: never
       })
     | (LemonMenuItemBase & {
           to: string
           targetBlank?: boolean
+          items?: never
       })
     | (LemonMenuItemBase & {
           onClick: () => void
           to: string
           targetBlank?: boolean
+          items?: never
       })
-export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemNode
+export interface LemonMenuItemCustom {
+    /** A label that's a component means it will be rendered directly, and not wrapped in a button. */
+    label: () => JSX.Element
+    active?: never
+    items?: never
+}
+export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode
 
 export interface LemonMenuSection {
     title?: string | React.ReactNode
@@ -213,8 +222,11 @@ interface LemonMenuItemButtonProps {
 }
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
-    React.forwardRef(({ item, size, tooltipPlacement }, ref): JSX.Element => {
-        const button = (
+    React.forwardRef(({ item: { label, items, ...buttonProps }, size, tooltipPlacement }, ref): JSX.Element => {
+        const Label = typeof label === 'function' ? label : null
+        const button = Label ? (
+            <Label key="x" />
+        ) : (
             <LemonButton
                 ref={ref}
                 tooltipPlacement={tooltipPlacement}
@@ -222,14 +234,20 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                 fullWidth
                 role="menuitem"
                 size={size}
-                {...item}
+                {...buttonProps}
             >
-                {item.label}
+                {label}
             </LemonButton>
         )
 
-        return 'items' in item ? (
-            <LemonMenu items={item.items} tooltipPlacement={tooltipPlacement} placement="right-start" actionable>
+        return items ? (
+            <LemonMenu
+                items={items}
+                tooltipPlacement={tooltipPlacement}
+                placement="right-start"
+                actionable
+                closeParentPopoverOnClickInside
+            >
                 {button}
             </LemonMenu>
         ) : (

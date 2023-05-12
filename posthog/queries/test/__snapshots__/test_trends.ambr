@@ -1178,10 +1178,10 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2023-05-11 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC')), toDateTime('2023-05-11 23:59:59', 'UTC')))
+               toStartOfDay(toDateTime('2020-01-02 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), toDateTime('2020-01-02 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC'))
+                         toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
@@ -1197,17 +1197,12 @@
            FROM person
            WHERE team_id = 2
            GROUP BY id
-           HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+           HAVING max(is_deleted) = 0
+           AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'event_name'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-11 23:59:59', 'UTC')
-          AND (pdi.person_id IN
-                 (SELECT DISTINCT person_id
-                  FROM cohortpeople
-                  WHERE team_id = 2
-                    AND cohort_id = 2
-                    AND version = 0 ))
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1243,29 +1238,18 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2023-05-11 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC')), toDateTime('2023-05-11 23:59:59', 'UTC')))
+               toStartOfDay(toDateTime('2020-01-02 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), toDateTime('2020-01-02 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC'))
+                         toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        LEFT OUTER JOIN
-          (SELECT argMax(override_person_id, version) as person_id,
-                  old_person_id
-           FROM person_overrides
-           WHERE team_id = 2
-           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
         WHERE team_id = 2
           AND event = 'event_name'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-11 23:59:59', 'UTC')
-          AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
-                 (SELECT DISTINCT person_id
-                  FROM cohortpeople
-                  WHERE team_id = 2
-                    AND cohort_id = 2
-                    AND version = 0 ))
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+          AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', '')))
           AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
