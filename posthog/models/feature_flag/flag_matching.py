@@ -241,14 +241,15 @@ class FeatureFlagMatcher:
         if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
             condition = feature_flag.super_conditions[0]
 
-            is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, 0)
-            return (
-                True,
-                is_match,
-                FeatureFlagMatchReason.SUPER_CONDITION_VALUE
-                if evaluation_reason == FeatureFlagMatchReason.CONDITION_MATCH
-                else evaluation_reason,
-            )
+            if not condition.get("properties"):
+                is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, 0)
+                return (
+                    True,
+                    is_match,
+                    FeatureFlagMatchReason.SUPER_CONDITION_VALUE
+                    if evaluation_reason == FeatureFlagMatchReason.CONDITION_MATCH
+                    else evaluation_reason,
+                )
 
         return False, False, FeatureFlagMatchReason.NO_CONDITION_MATCH
 
