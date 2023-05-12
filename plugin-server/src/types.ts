@@ -829,7 +829,7 @@ export interface CohortPropertyFilter extends PropertyFilterBase {
 export type PropertyFilter = EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
-export enum ActionStepUrlMatching {
+export enum StringMatching {
     Contains = 'contains',
     Regex = 'regex',
     Exact = 'exact',
@@ -840,10 +840,15 @@ export interface ActionStep {
     action_id: number
     tag_name: string | null
     text: string | null
+    /** @default StringMatching.Exact */
+    text_matching: StringMatching | null
     href: string | null
+    /** @default StringMatching.Exact */
+    href_matching: StringMatching | null
     selector: string | null
     url: string | null
-    url_matching: ActionStepUrlMatching | null
+    /** @default StringMatching.Contains */
+    url_matching: StringMatching | null
     name: string | null
     event: string | null
     properties: PropertyFilter[] | null
