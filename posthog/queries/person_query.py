@@ -89,7 +89,7 @@ class PersonQuery:
             person_filters_params,
         ) = self._get_person_filter_clauses(prepend=prepend)
         multiple_cohorts_condition, multiple_cohorts_params = self._get_multiple_cohorts_clause(prepend=prepend)
-        single_cohort_condition, single_cohort_params = self._get_fast_single_cohort_clause()
+        single_cohort_join, single_cohort_params = self._get_fast_single_cohort_clause()
         if paginate:
             order = "ORDER BY max(created_at) DESC, id" if paginate else ""
             limit_offset, limit_params = self._get_limit_offset_clause()
@@ -106,22 +106,29 @@ class PersonQuery:
         )
         updated_after_condition, updated_after_params = self._get_updated_after_clause()
 
+        # If there are person filters or search, we do an prefiltering lookup so that the dataset is as small
+        # as possible BEFORE the `HAVING` clause (but without eliminating any rows that should be matched).
+        # This greatly reduces memory usage because in this lookup we don't aggregate by person version.
+        # Additionally, if we're doing prefiltering, it's more efficient to filter by the single cohort inner join here.
         prefiltering_lookup = (
             f"""AND id IN (
             SELECT id FROM person
-            {single_cohort_condition}
+            {single_cohort_join}
             WHERE team_id = %(team_id)s
             {person_filters_prefiltering_condition}
             {search_prefiltering_condition}
         )
         """
-            if person_filters_prefiltering_condition or search_prefiltering_condition or single_cohort_condition
+            if person_filters_prefiltering_condition or search_prefiltering_condition
             else ""
         )
+        # If we're not prefiltering, the single cohort inner join needs to be at the top level.
+        top_level_single_cohort_join = single_cohort_join if not prefiltering_lookup else ""
         return (
             f"""
             SELECT {fields}
             FROM person
+            {top_level_single_cohort_join}
             WHERE team_id = %(team_id)s
             {prefiltering_lookup}
             {multiple_cohorts_condition}
