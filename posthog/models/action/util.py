@@ -85,6 +85,8 @@ def filter_event(
     if table_name != "":
         table_name += "."
 
+    # TODO: Why doesn't this function use ActionStep.href and ActionStep.text???
+
     if step.url:
         value_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", f"{table_name}properties")
         prop_name = f"{prepend}_prop_val_{index}"
