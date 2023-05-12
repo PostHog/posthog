@@ -20,7 +20,8 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     # run implicitly calls get_query
     # and returns SessionRecordingQueryResult
     # because it doesn't return MatchingEvents any person/event selection templating is redundant here
-    # assume this is so fast we don't have to page 🤘
+
+    SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 
     _persons_lookup_cte = """
     distinct_ids_for_person as (
@@ -60,6 +61,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         AND end_time <= %(end_time)s
         {duration_clause}
     ORDER BY start_time DESC
+    LIMIT %(limit)s OFFSET %(offset)s
         """
 
     _session_recordings_query_with_events = """
@@ -109,6 +111,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         AND end_time <= %(end_time)s
         {duration_clause}
         ORDER BY start_time DESC
+        LIMIT %(limit)s OFFSET %(offset)s
         """
 
     @cached_property
@@ -201,13 +204,14 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             for row in results
         ]
 
+    @property
+    def limit(self):
+        return self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
+
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-        # offset = self._filter.offset or 0
-        base_params = {
-            "team_id": self._team_id,
-            # "limit": self.limit + 1,
-            # "offset": offset
-        }
+        offset = self._filter.offset or 0
+        base_params = {"team_id": self._team_id, "limit": self.limit + 1, "offset": offset}
+
         recording_person_query, recording_person_query_params = self._get_recording_person_query()
 
         event_filters = self.format_event_filters
