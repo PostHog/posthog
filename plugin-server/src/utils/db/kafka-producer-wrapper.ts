@@ -15,19 +15,28 @@ import { DependencyUnavailableError } from './error'
  *
  * TODO: refactor Kafka producer usage to use rdkafka directly.
  */
-export class KafkaProducerWrapper {
-    /** Kafka producer used for syncing Postgres and ClickHouse person data. */
-    public producer: HighLevelProducer
-    private readonly waitForAck: boolean
 
-    constructor(producer: HighLevelProducer, waitForAck: boolean) {
+export class KafkaProducerWrapper {
+    /**
+     * Kafka producer used for syncing Postgres and ClickHouse person data.
+     *
+     * If delayedAck is not set, queueMessage calls block until the message is
+     * acknowledged by the broken. Else, waitForAck must be called to bubble
+     * up and handle produce errors.
+     * */
+    public producer: HighLevelProducer
+    private readonly delayedAck: boolean
+    private ackPromises: Array<Promise<void[]>>
+
+    constructor(producer: HighLevelProducer, delayedAck: boolean) {
         this.producer = producer
-        this.waitForAck = waitForAck
+        this.delayedAck = delayedAck
+        this.ackPromises = []
     }
 
     async queueMessage(kafkaMessage: ProducerRecord) {
         try {
-            return await Promise.all(
+            const ack = Promise.all(
                 kafkaMessage.messages.map((message) =>
                     produce({
                         producer: this.producer,
@@ -44,10 +53,19 @@ export class KafkaProducerWrapper {
                         // objects with a single key-value pair, and the
                         // undefined values need to be filtered out.
                         headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
-                        waitForAck: this.waitForAck,
                     })
                 )
             )
+            if (this.delayedAck) {
+                this.ackPromises.push(
+                    ack.catch((_) => {
+                        // TODO: what error handling to we want? We cannot retry anymore at this stage
+                        return []
+                    })
+                )
+            } else {
+                return await ack
+            }
         } catch (error) {
             status.error('⚠️', 'kafka_produce_error', { error: error, topic: kafkaMessage.topic })
 
@@ -70,6 +88,14 @@ export class KafkaProducerWrapper {
             topic,
             messages: [{ key, value: JSON.stringify(object) }],
         })
+    }
+
+    public async waitForAck() {
+        // Rotate the ackPromises array to allow for wrapper reuse
+        const acks = Promise.all(this.ackPromises.slice())
+        this.ackPromises = []
+
+        return await acks
     }
 
     public async flush() {
