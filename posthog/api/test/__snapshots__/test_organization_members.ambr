@@ -171,6 +171,47 @@
                                                    5 /* ... */) /*controller='organization_members-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/members/%3F%24'*/
   '
 ---
+# name: TestOrganizationMembersAPI.test_list_organization_members_is_not_nplus1.16
+  '
+  SELECT "otp_totp_totpdevice"."id",
+         "otp_totp_totpdevice"."user_id",
+         "otp_totp_totpdevice"."name",
+         "otp_totp_totpdevice"."confirmed",
+         "otp_totp_totpdevice"."throttling_failure_timestamp",
+         "otp_totp_totpdevice"."throttling_failure_count",
+         "otp_totp_totpdevice"."key",
+         "otp_totp_totpdevice"."step",
+         "otp_totp_totpdevice"."t0",
+         "otp_totp_totpdevice"."digits",
+         "otp_totp_totpdevice"."tolerance",
+         "otp_totp_totpdevice"."drift",
+         "otp_totp_totpdevice"."last_t"
+  FROM "otp_totp_totpdevice"
+  WHERE ("otp_totp_totpdevice"."name" = 'default'
+         AND "otp_totp_totpdevice"."user_id" IN (1,
+                                                 2,
+                                                 3,
+                                                 4,
+                                                 5 /* ... */)) /*controller='organization_members-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/members/%3F%24'*/
+  '
+---
+# name: TestOrganizationMembersAPI.test_list_organization_members_is_not_nplus1.17
+  '
+  SELECT "social_auth_usersocialauth"."id",
+         "social_auth_usersocialauth"."user_id",
+         "social_auth_usersocialauth"."provider",
+         "social_auth_usersocialauth"."uid",
+         "social_auth_usersocialauth"."extra_data",
+         "social_auth_usersocialauth"."created",
+         "social_auth_usersocialauth"."modified"
+  FROM "social_auth_usersocialauth"
+  WHERE "social_auth_usersocialauth"."user_id" IN (1,
+                                                   2,
+                                                   3,
+                                                   4,
+                                                   5 /* ... */) /*controller='organization_members-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/members/%3F%24'*/
+  '
+---
 # name: TestOrganizationMembersAPI.test_list_organization_members_is_not_nplus1.2
   '
   SELECT "posthog_organization"."id",

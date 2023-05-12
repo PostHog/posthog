@@ -78,7 +78,7 @@ def person_overrides_table():
 PersonOverrideTuple = namedtuple("PersonOverrideTuple", ("old_person_id", "override_person_id"))
 
 
-OVERRIDES_MERGED_AT = datetime.fromisoformat("2020-01-02T00:00:00+00:00")
+OVERRIDES_MERGED_AT = datetime.fromisoformat("2020-01-02T00:00:00.123123+00:00")
 OLDEST_EVENT_AT = OVERRIDES_MERGED_AT - timedelta(days=1)
 
 
