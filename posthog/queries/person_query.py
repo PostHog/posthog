@@ -286,7 +286,7 @@ class PersonQuery:
             finalization_conditions_clause, params = parse_prop_grouped_clauses(
                 team_id=self._team_id,
                 property_group=prop_group,
-                prepend=f"final_search_{prepend}",
+                prepend=f"search_finalization_{prepend}",
                 has_person_id_joined=False,
                 group_properties_joined=False,
                 person_properties_mode=PersonPropertiesMode.DIRECT,
@@ -298,14 +298,14 @@ class PersonQuery:
             prefiltering_conditions_clause, prefiltering_params = parse_prop_grouped_clauses(
                 team_id=self._team_id,
                 property_group=prop_group,
-                prepend=f"early_search_{prepend}",
+                prepend=f"search_prefiltering_{prepend}",
                 has_person_id_joined=False,
                 group_properties_joined=False,
-                person_properties_mode=PersonPropertiesMode.DIRECT,
+                # The above kwargs are the same as for finalization BUT we use the property from the person
+                # BEFORE aggregation by version here, to eliminate persons early on
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_PERSONS,
                 _top_level=False,
                 hogql_context=self._filter.hogql_context,
-                # The above kwargs are the same as for finalization BUT we do not aggregate by person version here
-                aggregate_by_person_version=False,
             )
             params.update(prefiltering_params)
             prefiltering_clause = f"""

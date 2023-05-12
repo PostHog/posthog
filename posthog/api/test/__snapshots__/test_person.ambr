@@ -277,7 +277,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 2
-         AND (((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%another@gm%'))
+         AND (((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%'))
               OR (id IN
                     (SELECT person_id
                      FROM
@@ -316,7 +316,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 2
-         AND (((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%distinct_id_3%'))
+         AND (((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%distinct_id_3%'))
               OR (id IN
                     (SELECT person_id
                      FROM
@@ -355,7 +355,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 2
-         AND (((person."pmat_email" ILIKE '%another@gm%'))
+         AND ((("pmat_email" ILIKE '%another@gm%'))
               OR (id IN
                     (SELECT person_id
                      FROM
@@ -394,7 +394,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 2
-         AND (((person."pmat_email" ILIKE '%distinct_id_3%'))
+         AND ((("pmat_email" ILIKE '%distinct_id_3%'))
               OR (id IN
                     (SELECT person_id
                      FROM
