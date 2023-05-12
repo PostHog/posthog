@@ -33,6 +33,8 @@ export enum Scene {
     Experiment = 'Experiment',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
+    AllFeedback = 'AllFeedback',
+    Feedback = 'Feedback',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
     EarlyAccessFeature = 'EarlyAccessFeature',
     OrganizationSettings = 'OrganizationSettings',
@@ -66,7 +68,6 @@ export enum Scene {
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
-    Feedback = 'Feedback',
     Issues = 'Issues',
 }
 

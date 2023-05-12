@@ -147,6 +147,7 @@ export const urls = {
         }).url,
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
-    feedback: (): string => '/feedback',
+    allFeedback: (): string => '/feedback',
+    feedback: (id: string | number): string => `/feedback/${id}`,
     issues: (): string => '/issues',
 }

@@ -64,6 +64,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.IngestionWarnings]: () => import('./data-management/ingestion-warnings/IngestionWarningsView'),
     [Scene.DebugQuery]: () => import('./query/QueryScene'),
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
+    [Scene.AllFeedback]: () => import('./feedback/AllFeedback'),
     [Scene.Feedback]: () => import('./feedback/Feedback'),
     [Scene.Issues]: () => import('./issues/Issues'),
 }

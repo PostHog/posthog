@@ -371,6 +371,8 @@ export const routes: Record<string, Scene> = {
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
+    [urls.allFeedback()]: Scene.AllFeedback,
+    [urls.feedback(':id')]: Scene.Feedback,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.login2FA()]: Scene.Login2FA,
@@ -387,7 +389,5 @@ export const routes: Record<string, Scene> = {
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.debugQuery()]: Scene.DebugQuery,
-    [urls.feedback()]: Scene.Feedback,
-    [urls.feedback() + '/*']: Scene.Feedback,
     [urls.issues()]: Scene.Issues,
 }

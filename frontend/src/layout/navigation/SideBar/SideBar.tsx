@@ -11,6 +11,7 @@ import {
     IconCohort,
     IconComment,
     IconExperiment,
+    IconFeedback,
     IconFlag,
     IconGauge,
     IconLive,
@@ -177,6 +178,7 @@ function Pages(): JSX.Element {
                             to={urls.earlyAccessFeatures()}
                         />
                     )}
+                    <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.allFeedback()} />
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
@@ -223,9 +225,9 @@ function Pages(): JSX.Element {
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}
-                    {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
+                    {/* {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
-                    )}
+                    )} */}
                     {featureFlags[FEATURE_FLAGS.ARUBUG] && (
                         <PageButton icon={<IconBugShield />} identifier={Scene.Issues} to={urls.issues()} />
                     )}
