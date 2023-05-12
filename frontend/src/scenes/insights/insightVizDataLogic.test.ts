@@ -6,15 +6,12 @@ import { ChartDisplayType, InsightShortId } from '~/types'
 import { insightDataLogic } from './insightDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const Insight123 = '123' as InsightShortId
 
 describe('insightVizDataLogic', () => {
     let theInsightVizDataLogic: ReturnType<typeof insightVizDataLogic.build>
     let theInsightDataLogic: ReturnType<typeof insightDataLogic.build>
-    let theFeatureFlagLogic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -23,12 +20,6 @@ describe('insightVizDataLogic', () => {
             },
         })
         initKeaTests()
-
-        theFeatureFlagLogic = featureFlagLogic()
-        theFeatureFlagLogic.mount()
-        theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS], {
-            [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: false,
-        })
 
         const props = { dashboardItemId: Insight123 }
 
