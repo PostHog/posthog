@@ -149,6 +149,10 @@ export class SessionManager {
             status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing")
             return
         }
+        if (this.destroying) {
+            status.warn('⚠️', `blob_ingester_session_manager flush called after destroy`, { sessionId: this.sessionId })
+            return
+        }
 
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
