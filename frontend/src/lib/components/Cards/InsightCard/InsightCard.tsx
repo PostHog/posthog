@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
-import React, { useEffect, useState } from 'react'
+import React, { useContext, useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import {
     FunnelInvalidExclusionState,
@@ -10,7 +10,7 @@ import {
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { SharingAccessTokenContext, insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import {
@@ -520,11 +520,14 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
+    const sharingAccessToken = useContext(SharingAccessTokenContext)
+
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
         cachedInsight: insight,
         doNotLoad: true,
+        sharingAccessToken,
     }
 
     const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueries } = useValues(
