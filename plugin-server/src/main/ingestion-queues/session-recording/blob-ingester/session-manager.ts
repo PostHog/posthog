@@ -125,6 +125,7 @@ export class SessionManager {
     public async flushIfSessionBufferIsOld(): Promise<void> {
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy ${this.sessionId}`)
+            return
         }
 
         const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
