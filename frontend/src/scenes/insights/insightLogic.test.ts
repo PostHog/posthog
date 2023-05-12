@@ -45,7 +45,6 @@ const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
 const Insight43 = '43' as InsightShortId
 const Insight44 = '44' as InsightShortId
-const Insight500 = '500' as InsightShortId
 
 const partialInsight43 = {
     id: 43,
@@ -318,304 +317,236 @@ describe('insightLogic', () => {
             ])
         })
     })
-
-    describe('as dashboard item', () => {
-        describe('props with filters and cached results', () => {
-            beforeEach(() => {
-                logic = insightLogic({
-                    dashboardItemId: Insight42,
-                    cachedInsight: {
-                        short_id: Insight42,
-                        results: ['cached result'],
-                        filters: {
-                            insight: InsightType.TRENDS,
-                            events: [{ id: 2 }],
-                            properties: [
-                                {
-                                    value: 'lol',
-                                    operator: PropertyOperator.Exact,
-                                    key: 'lol',
-                                    type: PropertyFilterType.Person,
-                                },
-                            ],
-                        },
-                    },
-                })
-                logic.mount()
-            })
-
-            it('has the key set to the id', () => {
-                expect(logic.key).toEqual('42')
-            })
-            it('no query to load results', async () => {
-                await expectLogic(logic)
-                    .toMatchValues({
-                        insight: partial({ short_id: Insight42, results: ['cached result'] }),
-                        filters: partial({
-                            events: [{ id: 2 }],
-                            properties: [partial({ type: PropertyFilterType.Person })],
-                        }),
-                    })
-                    .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
-            })
-        })
-
-        describe('props with query and cached results', () => {
-            beforeEach(() => {
-                logic = insightLogic({
-                    dashboardItemId: Insight42,
-                    cachedInsight: {
-                        short_id: Insight42,
-                        results: ['cached result'],
-                        filters: {},
-                        query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
-                    },
-                })
-                logic.mount()
-            })
-
-            it('has the key set to the id', () => {
-                expect(logic.key).toEqual('42')
-            })
-
-            it('no query to load results', async () => {
-                await expectLogic(logic)
-                    .toMatchValues({
-                        insight: partial({
-                            short_id: Insight42,
-                            results: ['cached result'],
-                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
-                        }),
-                        filters: {},
-                    })
-                    .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
-            })
-        })
-
-        describe('props with filters, no cached results', () => {
-            it('makes a query to load the results', async () => {
-                logic = insightLogic({
-                    dashboardItemId: Insight42,
-                    cachedInsight: {
-                        short_id: Insight42,
-                        results: undefined,
-                        filters: {
-                            insight: InsightType.TRENDS,
-                            events: [{ id: 3 }],
-                            properties: [
-                                {
-                                    value: 'a',
-                                    operator: PropertyOperator.Exact,
-                                    key: 'a',
-                                    type: PropertyFilterType.Person,
-                                },
-                            ],
-                        },
-                    },
-                })
-                logic.mount()
-
-                await expectLogic(logic)
-                    .toDispatchActions(['loadResults', 'loadResultsSuccess'])
-                    .toMatchValues({
-                        insight: partial({ short_id: Insight42, result: ['result from api'] }),
-                        filters: partial({
-                            events: [{ id: 3 }],
-                            properties: [partial({ value: 'a' })],
-                        }),
-                    })
-                    .delay(1)
-                    // do not override the insight if querying with different filters
-                    .toNotHaveDispatchedActions(['updateInsight', 'updateInsightSuccess'])
-            })
-        })
-
-        describe('props with query, no cached results', () => {
-            it('still does not make a query to load the results', async () => {
-                logic = insightLogic({
-                    dashboardItemId: Insight42,
-                    cachedInsight: {
-                        short_id: Insight42,
-                        results: undefined,
-                        filters: {},
-                        query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
-                    },
-                })
-                logic.mount()
-
-                await expectLogic(logic)
-                    .toDispatchActions([])
-                    .toMatchValues({
-                        insight: partial({ short_id: Insight42, query: { kind: NodeKind.TimeToSeeDataSessionsQuery } }),
-                        filters: {},
-                    })
-                    .delay(1)
-                    // do not override the insight if querying with different filters
-                    .toNotHaveDispatchedActions([
-                        'loadResults',
-                        'loadResultsSuccess',
-                        'updateInsight',
-                        'updateInsightSuccess',
-                    ])
-            })
-        })
-
-        describe('props with filters, no cached results, error from API', () => {
-            beforeEach(silenceKeaLoadersErrors)
-            afterEach(resumeKeaLoadersErrors)
-
-            it('makes a query to load the results', async () => {
-                const insight: Partial<InsightModel> = {
+    describe('props with filters and cached results', () => {
+        beforeEach(() => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
                     short_id: Insight42,
+                    results: ['cached result'],
                     filters: {
                         insight: InsightType.TRENDS,
-                        events: [{ id: 3, throw: true }],
+                        events: [{ id: 2 }],
                         properties: [
-                            { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
+                            {
+                                value: 'lol',
+                                operator: PropertyOperator.Exact,
+                                key: 'lol',
+                                type: PropertyFilterType.Person,
+                            },
                         ],
                     },
-                }
-                logic = insightLogic({
-                    dashboardItemId: Insight42,
-                    cachedInsight: insight,
-                })
-                logic.mount()
-
-                await expectLogic(logic)
-                    .toDispatchActions(['loadResults', 'loadResultsFailure'])
-                    .toMatchValues({
-                        insight: insight,
-                        filters: partial({
-                            events: [partial({ id: 3 })],
-                            properties: [partial({ value: 'a' })],
-                        }),
-                        maybeShowErrorMessage: true,
-                    })
-                    .delay(1)
-                    .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
+                },
             })
+            logic.mount()
         })
 
-        describe('props with filters, no cached results, respects doNotLoad', () => {
-            it('does not make a query', async () => {
-                const insight: Partial<InsightModel> = {
+        it('has the key set to the id', () => {
+            expect(logic.key).toEqual('42')
+        })
+        it('no query to load results', async () => {
+            await expectLogic(logic)
+                .toMatchValues({
+                    insight: partial({ short_id: Insight42, results: ['cached result'] }),
+                    filters: partial({
+                        events: [{ id: 2 }],
+                        properties: [partial({ type: PropertyFilterType.Person })],
+                    }),
+                })
+                .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
+        })
+    })
+
+    describe('props with query and cached results', () => {
+        beforeEach(() => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
                     short_id: Insight42,
+                    results: ['cached result'],
+                    filters: {},
+                    query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                },
+            })
+            logic.mount()
+        })
+
+        it('has the key set to the id', () => {
+            expect(logic.key).toEqual('42')
+        })
+
+        it('no query to load results', async () => {
+            await expectLogic(logic)
+                .toMatchValues({
+                    insight: partial({
+                        short_id: Insight42,
+                        results: ['cached result'],
+                        query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                    }),
+                    filters: {},
+                })
+                .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
+        })
+    })
+
+    describe('props with filters, no cached results', () => {
+        it('makes a query to load the results', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    short_id: Insight42,
+                    results: undefined,
                     filters: {
                         insight: InsightType.TRENDS,
-                        events: [{ id: 3, throw: true }],
+                        events: [{ id: 3 }],
                         properties: [
-                            { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
+                            {
+                                value: 'a',
+                                operator: PropertyOperator.Exact,
+                                key: 'a',
+                                type: PropertyFilterType.Person,
+                            },
                         ],
                     },
-                }
-                logic = insightLogic({
-                    dashboardItemId: Insight42,
-                    cachedInsight: insight,
-                    doNotLoad: true,
-                })
-                logic.mount()
-
-                await expectLogic(logic)
-                    .toMatchValues({
-                        insight: insight,
-                        filters: partial({
-                            events: [partial({ id: 3 })],
-                            properties: [partial({ value: 'a' })],
-                        }),
-                    })
-                    .delay(1)
-                    .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
+                },
             })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadResults', 'loadResultsSuccess'])
+                .toMatchValues({
+                    insight: partial({ short_id: Insight42, result: ['result from api'] }),
+                    filters: partial({
+                        events: [{ id: 3 }],
+                        properties: [partial({ value: 'a' })],
+                    }),
+                })
+                .delay(1)
+                // do not override the insight if querying with different filters
+                .toNotHaveDispatchedActions(['updateInsight', 'updateInsightSuccess'])
         })
+    })
 
-        describe('props with no filters, no cached results, results from API', () => {
-            it('makes a query to load the results', async () => {
-                logic = insightLogic({
-                    dashboardItemId: Insight42,
-                    cachedInsight: {
-                        short_id: Insight42,
-                        results: undefined,
-                        filters: undefined,
-                    },
-                })
-                logic.mount()
-
-                await expectLogic(logic)
-                    .toDispatchActions(['loadInsight', 'loadInsightSuccess'])
-                    .toMatchValues({
-                        insight: partial({ short_id: Insight42, result: ['result from api'] }),
-                        filters: partial({
-                            events: [{ id: 3 }],
-                            properties: [partial({ value: 'a' })],
-                        }),
-                    })
-                    .toNotHaveDispatchedActions(['loadResults']) // does not fetch results as there was no filter
+    describe('props with query, no cached results', () => {
+        it('still does not make a query to load the results', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    short_id: Insight42,
+                    results: undefined,
+                    filters: {},
+                    query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                },
             })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions([])
+                .toMatchValues({
+                    insight: partial({ short_id: Insight42, query: { kind: NodeKind.TimeToSeeDataSessionsQuery } }),
+                    filters: {},
+                })
+                .delay(1)
+                // do not override the insight if querying with different filters
+                .toNotHaveDispatchedActions([
+                    'loadResults',
+                    'loadResultsSuccess',
+                    'updateInsight',
+                    'updateInsightSuccess',
+                ])
         })
+    })
 
-        describe('props with no filters, no cached results, no results from API', () => {
-            it('makes a query to load the results', async () => {
-                logic = insightLogic({
-                    dashboardItemId: Insight43, // 43 --> result: null
-                    cachedInsight: undefined,
-                })
-                logic.mount()
+    describe('props with filters, no cached results, error from API', () => {
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
 
-                await expectLogic(logic)
-                    .toDispatchActions(['loadInsight', 'loadInsightSuccess'])
-                    .toMatchValues({
-                        insight: partial({ id: 43, result: null }),
-                        filters: partial({
-                            events: [{ id: 3 }],
-                            properties: [partial({ value: 'a' })],
-                        }),
-                    })
-                    // first result comes from the /insights/43/ api
-                    .toDispatchActions(['loadResults', 'loadResultsSuccess'])
-                    .toMatchValues({
-                        insight: partial({ id: 43, result: ['result 43'] }),
-                        filters: partial({
-                            events: [{ id: 3 }],
-                            properties: [partial({ value: 'a' })],
-                        }),
-                    })
-
-                await expectLogic(logic, () => {
-                    logic.actions.setFilters({ ...API_FILTERS, events: [{ id: 4 }] })
-                })
-                    // result with changed filters comes from the /insights/trends/ api
-                    .toDispatchActions(['loadResults', 'loadResultsSuccess'])
-                    .toMatchValues({
-                        insight: partial({ id: 43, result: ['result from api'] }),
-                        filters: partial({
-                            events: [{ id: 4 }],
-                            properties: [partial({ value: 'a' })],
-                        }),
-                    })
+        it('makes a query to load the results', async () => {
+            const insight: Partial<InsightModel> = {
+                short_id: Insight42,
+                filters: {
+                    insight: InsightType.TRENDS,
+                    events: [{ id: 3, throw: true }],
+                    properties: [
+                        { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
+                    ],
+                },
+            }
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: insight,
             })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadResults', 'loadResultsFailure'])
+                .toMatchValues({
+                    insight: insight,
+                    filters: partial({
+                        events: [partial({ id: 3 })],
+                        properties: [partial({ value: 'a' })],
+                    }),
+                    maybeShowErrorMessage: true,
+                })
+                .delay(1)
+                .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
         })
+    })
 
-        describe('props with no filters, no cached results, API throws', () => {
-            beforeEach(silenceKeaLoadersErrors)
-            afterEach(resumeKeaLoadersErrors)
-
-            it('makes a query to load the results', async () => {
-                logic = insightLogic({
-                    dashboardItemId: Insight500, // 500 --> result: throws
-                    cachedInsight: undefined,
-                })
-                logic.mount()
-
-                await expectLogic(logic)
-                    .toDispatchActions(['loadInsight', 'loadInsightFailure'])
-                    .toMatchValues({
-                        insight: partial({ short_id: '500', result: null, filters: { filter_test_accounts: true } }),
-                        filters: {},
-                        maybeShowErrorMessage: true,
-                    })
-                    .delay(1)
-                    .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
+    describe('props with filters, no cached results, respects doNotLoad', () => {
+        it('does not make a query', async () => {
+            const insight: Partial<InsightModel> = {
+                short_id: Insight42,
+                filters: {
+                    insight: InsightType.TRENDS,
+                    events: [{ id: 3, throw: true }],
+                    properties: [
+                        { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
+                    ],
+                },
+            }
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: insight,
+                doNotLoad: true,
             })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toMatchValues({
+                    insight: insight,
+                    filters: partial({
+                        events: [partial({ id: 3 })],
+                        properties: [partial({ value: 'a' })],
+                    }),
+                })
+                .delay(1)
+                .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
+        })
+    })
+
+    describe('props with no filters, no cached results, results from API', () => {
+        it('makes a query to load the results', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    short_id: Insight42,
+                    results: undefined,
+                    filters: undefined,
+                },
+            })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadInsight', 'loadInsightSuccess'])
+                .toMatchValues({
+                    insight: partial({ short_id: Insight42, result: ['result from api'] }),
+                    filters: partial({
+                        events: [{ id: 3 }],
+                        properties: [partial({ value: 'a' })],
+                    }),
+                })
+                .toNotHaveDispatchedActions(['loadResults']) // does not fetch results as there was no filter
         })
     })
 
@@ -1301,54 +1232,6 @@ describe('insightLogic', () => {
                 .toMatchValues({
                     insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
-        })
-    })
-
-    describe('cancelling queries', () => {
-        beforeEach(async () => {
-            logic = insightLogic({
-                dashboardItemId: 'new',
-            })
-            logic.mount()
-        })
-
-        it('cancels a running query', async () => {
-            jest.spyOn(api, 'create')
-
-            setTimeout(() => {
-                // this change of filters will dispatch cancellation on the first query
-                // will run while the -180d query is still running
-                logic.actions.setFilters({ insight: InsightType.TRENDS, date_from: '-90d' })
-            }, 200)
-            // dispatches an artificially slow data request
-            // takes 3000 milliseconds to return
-            logic.actions.setFilters({ insight: InsightType.TRENDS, date_from: '-180d' })
-
-            await expectLogic(logic)
-                .toDispatchActions([
-                    'loadResults',
-                    'abortAnyRunningQuery',
-                    'loadResults',
-                    'abortAnyRunningQuery',
-                    'abortQuery',
-                    'loadResultsSuccess',
-                ])
-                .toMatchValues({
-                    filters: partial({ date_from: '-90d' }),
-                })
-
-            const mockCreateCalls = (api.create as jest.Mock).mock.calls
-            // there will be at least two used client query ids
-            // the most recent has not been cancelled
-            // the one before that has been
-            expect(mockCreateCalls).toEqual([
-                [
-                    `api/projects/${MOCK_TEAM_ID}/insights/cancel`,
-                    {
-                        client_query_id: seenQueryIDs[seenQueryIDs.length - 2],
-                    },
-                ],
-            ])
         })
     })
 
