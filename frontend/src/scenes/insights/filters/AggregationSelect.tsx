@@ -211,6 +211,7 @@ function CustomHogQLOption({
                 onFocus={(e) => {
                     e.target.selectionStart = localValue.length // Focus at the end of the input
                 }}
+                onPressCmdEnter={() => onSelect(localValue)}
                 className={`font-mono ${CLICK_OUTSIDE_BLOCK_CLASS}`}
                 minRows={6}
                 maxRows={6}
@@ -220,10 +221,7 @@ function CustomHogQLOption({
             <LemonButton
                 fullWidth
                 type="primary"
-                onClick={() => {
-                    console.log(actualValue, localValue)
-                    onSelect(localValue)
-                }}
+                onClick={() => onSelect(localValue)}
                 disabledReason={!localValue ? 'Please enter a HogQL expression' : undefined}
                 center
             >
