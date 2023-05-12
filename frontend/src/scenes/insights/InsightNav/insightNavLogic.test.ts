@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
-import { InsightLogicProps, InsightShortId, InsightType } from '~/types'
+import { InsightLogicProps, InsightType } from '~/types'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { useMocks } from '~/mocks/jest'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -87,21 +87,6 @@ describe('insightNavLogic', () => {
         })
 
         describe('filters changing changes active view', () => {
-            it('takes view from cached insight filters', async () => {
-                const propsWithCachedInsight = {
-                    dashboardItemId: 'insight' as InsightShortId,
-                    cachedInsight: { filters: { insight: InsightType.FUNNELS } },
-                }
-                const theInsightLogicWithCachedInsight = insightLogic(propsWithCachedInsight)
-                theInsightLogicWithCachedInsight.mount()
-                const theInsightNavLogicForTheCachedInsight = insightNavLogic({
-                    dashboardItemId: 'insight' as InsightShortId,
-                    cachedInsight: { filters: { insight: InsightType.FUNNELS } },
-                })
-                theInsightNavLogicForTheCachedInsight.mount()
-                expect(theInsightNavLogicForTheCachedInsight.values.activeView).toEqual(InsightType.FUNNELS)
-            })
-
             it('does set view from setInsight if filters are overriding', async () => {
                 await expectLogic(builtInsightNavLogic, () => {
                     builtInsightLogic.actions.setInsight(
