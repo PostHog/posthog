@@ -78,9 +78,15 @@ def parse_prop_grouped_clauses(
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
-    aggregate_by_person_version: bool = True,  # Only use this for prefiltering
+    aggregate_by_person_version: bool = True,
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
+    """
+    Translate the given property filter group into an SQL condition clause (+ SQL params).
+
+    :param aggregate_by_person_version: Whether to aggregate properties by the latest version.
+        See this arg on parse_prop_clauses() for details.
+    """
     if not property_group or len(property_group.values) == 0:
         return "", {}
 
@@ -145,6 +151,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 def parse_prop_clauses(
     team_id: int,
     filters: List[Property],
+    *,
     hogql_context: Optional[HogQLContext],
     prepend: str = "global",
     table_name: str = "",
@@ -154,8 +161,17 @@ def parse_prop_clauses(
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
     property_operator: PropertyOperatorType = PropertyOperatorType.AND,
-    aggregate_by_person_version: bool = True,  # Only use this for prefiltering
+    aggregate_by_person_version: bool = True,
 ) -> Tuple[str, Dict]:
+    """
+    Translate the given property filter into an SQL condition clause (+ SQL params).
+
+    :param aggregate_by_person_version: Whether to aggregate properties by the latest version.
+        This is enabled by default, and almost always what you want. However, sometimes it's useful to do non-aggregated
+        prefiltering to check whether _any_ version of the person has ever matched this property filter. That's
+        a good way of eliminating most persons early on in the query pipeline, which can greatly reduce the overall
+        memory usage of a query (as aggregation by version happens in-memory). For that case, set this arg to False.
+    """
     final = []
     params: Dict[str, Any] = {}
 
