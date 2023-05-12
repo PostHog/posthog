@@ -107,6 +107,13 @@ export class SessionManager {
     }
 
     public async flushIfBufferExceedsCapacity(): Promise<void> {
+        if (this.destroying) {
+            status.warn('⚠️', `blob_ingester_session_manager flush on size called after destroy`, {
+                sessionId: this.sessionId,
+            })
+            return
+        }
+
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
