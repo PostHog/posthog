@@ -74,7 +74,6 @@ export function Exporter(props: ExportedData): JSX.Element {
                     id={String(dashboard.id)}
                     dashboard={dashboard}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
-                    sharingAccessToken={accessToken}
                 />
             ) : recording ? (
                 <SessionRecordingPlayer
@@ -83,7 +82,6 @@ export function Exporter(props: ExportedData): JSX.Element {
                     mode={SessionRecordingPlayerMode.Sharing}
                     autoPlay={false}
                     noInspector={!showInspector}
-                    // sharingAccessToken={accessToken}
                 />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>

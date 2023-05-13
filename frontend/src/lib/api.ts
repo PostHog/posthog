@@ -53,6 +53,8 @@ import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
 import { CommunicationResponse } from 'scenes/events/CommunicationDetailsLogic'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { encodeParams } from 'kea-router'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -492,6 +494,23 @@ const normalizeUrl = (url: string): string => {
         url = url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
     }
     return url
+}
+
+const prepareUrl = (url: string): string => {
+    let output = normalizeUrl(url)
+
+    const exporterContext = getCurrentExporterData()
+
+    if (exporterContext && exporterContext.accessToken) {
+        output =
+            output +
+            (output.indexOf('?') === -1 ? '?' : '&') +
+            encodeParams({
+                sharing_access_token: exporterContext.accessToken,
+            })
+    }
+
+    return output
 }
 
 const PROJECT_ID_REGEX = /\/api\/projects\/(\w+)(?:$|[/?#])/
@@ -1268,7 +1287,7 @@ const api = {
     },
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
         const startTime = new Date().getTime()
@@ -1287,7 +1306,7 @@ const api = {
     },
 
     async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
@@ -1318,7 +1337,7 @@ const api = {
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
@@ -1344,7 +1363,7 @@ const api = {
     },
 
     async delete(url: string): Promise<any> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const startTime = new Date().getTime()
         const response = await fetch(url, {

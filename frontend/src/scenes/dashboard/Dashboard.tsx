@@ -25,7 +25,6 @@ interface DashboardProps {
     id?: string
     dashboard?: DashboardType
     placement?: DashboardPlacement
-    sharingAccessToken?: string
 }
 
 export const scene: SceneExport = {
@@ -37,12 +36,9 @@ export const scene: SceneExport = {
     }),
 }
 
-export function Dashboard({ id, dashboard, placement, sharingAccessToken }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
     return (
-        <BindLogic
-            logic={dashboardLogic}
-            props={{ id: id ? parseInt(id) : undefined, placement, dashboard, sharingAccessToken }}
-        >
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
             <DashboardScene />
         </BindLogic>
     )

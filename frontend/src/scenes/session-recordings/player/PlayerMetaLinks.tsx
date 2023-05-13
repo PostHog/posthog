@@ -50,7 +50,6 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-
     const whitelabel = getCurrentExporterData()?.whitelabel ?? false
 
     return (
