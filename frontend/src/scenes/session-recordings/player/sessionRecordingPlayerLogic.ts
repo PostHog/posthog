@@ -733,6 +733,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setIsFullScreen: ({ isFullScreen }) => {
             if (isFullScreen) {
                 props.playerRef?.current?.requestFullscreen()
+            } else if (document.fullscreenElement === props.playerRef?.current) {
+                document.exitFullscreen()
             }
         },
     })),
