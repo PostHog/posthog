@@ -50,6 +50,10 @@ export const gaugeBytesBuffered = new Gauge({
     help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
 })
 
+function sessionManagerKey(team_id: number, session_id: string) {
+    return `${team_id}-${session_id}`
+}
+
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
     offsetManager?: OffsetManager
@@ -71,7 +75,7 @@ export class SessionRecordingBlobIngester {
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
         const { team_id, session_id } = event
-        const key = `${team_id}-${session_id}`
+        const key = sessionManagerKey(team_id, session_id)
 
         const { partition, topic, offset } = event.metadata
 
@@ -112,12 +116,12 @@ export class SessionRecordingBlobIngester {
     }
 
     public async handleKafkaMessage(message: Message): Promise<void> {
-        const statusWarn = (reason: string, error?: Error) => {
+        const statusWarn = (reason: string, extra?: Record<string, any>) => {
             status.warn('⚠️', 'invalid_message', {
                 reason,
-                error,
                 partition: message.partition,
                 offset: message.offset,
+                ...(extra || {}),
             })
         }
 
@@ -133,7 +137,7 @@ export class SessionRecordingBlobIngester {
             messagePayload = JSON.parse(message.value.toString())
             event = JSON.parse(messagePayload.data)
         } catch (error) {
-            return statusWarn('invalid_json', error)
+            return statusWarn('invalid_json', { error })
         }
 
         if (event.event !== '$snapshot') {
@@ -154,7 +158,10 @@ export class SessionRecordingBlobIngester {
         }
 
         if (team == null) {
-            return statusWarn('team_not_found')
+            return statusWarn('team_not_found', {
+                teamId: messagePayload.team_id,
+                payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
+            })
         }
 
         if (this.enabledTeams && !this.enabledTeams.includes(team.id)) {
@@ -308,7 +315,7 @@ export class SessionRecordingBlobIngester {
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', 'blob_ingester_consumer Blob ingestion consumer disconnected, cleaning up', { err })
+            status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
             await this.stop()
         })
 
@@ -339,17 +346,14 @@ export class SessionRecordingBlobIngester {
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', 'blob_ingester_consumer Stopping session recordings consumer')
+        status.info('🔁', 'blob_ingester_consumer - stopping')
 
         if (this.flushInterval) {
             clearInterval(this.flushInterval)
         }
 
         if (this.producer && this.producer.isConnected()) {
-            status.info(
-                '🔁',
-                'blob_ingester_consumer disconnecting kafka producer in session recordings batchConsumer stop'
-            )
+            status.info('🔁', 'blob_ingester_consumer disconnecting kafka producer in batchConsumer stop')
             await disconnectProducer(this.producer)
         }
         await this.batchConsumer?.stop()
@@ -360,11 +364,11 @@ export class SessionRecordingBlobIngester {
         this.sessions = new Map()
     }
 
-    private async destroySessions(sessionsToDestroy: SessionManager[]): Promise<void> {
+    async destroySessions(sessionsToDestroy: SessionManager[]): Promise<void> {
         const destroyPromises: Promise<void>[] = []
 
         sessionsToDestroy.forEach((sessionManager) => {
-            this.sessions.delete(sessionManager.sessionId)
+            this.sessions.delete(sessionManagerKey(sessionManager.teamId, sessionManager.sessionId))
             destroyPromises.push(sessionManager.destroy())
         })
 
