@@ -43,7 +43,7 @@ async function deleteFile(file: string, context: string) {
     } catch (err) {
         if (err && err.code === 'ENOENT') {
             status.warn(
-                '⚠️',
+                '🤷‍♀️',
                 `blob_ingester_session_manager failed deleting file ${context} path: ${file}, file not found. That's probably fine 🤷‍♀️`,
                 {
                     err,
