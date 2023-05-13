@@ -11,7 +11,6 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from '@posthog/lemon-ui'
-import { playerSettingsLogic } from './playerSettingsLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -70,7 +69,7 @@ function SessionPropertyMeta(props: {
 }
 
 export function PlayerMeta(): JSX.Element {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const {
         sessionPerson,
@@ -82,7 +81,6 @@ export function PlayerMeta(): JSX.Element {
         sessionPlayerMetaDataLoading,
     } = useValues(playerMetaLogic(logicProps))
 
-    const { isFullScreen } = useValues(playerSettingsLogic)
     // NOTE: The optimised event listing broke this as we don't have all the properties we need
     // const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
     const iconProperties = sessionPerson?.properties
@@ -101,14 +99,6 @@ export function PlayerMeta(): JSX.Element {
                 'PlayerMeta--fullscreen': isFullScreen,
             })}
         >
-            {isFullScreen && (
-                <div className="PlayerMeta__escape">
-                    <div className="bg-muted-dark text-white px-2 py-1 rounded shadow my-1 mx-auto">
-                        Press <kbd className="font-bold">Esc</kbd> to exit full screen
-                    </div>
-                </div>
-            )}
-
             <div
                 className={clsx(
                     'PlayerMeta__top flex items-center gap-2 shrink-0 p-2',

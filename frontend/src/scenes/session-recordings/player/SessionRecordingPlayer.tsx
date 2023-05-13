@@ -1,5 +1,5 @@
 import './SessionRecordingPlayer.scss'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import {
     ONE_FRAME_MS,
@@ -50,6 +50,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         mode = SessionRecordingPlayerMode.Standard,
     } = props
 
+    const playerRef = useRef<HTMLDivElement>(null)
+
     const logicProps: SessionRecordingPlayerLogicProps = {
         sessionRecordingId,
         playerKey,
@@ -59,6 +61,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         autoPlay,
         nextSessionRecording,
         mode,
+        playerRef,
     }
     const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed, closeExplorer } =
         useActions(sessionRecordingPlayerLogic(logicProps))
@@ -109,10 +112,13 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         }
     })
 
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        1000: 'medium',
-    })
+    const { size } = useResizeBreakpoints(
+        {
+            0: 'small',
+            1000: 'medium',
+        },
+        playerRef
+    )
 
     const [inspectorFocus, setInspectorFocus] = useState(false)
 
@@ -127,7 +133,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
             <div
-                ref={ref}
+                ref={playerRef}
                 className={clsx('SessionRecordingPlayer', {
                     'SessionRecordingPlayer--fullscreen': isFullScreen,
                     'SessionRecordingPlayer--no-border': noBorder,
@@ -147,7 +153,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     <PlayerController />
                 </div>
                 {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
-
                 {explorerMode && <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />}
             </div>
         </BindLogic>

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import {
     PLAYBACK_SPEEDS,
+    SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState } from '~/types'
@@ -17,11 +18,14 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export function PlayerController(): JSX.Element {
-    const { currentPlayerState } = useValues(sessionRecordingPlayerLogic)
-    const { togglePlayPause, exportRecordingToFile, openExplorer } = useActions(sessionRecordingPlayerLogic)
+    const { currentPlayerState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { togglePlayPause, exportRecordingToFile, openExplorer, setIsFullScreen } =
+        useActions(sessionRecordingPlayerLogic)
 
-    const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
-    const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
+    const { speed, skipInactivitySetting, autoplayEnabled } = useValues(playerSettingsLogic)
+    const { setSpeed, setSkipInactivitySetting, setAutoplayEnabled } = useActions(playerSettingsLogic)
+
+    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     return (
         <div className="p-3 bg-light flex flex-col select-none">
@@ -102,43 +106,45 @@ export function PlayerController(): JSX.Element {
                         </LemonButton>
                     </Tooltip>
 
-                    <More
-                        overlay={
-                            <>
-                                <LemonButton
-                                    status="stealth"
-                                    onClick={() => setAutoplayEnabled(!autoplayEnabled)}
-                                    fullWidth
-                                    sideIcon={
-                                        <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
-                                    }
-                                >
-                                    Autoplay enabled
-                                </LemonButton>
-
-                                <LemonButton
-                                    status="stealth"
-                                    onClick={() => exportRecordingToFile()}
-                                    fullWidth
-                                    sideIcon={<IconExport />}
-                                    tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
-                                >
-                                    Export to file
-                                </LemonButton>
-
-                                <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_DOM_EXPLORER} match={true}>
+                    {mode === SessionRecordingPlayerMode.Standard && (
+                        <More
+                            overlay={
+                                <>
                                     <LemonButton
                                         status="stealth"
-                                        onClick={() => openExplorer()}
+                                        onClick={() => setAutoplayEnabled(!autoplayEnabled)}
                                         fullWidth
-                                        sideIcon={<IconMagnifier />}
+                                        sideIcon={
+                                            <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
+                                        }
                                     >
-                                        Explore DOM
+                                        Autoplay enabled
                                     </LemonButton>
-                                </FlaggedFeature>
-                            </>
-                        }
-                    />
+
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => exportRecordingToFile()}
+                                        fullWidth
+                                        sideIcon={<IconExport />}
+                                        tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
+                                    >
+                                        Export to file
+                                    </LemonButton>
+
+                                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_DOM_EXPLORER} match={true}>
+                                        <LemonButton
+                                            status="stealth"
+                                            onClick={() => openExplorer()}
+                                            fullWidth
+                                            sideIcon={<IconMagnifier />}
+                                        >
+                                            Explore DOM
+                                        </LemonButton>
+                                    </FlaggedFeature>
+                                </>
+                            }
+                        />
+                    )}
                 </div>
             </div>
         </div>
