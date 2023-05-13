@@ -76,7 +76,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         -- it adds the comma needed to have multiple CTEs if it is present
         with {person_cte}
         events_session_ids AS (
-        -- this core query has to select the session_ids from the events table
             SELECT
                 distinct `$session_id` as session_id
             FROM events
