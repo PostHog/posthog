@@ -1,9 +1,10 @@
-import { kea, key, path, props, reducers, selectors } from 'kea'
+import { kea, key, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { colonDelimitedDuration, reverseColonDelimitedDuration } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import type { playerShareLogicType } from './playerShareLogicType'
+import { combineUrl } from 'kea-router'
 
 export type PlayerShareLogicProps = {
     seconds: number | null
@@ -14,15 +15,6 @@ export const playerShareLogic = kea<playerShareLogicType>([
     path(() => ['scenes', 'session-recordings', 'player', 'playerShareLogic']),
     props({} as PlayerShareLogicProps),
     key((props: PlayerShareLogicProps) => `${props.id}-${props.seconds}`),
-
-    reducers({
-        loading: [
-            true,
-            {
-                loadRecordingMetaSuccess: () => false,
-            },
-        ],
-    }),
 
     forms(({ props }) => ({
         shareUrl: {
@@ -40,16 +32,19 @@ export const playerShareLogic = kea<playerShareLogicType>([
     })),
 
     selectors(({ props }) => ({
-        url: [
+        queryParams: [
             (s) => [s.shareUrl, s.shareUrlHasErrors],
             (shareUrl, hasErrors) => {
-                const url = `${window.location.origin}${urls.sessionRecording(props.id)}`
-                return (
-                    url +
-                    (shareUrl.includeTime && !hasErrors
-                        ? `?t=${reverseColonDelimitedDuration(shareUrl.time) || 0}`
-                        : '')
-                )
+                if (!shareUrl.includeTime || hasErrors) {
+                    return {}
+                }
+                return { t: `${reverseColonDelimitedDuration(shareUrl.time) || 0}` }
+            },
+        ],
+        url: [
+            (s) => [s.queryParams],
+            (queryParams) => {
+                return combineUrl(`${window.location.origin}${urls.sessionRecording(props.id)}`, queryParams).url
             },
         ],
     })),

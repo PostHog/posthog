@@ -18,6 +18,7 @@ export interface SharingLogicProps {
     dashboardId?: number
     insightShortId?: InsightShortId
     recordingId?: string
+    additionalParams?: Record<string, any>
 }
 
 export interface EmbedConfig extends ExportOptions {
@@ -94,14 +95,25 @@ export const sharingLogic = kea<sharingLogicType>([
             () => [userLogic.selectors.user],
             (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
         ],
+
+        params: [
+            (s) => [s.embedConfig, (_, props) => props.additionalParams],
+            (embedConfig, additionalParams = {}) => {
+                const { width, height, ...params } = embedConfig
+                return {
+                    ...params,
+                    ...additionalParams,
+                }
+            },
+        ],
         shareLink: [
-            (s) => [s.siteUrl, s.sharingConfiguration, s.embedConfig],
-            (siteUrl, sharingConfiguration, { width, height, ...params }) =>
+            (s) => [s.siteUrl, s.sharingConfiguration, s.params],
+            (siteUrl, sharingConfiguration, params) =>
                 sharingConfiguration ? siteUrl + urls.shared(sharingConfiguration.access_token, params) : '',
         ],
         embedLink: [
-            (s) => [s.siteUrl, s.sharingConfiguration, s.embedConfig],
-            (siteUrl, sharingConfiguration, { width, height, ...params }) =>
+            (s) => [s.siteUrl, s.sharingConfiguration, s.params],
+            (siteUrl, sharingConfiguration, params) =>
                 sharingConfiguration ? siteUrl + urls.embedded(sharingConfiguration.access_token, params) : '',
         ],
         iframeProperties: [

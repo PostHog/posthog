@@ -139,9 +139,9 @@ export const urls = {
             Object.entries(exportOptions)
                 .filter((x) => x[1])
                 .reduce(
-                    (acc, [key]) => ({
+                    (acc, [key, val]) => ({
                         ...acc,
-                        [key]: null,
+                        [key]: val === true ? null : val,
                     }),
                     {}
                 )

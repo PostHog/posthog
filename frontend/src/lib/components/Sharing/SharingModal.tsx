@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { InsightModel, InsightShortId, InsightType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sharingLogic } from './sharingLogic'
-import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { copyToClipboard } from 'lib/utils'
 import { IconGlobeLock, IconInfo, IconLink, IconLock, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -17,15 +17,17 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-const MODAL_WIDTH = 600
+export const SHARING_MODAL_WIDTH = 600
 
 export interface SharingModalBaseProps {
     dashboardId?: number
     insightShortId?: InsightShortId
     insight?: Partial<InsightModel>
     recordingId?: string
+
     title?: string
     previewIframe?: boolean
+    additionalParams?: Record<string, any>
 }
 
 export interface SharingModalProps extends SharingModalBaseProps {
@@ -34,17 +36,19 @@ export interface SharingModalProps extends SharingModalBaseProps {
     inline?: boolean
 }
 
-function SharingModalContent({
+export function SharingModalContent({
     dashboardId,
     insightShortId,
     insight,
     recordingId,
+    additionalParams,
     previewIframe = false,
 }: SharingModalBaseProps): JSX.Element {
     const logicProps = {
         dashboardId,
         insightShortId,
         recordingId,
+        additionalParams,
     }
     const {
         whitelabelAvailable,
@@ -91,7 +95,6 @@ function SharingModalContent({
 
                     {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                         <>
-                            <LemonDivider className="my-4" />
                             <div className="space-y-2">
                                 <div className="flex justify-between">
                                     <TitleWithIcon
@@ -111,7 +114,7 @@ function SharingModalContent({
                                         onClick={() => copyToClipboard(shareLink, 'link')}
                                         icon={<IconLink />}
                                     >
-                                        Copy share link
+                                        Copy public link
                                     </LemonButton>
                                 </div>
                                 <CodeSnippet language={Language.HTML}>{embedCode}</CodeSnippet>
@@ -188,7 +191,7 @@ function SharingModalContent({
                                     </Field>
                                 )}
                                 {recordingId && (
-                                    <Field name="noInspector">
+                                    <Field name="showInspector">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 fullWidth
@@ -214,7 +217,7 @@ export function SharingModal({ closeModal, isOpen, inline, title, ...props }: Sh
         <LemonModal
             onClose={closeModal}
             isOpen={isOpen}
-            width={MODAL_WIDTH}
+            width={SHARING_MODAL_WIDTH}
             title={title ?? 'Sharing'}
             footer={
                 <LemonButton type="secondary" onClick={closeModal}>
@@ -236,7 +239,7 @@ SharingModal.open = (props: SharingModalBaseProps) => {
                 <SharingModalContent {...props} />
             </>
         ),
-        width: MODAL_WIDTH,
+        width: SHARING_MODAL_WIDTH,
         primaryButton: {
             children: 'Close',
             type: 'secondary',

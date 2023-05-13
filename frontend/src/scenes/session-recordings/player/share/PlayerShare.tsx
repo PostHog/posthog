@@ -1,4 +1,4 @@
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -7,11 +7,12 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Field } from 'lib/forms/Field'
 import { copyToClipboard } from 'lib/utils'
 import { playerShareLogic, PlayerShareLogicProps } from './playerShareLogic'
+import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
 
 export function ShareRecording(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
 
-    const { shareUrl, url } = useValues(logic)
+    const { shareUrl, url, queryParams } = useValues(logic)
     const { setShareUrlValue, submitShareUrl } = useActions(logic)
 
     return (
@@ -43,10 +44,20 @@ export function ShareRecording(props: PlayerShareLogicProps): JSX.Element {
                             onFocus={() => setShareUrlValue('includeTime', true)}
                             onBlur={() => submitShareUrl()}
                             fullWidth={false}
+                            size="small"
                         />
                     </Field>
                 </div>
             </Form>
+
+            <LemonDivider />
+
+            <p>
+                You can also share or embed the recording outside of PostHog. Be aware that all the content of the
+                recording will be accessible to anyone with the link.
+            </p>
+
+            <SharingModalContent recordingId={props.id} previewIframe additionalParams={queryParams} />
         </div>
     )
 }
