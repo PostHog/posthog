@@ -118,7 +118,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 entity, prepend=f"event_matcher_{index}", team_id=self._team_id
             )
 
-            # todo use condition_sql as a where condidition....
 
             params = {**params, **filter_params}
 
