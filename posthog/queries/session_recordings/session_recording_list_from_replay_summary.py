@@ -118,7 +118,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 entity, prepend=f"event_matcher_{index}", team_id=self._team_id
             )
 
-
             params = {**params, **filter_params}
 
         params = {**params, "event_names": list(event_names_to_filter)}
