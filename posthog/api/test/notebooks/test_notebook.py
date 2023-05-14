@@ -1,19 +1,38 @@
 from typing import List, Dict, Optional
-from unittest import mock, skip
+from unittest import mock
 from uuid import uuid4
 
 from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team
+from posthog.models import Team, Organization
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
 
 
 class TestNotebooks(APIBaseTest):
-    def assert_notebook_activity(self, notebook_short_id: str, expected: List[Dict]) -> None:
+    def created_activity(self, item_id: str, short_id: str) -> Dict:
+        return {
+            "activity": "created",
+            "created_at": mock.ANY,
+            "detail": {
+                "changes": None,
+                "name": None,
+                "short_id": short_id,
+                "trigger": None,
+                "type": None,
+            },
+            "item_id": item_id,
+            "scope": "Notebook",
+            "user": {
+                "email": self.user.email,
+                "first_name": self.user.first_name,
+            },
+        }
+
+    def assert_notebook_activity(self, expected: List[Dict]) -> None:
         activity_response = self.client.get(f"/api/projects/{self.team.id}/notebooks/activity")
         assert activity_response.status_code == status.HTTP_200_OK
 
@@ -79,25 +98,8 @@ class TestNotebooks(APIBaseTest):
         }
 
         self.assert_notebook_activity(
-            response.json()["short_id"],
             [
-                {
-                    "activity": "created",
-                    "created_at": mock.ANY,
-                    "detail": {
-                        "changes": None,
-                        "name": None,
-                        "short_id": response.json()["short_id"],
-                        "trigger": None,
-                        "type": None,
-                    },
-                    "item_id": response.json()["id"],
-                    "scope": "Notebook",
-                    "user": {
-                        "email": self.user.email,
-                        "first_name": self.user.first_name,
-                    },
-                },
+                self.created_activity(item_id=response.json()["id"], short_id=response.json()["short_id"]),
             ],
         )
 
@@ -138,25 +140,8 @@ class TestNotebooks(APIBaseTest):
         assert response.json()["last_modified_at"] == "2022-01-02T00:00:00Z"
 
         self.assert_notebook_activity(
-            response.json()["short_id"],
             [
-                {
-                    "activity": "created",
-                    "created_at": mock.ANY,
-                    "detail": {
-                        "changes": None,
-                        "name": None,
-                        "short_id": response.json()["short_id"],
-                        "trigger": None,
-                        "type": None,
-                    },
-                    "item_id": response.json()["id"],
-                    "scope": "Notebook",
-                    "user": {
-                        "email": self.user.email,
-                        "first_name": self.user.first_name,
-                    },
-                },
+                self.created_activity(item_id=response.json()["id"], short_id=response.json()["short_id"]),
                 {
                     "activity": "updated",
                     "created_at": mock.ANY,
@@ -211,35 +196,29 @@ class TestNotebooks(APIBaseTest):
             f"/api/projects/{self.team.id}/notebooks?search=needl",
         ).json()["results"]
 
-        assert len(results) == 1
-        assert results[0]["short_id"] == needle_notebook.short_id
+        assert [r["short_id"] for r in results] == [needle_notebook.short_id]
 
         results = self.client.get(
             f"/api/projects/{self.team.id}/notebooks?search=need",
         ).json()["results"]
 
-        assert len(results) == 2
-        assert results[0]["short_id"] == other_users_notebook.short_id
-        assert results[1]["short_id"] == needle_notebook.short_id
+        assert [r["short_id"] for r in results] == [other_users_notebook.short_id, needle_notebook.short_id]
 
         results = self.client.get(
             f"/api/projects/{self.team.id}/notebooks?user=true",
         ).json()["results"]
 
-        assert len(results) == 2
-        assert results[0]["short_id"] == delivery_van_notebook.short_id
-        assert results[1]["short_id"] == needle_notebook.short_id
+        assert [r["short_id"] for r in results] == [delivery_van_notebook.short_id, needle_notebook.short_id]
 
         results = self.client.get(
             f"/api/projects/{self.team.id}/notebooks?created_by={other_user.id}",
         ).json()["results"]
 
-        assert len(results) == 1
-        assert results[0]["short_id"] == other_users_notebook.short_id
+        assert [r["short_id"] for r in results] == [other_users_notebook.short_id]
 
     def test_listing_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
-        another_user = User.objects.create_and_join(another_team.organization, "other@example.com", password="")
+        another_user = User.objects.create_and_join(self.organization, "other@example.com", password="")
 
         self.client.force_login(another_user)
         response = self.client.post(
@@ -256,18 +235,18 @@ class TestNotebooks(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["title"] == "this_team_notebook"
 
-    @skip("is this not how things work?")
     def test_creating_does_not_leak_between_teams(self) -> None:
-        another_team = Team.objects.create(organization=self.organization)
+        another_org = Organization.objects.create(name="other org")
+        another_team = Team.objects.create(organization=another_org)
 
         self.client.force_login(self.user)
         response = self.client.post(f"/api/projects/{another_team.id}/notebooks", data={"title": "this_team_notebook"})
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @skip("is this not how things work?")
     def test_patching_does_not_leak_between_teams(self) -> None:
-        another_team = Team.objects.create(organization=self.organization)
-        another_user = User.objects.create_and_join(another_team.organization, "other@example.com", password="")
+        another_org = Organization.objects.create(name="other org")
+        another_team = Team.objects.create(organization=another_org)
+        another_user = User.objects.create_and_join(another_org, "other@example.com", password="")
 
         self.client.force_login(another_user)
         response = self.client.post(
