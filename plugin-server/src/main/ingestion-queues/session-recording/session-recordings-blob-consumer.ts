@@ -50,10 +50,6 @@ export const gaugeBytesBuffered = new Gauge({
     help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
 })
 
-function sessionManagerKey(team_id: number, session_id: string) {
-    return `${team_id}-${session_id}`
-}
-
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
     offsetManager?: OffsetManager
@@ -75,7 +71,7 @@ export class SessionRecordingBlobIngester {
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
         const { team_id, session_id } = event
-        const key = sessionManagerKey(team_id, session_id)
+        const key = `${team_id}-${session_id}`
 
         const { partition, topic, offset } = event.metadata
 
@@ -278,8 +274,8 @@ export class SessionRecordingBlobIngester {
 
                 const currentPartitions = [...this.sessions.values()].map((session) => session.partition).sort()
 
-                const sessionsToDrop = [...this.sessions.values()].filter((session) =>
-                    revokedPartitions.includes(session.partition)
+                const sessionsToDrop = [...this.sessions.entries()].filter(([_, sessionManager]) =>
+                    revokedPartitions.includes(sessionManager.partition)
                 )
 
                 this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
@@ -289,7 +285,7 @@ export class SessionRecordingBlobIngester {
                 status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
                     currentPartitions: currentPartitions,
                     revokedPartitions: revokedPartitions,
-                    droppedSessions: sessionsToDrop.map((s) => s.sessionId),
+                    droppedSessions: sessionsToDrop.map(([_, sessionManager]) => sessionManager.sessionId),
                 })
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
                 gaugePartitionsRevoked.set(revokedPartitions.length)
@@ -359,16 +355,16 @@ export class SessionRecordingBlobIngester {
         await this.batchConsumer?.stop()
 
         // This is inefficient but currently necessary due to new instances restarting from the committed offset point
-        await this.destroySessions([...this.sessions.values()])
+        await this.destroySessions([...this.sessions.entries()])
 
         this.sessions = new Map()
     }
 
-    async destroySessions(sessionsToDestroy: SessionManager[]): Promise<void> {
+    async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
         const destroyPromises: Promise<void>[] = []
 
-        sessionsToDestroy.forEach((sessionManager) => {
-            this.sessions.delete(sessionManagerKey(sessionManager.teamId, sessionManager.sessionId))
+        sessionsToDestroy.forEach(([key, sessionManager]) => {
+            this.sessions.delete(key)
             destroyPromises.push(sessionManager.destroy())
         })
 
