@@ -8,6 +8,8 @@ from django.core.cache import cache
 from django.utils.timezone import now
 from freezegun.api import freeze_time
 from rest_framework import status
+from django.test.client import Client
+
 
 from posthog import models, rate_limit
 from posthog.api.test.test_team import create_team
@@ -296,8 +298,9 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_does_not_rate_limit_decide_endpoints(self, rate_limit_enabled_mock, incr_mock):
+        decide_client = Client(enforce_csrf_checks=True)
         for _ in range(6):
-            response = self.client.post(
+            response = decide_client.post(
                 f"/decide/?v=2",
                 {
                     "data": base64.b64encode(

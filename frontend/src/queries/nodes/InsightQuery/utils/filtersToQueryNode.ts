@@ -27,6 +27,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
+import * as Sentry from '@sentry/react'
 
 const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
@@ -94,6 +95,13 @@ export const cleanHiddenLegendSeries = (
 }
 
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
+    const captureException = (message: string): void => {
+        Sentry.captureException(new Error(message), {
+            tags: { DataExploration: true },
+            extra: { filters },
+        })
+    }
+
     if (!filters.insight) {
         throw new Error('filtersToQueryNode expects "insight"')
     }
@@ -121,13 +129,34 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // breakdown
     if (isInsightQueryWithBreakdown(query)) {
+        /* handle multi-breakdowns */
+        // not undefined or null
+        if (filters.breakdowns != null) {
+            if (filters.breakdowns.length === 1) {
+                filters.breakdown_type = filters.breakdowns[0].type
+                filters.breakdown = filters.breakdowns[0].property as string
+            } else {
+                captureException(
+                    'Could not convert multi-breakdown property `breakdowns` - found more than one breakdown'
+                )
+            }
+        }
+
+        /* handle missing breakdown_type */
+        // check for undefined and null values
+        if (filters.breakdown != null && filters.breakdown_type == null) {
+            filters.breakdown_type = 'event'
+        }
+
         query.breakdown = objectCleanWithEmpty({
             breakdown_type: filters.breakdown_type,
             breakdown: filters.breakdown,
             breakdown_normalize_url: filters.breakdown_normalize_url,
             breakdowns: filters.breakdowns,
-            breakdown_value: filters.breakdown_value,
             breakdown_group_type_index: filters.breakdown_group_type_index,
+            ...(isTrendsFilter(filters)
+                ? { breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count }
+                : {}),
         })
     }
 
@@ -146,7 +175,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             aggregation_axis_format: filters.aggregation_axis_format,
             aggregation_axis_prefix: filters.aggregation_axis_prefix,
             aggregation_axis_postfix: filters.aggregation_axis_postfix,
-            breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,
             formula: filters.formula,
             shown_as: filters.shown_as,
             display: filters.display,

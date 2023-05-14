@@ -3,6 +3,7 @@ import random
 from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta
 from typing import TypedDict
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import psycopg2
@@ -77,8 +78,8 @@ def person_overrides_table():
 PersonOverrideTuple = namedtuple("PersonOverrideTuple", ("old_person_id", "override_person_id"))
 
 
-OVERRIDES_CREATED_AT = datetime.fromisoformat("2020-01-02T00:00:00+00:00")
-OLDEST_EVENT_AT = OVERRIDES_CREATED_AT - timedelta(days=1)
+OVERRIDES_MERGED_AT = datetime.fromisoformat("2020-01-02T00:00:00.123123+00:00")
+OLDEST_EVENT_AT = OVERRIDES_MERGED_AT - timedelta(days=1)
 
 
 @pytest.fixture
@@ -103,9 +104,9 @@ def person_overrides_data(person_overrides_table):
                 "team_id": team_id,
                 "old_person_id": old_person_id,
                 "override_person_id": override_person_id,
-                "merged_at": OVERRIDES_CREATED_AT,
+                "merged_at": OVERRIDES_MERGED_AT,
                 "oldest_event": OLDEST_EVENT_AT,
-                "created_at": OVERRIDES_CREATED_AT,
+                "created_at": OVERRIDES_MERGED_AT,
                 "version": 1,
             }
             all_test_values.append(values)
@@ -127,11 +128,12 @@ async def test_prepare_dictionary(activity_environment, person_overrides_data):
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
+        dry_run=False,
     )
 
     latest_merge_at = await activity_environment.run(prepare_dictionary, query_inputs)
 
-    assert latest_merge_at == OVERRIDES_CREATED_AT.isoformat()
+    assert latest_merge_at == OVERRIDES_MERGED_AT.isoformat()
 
     for team_id, person_overrides in person_overrides_data.items():
         for person_override in person_overrides:
@@ -224,11 +226,12 @@ async def test_prepare_dictionary_with_older_overrides_present(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
+        dry_run=False,
     )
 
     latest_merge_at = await activity_environment.run(prepare_dictionary, query_inputs)
 
-    assert latest_merge_at == OVERRIDES_CREATED_AT.isoformat()
+    assert latest_merge_at == OVERRIDES_MERGED_AT.isoformat()
 
     for team_id, person_overrides in person_overrides_data.items():
         for person_override in person_overrides:
@@ -267,6 +270,7 @@ async def test_drop_dictionary(activity_environment, person_overrides_data):
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
+        dry_run=False,
     )
 
     # Ensure we are starting from scratch
@@ -308,7 +312,8 @@ async def test_select_persons_to_delete(activity_environment, person_overrides_d
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        _latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_merged_at=OVERRIDES_MERGED_AT,
+        dry_run=False,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -318,7 +323,7 @@ async def test_select_persons_to_delete(activity_environment, person_overrides_d
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT.isoformat(),
+            OVERRIDES_MERGED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
         )
@@ -344,7 +349,8 @@ async def test_select_persons_to_delete_selects_persons_in_older_partitions(
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        _latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_merged_at=OVERRIDES_MERGED_AT,
+        dry_run=False,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -354,7 +360,7 @@ async def test_select_persons_to_delete_selects_persons_in_older_partitions(
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT.isoformat(),
+            OVERRIDES_MERGED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
         )
@@ -392,7 +398,8 @@ async def test_select_persons_to_squash_with_empty_table(activity_environment, p
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        _latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_merged_at=OVERRIDES_MERGED_AT,
+        dry_run=False,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -412,7 +419,8 @@ async def test_select_persons_to_squash_with_different_partition(activity_enviro
     query_inputs = QueryInputs(
         partition_ids=["202002"],
         database=settings.CLICKHOUSE_DATABASE,
-        _latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_merged_at=OVERRIDES_MERGED_AT,
+        dry_run=False,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -441,9 +449,9 @@ async def test_select_persons_to_delete_with_newer_merges(activity_environment, 
                 "old_person_id": old_person_id,
                 "override_person_id": override_person_id,
                 # But happened an hour after
-                "merged_at": OVERRIDES_CREATED_AT + timedelta(hours=1),
+                "merged_at": OVERRIDES_MERGED_AT + timedelta(hours=1),
                 "oldest_event": OLDEST_EVENT_AT + timedelta(hours=1),
-                "created_at": OVERRIDES_CREATED_AT + timedelta(hours=1),
+                "created_at": OVERRIDES_MERGED_AT + timedelta(hours=1),
                 "version": 1,
             }
 
@@ -455,8 +463,9 @@ async def test_select_persons_to_delete_with_newer_merges(activity_environment, 
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        # Our latest_created_at is before the newer values happened
-        _latest_created_at=OVERRIDES_CREATED_AT,
+        # Our latest_merged_at is before the newer values happened
+        _latest_merged_at=OVERRIDES_MERGED_AT,
+        dry_run=False,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -466,7 +475,7 @@ async def test_select_persons_to_delete_with_newer_merges(activity_environment, 
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT.isoformat(),
+            OVERRIDES_MERGED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
         )
@@ -562,7 +571,8 @@ async def test_squash_events_partition(activity_environment, person_overrides_da
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
-        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=False,
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -571,6 +581,44 @@ async def test_squash_events_partition(activity_environment, person_overrides_da
     await activity_environment.run(drop_dictionary, query_inputs)
 
     assert_events_have_been_overriden(events_to_override, person_overrides_data)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_squash_events_partition_dry_run(activity_environment, person_overrides_data, events_to_override):
+    """Test events are not squashed by running squash_events_partition with dry_run=True."""
+    dictionary_name = "exciting_dictionary"
+
+    query_inputs = QueryInputs(
+        partition_ids=["202001"],
+        database=settings.CLICKHOUSE_DATABASE,
+        dictionary_name=dictionary_name,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster_name=settings.CLICKHOUSE_CLUSTER,
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=True,
+    )
+    await activity_environment.run(prepare_dictionary, query_inputs)
+
+    await activity_environment.run(squash_events_partition, query_inputs)
+
+    await activity_environment.run(drop_dictionary, query_inputs)
+
+    for event in events_to_override:
+        rows = sync_execute(
+            "SELECT uuid, event, team_id, person_id FROM events WHERE uuid = %(uuid)s", {"uuid": event["uuid"]}
+        )
+        new_event = {
+            "uuid": rows[0][0],
+            "event": rows[0][1],
+            "team_id": rows[0][2],
+            "person_id": rows[0][3],
+        }
+
+        assert event["uuid"] == new_event["uuid"]  # Sanity check
+        assert event["team_id"] == new_event["team_id"]  # Sanity check
+        assert event["person_id"] == new_event["person_id"]
 
 
 @pytest.mark.django_db
@@ -592,7 +640,8 @@ async def test_squash_events_partition_with_older_overrides(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
-        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=False,
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -622,7 +671,8 @@ async def test_squash_events_partition_with_newer_overrides(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
-        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=False,
     )
     await activity_environment.run(prepare_dictionary, query_inputs)
 
@@ -650,9 +700,10 @@ async def test_squash_events_partition_with_limited_team_ids(
         password=settings.CLICKHOUSE_PASSWORD,
         cluster_name=settings.CLICKHOUSE_CLUSTER,
         team_ids=[random_team],
+        dry_run=False,
     )
-    latest_created_at = await activity_environment.run(prepare_dictionary, query_inputs)
-    query_inputs._latest_created_at = latest_created_at
+    latest_merged_at = await activity_environment.run(prepare_dictionary, query_inputs)
+    query_inputs._latest_merged_at = latest_merged_at
 
     await activity_environment.run(squash_events_partition, query_inputs)
 
@@ -683,7 +734,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT.isoformat(),
+            OVERRIDES_MERGED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
         )
@@ -695,7 +746,8 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
         partition_ids=["202001"],
         person_overrides_to_delete=persons_to_delete,
         database=settings.CLICKHOUSE_DATABASE,
-        _latest_created_at=OVERRIDES_CREATED_AT.isoformat(),
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=False,
     )
 
     not_overriden_id = uuid4()
@@ -703,9 +755,9 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
         "team_id": 1,
         "old_person_id": not_overriden_id,
         "override_person_id": uuid4(),
-        "merged_at": OVERRIDES_CREATED_AT,
+        "merged_at": OVERRIDES_MERGED_AT,
         "oldest_event": OLDEST_EVENT_AT,
-        "created_at": OVERRIDES_CREATED_AT,
+        "created_at": OVERRIDES_MERGED_AT,
         "version": 1,
     }
 
@@ -718,6 +770,51 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
     assert len(rows) == 1
     assert rows[0][0] == 1
     assert rows[0][1] == not_overriden_id
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_delete_squashed_person_overrides_from_clickhouse_dry_run(activity_environment, person_overrides_data):
+    """Test we do not delete person overrides when dry_run=True."""
+    persons_to_delete = [
+        SerializablePersonOverrideToDelete(
+            team_id,
+            person_override.old_person_id,
+            person_override.override_person_id,
+            OVERRIDES_MERGED_AT.isoformat(),
+            1,
+            OLDEST_EVENT_AT.isoformat(),
+        )
+        for team_id, person_overrides in person_overrides_data.items()
+        for person_override in person_overrides
+    ]
+
+    query_inputs = QueryInputs(
+        partition_ids=["202001"],
+        person_overrides_to_delete=persons_to_delete,
+        database=settings.CLICKHOUSE_DATABASE,
+        _latest_merged_at=OVERRIDES_MERGED_AT.isoformat(),
+        dry_run=True,
+    )
+
+    not_overriden_id = uuid4()
+    not_overriden_person: PersonOverrideValues = {
+        "team_id": 1,
+        "old_person_id": not_overriden_id,
+        "override_person_id": uuid4(),
+        "merged_at": OVERRIDES_MERGED_AT,
+        "oldest_event": OLDEST_EVENT_AT,
+        "created_at": OVERRIDES_MERGED_AT,
+        "version": 1,
+    }
+
+    sync_execute("INSERT INTO person_overrides (*) VALUES", [not_overriden_person])
+
+    await activity_environment.run(delete_squashed_person_overrides_from_clickhouse, query_inputs)
+
+    rows = sync_execute("SELECT team_id, old_person_id FROM person_overrides")
+
+    assert len(rows) == len(persons_to_delete) + 1
 
 
 @pytest.fixture(scope="session")
@@ -956,14 +1053,17 @@ async def test_delete_squashed_person_overrides_from_postgres(activity_environme
                 team_id,
                 person_overrides.old_person_id,
                 person_overrides.override_person_id,
-                OVERRIDES_CREATED_AT.isoformat(),
+                OVERRIDES_MERGED_AT.isoformat(),
                 1,
                 OLDEST_EVENT_AT.isoformat(),
             )
         ],
+        dry_run=False,
     )
 
-    await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
+    with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+        # Unit tests run in their own separate database, so we need to patch it.
+        await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
     with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
@@ -975,6 +1075,52 @@ async def test_delete_squashed_person_overrides_from_postgres(activity_environme
             cursor.execute("SELECT * FROM posthog_personoverride")
             overrides = cursor.fetchall()
             assert len(overrides) == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_delete_squashed_person_overrides_from_postgres_dry_run(activity_environment, team_id, person_overrides):
+    """Test we do not delete person overrides when dry_run=True."""
+    with psycopg2.connect(DATABASE_URL) as connection:
+        # These are sanity checks to ensure the fixtures are working properly.
+        # If any assertions fail here, its likely a test setup issue.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
+            mappings = cursor.fetchall()
+            assert len(mappings) == 2
+
+            cursor.execute("SELECT * FROM posthog_personoverride")
+            overrides = cursor.fetchall()
+            assert len(overrides) == 1
+
+    query_inputs = QueryInputs(
+        person_overrides_to_delete=[
+            SerializablePersonOverrideToDelete(
+                team_id,
+                person_overrides.old_person_id,
+                person_overrides.override_person_id,
+                OVERRIDES_MERGED_AT.isoformat(),
+                1,
+                OLDEST_EVENT_AT.isoformat(),
+            )
+        ],
+        dry_run=True,
+    )
+
+    with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+        # Unit tests run in their own separate database, so we need to patch it.
+        await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
+
+    with psycopg2.connect(DATABASE_URL) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
+            mappings = cursor.fetchall()
+            assert len(mappings) == 2
+            assert mappings[0][1] == person_overrides.override_person_id
+
+            cursor.execute("SELECT * FROM posthog_personoverride")
+            overrides = cursor.fetchall()
+            assert len(overrides) == 1
 
 
 @pytest.mark.django_db
@@ -1026,14 +1172,16 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
                 team_id,
                 person_overrides.old_person_id,
                 person_overrides.override_person_id,
-                OVERRIDES_CREATED_AT.isoformat(),
+                OVERRIDES_MERGED_AT.isoformat(),
                 1,
                 OLDEST_EVENT_AT.isoformat(),
             )
         ],
+        dry_run=False,
     )
 
-    await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
+    with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+        await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
     with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
@@ -1077,6 +1225,7 @@ async def test_squash_person_overrides_workflow(events_to_override, person_overr
         clickhouse_database=settings.CLICKHOUSE_DATABASE,
         postgres_database=settings.DATABASES["default"]["NAME"],
         partition_ids=["202001"],
+        dry_run=False,
     )
 
     async with Worker(
@@ -1095,12 +1244,13 @@ async def test_squash_person_overrides_workflow(events_to_override, person_overr
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
-        await client.execute_workflow(
-            SquashPersonOverridesWorkflow.run,
-            inputs,
-            id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-        )
+        with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+            await client.execute_workflow(
+                SquashPersonOverridesWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
     assert_events_have_been_overriden(events_to_override, person_overrides_data)
 
@@ -1124,6 +1274,7 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         clickhouse_database=settings.CLICKHOUSE_DATABASE,
         postgres_database=settings.DATABASES["default"]["NAME"],
         partition_ids=["202001"],
+        dry_run=False,
     )
 
     async with Worker(
@@ -1142,12 +1293,13 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
-        await client.execute_workflow(
-            SquashPersonOverridesWorkflow.run,
-            inputs,
-            id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-        )
+        with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+            await client.execute_workflow(
+                SquashPersonOverridesWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
     assert_events_have_been_overriden(events_to_override, newer_overrides)
 
@@ -1170,6 +1322,7 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
         postgres_database=settings.DATABASES["default"]["NAME"],
         partition_ids=["202001"],
         team_ids=[random_team],
+        dry_run=False,
     )
 
     async with Worker(
@@ -1188,12 +1341,13 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
-        await client.execute_workflow(
-            SquashPersonOverridesWorkflow.run,
-            inputs,
-            id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-        )
+        with patch.object(settings, "DATABASE_URL", new=DATABASE_URL):
+            await client.execute_workflow(
+                SquashPersonOverridesWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
     with pytest.raises(AssertionError):
         # Some checks will fail as we have limited the teams overriden.

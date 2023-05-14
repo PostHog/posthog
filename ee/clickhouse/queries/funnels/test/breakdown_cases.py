@@ -8,7 +8,12 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult, assert_funnel_results_equal
-from posthog.test.base import APIBaseTest, also_test_with_materialized_columns, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    also_test_with_materialized_columns,
+    snapshot_clickhouse_queries,
+    also_test_with_person_on_events_v2,
+)
 from posthog.test.test_journeys import journeys_for
 
 
@@ -165,6 +170,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "technology"), [people["person2"].uuid])
 
         # TODO: Delete this test when moved to person-on-events
+        @also_test_with_person_on_events_v2
         def test_funnel_aggregate_by_groups_breakdown_group(self):
             self._create_groups()
 
@@ -269,6 +275,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
         @also_test_with_materialized_columns(
             group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
         )
+        @also_test_with_person_on_events_v2
         @snapshot_clickhouse_queries
         def test_funnel_aggregate_by_groups_breakdown_group_person_on_events(self):
             self._create_groups()
