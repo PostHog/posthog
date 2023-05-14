@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Optional
 
-from celery.task.control import revoke
+from celery.worker.control import revoke
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
