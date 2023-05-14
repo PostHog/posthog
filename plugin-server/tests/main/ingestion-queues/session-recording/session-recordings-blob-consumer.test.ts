@@ -37,7 +37,7 @@ describe('ingester', () => {
         expect(ingester.sessions.has('2-session_id_1')).toEqual(true)
         expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
 
-        await ingester.destroySessions([ingester.sessions.get('2-session_id_1')!])
+        await ingester.destroySessions([['2-session_id_1', ingester.sessions.get('2-session_id_1')!]])
 
         expect(ingester.sessions.size).toBe(1)
         expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
