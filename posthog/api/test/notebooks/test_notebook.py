@@ -1,8 +1,9 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from unittest import mock, skip
 from uuid import uuid4
 
 from freezegun import freeze_time
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
@@ -12,7 +13,7 @@ from posthog.test.base import APIBaseTest
 
 
 class TestNotebooks(APIBaseTest):
-    def assert_notebook_activity(self, notebook_short_id: str, expected: List[Dict]):
+    def assert_notebook_activity(self, notebook_short_id: str, expected: List[Dict]) -> None:
         activity_response = self.client.get(f"/api/projects/{self.team.id}/notebooks/activity")
         assert activity_response.status_code == status.HTTP_200_OK
 
@@ -21,7 +22,7 @@ class TestNotebooks(APIBaseTest):
         self.maxDiff = None
         assert activity == expected
 
-    def test_empty_notebook_list(self):
+    def test_empty_notebook_list(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/notebooks")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
@@ -31,7 +32,7 @@ class TestNotebooks(APIBaseTest):
             "results": [],
         }
 
-    def test_cannot_list_deleted_notebook(self):
+    def test_cannot_list_deleted_notebook(self) -> None:
         notebook_one = self.client.post(
             f"/api/projects/{self.team.id}/notebooks", data={"title": f"notebook-{uuid4()}"}
         ).json()
@@ -53,14 +54,23 @@ class TestNotebooks(APIBaseTest):
             notebook_one["short_id"],
         ]
 
-    def test_create_a_notebook(self):
+    @parameterized.expand(
+        [
+            ("without_content", None),
+            ("with_content", {"some": "kind", "of": "tip", "tap": "content"}),
+        ]
+    )
+    def test_create_a_notebook(self, _, content: Optional[Dict]) -> None:
         title = str(uuid4())
-        response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={"title": title})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks", data={"title": title, "content": content}
+        )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {
             "id": response.json()["id"],
             "short_id": response.json()["short_id"],
             "title": title,
+            "content": content,
             "created_at": mock.ANY,
             "created_by": response.json()["created_by"],
             "deleted": False,
@@ -91,7 +101,7 @@ class TestNotebooks(APIBaseTest):
             ],
         )
 
-    def test_creates_too_many_notebooks(self):
+    def test_creates_too_many_notebooks(self) -> None:
         for i in range(11):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/notebooks", data={"title": f"notebook-{i}-{str(uuid4())}"}
@@ -102,13 +112,13 @@ class TestNotebooks(APIBaseTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_gets_individual_notebook_by_shortid(self):
+    def test_gets_individual_notebook_by_shortid(self) -> None:
         create_response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={"title": (str(uuid4()))})
         response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{create_response.json()['short_id']}")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["short_id"] == create_response.json()["short_id"]
 
-    def test_updates_notebook(self):
+    def test_updates_notebook(self) -> None:
         title = str(uuid4())
         response = self.client.post(f"/api/projects/{self.team.id}/notebooks/", data={"title": title})
         assert response.status_code == status.HTTP_201_CREATED
@@ -119,13 +129,12 @@ class TestNotebooks(APIBaseTest):
         with freeze_time("2022-01-02"):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/notebooks/{short_id}",
-                {
-                    "title": f"changed title-{title}",
-                },
+                {"title": f"changed title-{title}", "content": {"some": "updated content"}},
             )
 
         assert response.json()["short_id"] == short_id
         assert response.json()["title"] == f"changed title-{title}"
+        assert response.json()["content"] == {"some": "updated content"}
         assert response.json()["last_modified_at"] == "2022-01-02T00:00:00Z"
 
         self.assert_notebook_activity(
@@ -160,6 +169,13 @@ class TestNotebooks(APIBaseTest):
                                 "field": "title",
                                 "type": "Notebook",
                             },
+                            {
+                                "action": "created",
+                                "after": {"some": "updated content"},
+                                "before": None,
+                                "field": "content",
+                                "type": "Notebook",
+                            },
                         ],
                         "name": None,
                         "short_id": response.json()["short_id"],
@@ -173,7 +189,7 @@ class TestNotebooks(APIBaseTest):
             ],
         )
 
-    def test_cannot_change_short_id(self):
+    def test_cannot_change_short_id(self) -> None:
         short_id = self.client.post(f"/api/projects/{self.team.id}/notebooks/", data={"title": str(uuid4())}).json()[
             "short_id"
         ]
@@ -185,7 +201,7 @@ class TestNotebooks(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["short_id"] == short_id
 
-    def test_filters_based_on_params(self):
+    def test_filters_based_on_params(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         needle_notebook = Notebook.objects.create(team=self.team, title="needle", created_by=self.user)
         delivery_van_notebook = Notebook.objects.create(team=self.team, title="Delivery van", created_by=self.user)
@@ -221,7 +237,7 @@ class TestNotebooks(APIBaseTest):
         assert len(results) == 1
         assert results[0]["short_id"] == other_users_notebook.short_id
 
-    def test_listing_does_not_leak_between_teams(self):
+    def test_listing_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
         another_user = User.objects.create_and_join(another_team.organization, "other@example.com", password="")
 
@@ -241,7 +257,7 @@ class TestNotebooks(APIBaseTest):
         assert response.json()["results"][0]["title"] == "this_team_notebook"
 
     @skip("is this not how things work?")
-    def test_creating_does_not_leak_between_teams(self):
+    def test_creating_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
 
         self.client.force_login(self.user)
@@ -249,7 +265,7 @@ class TestNotebooks(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @skip("is this not how things work?")
-    def test_patching_does_not_leak_between_teams(self):
+    def test_patching_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
         another_user = User.objects.create_and_join(another_team.organization, "other@example.com", password="")
 
