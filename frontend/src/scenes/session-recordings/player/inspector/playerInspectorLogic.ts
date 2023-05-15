@@ -628,8 +628,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ): Record<SessionRecordingPlayerTab, 'loading' | 'ready' | 'empty'> => {
                 return {
                     [SessionRecordingPlayerTab.ALL]: 'ready',
-                    [SessionRecordingPlayerTab.EVENTS]:
-                        sessionEventsDataLoading || !events ? 'loading' : events?.length ? 'ready' : 'empty',
+                    [SessionRecordingPlayerTab.EVENTS]: sessionEventsDataLoading
+                        ? 'loading'
+                        : events?.length
+                        ? 'ready'
+                        : 'empty',
                     [SessionRecordingPlayerTab.CONSOLE]:
                         sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !logs
                             ? 'loading'

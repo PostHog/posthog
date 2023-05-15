@@ -155,7 +155,7 @@ export function fromParamsGivenUrl(url: string): Record<string, any> {
     return !url
         ? {}
         : url
-              .slice(1)
+              .replace(/^\?/, '')
               .split('&')
               .reduce((paramsObject, paramString) => {
                   const [key, value] = paramString.split('=')

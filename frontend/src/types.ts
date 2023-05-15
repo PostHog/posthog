@@ -646,6 +646,7 @@ export enum SessionRecordingPlayerTab {
 }
 
 export enum SessionPlayerState {
+    READY = 'ready',
     BUFFER = 'buffer',
     PLAY = 'play',
     PAUSE = 'pause',
@@ -1968,6 +1969,8 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    /** If showing a shared insight/dashboard, we need the access token for refreshing. */
+    sharingAccessToken?: string
 }
 
 export interface SetInsightOptions {
