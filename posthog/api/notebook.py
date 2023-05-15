@@ -6,19 +6,17 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -73,8 +71,6 @@ class NotebookSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
 
-        self._check_can_create_notebook(team)
-
         created_by = validated_data.pop("created_by", request.user)
         notebook = Notebook.objects.create(
             team=team, created_by=created_by, last_modified_by=request.user, **validated_data
@@ -116,19 +112,11 @@ class NotebookSerializer(serializers.ModelSerializer):
 
         return updated_notebook
 
-    @staticmethod
-    def _check_can_create_notebook(team: Team) -> bool:
-        notebook_count = Notebook.objects.filter(deleted=False, team=team).count()
-        if notebook_count > 10:
-            raise PermissionDenied("You have hit the limit for notebooks for this team. Delete some to create more.")
-        return True
-
 
 class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Notebook.objects.all()
     serializer_class = NotebookSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     # TODO: Remove this once we have released notebooks
