@@ -4,11 +4,9 @@ from dataclasses import dataclass
 from string import Template
 
 from aiohttp import ClientSession
-from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.settings.base_variables import DEBUG, TEST
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -62,7 +60,7 @@ class S3InsertInputs:
     aws_secret_access_key: str | None = None
 
 
-def build_s3_url(bucket: str, region: str, key_template: str, **template_vars):
+def build_s3_url(bucket: str, region: str, key_template: str, is_debug_or_test: bool, **template_vars):
     """Form a S3 URL given input parameters.
 
     ClickHouse requires an S3 URL with http scheme.
@@ -72,7 +70,7 @@ def build_s3_url(bucket: str, region: str, key_template: str, **template_vars):
     else:
         key = key_template.format(**template_vars)
 
-    if TEST or DEBUG:
+    if is_debug_or_test:
         # Note we are making a request to the object storage from the local ClickHouse container.
         # So, we are communicating via the network created by docker/podman compose. This means we
         # can use the service name to resolve to the object storage container.
@@ -103,6 +101,7 @@ def prepare_template_vars(inputs: S3InsertInputs):
 async def insert_into_s3_activity(inputs: S3InsertInputs):
     """Activity that runs a INSERT INTO query in ClickHouse targetting an S3 table function."""
     from aiochclient import ChClient
+    from django.conf import settings
 
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
@@ -154,7 +153,13 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         activity.logger.info("BatchExporting %s rows to S3", count)
 
         template_vars = prepare_template_vars(inputs)
-        s3_url = build_s3_url(inputs.bucket_name, inputs.region, inputs.key_template, **template_vars)
+        s3_url = build_s3_url(
+            bucket=inputs.bucket_name,
+            region=inputs.region,
+            key_template=inputs.key_template,
+            is_debug_or_test=settings.TEST or settings.DEBUG,
+            **template_vars,
+        )
 
         query_template = Template(INSERT_INTO_S3_QUERY_TEMPLATE.template + SELECT_QUERY_TEMPLATE.template)
 
