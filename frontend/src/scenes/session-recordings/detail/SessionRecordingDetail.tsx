@@ -15,7 +15,7 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 export const scene: SceneExport = {
     logic: sessionRecordingDetailLogic,
     component: SessionRecordingDetail,
-    paramsToProps: ({ params: { id } }): typeof sessionRecordingDetailLogic['props'] => ({
+    paramsToProps: ({ params: { id } }): (typeof sessionRecordingDetailLogic)['props'] => ({
         id,
     }),
 }

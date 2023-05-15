@@ -24,7 +24,7 @@ import { Col } from 'antd'
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
     logic: earlyAccessFeatureLogic,
-    paramsToProps: ({ params: { id } }): typeof earlyAccessFeatureLogic['props'] => ({
+    paramsToProps: ({ params: { id } }): (typeof earlyAccessFeatureLogic)['props'] => ({
         id: id && id !== 'new' ? id : 'new',
     }),
 }
