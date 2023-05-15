@@ -302,7 +302,7 @@ class PersonQuery:
                 _top_level=False,
                 hogql_context=self._filter.hogql_context,
             )
-            finalization_sql = f"AND ({finalization_conditions_sql}) OR {distinct_id_clause})"
+            finalization_sql = f"AND ({finalization_conditions_sql} OR {distinct_id_clause})"
 
             prefiltering_conditions_sql, prefiltering_params = parse_prop_grouped_clauses(
                 team_id=self._team_id,
