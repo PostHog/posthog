@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytz
 from dateutil.parser import isoparse
+from freezegun import freeze_time
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
@@ -60,6 +61,7 @@ class SessionReplaySummaryQuery:
 
 class TestReceiveSummarizedSessionReplays(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
+    @freeze_time("2023-01-04T12:34")
     def test_session_replay_summaries_can_be_queried(self):
         session_id = "test_session_replay_summaries_can_be_queried-session-id"
 

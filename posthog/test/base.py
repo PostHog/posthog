@@ -354,8 +354,9 @@ class QueryMatchingTest:
             query,
         )
 
+        # Replace person id (when querying session recording replay events)
         query = re.sub(
-            rf"and person_id = '\d{8}-\d{4}-\d{4}-\d{4}-\d{12}'",
+            "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
             r"and person_id = '00000000-0000-0000-0000-000000000000'",
             query,
         )
