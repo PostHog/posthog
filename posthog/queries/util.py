@@ -28,9 +28,15 @@ class PersonPropertiesMode(Enum):
     memory usage of a query (as aggregation by version happens in-memory).
     """
     DIRECT_ON_EVENTS = auto()
-    """Get person property from the events table (persons-on-events v1), selecting the latest version of the person."""
+    """
+    Get person property from the events table (persons-on-events v1 - no person ID overrides),
+    selecting the latest version of the person.
+    """
     DIRECT_ON_EVENTS_WITH_POE_V2 = auto()
-    """Get person property from the events table (persons-on-events v2), selecting the latest version of the person."""
+    """
+    Get person property from the events table (persons-on-events v2 - accounting for person ID overrides),
+    selecting the latest version of the person.
+    """
 
 
 EARLIEST_TIMESTAMP = "2015-01-01"
