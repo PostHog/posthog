@@ -11,7 +11,6 @@ class Notebook(UUIDModel):
     short_id: models.CharField = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
-    title: models.CharField = models.CharField(max_length=400)
     content: JSONField = JSONField(default=None, null=True, blank=True)
 
     deleted: models.BooleanField = models.BooleanField(default=False)

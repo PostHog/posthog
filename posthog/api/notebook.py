@@ -50,7 +50,6 @@ class NotebookSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "short_id",
-            "title",
             "content",
             "deleted",
             "created_at",
@@ -132,7 +131,8 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
-    include_in_docs = True
+    # TODO: Remove this once we have released notebooks
+    include_in_docs = False
     lookup_field = "short_id"
 
     def get_queryset(self) -> QuerySet:
