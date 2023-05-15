@@ -53,7 +53,7 @@ export function PlayerMetaLinks(): JSX.Element {
     const whitelabel = getCurrentExporterData()?.whitelabel ?? false
 
     return (
-        <div className="flex flex-row gap-1 items-center flex-1 justify-end">
+        <div className="flex flex-row gap-1 items-center justify-end">
             {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
                     <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>

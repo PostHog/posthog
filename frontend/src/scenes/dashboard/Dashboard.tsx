@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useContext, useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
@@ -20,6 +20,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '../../models/groupsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SharingAccessTokenContext } from 'scenes/insights/insightLogic'
 
 interface DashboardProps {
     id?: string

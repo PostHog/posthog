@@ -154,6 +154,9 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             breakdown_normalize_url: filters.breakdown_normalize_url,
             breakdowns: filters.breakdowns,
             breakdown_group_type_index: filters.breakdown_group_type_index,
+            ...(isTrendsFilter(filters)
+                ? { breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count }
+                : {}),
         })
     }
 
@@ -172,7 +175,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             aggregation_axis_format: filters.aggregation_axis_format,
             aggregation_axis_prefix: filters.aggregation_axis_prefix,
             aggregation_axis_postfix: filters.aggregation_axis_postfix,
-            breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,
             formula: filters.formula,
             shown_as: filters.shown_as,
             display: filters.display,

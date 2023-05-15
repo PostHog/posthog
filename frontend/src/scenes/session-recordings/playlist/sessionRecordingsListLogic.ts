@@ -156,7 +156,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             } as SessionRecordingsResponse,
             {
                 getSessionRecordings: async (_, breakpoint) => {
-                    debugger
                     const paramsDict = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',

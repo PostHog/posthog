@@ -107,12 +107,12 @@ export function PlayerMeta(): JSX.Element {
             >
                 <div className="ph-no-capture">
                     {!sessionPerson ? (
-                        <LemonSkeleton.Circle className="w-10 h-10" />
+                        <LemonSkeleton.Circle className="w-8 h-8" />
                     ) : (
                         <ProfilePicture name={asDisplay(sessionPerson)} />
                     )}
                 </div>
-                <div className="overflow-hidden ph-no-capture">
+                <div className="overflow-hidden ph-no-capture flex-1">
                     <div className="font-bold">
                         {!sessionPerson || !startTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />

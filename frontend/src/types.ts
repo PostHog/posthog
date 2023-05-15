@@ -1583,11 +1583,11 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
-    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
@@ -1969,6 +1969,8 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    /** If showing a shared insight/dashboard, we need the access token for refreshing. */
+    sharingAccessToken?: string
 }
 
 export interface SetInsightOptions {

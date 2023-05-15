@@ -187,15 +187,15 @@ export const startBatchConsumer = async ({
 
     const isHealthy = () => {
         // We define health as the last consumer loop having run in the last
-        // minute. This might not be bullet proof, let's see.
+        // minute. This might not be bullet-proof, let's see.
         return Date.now() - lastLoopTime < 60000
     }
 
     const stop = async () => {
-        status.info('🔁', 'Stopping session recordings consumer')
+        status.info('🔁', 'Stopping kafka batch consumer')
 
         // First we signal to the mainLoop that we should be stopping. The main
-        // loop should complete one loop, flush the producer, and store it's offsets.
+        // loop should complete one loop, flush the producer, and store its offsets.
         isShuttingDown = true
 
         // Wait for the main loop to finish, but only give it 30 seconds

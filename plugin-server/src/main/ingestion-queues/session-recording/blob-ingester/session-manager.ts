@@ -11,7 +11,6 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
-import { getArrayBytesSize, getMapByteSize } from '../shonky-ram-measurement'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
@@ -40,11 +39,12 @@ type SessionBuffer = {
 async function deleteFile(file: string, context: string) {
     try {
         await unlink(file)
+        status.info('🗑️', `blob_ingester_session_manager deleted file ${context}`, { file, context })
     } catch (err) {
         if (err && err.code === 'ENOENT') {
             status.warn(
-                '⚠️',
-                `blob_ingester_session_manager failed deleting file ${context} path: ${file}, file not found`,
+                '🤷‍♀️',
+                `blob_ingester_session_manager failed deleting file ${context} path: ${file}, file not found. That's probably fine 🤷‍♀️`,
                 {
                     err,
                     file,
@@ -67,6 +67,7 @@ export class SessionManager {
     chunks: Map<string, IncomingRecordingMessage[]> = new Map()
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
+    destroying = false
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -82,15 +83,14 @@ export class SessionManager {
         // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
-    public guesstimateSizes = (): { chunks: number; buffer: number; bufferOffsets: number } => {
-        return {
-            chunks: getMapByteSize(this.chunks),
-            bufferOffsets: getArrayBytesSize(this.buffer.offsets, 'buffer'),
-            buffer: this.buffer.size,
-        }
-    }
-
     public async add(message: IncomingRecordingMessage): Promise<void> {
+        if (this.destroying) {
+            status.warn('⚠️', `blob_ingester_session_manager add called after destroy`, {
+                message,
+                sessionId: this.sessionId,
+            })
+            return
+        }
         this.buffer.oldestKafkaTimestamp = Math.min(this.buffer.oldestKafkaTimestamp, message.metadata.timestamp)
         // TODO: Check that the offset is higher than the lastProcessed
         // If not - ignore it
@@ -109,22 +109,45 @@ export class SessionManager {
     }
 
     public async flushIfBufferExceedsCapacity(): Promise<void> {
+        if (this.destroying) {
+            status.warn('⚠️', `blob_ingester_session_manager flush on buffer size called after destroy`, {
+                sessionId: this.sessionId,
+            })
+            return
+        }
+
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
         if (gzippedCapacity > 1) {
             // return the promise and let the caller decide whether to await
+            status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
+                gzippedCapacity,
+                gzipSizeKb,
+                sessionId: this.sessionId,
+            })
             return this.flush()
         }
     }
 
-    public async flushIfSessionIsIdle(): Promise<void> {
-        if (
-            Date.now() - this.buffer.oldestKafkaTimestamp >=
-            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        ) {
+    public async flushIfSessionBufferIsOld(): Promise<void> {
+        if (this.destroying) {
+            status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy`, {
+                sessionId: this.sessionId,
+            })
+            return
+        }
+
+        const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
+        const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+        if (bufferAge >= tolerance) {
             // return the promise and let the caller decide whether to await
+            status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+                bufferAge,
+                tolerance,
+                sessionId: this.sessionId,
+            })
             return this.flush()
         }
     }
@@ -135,23 +158,18 @@ export class SessionManager {
      */
     public async flush(): Promise<void> {
         if (this.flushBuffer) {
-            status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing")
+            status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing", {
+                sessionId: this.sessionId,
+            })
             return
         }
 
-        const bufferSizeKb = this.buffer.size / 1024
-        const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
-        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-        status.info('🚽', `blob_ingester_session_manager flushing buffer ${this.sessionId}`, {
-            sizeInBufferKB: bufferSizeKb,
-            chunksSize: this.chunks.size,
-            estimatedSizeInGzipKB: Math.round(gzipSizeKb),
-            bufferThreshold: this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB,
-            calculatedCapacity: gzippedCapacity,
-            percentageCapacityUsed: (gzippedCapacity * 100).toFixed(2),
-            count: this.buffer.count,
-            sessionId: this.sessionId,
-        })
+        if (this.destroying) {
+            status.warn('⚠️', `blob_ingester_session_manager flush somehow called after destroy`, {
+                sessionId: this.sessionId,
+            })
+            return
+        }
 
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
@@ -176,10 +194,13 @@ export class SessionManager {
             fileStream.close()
 
             counterS3FilesWritten.inc(1)
-            status.info('🚽', `blob_ingester_session_manager Flushed buffer ${this.sessionId}`)
+            status.info('🚽', `blob_ingester_session_manager Flushed buffer`, { sessionId: this.sessionId })
         } catch (error) {
             // TODO: If we fail to write to S3 we should be do something about it
-            status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', error)
+            status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
+                error,
+                sessionId: this.sessionId,
+            })
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
@@ -212,10 +233,13 @@ export class SessionManager {
             writeFileSync(buffer.file, '', 'utf-8')
 
             return buffer
-        } catch (e) {
-            status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', e)
-            captureException(e, { tags: { team_id: this.teamId, session_id: this.sessionId } })
-            throw e
+        } catch (error) {
+            status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', {
+                error,
+                sessionId: this.sessionId,
+            })
+            captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
+            throw error
         }
     }
 
@@ -229,10 +253,13 @@ export class SessionManager {
             this.buffer.size += Buffer.byteLength(content)
             this.buffer.offsets.push(message.metadata.offset)
             await appendFile(this.buffer.file, content, 'utf-8')
-        } catch (e) {
-            status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', e)
-            captureException(e, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
-            throw e
+        } catch (error) {
+            status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', {
+                error,
+                sessionId: this.sessionId,
+            })
+            captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
+            throw error
         }
     }
 
@@ -291,16 +318,20 @@ export class SessionManager {
     }
 
     public async destroy(): Promise<void> {
+        this.destroying = true
         await this.waitForFlushToComplete()
 
-        status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
+        status.debug('␡', `blob_ingester_session_manager Destroying session manager`, { sessionId: this.sessionId })
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
             .map((x) =>
-                deleteFile(x, 'on destroy').catch((e) => {
-                    status.error('🧨', 'blob_ingester_session_manager failed deleting session recording buffer', e)
-                    captureException(e, { tags: { team_id: this.teamId, session_id: this.sessionId } })
-                    throw e
+                deleteFile(x, 'on destroy').catch((error) => {
+                    status.error('🧨', 'blob_ingester_session_manager failed deleting session recording buffer', {
+                        error,
+                        sessionId: this.sessionId,
+                    })
+                    captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
+                    throw error
                 })
             )
         await Promise.allSettled(filePromises)

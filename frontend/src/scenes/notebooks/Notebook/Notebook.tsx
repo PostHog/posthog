@@ -61,17 +61,15 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
                         return true
                     }
 
-                    return false
-                }
+                    if (event.dataTransfer.files && event.dataTransfer.files[0]) {
+                        // if dropping external files
+                        const file = event.dataTransfer.files[0] // the dropped file
 
-                if (!moved && event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]) {
-                    // if dropping external files
-                    const file = event.dataTransfer.files[0] // the dropped file
+                        console.log('TODO: Dropped file!', file)
+                        // TODO: Detect if it is an image and add image upload handler
 
-                    console.log('FILE!', file)
-                    // TODO: Add image with upload handler
-
-                    return true // handled
+                        return true
+                    }
                 }
 
                 return false

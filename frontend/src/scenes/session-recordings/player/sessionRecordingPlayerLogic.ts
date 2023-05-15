@@ -450,8 +450,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
-            // TODO: We should only do this if we have once played (i.e. we should not base this on the underlying data)
-
             if (!values.currentTimestamp) {
                 actions.initializePlayerFromStart()
             }
@@ -531,7 +529,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             if (values.currentPlayerState === SessionPlayerState.READY) {
-                // We haven't started properly loading yet so nothigng to do
+                // We haven't started properly loading yet so nothing to do
             } else if (!values.sessionPlayerSnapshotDataLoading && segment?.kind === 'buffer') {
                 // If not currently loading anything and part of the recording hasn't loaded, set error state
                 values.player?.replayer?.pause()

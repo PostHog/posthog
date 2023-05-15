@@ -18,9 +18,11 @@ import { DependencyUnavailableError } from './error'
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     public producer: HighLevelProducer
+    private readonly waitForAck: boolean
 
-    constructor(producer: HighLevelProducer) {
+    constructor(producer: HighLevelProducer, waitForAck: boolean) {
         this.producer = producer
+        this.waitForAck = waitForAck
     }
 
     async queueMessage(kafkaMessage: ProducerRecord) {
@@ -42,6 +44,7 @@ export class KafkaProducerWrapper {
                         // objects with a single key-value pair, and the
                         // undefined values need to be filtered out.
                         headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
+                        waitForAck: this.waitForAck,
                     })
                 )
             )
