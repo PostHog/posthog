@@ -45,7 +45,7 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-row gap-1 items-center flex-1 justify-end">
+        <div className="flex flex-row gap-1 items-center justify-end">
             <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
                 <span>Share</span>
             </LemonButton>
