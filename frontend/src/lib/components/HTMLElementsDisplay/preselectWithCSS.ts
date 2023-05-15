@@ -163,7 +163,7 @@ export function preselect(elements: ElementType[], autoSelector: string): Record
     while (elementIndex < elements.length) {
         const el = elements[elementIndex]
         if (selectorIndex >= selectors.length) {
-            continue
+            break
         } else {
             nextSelector = selectors[selectorIndex]
         }
