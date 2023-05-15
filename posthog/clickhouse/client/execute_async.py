@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Optional
 
-from celery.app.control import revoke
+from posthog import celery
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
@@ -161,7 +161,7 @@ def enqueue_execute_with_progress(
             task_str = task_str.decode("utf-8")
             query_task = QueryStatus(**json.loads(task_str))
             # Instruct celery to revoke task and terminate if running
-            revoke(query_task.task_id, terminate=True)
+            celery.app.control.revoke(query_task.task_id, terminate=True)
             # Then we need to make redis forget about this job entirely
             # and continue as normal. As if we never saw this query before
             redis_client.delete(key)
