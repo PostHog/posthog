@@ -153,29 +153,30 @@ export function RecordingsLists({
                 listKey="other"
                 title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                 titleRight={
-                    infiniteScrollerEnabled ? (
-                        <>
-                            {sessionRecordings.length ? (
-                                <Tooltip
-                                    placement="bottom"
-                                    title={
-                                        <>
-                                            Showing {sessionRecordings.length} results.
-                                            <br />
-                                            Scrolling to the bottom or the top of the list will load older or newer
-                                            recordings respectively.
-                                        </>
-                                    }
-                                >
-                                    <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
-                                </Tooltip>
-                            ) : null}
-
-                            {autoPlayControl}
-                        </>
-                    ) : (
-                        paginationControls
-                    )
+                    <>
+                        {infiniteScrollerEnabled ? (
+                            <>
+                                {sessionRecordings.length ? (
+                                    <Tooltip
+                                        placement="bottom"
+                                        title={
+                                            <>
+                                                Showing {sessionRecordings.length} results.
+                                                <br />
+                                                Scrolling to the bottom or the top of the list will load older or newer
+                                                recordings respectively.
+                                            </>
+                                        }
+                                    >
+                                        <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                    </Tooltip>
+                                ) : null}
+                            </>
+                        ) : (
+                            paginationControls
+                        )}
+                        {autoPlayControl}
+                    </>
                 }
                 onRecordingClick={onRecordingClick}
                 onPropertyClick={onPropertyClick}
