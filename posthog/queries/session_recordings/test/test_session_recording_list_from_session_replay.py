@@ -574,6 +574,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$current_url", "$browser"])
+    @freeze_time("2023-01-04")
     def test_action_filter(self):
         user = "test_action_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
