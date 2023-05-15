@@ -157,8 +157,8 @@ export const supportLogic = kea<supportLogicType>([
             defaults: {} as unknown as {
                 name: string
                 email: string
-                kind: SupportTicketKind
-                target_area: SupportTicketTargetArea
+                kind: SupportTicketKind | null
+                target_area: SupportTicketTargetArea | null
                 message: string
             },
             errors: ({ name, email, message, kind, target_area }) => {

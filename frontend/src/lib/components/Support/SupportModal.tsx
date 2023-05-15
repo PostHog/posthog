@@ -40,7 +40,7 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
     support: 'What can we help you with?',
 }
 
-export function SupportModal({ loggedIn = true }: { loggedIn: boolean }): JSX.Element {
+export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element {
     const { sendSupportRequest, isSupportFormOpen } = useValues(supportLogic)
     const { setSendSupportRequestValue, closeSupportForm } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
