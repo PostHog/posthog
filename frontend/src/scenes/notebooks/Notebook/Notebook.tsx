@@ -41,8 +41,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             attributes: {
                 class: 'Notebook',
             },
-            handleDrop: (view, event, slice, moved) => {
-
+            handleDrop: (view, event, _slice, moved) => {
                 if (!moved && event.dataTransfer) {
                     const text = event.dataTransfer.getData('text/plain')
 
