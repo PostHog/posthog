@@ -139,7 +139,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         queryset = super().get_queryset()
 
         if not self.action.endswith("update"):
-            # Soft-deleted insights can be brought back with a PATCH request
+            # Soft-deleted notebooks can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
