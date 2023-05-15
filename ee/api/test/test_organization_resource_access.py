@@ -161,12 +161,16 @@ class TestOrganizationResourceAccessAPI(APILicensedTest, QueryMatchingTest):
         OrganizationResourceAccess.objects.create(
             resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS, organization=self.organization
         )
-        with self.assertNumQueries(8):
+
+        with self.assertNumQueries(9):
             response = self.client.get("/api/organizations/@current/resource_access")
             assert len(response.json()["results"]) == 1
+
         OrganizationResourceAccess.objects.create(
             resource=OrganizationResourceAccess.Resources.EXPERIMENTS, organization=self.organization
         )
+
+        # one query less because rate limit instance setting was cached on last API call
         with self.assertNumQueries(8):
             response = self.client.get("/api/organizations/@current/resource_access")
             assert len(response.json()["results"]) == 2
