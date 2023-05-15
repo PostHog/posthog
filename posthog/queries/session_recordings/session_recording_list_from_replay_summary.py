@@ -62,9 +62,11 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     _session_recordings_query: str = """
         {person_cte}
         {session_recordings_base_query}
-        {person_cte_match_clause}
+        -- these condition are in the prewhere from the base query
         -- may need to match fixed session ids from the query filter
         {session_ids_clause}
+        -- person cte is matched in a where clause
+        WHERE 1=1 {person_cte_match_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause}
     ORDER BY start_time DESC
@@ -74,7 +76,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     _session_recordings_query_with_events = """
         -- person_cte is optional,
         -- it adds the comma needed to have multiple CTEs if it is present
-        with {person_cte}
+        WITH {person_cte}
         events_session_ids AS (
             SELECT
                 distinct `$session_id` as session_id
@@ -82,15 +84,17 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             PREWHERE
                 team_id = %(team_id)s
                 {events_timestamp_clause}
-                {event_filter_where_conditions}
                 and notEmpty(session_id)
+                WHERE 1=1 {event_filter_where_conditions}
         )
         {session_recordings_base_query}
+        -- these condition are in the prewhere from the base query
         -- matches session ids from events CTE
         AND session_id in (select session_id from events_session_ids)
-        {person_cte_match_clause}
         -- may need to match fixed session ids from the query filter
         {session_ids_clause}
+        -- person cte is matched in a where clause
+        WHERE 1=1 {person_cte_match_clause}
         GROUP BY session_id
         HAVING 1=1 {duration_clause}
         ORDER BY start_time DESC
