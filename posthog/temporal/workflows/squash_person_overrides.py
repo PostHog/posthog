@@ -306,7 +306,7 @@ async def re_attach_person_overrides(inputs: QueryInputs) -> None:
     """Re-attach the person_overrides mat view after it was used in a squash."""
     activity.logger.info("Re-attaching %s.person_overrides_mv", inputs.clickhouse.database)
 
-    attach_query = "ATTACH TABLE {database}.person_overrides_mv ON CLUSTER {cluster}".format(
+    attach_query = "ATTACH TABLE IF NOT EXISTS {database}.person_overrides_mv ON CLUSTER {cluster}".format(
         database=inputs.clickhouse.database, cluster=inputs.clickhouse.cluster
     )
 
@@ -613,13 +613,13 @@ async def person_overrides_dictionary(
 
     finally:
         await workflow.execute_activity(
-            re_attach_person_overrides,
+            drop_dictionary,
             query_inputs,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=retry_policy,
         )
         await workflow.execute_activity(
-            drop_dictionary,
+            re_attach_person_overrides,
             query_inputs,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=retry_policy,
@@ -773,7 +773,9 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
         async with person_overrides_dictionary(
             workflow,
             query_inputs,
-            retry_policy=retry_policy,
+            # Let's be kinder to ClickHouse when running ON CLUSTER queries.
+            # We use a higher initial_interval for retries so that we let ClickHouse finish up.
+            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(10)),
         ) as latest_merged_at:
             query_inputs._latest_merged_at = latest_merged_at
             query_inputs.partition_ids = list(inputs.iter_partition_ids())
