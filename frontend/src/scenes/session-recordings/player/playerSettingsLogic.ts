@@ -1,5 +1,5 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import { SessionRecordingPlayerTab } from '~/types'
+import { AutoplayDirection, SessionRecordingPlayerTab } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -203,7 +203,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         autoplayDirection: [
-            'older' as 'newer' | 'older' | null,
+            'older' as AutoplayDirection,
             { persist: true },
             {
                 toggleAutoplayDirection: (state) => {
