@@ -13,9 +13,8 @@ export function decompressFromString(input: string, doubleDecode = false): strin
         input = Buffer.from(input, 'base64').toString()
     }
     const compressedData = Buffer.from(input, 'base64')
-    let uncompressed: Buffer | null = null
     try {
-        uncompressed = zlib.gunzipSync(compressedData)
+        const uncompressed = zlib.gunzipSync(compressedData)
         // Trim is a quick way to get rid of BOMs created by python
         return uncompressed.toString('utf16le').trim()
     } catch (e: any) {
