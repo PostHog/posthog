@@ -159,10 +159,10 @@ export function RecordingsLists({
 
                             <Tooltip
                                 title={
-                                    <>
+                                    <div className="text-center">
                                         Autoplay next recording
                                         <br />({!autoplayDirection ? 'disabled' : autoplayDirection})
-                                    </>
+                                    </div>
                                 }
                                 placement="bottom"
                             >
