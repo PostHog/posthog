@@ -1,5 +1,5 @@
 from collections import Counter
-from typing import Counter as TCounter, Literal
+from typing import Counter as TCounter, Literal, Optional
 from typing import Dict, List, Tuple
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
@@ -189,7 +189,9 @@ def uses_elements_chain(action: Action) -> bool:
     return False
 
 
-def string_matching_to_operator(matching: Literal["exact", "contains", "regex"], default: OperatorType) -> OperatorType:
+def string_matching_to_operator(
+    matching: Optional[Literal["exact", "contains", "regex"]], default: OperatorType
+) -> OperatorType:
     if matching == "contains":
         return "icontains"
     return matching or default

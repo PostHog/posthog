@@ -51,6 +51,8 @@ from posthog.queries.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
 
+StringMatching = Literal["selector", "tag_name", "href", "text"]
+
 # Property Groups Example:
 # {type: 'AND', groups: [
 #     {type: 'OR', groups: [A, B, C]},
@@ -263,7 +265,7 @@ def parse_prop_clauses(
             params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
-                prop.key, prop.value, operator=prop.operator, prepend="{}_".format(prepend)
+                cast(StringMatching, prop.key), prop.value, operator=prop.operator, prepend="{}_".format(prepend)
             )
             if query:
                 final.append(f"{property_operator} {query}")
@@ -667,12 +669,15 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
 
 
 def filter_element(
-    key: Literal["selector", "tag_name", "href", "text"],
+    key: StringMatching,
     value: ValueT,
     *,
-    operator: OperatorType = "exact",
+    operator: Optional[OperatorType] = None,
     prepend: str = "",
 ) -> Tuple[str, Dict]:
+    if operator is None:
+        operator = "exact"
+
     params = {}
     combination_conditions: List[str] = []
 
@@ -681,32 +686,39 @@ def filter_element(
             raise exceptions.ValidationError(
                 'Filtering by element selector only supports operators "equals" and "doesn\'t equal" currently.'
             )
-        selectors = cast(List[str], value if isinstance(value, list) else [value])
+        selectors = value if isinstance(value, list) else [value]
         for idx, query in enumerate(selectors):
             if not query:  # Skip empty selectors
                 continue
+            if not isinstance(query, str):
+                raise exceptions.ValidationError("Selector must be a string")
             selector = Selector(query, escape_slashes=False)
-            key = f"{prepend}_{idx}_selector_regex"
-            params[key] = build_selector_regex(selector)
-            combination_conditions.append(f"match(elements_chain, %({key})s)")
+            param_key = f"{prepend}_{idx}_selector_regex"
+            params[param_key] = build_selector_regex(selector)
+            combination_conditions.append(f"match(elements_chain, %({param_key})s)")
 
     elif key == "tag_name":
         if operator not in ("exact", "is_not"):
             raise exceptions.ValidationError(
                 'Filtering by element tag only supports operators "equals" and "doesn\'t equal" currently.'
             )
-        tag_names = cast(List[str], value if isinstance(value, list) else [value])
+        tag_names = value if isinstance(value, list) else [value]
         for idx, tag_name in enumerate(tag_names):
-            key = f"{prepend}_{idx}_tag_name_regex"
-            params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
-            combination_conditions.append(f"match(elements_chain, %({key})s)")
+            if not tag_name:  # Skip empty tags
+                continue
+            if not isinstance(tag_name, str):
+                raise exceptions.ValidationError("Tag name must be a string")
+            param_key = f"{prepend}_{idx}_tag_name_regex"
+            params[param_key] = rf"(^|;){tag_name}(\.|$|;|:)"
+            combination_conditions.append(f"match(elements_chain, %({param_key})s)")
 
     elif key in ["href", "text"]:
         ok_values = process_ok_values(value, operator)
         for idx, value in enumerate(ok_values):
             optional_flag = "(?i)" if operator.endswith("icontains") else ""
-            params[f"{prepend}_{key}_{idx}_attributes_regex"] = f'{optional_flag}({key}="{value}")'
-            combination_conditions.append(f"match(elements_chain, %({prepend}_{key}_{idx}_attributes_regex)s)")
+            param_key = f"{prepend}_{key}_{idx}_attributes_regex"
+            params[param_key] = f'{optional_flag}({key}="{value}")'
+            combination_conditions.append(f"match(elements_chain, %({param_key})s)")
 
     else:
         raise ValueError(f'Invalid element filtering key "{key}"')
