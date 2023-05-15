@@ -13,8 +13,8 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconBugShield, IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
-import SupportForm from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SupportModal } from 'lib/components/Support/SupportModal'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -41,7 +41,7 @@ export function PasswordReset(): JSX.Element {
                     >
                         <span className="text-muted">Report an issue</span>
                     </LemonButton>
-                    <SupportForm loggedIn={false} />
+                    <SupportModal loggedIn={false} />
                 </div>
             }
         >

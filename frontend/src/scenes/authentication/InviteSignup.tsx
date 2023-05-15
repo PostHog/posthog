@@ -18,7 +18,7 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import SupportForm from 'lib/components/Support/SupportForm'
+import { SupportModal } from 'lib/components/Support/SupportModal'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -56,7 +56,7 @@ function SupportModalLink({
                 >
                     <span className="text-muted">Report an issue</span>
                 </LemonButton>
-                <SupportForm loggedIn={false} />
+                <SupportModal loggedIn={false} />
             </div>
         </>
     )

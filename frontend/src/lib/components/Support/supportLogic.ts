@@ -43,7 +43,6 @@ export const TARGET_AREA_TO_NAME = {
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     app_performance: 'App Performance',
     apps: 'Apps',
-    login: 'Authentication (Login / Sign-up / Invites)',
     billing: 'Billing',
     cohorts: 'Cohorts',
     data_integrity: 'Data Integrity',

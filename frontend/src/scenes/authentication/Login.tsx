@@ -13,13 +13,13 @@ import { Field } from 'lib/forms/Field'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import RegionSelect from './RegionSelect'
-import SupportForm from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconBugShield } from 'lib/lemon-ui/icons'
 import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { captureException } from '@sentry/react'
+import { SupportModal } from 'lib/components/Support/SupportModal'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -101,7 +101,7 @@ export function Login(): JSX.Element {
                     >
                         <span className="text-muted">Report an issue</span>
                     </LemonButton>
-                    <SupportForm loggedIn={false} />
+                    <SupportModal loggedIn={false} />
                 </div>
             }
         >
