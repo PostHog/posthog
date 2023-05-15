@@ -29,7 +29,7 @@ export interface PersonPaginatedResponse {
     results: PersonType[]
 }
 
-export interface PersonLogicProps {
+export interface PersonsLogicProps {
     cohort?: number | 'new'
     syncWithUrl?: boolean
     urlId?: string
@@ -37,7 +37,7 @@ export interface PersonLogicProps {
 }
 
 export const personsLogic = kea<personsLogicType>({
-    props: {} as PersonLogicProps,
+    props: {} as PersonsLogicProps,
     key: (props) => {
         if (!props.fixedProperties && !props.cohort && !props.syncWithUrl) {
             throw new Error(
@@ -138,12 +138,12 @@ export const personsLogic = kea<personsLogicType>({
     selectors: () => ({
         apiDocsURL: [
             () => [(_, props) => props.cohort],
-            (cohort: PersonLogicProps['cohort']) =>
+            (cohort: PersonsLogicProps['cohort']) =>
                 !!cohort
                     ? 'https://posthog.com/docs/api/cohorts#get-api-projects-project_id-cohorts-id-persons'
                     : 'https://posthog.com/docs/api/persons',
         ],
-        cohortId: [() => [(_, props) => props.cohort], (cohort: PersonLogicProps['cohort']) => cohort],
+        cohortId: [() => [(_, props) => props.cohort], (cohort: PersonsLogicProps['cohort']) => cohort],
         currentTab: [
             (s) => [s.activeTab],
             (activeTab) => {

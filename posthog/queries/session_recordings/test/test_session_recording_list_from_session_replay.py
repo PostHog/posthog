@@ -27,6 +27,7 @@ from posthog.test.base import (
 )
 
 
+@freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, APIBaseTest):
     # this test does not create any session_recording_events, only writes to the session_replay summary table
     # it is a pair with test_session_recording_list
@@ -65,6 +66,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
     def base_time(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
+    @snapshot_clickhouse_queries
     def test_basic_query(self):
         user = "test_basic_query-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -149,6 +151,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         self.assertEqual(more_recordings_available, False)
 
+    @snapshot_clickhouse_queries
     def test_basic_query_with_paging(self):
         user = "test_basic_query_with_paging-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -570,12 +573,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
+    @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$current_url", "$browser"])
+    @freeze_time("2023-01-04")
     def test_action_filter(self):
         user = "test_action_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
-        session_id_one = f"test_action_filter-{str(uuid4())}"
-        window_id = str(uuid4())
+        session_id_one = f"test_action_filter-session-one"
+        window_id = "test_action_filter-window-id"
         action1 = self.create_action(
             "custom-event",
             properties=[
@@ -681,6 +686,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         self.assertEqual(session_recordings[0]["start_time"], self.base_time)
         self.assertEqual(session_recordings[0]["end_time"], self.base_time + relativedelta(seconds=60))
 
+    @snapshot_clickhouse_queries
     def test_duration_filter(self):
         another_team = Team.objects.create(organization=self.organization)
 
@@ -734,6 +740,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual([r["session_id"] for r in session_recordings], [session_id_one])
 
+    @snapshot_clickhouse_queries
     def test_date_from_filter(self):
         user = "test_date_from_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -766,6 +773,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "two days before base time")
 
+    @snapshot_clickhouse_queries
     def test_date_to_filter(self):
         user = "test_date_to_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -825,6 +833,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         self.assertEqual(session_recordings[0]["session_id"], "1")
         self.assertEqual(session_recordings[0]["duration"], 6 * 60 * 60)
 
+    @snapshot_clickhouse_queries
     def test_person_id_filter(self):
         three_user_ids = [str(uuid4()) for _ in range(3)]
         session_id_one = f"test_person_id_filter-{str(uuid4())}"
@@ -851,6 +860,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             sorted([r["session_id"] for r in session_recordings]), sorted([session_id_two, session_id_one])
         )
 
+    @snapshot_clickhouse_queries
     def test_all_filters_at_once(self):
         three_user_ids = [str(uuid4()) for _ in range(3)]
         target_session_id = f"test_all_filters_at_once-{str(uuid4())}"
@@ -913,22 +923,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], target_session_id)
-
-    #     TODO does it matter we're not recording if a summarised session has a full snapshot?
-
-    #     def test_recording_without_fullsnapshot_dont_appear(self):
-    #         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-    #         produce_replay_summary(
-    #             distinct_id="user",
-    #             session_id="1",
-    #             first_timestamp=self.base_time,
-    #             has_full_snapshot=False,
-    #             team_id=self.team.id,
-    #         )
-    #         filter = SessionRecordingsFilter(team=self.team, data={"no-filter": True})
-    #         session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
-    #         (session_recordings, _) = session_recording_list_instance.run()
-    #         self.assertEqual(len(session_recordings), 0)
 
     def test_teams_dont_leak_event_filter(self):
         user = "test_teams_dont_leak_event_filter-user"

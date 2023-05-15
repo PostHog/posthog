@@ -93,6 +93,9 @@
     border: 2px solid var(--border);
     transition: background-color 100ms ease, transform 100ms ease, border-color 100ms ease;
     cursor: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 
     .LemonSwitch--checked & {
         transform: translateX(1rem);

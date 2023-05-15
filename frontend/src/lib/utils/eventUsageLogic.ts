@@ -555,7 +555,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 /* Report one event per annotation */
                 const properties = {
                     total_items_count: annotations.length,
-                    content_length: annotation.content.length,
+                    content_length: annotation.content?.length || 0,
                     scope: annotation.scope,
                     deleted: annotation.deleted,
                     created_by_me: annotation.created_by && annotation.created_by?.uuid === userLogic.values.user?.uuid,

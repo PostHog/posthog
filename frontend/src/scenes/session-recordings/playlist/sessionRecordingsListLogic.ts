@@ -109,7 +109,7 @@ export const defaultPageviewPropertyEntityFilter = (
 }
 
 export function generateSessionRecordingListLogicKey(props: SessionRecordingListLogicProps): string {
-    return `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ?? '-with-search'}`
+    return `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
 }
 
 export interface SessionRecordingListLogicProps {
@@ -118,6 +118,7 @@ export interface SessionRecordingListLogicProps {
     personUUID?: PersonUUID
     filters?: RecordingFilters
     updateSearchParams?: boolean
+    autoPlay?: boolean
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
@@ -364,13 +365,15 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     })),
     selectors({
         activeSessionRecording: [
-            (s) => [s.selectedRecordingId, s.sessionRecordings],
-            (selectedRecordingId, sessionRecordings): Partial<SessionRecordingType> | undefined => {
+            (s) => [s.selectedRecordingId, s.sessionRecordings, (_, props) => props.autoPlay],
+            (selectedRecordingId, sessionRecordings, autoPlay): Partial<SessionRecordingType> | undefined => {
                 return selectedRecordingId
                     ? sessionRecordings.find((sessionRecording) => sessionRecording.id === selectedRecordingId) || {
                           id: selectedRecordingId,
                       }
-                    : sessionRecordings[0]
+                    : autoPlay
+                    ? sessionRecordings[0]
+                    : undefined
             },
         ],
         nextSessionRecording: [
@@ -405,6 +408,9 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     }),
 
     actionToUrl(({ props, values }) => {
+        if (!props.updateSearchParams) {
+            return {}
+        }
         const buildURL = (
             replace: boolean
         ): [
@@ -415,11 +421,9 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 replace: boolean
             }
         ] => {
-            const params: Params = props.updateSearchParams
-                ? {
-                      filters: values.filters,
-                  }
-                : {}
+            const params: Params = {
+                filters: values.filters,
+            }
             const hashParams: HashParams = {
                 ...router.values.hashParams,
             }
@@ -441,15 +445,18 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
     urlToAction(({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
+            if (!props.updateSearchParams) {
+                return
+            }
+
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.selectedRecordingId) {
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
             }
 
-            const filters = params.filters
-            if (filters && props.updateSearchParams) {
-                if (!equal(filters, values.filters)) {
-                    actions.replaceFilters(filters)
+            if (params.filters) {
+                if (!equal(params.filters, values.filters)) {
+                    actions.replaceFilters(params.filters)
                 }
             }
         }
