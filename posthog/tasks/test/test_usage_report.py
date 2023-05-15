@@ -11,6 +11,8 @@ from ee.api.test.base import LicensedTestMixin
 from ee.billing.billing_manager import build_billing_token
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
+from posthog.clickhouse.client import sync_execute
+from posthog.hogql.query import execute_hogql_query
 from posthog.models import Organization, Plugin, Team
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -18,6 +20,7 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.schema import EventsQuery
 from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.tasks.usage_report import send_all_org_usage_reports
 from posthog.test.base import (
@@ -33,7 +36,6 @@ from posthog.utils import get_machine_id
 logger = structlog.get_logger(__name__)
 
 
-@freeze_time("2022-01-10T00:01:00Z")
 class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -438,6 +440,40 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
             return all_reports
 
+    def test_usage_report_hogql_queries(self) -> None:
+        for _ in range(0, 100):
+            _create_event(
+                distinct_id="hello",
+                event="$event1",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.team,
+            )
+        flush_persons_and_events()
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        from posthog.models.event.events_query import run_events_query
+
+        execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
+        run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
+        assert len(all_reports) == 1
+
+        report = all_reports[0]["teams"][str(self.team.pk)]
+
+        # We selected 200 or 50 rows, but still read 100 rows to return the query
+        assert report["hogql_read_rows"] == 100
+        assert report["hogql_read_bytes"] > 0
+        assert report["event_explorer_read_rows"] == 100
+        assert report["event_explorer_read_bytes"] > 0
+
+        # Nothing was read via the API
+        assert report["hogql_read_rows_via_api"] == 0
+        assert report["event_explorer_read_rows_via_api"] == 0
+
+    @freeze_time("2022-01-10T00:01:00Z")
     @patch("os.environ", {"DEPLOYMENT": "tests"})
     @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
