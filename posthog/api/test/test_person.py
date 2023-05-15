@@ -38,6 +38,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], person.pk)
 
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @snapshot_clickhouse_queries
     def test_search(self) -> None:
         _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
         _create_person(
@@ -54,6 +56,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @snapshot_clickhouse_queries
     def test_properties(self) -> None:
         _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
         _create_person(team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"})
@@ -151,8 +155,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
+    @snapshot_clickhouse_queries
     def test_filter_person_list(self):
-
         person1: Person = _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
