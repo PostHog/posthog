@@ -204,7 +204,9 @@ export function formatBreakdownLabel(
     isHistogram?: boolean
 ): string {
     if (isHistogram && typeof breakdown_value === 'string') {
-        const [bucketStart, bucketEnd] = JSON.parse(breakdown_value)
+        // replace nan with null
+        const bucketValues = breakdown_value.replace(/\bnan\b/g, 'null')
+        const [bucketStart, bucketEnd] = JSON.parse(bucketValues)
         const formattedBucketStart = formatBreakdownLabel(
             cohorts,
             formatPropertyValueForDisplay,

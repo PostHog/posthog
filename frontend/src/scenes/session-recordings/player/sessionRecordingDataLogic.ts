@@ -175,7 +175,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingSnapshotsSuccess: (state) => state + 1,
             },
         ],
-
+        loadedFromBlobStorage: [
+            false as boolean,
+            {
+                loadRecordingBlobSnapshotsSuccess: () => true,
+            },
+        ],
         isNotFound: [
             false as boolean,
             {
@@ -212,8 +217,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             } else {
                 actions.reportUsageIfFullyLoaded()
             }
-            // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
-            if (values.chunkPaginationIndex === 1) {
+            if (values.chunkPaginationIndex === 1 || values.loadedFromBlobStorage) {
+                // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
+                // when loading from blob storage by the time this is hit the chunkPaginationIndex is already > 1
+                // when loading from the API the chunkPaginationIndex is 1 for the first success that reaches this point
                 cache.firstPaintDurationRow = {
                     size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
@@ -233,8 +240,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             )
                             return false
                         }
-                        if (!values.sessionPlayerSnapshotData?.snapshots.length) {
+                        if (!values.sessionPlayerSnapshotData?.snapshots.length || !values.loadedFromBlobStorage) {
                             console.log('There are no current values **from blob storage**')
+                            return false
                         }
                         const fakePoint = (): Promise<void> => Promise.resolve()
                         let comparisonData = await makeSnapshotsAPICall({
@@ -342,14 +350,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.VIEWED,
-                0
+                0,
+                values.loadedFromBlobStorage
             )
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportRecording(
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.ANALYZED,
-                10
+                10,
+                values.loadedFromBlobStorage
             )
         },
     })),

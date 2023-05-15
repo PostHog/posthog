@@ -13,10 +13,11 @@ import sqlparse
 from django.apps import apps
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
+from posthog import rate_limit
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
@@ -41,6 +42,11 @@ from posthog.models.session_recording_event.sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
+)
+from posthog.models.session_replay_event.sql import (
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -194,6 +200,9 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
 
         # Clear the cached "is_cloud" setting so that it's recalculated for each test
         TEST_clear_cloud_cache()
+        # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
@@ -371,6 +380,14 @@ class QueryMatchingTest:
 
         # replace Savepoint numbers
         query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
+
+        # test_formula has some values that change on every run
+        query = re.sub(r"\SELECT \[\d+, \d+] as breakdown_value", "SELECT [1, 2] as breakdown_value", query)
+        query = re.sub(
+            r"SELECT distinct_id,[\n\r\s]+\d+ as value",
+            "SELECT distinct_id, 1 as value",
+            query,
+        )
 
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
@@ -652,6 +669,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 TRUNCATE_GROUPS_TABLE_SQL,
                 TRUNCATE_COHORTPEOPLE_TABLE_SQL,
                 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
@@ -659,10 +677,19 @@ class ClickhouseDestroyTablesMixin(BaseTest):
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                EVENTS_TABLE_SQL(),
+                PERSONS_TABLE_SQL(),
+                SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
         run_clickhouse_statement_in_parallel(
-            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                DISTRIBUTED_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
 
     def tearDown(self):
@@ -674,13 +701,24 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
+        )
+
+        run_clickhouse_statement_in_parallel(
+            [
+                EVENTS_TABLE_SQL(),
+                PERSONS_TABLE_SQL(),
+                SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
-        )
-        run_clickhouse_statement_in_parallel(
-            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                DISTRIBUTED_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
 
 
@@ -760,6 +798,18 @@ def also_test_with_different_timezones(fn):
     frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
     frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
+
+    return fn
+
+
+def also_test_with_person_on_events_v2(fn):
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def fn_with_poe_v2(self, *args, **kwargs):
+        fn(self, *args, **kwargs)
+
+    # To add the test, we inspect the frame this function was called in and add the test there
+    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn
 

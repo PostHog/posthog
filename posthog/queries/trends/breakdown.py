@@ -1,4 +1,5 @@
 import json
+import re
 import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -64,7 +65,7 @@ from posthog.queries.trends.util import (
     parse_response,
     process_math,
 )
-from posthog.queries.util import PersonPropertiesMode
+from posthog.queries.util import get_person_properties_mode
 from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 
@@ -97,14 +98,6 @@ class TrendsBreakdown:
             self._person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
 
     @cached_property
-    def _person_properties_mode(self) -> PersonPropertiesMode:
-        return (
-            PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
-            if self.person_on_events_mode == PersonOnEventsMode.DISABLED
-            else PersonPropertiesMode.DIRECT_ON_EVENTS
-        )
-
-    @cached_property
     def actor_aggregator(self) -> str:
         if self.team.aggregate_users_by_distinct_id:
             return "e.distinct_id"
@@ -124,7 +117,7 @@ class TrendsBreakdown:
             team_id=self.team_id,
             property_group=target_properties,
             table_name=self.EVENT_TABLE_ALIAS,
-            person_properties_mode=self._person_properties_mode,
+            person_properties_mode=get_person_properties_mode(self.team),
             person_id_joined_alias=self._person_id_alias,
             hogql_context=self.filter.hogql_context,
         )
@@ -161,7 +154,7 @@ class TrendsBreakdown:
                 team_id=self.team_id,
                 action=action,
                 table_name=self.EVENT_TABLE_ALIAS,
-                person_properties_mode=self._person_properties_mode,
+                person_properties_mode=get_person_properties_mode(self.team),
                 person_id_joined_alias=self._person_id_alias,
                 hogql_context=self.filter.hogql_context,
             )
@@ -323,13 +316,17 @@ class TrendsBreakdown:
                     **breakdown_filter_params,
                 )
             elif self.filter.display == TRENDS_CUMULATIVE and self.entity.math == "dau":
+                # TRICKY: This is a subquery, so the person_id_alias expression is not available in the outer query.
+                # Hence, we overwrite the aggregation_operation with the apprioriate one for the outer query.
+                cummulative_aggregate_operation = f"count(DISTINCT person_id)"
+
                 inner_sql = BREAKDOWN_CUMULATIVE_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
                     person_id_alias=self._person_id_alias,
-                    aggregate_operation=aggregate_operation,
+                    aggregate_operation=cummulative_aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
@@ -400,7 +397,7 @@ class TrendsBreakdown:
             self.team,
             extra_params=math_params,
             column_optimizer=self.column_optimizer,
-            person_properties_mode=self._person_properties_mode,
+            person_properties_mode=get_person_properties_mode(self.team),
         )
 
         # :TRICKY: We only support string breakdown for event/person properties
@@ -498,7 +495,9 @@ class TrendsBreakdown:
 
     def breakdown_sort_function(self, value):
         if self.filter.using_histogram:
-            return json.loads(value.get("breakdown_value"))[0]
+            breakdown_value = value.get("breakdown_value")
+            breakdown_value = re.sub(r"\bnan\b", "NaN", breakdown_value)  # fix NaN values for JSON loading
+            return json.loads(breakdown_value)[0]
         if value.get("breakdown_value") == "all":
             return (-1, "")
         if self.filter.breakdown_type == "session":

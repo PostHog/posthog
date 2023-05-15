@@ -68,7 +68,7 @@ export function TopBar(): JSX.Element {
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
                     {!!featureFlags[FEATURE_FLAGS.NOTEBOOKS] && <NotebookButton />}
-                    {!!featureFlags[FEATURE_FLAGS.HOG_BOOK] && <NotificationBell />}
+                    <NotificationBell />
                     <HelpButton />
                     <SitePopover />
                 </div>

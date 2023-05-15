@@ -160,7 +160,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
-                        version: values.featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2] ? '2' : '1',
+                        version: values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SUMMARY_LISTING]
+                            ? '3'
+                            : values.featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2]
+                            ? '2'
+                            : '1',
                     }
 
                     const params = toParams(paramsDict)
@@ -183,7 +187,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
-                        version: values.featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2] ? '2' : '1',
+                        version: values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SUMMARY_LISTING]
+                            ? '3'
+                            : values.featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2]
+                            ? '2'
+                            : '1',
                     }
 
                     if (direction === 'older') {

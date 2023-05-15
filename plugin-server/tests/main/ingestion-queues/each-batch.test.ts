@@ -125,7 +125,6 @@ describe('eachBatchX', () => {
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(),
-                runBufferEventPipeline: jest.fn(),
             },
         }
     })

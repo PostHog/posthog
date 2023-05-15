@@ -75,9 +75,10 @@ export function TaxonomicFilter({
                     taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
                     !width && 'force-minimum-width'
                 )}
+                // eslint-disable-next-line react/forbid-dom-props
                 style={style}
             >
-                <div style={{ position: 'relative' }}>
+                <div className="relative">
                     <LemonInput
                         data-attr="taxonomic-filter-searchfield"
                         type="search"

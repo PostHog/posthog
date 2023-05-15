@@ -28,6 +28,8 @@
     .LemonButton__content {
         flex: 1;
         line-height: initial;
+        display: flex;
+        align-items: center;
     }
 
     &.LemonButton--full-width {

@@ -1,3 +1,4 @@
+import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -19,6 +20,8 @@ import { IncomingRecordingMessage } from './blob-ingester/types'
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
+
+const flushIntervalTimeoutMs = 30000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
@@ -109,17 +112,18 @@ export class SessionRecordingBlobIngester {
     }
 
     public async handleKafkaMessage(message: Message): Promise<void> {
-        const statusWarn = (reason: string, error?: Error) => {
+        const statusWarn = (reason: string, extra?: Record<string, any>) => {
             status.warn('⚠️', 'invalid_message', {
                 reason,
-                error,
                 partition: message.partition,
                 offset: message.offset,
+                ...(extra || {}),
             })
         }
 
-        if (!message.value) {
-            return statusWarn('message value is empty')
+        if (!message.value || !message.timestamp) {
+            // Typing says this can happen but in practice it shouldn't
+            return statusWarn('message value or timestamp is empty')
         }
 
         let messagePayload: RawEventMessage
@@ -129,7 +133,7 @@ export class SessionRecordingBlobIngester {
             messagePayload = JSON.parse(message.value.toString())
             event = JSON.parse(messagePayload.data)
         } catch (error) {
-            return statusWarn('invalid_json', error)
+            return statusWarn('invalid_json', { error })
         }
 
         if (event.event !== '$snapshot') {
@@ -150,7 +154,10 @@ export class SessionRecordingBlobIngester {
         }
 
         if (team == null) {
-            return statusWarn('team_not_found')
+            return statusWarn('team_not_found', {
+                teamId: messagePayload.team_id,
+                payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
+            })
         }
 
         if (this.enabledTeams && !this.enabledTeams.includes(team.id)) {
@@ -196,8 +203,14 @@ export class SessionRecordingBlobIngester {
         status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer')
 
         // Currently we can't reuse any files stored on disk, so we opt to delete them all
-        rmSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true, force: true })
-        mkdirSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true })
+        try {
+            rmSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true, force: true })
+            mkdirSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true })
+        } catch (e) {
+            status.error('🔥', 'Failed to recreate local buffer directory', e)
+            captureException(e)
+            throw e
+        }
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
         this.producer = await createKafkaProducer(connectionConfig)
@@ -261,18 +274,18 @@ export class SessionRecordingBlobIngester {
 
                 const currentPartitions = [...this.sessions.values()].map((session) => session.partition).sort()
 
-                const sessionsToDrop = [...this.sessions.values()].filter((session) =>
-                    revokedPartitions.includes(session.partition)
+                const sessionsToDrop = [...this.sessions.entries()].filter(([_, sessionManager]) =>
+                    revokedPartitions.includes(sessionManager.partition)
                 )
 
                 this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
 
-                await Promise.all(sessionsToDrop.map((session) => session.destroy()))
+                await this.destroySessions(sessionsToDrop)
 
                 status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
                     currentPartitions: currentPartitions,
                     revokedPartitions: revokedPartitions,
-                    droppedSessions: sessionsToDrop.map((s) => s.sessionId),
+                    droppedSessions: sessionsToDrop.map(([_, sessionManager]) => sessionManager.sessionId),
                 })
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
                 gaugePartitionsRevoked.set(revokedPartitions.length)
@@ -298,61 +311,63 @@ export class SessionRecordingBlobIngester {
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', 'blob_ingester_consumer Blob ingestion consumer disconnected, cleaning up', { err })
+            status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
             await this.stop()
         })
 
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
-            const offsetSize = this.offsetManager?.estimateSize()
-            status.info('🚛', 'blob_ingester_consumer - offsets size_estimate', { offsetSize })
-
-            let sessionManagerChunksSizes = 0
-            let sessionManagerBufferOffsetsSizes = 0
             let sessionManangerBufferSizes = 0
-            this.sessions.forEach((sessionManager) => {
-                const guesstimates = sessionManager.guesstimateSizes()
-                sessionManagerChunksSizes += guesstimates.chunks
-                sessionManagerBufferOffsetsSizes += guesstimates.bufferOffsets
-                sessionManangerBufferSizes += guesstimates.buffer
-                void sessionManager.flushIfSessionIsIdle()
-            })
 
-            status.info('🚛', 'blob_ingester_consumer - session manager size_estimate', {
-                chunksSize: sessionManagerChunksSizes,
-                buffersOffsetsSize: sessionManagerBufferOffsetsSizes,
-                buffersSize: sessionManangerBufferSizes,
+            this.sessions.forEach((sessionManager) => {
+                sessionManangerBufferSizes += sessionManager.buffer.size
+
+                void sessionManager.flushIfSessionBufferIsOld().catch((err) => {
+                    status.error(
+                        '🚽',
+                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
+                        {
+                            err,
+                            session_id: sessionManager.sessionId,
+                        }
+                    )
+                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                    throw err
+                })
             })
 
             gaugeSessionsHandled.set(this.sessions.size)
             gaugeBytesBuffered.set(sessionManangerBufferSizes)
-        }, 10000)
+        }, flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', 'blob_ingester_consumer Stopping session recordings consumer')
+        status.info('🔁', 'blob_ingester_consumer - stopping')
 
         if (this.flushInterval) {
             clearInterval(this.flushInterval)
         }
 
         if (this.producer && this.producer.isConnected()) {
-            status.info(
-                '🔁',
-                'blob_ingester_consumer disconnecting kafka producer in session recordings batchConsumer stop'
-            )
+            status.info('🔁', 'blob_ingester_consumer disconnecting kafka producer in batchConsumer stop')
             await disconnectProducer(this.producer)
         }
         await this.batchConsumer?.stop()
 
         // This is inefficient but currently necessary due to new instances restarting from the committed offset point
+        await this.destroySessions([...this.sessions.entries()])
+
+        this.sessions = new Map()
+    }
+
+    async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
         const destroyPromises: Promise<void>[] = []
-        this.sessions.forEach((sessionManager) => {
+
+        sessionsToDestroy.forEach(([key, sessionManager]) => {
+            this.sessions.delete(key)
             destroyPromises.push(sessionManager.destroy())
         })
 
         await Promise.allSettled(destroyPromises)
-
-        this.sessions = new Map()
     }
 }

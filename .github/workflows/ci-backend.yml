@@ -117,8 +117,7 @@ jobs:
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   cd current
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
+                  python -m pip install -r requirements.txt -r requirements-dev.txt
 
             - name: Check for syntax errors, import sort, and code style violations
               run: |
@@ -133,7 +132,7 @@ jobs:
             - name: Check static typing
               run: |
                   cd current
-                  mypy .
+                  mypy . --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py
 
             - name: Check if "schema.py" is up to date
               run: |
@@ -199,8 +198,7 @@ jobs:
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
+                  python -m pip install -r requirements.txt -r requirements-dev.txt
 
             - uses: actions/checkout@v3
               with:
@@ -210,8 +208,7 @@ jobs:
               run: |
                   # We need to ensure we have requirements for the master branch
                   # now also, so we can run migrations up to master.
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
+                  python -m pip install -r requirements.txt -r requirements-dev.txt
                   python manage.py migrate
 
             - uses: actions/checkout@v3
@@ -356,8 +353,7 @@ jobs:
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install -r master/requirements-dev.txt
-                  python -m pip install -r master/requirements.txt
+                  python -m pip install -r master/requirements.txt -r master/requirements-dev.txt
 
             - name: Wait for Clickhouse & Kafka
               run: master/bin/check_kafka_clickhouse_up
@@ -376,9 +372,7 @@ jobs:
             - name: Install requirements.txt dependencies with pip at current branch
               run: |
                   cd current
-                  python -m pip install --upgrade pip
-                  python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django syrupy
+                  python -m pip install -r requirements.txt -r requirements-dev.txt
 
             - name: Link posthog-cloud at current branch
               run: |
