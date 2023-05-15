@@ -686,7 +686,7 @@ def filter_element(
             raise exceptions.ValidationError(
                 'Filtering by element selector only supports operators "equals" and "doesn\'t equal" currently.'
             )
-        selectors = value if isinstance(value, list) else [value]
+        selectors = cast(List[str | int], value) if isinstance(value, list) else [value]
         for idx, query in enumerate(selectors):
             if not query:  # Skip empty selectors
                 continue
@@ -702,7 +702,7 @@ def filter_element(
             raise exceptions.ValidationError(
                 'Filtering by element tag only supports operators "equals" and "doesn\'t equal" currently.'
             )
-        tag_names = value if isinstance(value, list) else [value]
+        tag_names = cast(List[str | int], value) if isinstance(value, list) else [value]
         for idx, tag_name in enumerate(tag_names):
             if not tag_name:  # Skip empty tags
                 continue
