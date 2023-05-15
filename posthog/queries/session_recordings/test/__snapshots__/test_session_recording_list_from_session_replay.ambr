@@ -1,16 +1,17 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2022-12-27 12:00:00'
      AND timestamp <= '2023-01-04 12:00:00'
-     AND event IN ['custom-event']
-     AND ((event = 'custom-event'
-           AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
-                AND has(['test_action_filter-session-one'], "$session_id")
-                AND has(['test_action_filter-window-id'], "$window_id"))))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['custom-event']
+       AND ((event = 'custom-event'
+             AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
+                  AND has(['test_action_filter-session-one'], "$session_id")
+                  AND has(['test_action_filter-window-id'], "$window_id")))) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -38,16 +39,17 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.1
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2022-12-27 12:00:00'
      AND timestamp <= '2023-01-04 12:00:00'
-     AND event IN ['custom-event']
-     AND ((event = 'custom-event'
-           AND (has(['test_action_filter-session-one'], "$session_id")
-                AND has(['test_action_filter-window-id'], "$window_id"))))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['custom-event']
+       AND ((event = 'custom-event'
+             AND (has(['test_action_filter-session-one'], "$session_id")
+                  AND has(['test_action_filter-window-id'], "$window_id")))) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -75,17 +77,18 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.2
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2022-12-27 12:00:00'
      AND timestamp <= '2023-01-04 12:00:00'
-     AND event IN ['custom-event']
-     AND ((event = 'custom-event'
-           AND (has(['test_action_filter-session-one'], "$session_id")
-                AND has(['test_action_filter-window-id'], "$window_id"))))
-     AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['custom-event']
+       AND ((event = 'custom-event'
+             AND (has(['test_action_filter-session-one'], "$session_id")
+                  AND has(['test_action_filter-window-id'], "$window_id"))))
+       AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -113,7 +116,7 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_all_filters_at_once
   '
-  with distinct_ids_for_person as
+  WITH distinct_ids_for_person as
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2 as pdi
@@ -131,9 +134,10 @@
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-21 12:00:00'
      AND timestamp <= '2021-01-05 11:59:59'
-     AND event IN ['$pageview', 'custom-event']
-     AND ((event = 'custom-event'))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview', 'custom-event']
+       AND ((event = 'custom-event')) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -165,13 +169,14 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
-     AND 1 = 1
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND 1 = 1 )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -199,14 +204,15 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties.1
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
-     AND 1 = 1
-     AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND 1 = 1
+       AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -234,14 +240,15 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties.2
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
-     AND 1 = 1
-     AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND 1 = 1
+       AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -269,13 +276,14 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
-     AND 1 = 1
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND 1 = 1 )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -303,14 +311,15 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized.1
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
-     AND 1 = 1
-     AND (has(['Chrome'], "mat_$browser"))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND 1 = 1
+       AND (has(['Chrome'], "mat_$browser")) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -338,14 +347,15 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized.2
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
-     AND 1 = 1
-     AND (has(['Firefox'], "mat_$browser"))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND 1 = 1
+       AND (has(['Firefox'], "mat_$browser")) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -625,14 +635,15 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
-     AND event IN ['$pageview']
-     AND event = '$pageview'
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview']
+       AND event = '$pageview' )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -660,14 +671,15 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter.1
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
-     AND event IN ['$autocapture']
-     AND event = '$autocapture'
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$autocapture']
+       AND event = '$autocapture' )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -760,14 +772,15 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_matching_on_session_id
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
-     AND event IN ['$pageview']
-     AND event = '$pageview'
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview']
+       AND event = '$pageview' )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -795,14 +808,15 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_matching_on_session_id.1
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
-     AND event IN ['$autocapture']
-     AND event = '$autocapture'
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$autocapture']
+       AND event = '$autocapture' )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -870,15 +884,16 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
-     AND event IN ['$pageview']
-     AND event = '$pageview'
-     AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview']
+       AND event = '$pageview'
+       AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -906,15 +921,16 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties.1
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
-     AND event IN ['$pageview']
-     AND event = '$pageview'
-     AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview']
+       AND event = '$pageview'
+       AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -942,15 +958,16 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties_materialized
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
-     AND event IN ['$pageview']
-     AND event = '$pageview'
-     AND (has(['Chrome'], "mat_$browser"))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview']
+       AND event = '$pageview'
+       AND (has(['Chrome'], "mat_$browser")) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -978,15 +995,16 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties_materialized.1
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
-     AND event IN ['$pageview']
-     AND event = '$pageview'
-     AND (has(['Firefox'], "mat_$browser"))
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview']
+       AND event = '$pageview'
+       AND (has(['Firefox'], "mat_$browser")) )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -1014,14 +1032,15 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_multiple_event_filters
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
-     AND event IN ['$pageview', 'new-event']
-     AND event = 'new-event'
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview', 'new-event']
+       AND event = 'new-event' )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -1049,14 +1068,15 @@
 ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_multiple_event_filters.1
   '
-  with events_session_ids AS
+  WITH events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
-     AND event IN ['$pageview', 'new-event2']
-     AND event = 'new-event2'
-     and notEmpty(session_id))
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview', 'new-event2']
+       AND event = 'new-event2' )
   SELECT session_id,
          any(team_id),
          any(distinct_id),
