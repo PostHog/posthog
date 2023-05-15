@@ -1,5 +1,6 @@
 import zlib from 'node:zlib'
 
+import { status } from '../../../../utils/status'
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
 
 // NOTE: These functions are meant to be identical to those in posthog/session_recordings/session_recording_helpers.py
@@ -16,7 +17,13 @@ export function decompressFromString(input: string, doubleDecode = false): strin
     try {
         const uncompressed = zlib.gunzipSync(compressedData)
         // Trim is a quick way to get rid of BOMs created by python
-        return uncompressed.toString('utf16le').trim()
+        const finalUncompressed = uncompressed.toString('utf16le').trim()
+        if (doubleDecode) {
+            status.warn('🪞', 'double decoding was necessary while decompressing snapshot data', {
+                finalUncompressed,
+            })
+        }
+        return finalUncompressed
     } catch (e: any) {
         if (e.code === 'Z_DATA_ERROR' && e.errno === -3 && !doubleDecode) {
             // some received data (particularly chunks) are double encoded
