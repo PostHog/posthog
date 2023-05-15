@@ -88,6 +88,7 @@ class TrendsFormula:
                 params,
                 query_type="trends_formula",
                 filter=filter,
+                team_id=team.pk,
             )
             response = []
             for item in result:
