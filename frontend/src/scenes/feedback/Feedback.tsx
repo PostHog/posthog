@@ -1,9 +1,11 @@
-import { LemonSelect } from "@posthog/lemon-ui"
-import { Radio } from "antd"
+import { LemonButton, LemonCollapse, LemonDivider, LemonInput, LemonTextArea } from "@posthog/lemon-ui"
 import { useValues } from "kea"
 import { EditableField } from "lib/components/EditableField/EditableField"
 import { ObjectTags } from "lib/components/ObjectTags/ObjectTags"
 import { PageHeader } from "lib/components/PageHeader"
+import { IconPlus } from "lib/lemon-ui/icons"
+import { LemonMenu } from "lib/lemon-ui/LemonMenu/LemonMenu"
+import { FlagSelector } from "scenes/early-access-features/EarlyAccessFeature"
 import { SceneExport } from "scenes/sceneTypes"
 import { tagsModel } from "~/models/tagsModel"
 
@@ -104,17 +106,100 @@ export function FeedbackForm(): JSX.Element {
                         )}
                     </>
                 }
-
+                buttons={
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            data-attr="cancel-feedback"
+                            type="secondary"
+                            onClick={() => {
+                                // if (isEditingFlag) {
+                                //     editFeatureFlag(false)
+                                //     loadFeatureFlag()
+                                // } else {
+                                //     router.actions.push(urls.featureFlags())
+                                // }
+                            }}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            data-attr="save-feedback"
+                            htmlType="submit"
+                            loading={feedbackLoading}
+                        >
+                            Save
+                        </LemonButton>
+                    </div>
+                }
             />
-                <span>Select a feedback type</span>
-                <div>
-                    <Radio>
-                        <h4>Feature survey</h4>
-                        <div>Connect a feature to a survey and evaluate its qualitative success.</div>
-                    </Radio>
+            <div className="flex flex-row h-full">
+                <div className="flex-col">
+                <div className="my-4">
+                        <h3>Display conditions</h3>
+                        <div>
+                            <h4>Link to feature (optional)</h4>
+                        <div className="text-muted">Connect to a feature flag to track qualitative feature success.</div>
+                            <div className="mb-2">
+                                    <FlagSelector value={'5'} onChange={() => {}} />
+                                </div>
+                            
+                            <div className="text-muted">Choose where your feedback prompt will show either on a url or based on a CSS selector.</div>
+                            <span>Url</span>
+                            <LemonInput />
+
+                            <span>Selector</span>
+                            <LemonInput />
+                        </div>
+                    </div>
+                    <div>
+                        <LemonDivider className="my-2" />
+                        <h3>Questions</h3>
+                        <LemonCollapse className="w-180 border rounded p-2"
+                            panels={[
+                                {
+                                    content:
+                                        <>
+                                            <div className="mb-2">
+                                                <span>Title</span>
+                                                <LemonInput />
+                                            </div>
+                                            <div className="mb-2">
+                                                <span>Description (optional)</span>
+                                                <LemonTextArea />
+                                            </div>
+                                        </>,
+                                    header: 'New feedback question',
+                                    key: '1',
+                                }
+                            ]}
+                        />
+
+                        <LemonMenu
+                            sameWidth
+                            placement="bottom"
+                            items={[{ label: 'Open text' }, { label: 'Emoji rating' }, { label: 'NPS' }]}
+                        >
+                            <LemonButton type="primary" className="my-3" icon={<IconPlus />}>
+                                New question
+                            </LemonButton>
+
+                        </LemonMenu>
+                    </div>
+
                 </div>
-                
+                <div className="ml-4 pl-2 w-full flex justify-center flex-col" style={{ borderLeft: '2px solid' }}>
+                    <div className="text-center">Preview</div>
+                    <div className="border rounded p-4 mt-6">
+                        <h2>Do you have any feedback for this feature?</h2>
+                        <span>optional description text</span>
+                        <LemonTextArea className="mt-2" />
+                        <LemonButton className="mt-4" type="primary">Finish</LemonButton>
+                    </div>
+                </div>
             </div>
+
+        </div>
     )
 }
 
