@@ -1,6 +1,6 @@
 import './Popover.scss'
 import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef } from 'react'
-import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import clsx from 'clsx'
 import {
     offset,
@@ -174,6 +174,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
 
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
+        if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
+            return
+        }
         onClickInside?.(e)
         // If we are not the top level popover, set a flag so that other popovers know that.
         if (popoverLevel > 0 && !closeParentPopoverOnClickInside) {

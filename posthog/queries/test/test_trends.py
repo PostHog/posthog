@@ -2615,34 +2615,35 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_filter_events_by_precalculated_cohort(self):
-        _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
-        _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+        with freeze_time("2020-01-02"):
+            _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+            _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
 
-        _create_event(event="event_name", team=self.team, distinct_id="person_1", properties={"$browser": "Safari"})
-        _create_event(event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Chrome"})
-        _create_event(event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Safari"})
+            _create_event(event="event_name", team=self.team, distinct_id="person_1", properties={"$browser": "Safari"})
+            _create_event(event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Chrome"})
+            _create_event(event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Safari"})
 
-        cohort = _create_cohort(
-            team=self.team,
-            name="cohort1",
-            groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
-        )
-        cohort.calculate_people_ch(pending_version=0)
-
-        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            response = Trends().run(
-                Filter(
-                    data={
-                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-                        "events": [{"id": "event_name"}],
-                    },
-                    team=self.team,
-                ),
-                self.team,
+            cohort = _create_cohort(
+                team=self.team,
+                name="cohort1",
+                groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
             )
+            cohort.calculate_people_ch(pending_version=0)
 
-        self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[0]["data"][-1], 2)
+            with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+                response = Trends().run(
+                    Filter(
+                        data={
+                            "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                            "events": [{"id": "event_name"}],
+                        },
+                        team=self.team,
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["count"], 2)
+            self.assertEqual(response[0]["data"][-1], 2)
 
     def test_response_empty_if_no_events(self):
         self._create_events()

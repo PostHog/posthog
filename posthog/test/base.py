@@ -17,6 +17,7 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
+from posthog import rate_limit
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
@@ -199,6 +200,9 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
 
         # Clear the cached "is_cloud" setting so that it's recalculated for each test
         TEST_clear_cloud_cache()
+        # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
@@ -347,6 +351,13 @@ class QueryMatchingTest:
         query = re.sub(
             rf"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
+            query,
+        )
+
+        # Replace person id (when querying session recording replay events)
+        query = re.sub(
+            "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
+            r"and person_id = '00000000-0000-0000-0000-000000000000'",
             query,
         )
 
@@ -588,10 +599,10 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH"))
+        return self.capture_queries(("SELECT", "WITH", "select", "with"))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
+    def capture_queries(self, query_prefixes: Union[str, Tuple[str, ...]]):
         queries = []
         original_get_client = ch_pool.get_client
 

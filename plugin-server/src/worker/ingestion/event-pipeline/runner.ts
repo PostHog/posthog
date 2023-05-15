@@ -92,6 +92,9 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', event.team_id, [event])
         }
         const [normalizedEvent, newPersonContainer] = await this.runStep(processPersonsStep, [this, processedEvent])
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.person_loaded_after_person_step', {
+            loaded: String(newPersonContainer.loaded),
+        })
 
         const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent])
 

@@ -278,7 +278,7 @@ export class DB {
     public redisGet<T = unknown>(key: string, defaultValue: T, options: CacheOptions = {}): Promise<T | null> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery(this.statsd, 'query.regisGet', undefined, async () => {
+        return instrumentQuery(this.statsd, 'query.redisGet', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
             try {

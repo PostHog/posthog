@@ -485,7 +485,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     <span>
                                                         <AddToNotebook
                                                             node={NotebookNodeType.FeatureFlag}
-                                                            properties={{ flag: id }}
+                                                            properties={{ id }}
                                                             type="secondary"
                                                         />
                                                     </span>

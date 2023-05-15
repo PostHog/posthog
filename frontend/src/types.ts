@@ -646,6 +646,7 @@ export enum SessionRecordingPlayerTab {
 }
 
 export enum SessionPlayerState {
+    READY = 'ready',
     BUFFER = 'buffer',
     PLAY = 'play',
     PAUSE = 'pause',
@@ -1444,8 +1445,8 @@ export enum AnnotationScope {
 export interface RawAnnotationType {
     id: number
     scope: AnnotationScope
-    content: string
-    date_marker: string
+    content: string | null
+    date_marker: string | null
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
@@ -1457,6 +1458,10 @@ export interface RawAnnotationType {
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+    date_marker: dayjs.Dayjs | null
+}
+
+export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
     date_marker: dayjs.Dayjs
 }
 
@@ -1968,6 +1973,8 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    /** If showing a shared insight/dashboard, we need the access token for refreshing. */
+    sharingAccessToken?: string
 }
 
 export interface SetInsightOptions {
