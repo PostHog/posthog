@@ -36,7 +36,7 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import INSTANCE_TAG
+from posthog.settings import INSTANCE_TAG, CLICKHOUSE_CLUSTER
 from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day
 from posthog.version import VERSION
 
@@ -406,8 +406,9 @@ def get_teams_with_hogql_metric(
              JSONExtractString(log_comment, 'query_type') as query_type,
              JSONExtractString(log_comment, 'access_method') as access_method
         SELECT team_id, sum({metric}) as count
-        FROM system.query_log
+        FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
         WHERE (type = 'QueryFinish' OR type = 'ExceptionWhileProcessing')
+          AND is_initial_query = 1
           AND query_type IN (%(query_types)s)
           AND query_start_time between %(begin)s AND %(end)s
           AND access_method = %(access_method)s
