@@ -134,6 +134,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                           (annotation) =>
                               (annotation.scope !== AnnotationScope.Insight ||
                                   annotation.dashboard_item === insightNumericId) &&
+                              annotation.date_marker &&
                               annotation.date_marker >= dateRange[0] &&
                               annotation.date_marker < dateRange[1]
                       )
@@ -144,7 +145,13 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             (s) => [s.relevantAnnotations, s.intervalUnit, s.dateRange, s.pointsPerTick],
             (relevantAnnotations, intervalUnit, dateRange, pointsPerTick) => {
                 return groupBy(relevantAnnotations, (annotation) => {
-                    return determineAnnotationsDateGroup(annotation.date_marker, intervalUnit, dateRange, pointsPerTick)
+                    return determineAnnotationsDateGroup(
+                        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+                        annotation.date_marker!,
+                        intervalUnit,
+                        dateRange,
+                        pointsPerTick
+                    )
                 })
             },
         ],
