@@ -77,9 +77,6 @@
     .LemonSwitch--checked & {
         background-color: var(--primary-highlight);
     }
-    .LemonSwitch--alt.LemonSwitch--checked & {
-        background-color: var(--primary-alt-highlight);
-    }
 }
 
 .LemonSwitch__handle {

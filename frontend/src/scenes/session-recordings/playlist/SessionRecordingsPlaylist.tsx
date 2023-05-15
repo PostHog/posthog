@@ -174,7 +174,7 @@ export function RecordingsLists({
                                             <span
                                                 className={clsx(
                                                     'transition-all text-sm',
-                                                    !!autoplayDirection && 'text-white pl-px',
+                                                    !!autoplayDirection && 'text-primary-highlight pl-px',
                                                     !autoplayDirection && 'text-border',
                                                     autoplayDirection === 'newer' && 'rotate-180'
                                                 )}
