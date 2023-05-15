@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
 
 import structlog
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
@@ -153,8 +153,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
-            elif key == "search":
-                queryset = queryset.filter(Q(title__icontains=request.GET["search"]))
+
         return queryset
 
     @action(methods=["GET"], url_path="activity", detail=False)
