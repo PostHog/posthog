@@ -44,6 +44,7 @@ from posthog.models.property import (
     PropertyIdentifier,
     PropertyName,
 )
+from posthog.models.property.property import ValueT
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.session_query import SessionQuery
@@ -262,7 +263,7 @@ def parse_prop_clauses(
             params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
-                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(prepend)
+                prop.key, prop.value, operator=prop.operator, prepend="{}_".format(prepend)
             )
             if query:
                 final.append(f"{property_operator} {query}")
@@ -665,72 +666,57 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
     return [str(value).replace(" ", "") if remove_spaces else str(value) for value in value]
 
 
-def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:
-    if not operator:
-        operator = "exact"
-
+def filter_element(
+    key: Literal["selector", "tag_name", "href", "text"],
+    value: ValueT,
+    *,
+    operator: OperatorType = "exact",
+    prepend: str = "",
+) -> Tuple[str, Dict]:
     params = {}
-    final_conditions = []
+    combination_conditions: List[str] = []
 
-    if filters.get("selector") is not None:
+    if key == "selector":
         if operator not in ("exact", "is_not"):
             raise exceptions.ValidationError(
                 'Filtering by element selector only supports operators "equals" and "doesn\'t equal" currently.'
             )
-        selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
-        if selectors:
-            combination_conditions = []
-            for idx, query in enumerate(selectors):
-                if not query:  # Skip empty selectors
-                    continue
-                selector = Selector(query, escape_slashes=False)
-                key = f"{prepend}_{idx}_selector_regex"
-                params[key] = build_selector_regex(selector)
-                combination_conditions.append(f"match(elements_chain, %({key})s)")
-            if combination_conditions:
-                final_conditions.append(f"({' OR '.join(combination_conditions)})")
-        elif operator not in NEGATED_OPERATORS:
-            # If a non-negated filter has an empty selector list provided, it can't match anything
-            return "0 = 191", {}
+        selectors = cast(List[str], value if isinstance(value, list) else [value])
+        for idx, query in enumerate(selectors):
+            if not query:  # Skip empty selectors
+                continue
+            selector = Selector(query, escape_slashes=False)
+            key = f"{prepend}_{idx}_selector_regex"
+            params[key] = build_selector_regex(selector)
+            combination_conditions.append(f"match(elements_chain, %({key})s)")
 
-    if filters.get("tag_name") is not None:
+    elif key == "tag_name":
         if operator not in ("exact", "is_not"):
             raise exceptions.ValidationError(
                 'Filtering by element tag only supports operators "equals" and "doesn\'t equal" currently.'
             )
-        tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
-        if tag_names:
-            combination_conditions = []
-            for idx, tag_name in enumerate(tag_names):
-                key = f"{prepend}_{idx}_tag_name_regex"
-                params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
-                combination_conditions.append(f"match(elements_chain, %({key})s)")
-            final_conditions.append(f"({' OR '.join(combination_conditions)})")
-        elif operator not in NEGATED_OPERATORS:
-            # If a non-negated filter has an empty tag_name list provided, it can't match anything
-            return "0 = 192", {}
+        tag_names = cast(List[str], value if isinstance(value, list) else [value])
+        for idx, tag_name in enumerate(tag_names):
+            key = f"{prepend}_{idx}_tag_name_regex"
+            params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
+            combination_conditions.append(f"match(elements_chain, %({key})s)")
 
-    attributes: Dict[str, List] = {}
-    for key in ["href", "text"]:
-        if filters.get(key) is not None:
-            attributes[key] = process_ok_values(filters[key], operator)
-    if attributes:
-        for key, ok_values in attributes.items():
-            if ok_values:
-                combination_conditions = []
-                for idx, value in enumerate(ok_values):
-                    optional_flag = "(?i)" if operator.endswith("icontains") else ""
-                    params[f"{prepend}_{key}_{idx}_attributes_regex"] = f'{optional_flag}({key}="{value}")'
-                    combination_conditions.append(f"match(elements_chain, %({prepend}_{key}_{idx}_attributes_regex)s)")
-                final_conditions.append(f"({' OR '.join(combination_conditions)})")
-            elif operator not in NEGATED_OPERATORS:
-                # If a non-negated filter has an empty href or text list provided, it can't match anything
-                return "0 = 193", {}
+    elif key in ["href", "text"]:
+        ok_values = process_ok_values(value, operator)
+        for idx, value in enumerate(ok_values):
+            optional_flag = "(?i)" if operator.endswith("icontains") else ""
+            params[f"{prepend}_{key}_{idx}_attributes_regex"] = f'{optional_flag}({key}="{value}")'
+            combination_conditions.append(f"match(elements_chain, %({prepend}_{key}_{idx}_attributes_regex)s)")
 
-    if final_conditions:
-        return f"{'NOT ' if operator in NEGATED_OPERATORS else ''}({' AND '.join(final_conditions)})", params
     else:
-        return "", {}
+        raise ValueError(f'Invalid element filtering key "{key}"')
+
+    if combination_conditions:
+        return f"{'NOT ' if operator in NEGATED_OPERATORS else ''}({' OR '.join(combination_conditions)})", params
+    else:
+        # If there are no values to filter by, this either matches nothing (for non-negated operators like "equals"),
+        # or everything (for negated operators like "doesn't equal")
+        return "0 = 191" if operator not in NEGATED_OPERATORS else "", {}
 
 
 def process_ok_values(ok_values: Any, operator: OperatorType) -> List[str]:
