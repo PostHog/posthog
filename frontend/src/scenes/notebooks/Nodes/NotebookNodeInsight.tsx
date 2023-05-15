@@ -66,7 +66,6 @@ export const NotebookNodeInsight = Node.create({
                 find: createUrlRegex(urls.insightView('(.+)' as InsightShortId)),
                 type: this.type,
                 getAttributes: (match) => {
-                    console.log({ match })
                     return { id: match[1] }
                 },
             }),
