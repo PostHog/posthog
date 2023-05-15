@@ -759,6 +759,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
         from django.conf import settings
 
         workflow.logger.info("Starting squash workflow")
+        workflow.logger.info(settings.DATABASES)
         workflow.logger.debug("%s", json.dumps(asdict(inputs)))
 
         retry_policy = RetryPolicy(maximum_attempts=3)
