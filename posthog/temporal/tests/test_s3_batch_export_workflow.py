@@ -10,6 +10,7 @@ from asgiref.sync import sync_to_async
 from boto3 import resource
 from botocore.client import Config
 from django.conf import settings
+from django.test import override_settings
 from temporalio.client import Client
 from temporalio.common import RetryPolicy
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -20,12 +21,6 @@ from posthog.models import (
     BatchExportDestination,
     BatchExportRun,
     BatchExportSchedule,
-)
-from posthog.settings import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.s3_batch_export import (
@@ -75,13 +70,11 @@ def test_build_s3_url(inputs, expected):
     We mock the TEST and DEBUG variables as we have some test logic that we are not interested in
     for this test, as we are interested in asserting production behavior!
     """
-    with mock.patch("posthog.temporal.workflows.s3_batch_export.TEST", False), mock.patch(
-        "posthog.temporal.workflows.s3_batch_export.DEBUG", False
-    ):
-        result = build_s3_url(**inputs)
+    result = build_s3_url(is_debug_or_test=False, **inputs)
     assert result == expected
 
 
+@override_settings(TEST=False, DEBUG=False)
 @pytest.mark.asyncio
 async def test_insert_into_s3_activity(activity_environment):
     """Test the insert_into_s3_activity part of the S3BatchExport workflow.
@@ -124,8 +117,6 @@ async def test_insert_into_s3_activity(activity_environment):
         AND team_id = {team_id}
     """
     with (
-        mock.patch("posthog.temporal.workflows.s3_batch_export.TEST", False),
-        mock.patch("posthog.temporal.workflows.s3_batch_export.DEBUG", False),
         mock.patch("aiochclient.ChClient.fetchrow") as fetch_row,
         mock.patch("aiochclient.ChClient.execute") as execute,
     ):
@@ -163,13 +154,13 @@ def s3_bucket():
     """A testing S3 bucket resource."""
     s3 = resource(
         "s3",
-        endpoint_url=OBJECT_STORAGE_ENDPOINT,
-        aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         config=Config(signature_version="s3v4"),
         region_name="us-east-1",
     )
-    bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+    bucket = s3.Bucket(settings.OBJECT_STORAGE_BUCKET)
 
     yield bucket
 
@@ -191,8 +182,8 @@ def destination(team, s3_bucket):
             "region": "us-east-1",
             "key_template": f"{TEST_ROOT_BUCKET}/posthog-{{table_name}}/events.csv",
             "batch_window_size": 3600,
-            "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         },
     )
     dest.save()
