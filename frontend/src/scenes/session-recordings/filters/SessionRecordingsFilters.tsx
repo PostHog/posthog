@@ -26,10 +26,10 @@ const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters
         actions: [],
         events: [
             {
-                id: '',
+                id: null,
                 type: EntityTypes.EVENTS,
                 order: 0,
-                name: '',
+                name: 'All events',
             },
         ],
     }

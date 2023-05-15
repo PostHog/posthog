@@ -29,6 +29,20 @@ describe('ingester', () => {
         expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
     })
 
+    it('removes sessions on destroy', async () => {
+        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_1' }))
+        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_2' }))
+
+        expect(ingester.sessions.size).toBe(2)
+        expect(ingester.sessions.has('2-session_id_1')).toEqual(true)
+        expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
+
+        await ingester.destroySessions([['2-session_id_1', ingester.sessions.get('2-session_id_1')!]])
+
+        expect(ingester.sessions.size).toBe(1)
+        expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
+    })
+
     it('handles multiple incoming sessions', async () => {
         const event = createIncomingRecordingMessage()
         const event2 = createIncomingRecordingMessage({

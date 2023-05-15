@@ -152,6 +152,7 @@ export async function startPluginsServer(
 
     process.on('beforeExit', async () => {
         // This makes async exit possible with the process waiting until jobs are closed
+        status.info('👋', 'process handling beforeExit event. Closing jobs...')
         await closeJobs()
         process.exit(0)
     })
@@ -335,13 +336,8 @@ export async function startPluginsServer(
             schedule.scheduleJob('*/5 * * * *', async () => {
                 await piscina?.broadcastTask({ task: 'reloadAllActions' })
             })
-            // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
-            schedule.scheduleJob('*/5 * * * * *', async () => {
-                await hub!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
-                    jsonSerialize: false,
-                })
-                await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
-            })
+
+            startPreflightSchedules(hub)
 
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
@@ -429,9 +425,21 @@ export async function startPluginsServer(
         Sentry.captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
+        status.error('💥', 'Exception while starting server, shutting down!', { error })
         await closeJobs()
         process.exit(1)
     }
+}
+
+const startPreflightSchedules = (hub: Hub) => {
+    // These are used by the preflight checks in the Django app to determine if
+    // the plugin-server is running.
+    schedule.scheduleJob('*/5 * * * * *', async () => {
+        await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
+            jsonSerialize: false,
+        })
+        await hub.db.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
+    })
 }
 
 export async function stopPiscina(piscina: Piscina): Promise<void> {

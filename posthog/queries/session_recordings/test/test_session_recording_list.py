@@ -209,6 +209,90 @@ def session_recording_list_test_factory(session_recording_list):
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
+        @also_test_with_materialized_columns(["$current_url", "$browser"])
+        @snapshot_clickhouse_queries
+        @freeze_time("2021-01-21T20:00:00.000Z")
+        def test_any_event_filter_with_properties(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+
+            pageview_uuid = self.create_event(
+                "user",
+                self.base_time,
+                properties={"$browser": "Chrome", "$session_id": "1", "$window_id": "1"},
+                event_name="$pageview",
+            )
+
+            my_custom_event_uuid = self.create_event(
+                "user",
+                self.base_time,
+                properties={"$browser": "Chrome", "$session_id": "1", "$window_id": "1"},
+                event_name="my-custom-event",
+            )
+
+            self.create_event(
+                "user",
+                self.base_time,
+                properties={"$browser": "Safari", "$session_id": "1", "$window_id": "1"},
+                event_name="my-non-matching-event",
+            )
+
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time + relativedelta(seconds=30),
+                team_id=self.team.id,
+            )
+            filter = SessionRecordingsFilter(
+                team=self.team,
+                data={
+                    "events": [
+                        {
+                            # an id of null means "match any event"
+                            "id": None,
+                            "type": "events",
+                            "order": 0,
+                            "name": "",
+                            "properties": [
+                                {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event"}
+                            ],
+                        }
+                    ]
+                },
+            )
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["session_id"], "1")
+
+            assert sorted([str(e["uuid"]) for e in session_recordings[0]["matching_events"][0]["events"]]) == sorted(
+                [
+                    str(pageview_uuid),
+                    str(my_custom_event_uuid),
+                ]
+            )
+
+            filter = SessionRecordingsFilter(
+                team=self.team,
+                data={
+                    "events": [
+                        {
+                            "id": None,
+                            "type": "events",
+                            "order": 0,
+                            "name": "",
+                            "properties": [
+                                {"key": "$browser", "value": ["Firefox"], "operator": "exact", "type": "event"}
+                            ],
+                        }
+                    ]
+                },
+            )
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 0)
+
         @freeze_time("2021-01-21T20:00:00.000Z")
         @snapshot_clickhouse_queries
         def test_multiple_event_filters(self):

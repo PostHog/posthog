@@ -10,7 +10,9 @@ export function createGeoIp(server: Hub): GeoIPExtension {
                 try {
                     return Promise.resolve(server.mmdb.city(ipAddress))
                 } catch (e) {
-                    status.warn('⚠️', 'geoip lookup failed', { ip: ipAddress, error: e })
+                    if (e.name != 'AddressNotFoundError') {
+                        status.warn('⚠️', 'geoip lookup failed', { ip: ipAddress, error: e })
+                    }
                     return Promise.resolve(null)
                 }
             } else {
