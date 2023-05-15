@@ -29,10 +29,6 @@
         border: 1px solid var(--primary);
     }
 
-    &:placeholder-shown {
-        font-style: italic;
-    }
-
     .Field--error & {
         border: 1px solid var(--danger);
     }
