@@ -148,7 +148,9 @@ export function RecordingsLists({
                                             </>
                                         }
                                     >
-                                        <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                        <span>
+                                            <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                        </span>
                                     </Tooltip>
                                 ) : null
                             ) : (
@@ -164,22 +166,24 @@ export function RecordingsLists({
                                 }
                                 placement="bottom"
                             >
-                                <LemonSwitch
-                                    checked={!!autoplayDirection}
-                                    onChange={toggleAutoplayDirection}
-                                    handleContent={
-                                        <span
-                                            className={clsx(
-                                                'transition-all text-sm',
-                                                !!autoplayDirection && 'text-white pl-px',
-                                                !autoplayDirection && 'text-border',
-                                                autoplayDirection === 'newer' && 'rotate-180'
-                                            )}
-                                        >
-                                            {autoplayDirection ? <IconPlay /> : <IconPause />}
-                                        </span>
-                                    }
-                                />
+                                <span>
+                                    <LemonSwitch
+                                        checked={!!autoplayDirection}
+                                        onChange={toggleAutoplayDirection}
+                                        handleContent={
+                                            <span
+                                                className={clsx(
+                                                    'transition-all text-sm',
+                                                    !!autoplayDirection && 'text-white pl-px',
+                                                    !autoplayDirection && 'text-border',
+                                                    autoplayDirection === 'newer' && 'rotate-180'
+                                                )}
+                                            >
+                                                {autoplayDirection ? <IconPlay /> : <IconPause />}
+                                            </span>
+                                        }
+                                    />
+                                </span>
                             </Tooltip>
                         </>
                     }
