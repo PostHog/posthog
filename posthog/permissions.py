@@ -231,3 +231,29 @@ class PremiumFeaturePermission(BasePermission):
             raise EnterpriseFeatureException()
 
         return True
+
+
+class SharingTokenPermission(BasePermission):
+    """
+    Requires the user to have proper permission for the feature.
+    `premium_feature` must be defined as a view attribute.
+    Permission class requires a user in context, should generally be used in conjunction with IsAuthenticated.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+
+        raise Exception("OSOSO")
+        print(request)
+        return False
+
+        # assert hasattr(
+        #     view, "premium_feature"
+        # ), "this permission class requires the `premium_feature` attribute to be set in the view."
+
+        # if not request.user or not request.user.organization:  # type: ignore
+        #     return True
+
+        # if view.premium_feature not in request.user.organization.available_features:  # type: ignore
+        #     raise EnterpriseFeatureException()
+
+        # return True
