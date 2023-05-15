@@ -153,7 +153,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
-        reportViewed: (loadedFromBlobStorage: boolean) => ({ loadedFromBlobStorage }),
+        reportViewed: true,
         reportUsageIfFullyLoaded: true,
     }),
     reducers(() => ({
@@ -217,14 +217,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             } else {
                 actions.reportUsageIfFullyLoaded()
             }
-            // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
-            if (values.chunkPaginationIndex === 1) {
+            if (values.chunkPaginationIndex === 1 || values.loadedFromBlobStorage) {
+                // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
+                // when loading from blob storage by the time this is hit the chunkPaginationIndex is already > 1
+                // when loading from the API the chunkPaginationIndex is 1 for the first success that reaches this point
                 cache.firstPaintDurationRow = {
                     size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
 
-                actions.reportViewed(values.loadedFromBlobStorage)
+                actions.reportViewed()
             }
 
             if (!values.sessionPlayerSnapshotData?.next) {
@@ -339,7 +341,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 cache.firstPaintDurationRow = null
             }
         },
-        reportViewed: async ({ loadedFromBlobStorage }, breakpoint) => {
+        reportViewed: async (_, breakpoint) => {
             const durations = generateRecordingReportDurations(cache, values)
 
             await breakpoint()
@@ -349,7 +351,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 durations,
                 SessionRecordingUsageType.VIEWED,
                 0,
-                loadedFromBlobStorage
+                values.loadedFromBlobStorage
             )
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportRecording(
@@ -357,7 +359,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 durations,
                 SessionRecordingUsageType.ANALYZED,
                 10,
-                loadedFromBlobStorage
+                values.loadedFromBlobStorage
             )
         },
     })),

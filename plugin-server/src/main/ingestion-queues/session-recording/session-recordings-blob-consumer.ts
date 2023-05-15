@@ -112,12 +112,12 @@ export class SessionRecordingBlobIngester {
     }
 
     public async handleKafkaMessage(message: Message): Promise<void> {
-        const statusWarn = (reason: string, error?: Error) => {
+        const statusWarn = (reason: string, extra?: Record<string, any>) => {
             status.warn('⚠️', 'invalid_message', {
                 reason,
-                error,
                 partition: message.partition,
                 offset: message.offset,
+                ...(extra || {}),
             })
         }
 
@@ -133,7 +133,7 @@ export class SessionRecordingBlobIngester {
             messagePayload = JSON.parse(message.value.toString())
             event = JSON.parse(messagePayload.data)
         } catch (error) {
-            return statusWarn('invalid_json', error)
+            return statusWarn('invalid_json', { error })
         }
 
         if (event.event !== '$snapshot') {
@@ -154,7 +154,10 @@ export class SessionRecordingBlobIngester {
         }
 
         if (team == null) {
-            return statusWarn('team_not_found')
+            return statusWarn('team_not_found', {
+                teamId: messagePayload.team_id,
+                payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
+            })
         }
 
         if (this.enabledTeams && !this.enabledTeams.includes(team.id)) {
@@ -271,8 +274,8 @@ export class SessionRecordingBlobIngester {
 
                 const currentPartitions = [...this.sessions.values()].map((session) => session.partition).sort()
 
-                const sessionsToDrop = [...this.sessions.values()].filter((session) =>
-                    revokedPartitions.includes(session.partition)
+                const sessionsToDrop = [...this.sessions.entries()].filter(([_, sessionManager]) =>
+                    revokedPartitions.includes(sessionManager.partition)
                 )
 
                 this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
@@ -282,7 +285,7 @@ export class SessionRecordingBlobIngester {
                 status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
                     currentPartitions: currentPartitions,
                     revokedPartitions: revokedPartitions,
-                    droppedSessions: sessionsToDrop.map((s) => s.sessionId),
+                    droppedSessions: sessionsToDrop.map(([_, sessionManager]) => sessionManager.sessionId),
                 })
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
                 gaugePartitionsRevoked.set(revokedPartitions.length)
@@ -308,7 +311,7 @@ export class SessionRecordingBlobIngester {
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', 'blob_ingester_consumer Blob ingestion consumer disconnected, cleaning up', { err })
+            status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
             await this.stop()
         })
 
@@ -347,23 +350,20 @@ export class SessionRecordingBlobIngester {
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', 'blob_ingester_consumer Stopping session recordings consumer')
+        status.info('🔁', 'blob_ingester_consumer - stopping')
 
         if (this.flushInterval) {
             clearInterval(this.flushInterval)
         }
 
         if (this.producer && this.producer.isConnected()) {
-            status.info(
-                '🔁',
-                'blob_ingester_consumer disconnecting kafka producer in session recordings batchConsumer stop'
-            )
+            status.info('🔁', 'blob_ingester_consumer disconnecting kafka producer in batchConsumer stop')
             await disconnectProducer(this.producer)
         }
         await this.batchConsumer?.stop()
 
         // This is inefficient but currently necessary due to new instances restarting from the committed offset point
-        await this.destroySessions([...this.sessions.values()])
+        await this.destroySessions([...this.sessions.entries()])
 
         this.sessions = new Map()
     }
@@ -372,11 +372,11 @@ export class SessionRecordingBlobIngester {
         await this.batchConsumer?.join()
     }
 
-    private async destroySessions(sessionsToDestroy: SessionManager[]): Promise<void> {
+    async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
         const destroyPromises: Promise<void>[] = []
 
-        sessionsToDestroy.forEach((sessionManager) => {
-            this.sessions.delete(sessionManager.sessionId)
+        sessionsToDestroy.forEach(([key, sessionManager]) => {
+            this.sessions.delete(key)
             destroyPromises.push(sessionManager.destroy())
         })
 

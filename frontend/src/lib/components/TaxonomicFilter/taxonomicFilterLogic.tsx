@@ -41,7 +41,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { InlineHogQLEditor } from '~/queries/QueryEditor/InlineHogQLEditor'
+import { InlineHogQLEditor } from './InlineHogQLEditor'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {

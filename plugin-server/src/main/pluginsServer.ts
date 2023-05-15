@@ -117,6 +117,7 @@ export async function startPluginsServer(
 
     process.on('beforeExit', async () => {
         // This makes async exit possible with the process waiting until jobs are closed
+        status.info('👋', 'process handling beforeExit event. Closing jobs...')
         await closeJobs()
         process.exit(0)
     })
@@ -333,6 +334,7 @@ export async function startPluginsServer(
         Sentry.captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
+        status.error('💥', 'Exception while starting server, shutting down!', { error })
         await closeJobs()
         process.exit(1)
     }
