@@ -283,7 +283,8 @@ class PersonQuery:
             distinct_id_param = f"distinct_id_{prepend}"
             distinct_id_clause = f"""
             id IN (
-                SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)}) WHERE distinct_id = %({distinct_id_param})s
+                SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)})
+                WHERE distinct_id = %({distinct_id_param})s
             )
             """
 
@@ -301,7 +302,7 @@ class PersonQuery:
                 _top_level=False,
                 hogql_context=self._filter.hogql_context,
             )
-            finalization_sql = f"AND (({finalization_conditions_sql}) OR ({distinct_id_clause}))"
+            finalization_sql = f"AND ({finalization_conditions_sql}) OR {distinct_id_clause})"
 
             prefiltering_conditions_sql, prefiltering_params = parse_prop_grouped_clauses(
                 team_id=self._team_id,
@@ -316,7 +317,7 @@ class PersonQuery:
                 hogql_context=self._filter.hogql_context,
             )
             params.update(prefiltering_params)
-            prefiltering_sql = f"""AND (({prefiltering_conditions_sql}) OR ({distinct_id_clause}))"""
+            prefiltering_sql = f"""AND ({prefiltering_conditions_sql} OR {distinct_id_clause})"""
 
             params.update({distinct_id_param: self._filter.search})
 
