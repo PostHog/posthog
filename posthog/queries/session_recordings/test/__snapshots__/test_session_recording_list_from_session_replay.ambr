@@ -1,3 +1,676 @@
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:14'
+     AND event IN ['custom-event']
+     AND ((event = 'custom-event'
+           AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
+                AND has(['test_action_filter-5601626c-f928-4b0d-a055-6d751ea37673'], "$session_id")
+                AND has(['e4fd0041-b962-433f-a12c-be0df2faacf5'], "$window_id"))))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:14'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.1
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:15'
+     AND event IN ['custom-event']
+     AND ((event = 'custom-event'
+           AND (has(['test_action_filter-5601626c-f928-4b0d-a055-6d751ea37673'], "$session_id")
+                AND has(['e4fd0041-b962-433f-a12c-be0df2faacf5'], "$window_id"))))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:15'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.2
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:15'
+     AND event IN ['custom-event']
+     AND ((event = 'custom-event'
+           AND (has(['test_action_filter-5601626c-f928-4b0d-a055-6d751ea37673'], "$session_id")
+                AND has(['e4fd0041-b962-433f-a12c-be0df2faacf5'], "$window_id"))))
+     AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:15'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_all_filters_at_once
+  '
+  with distinct_ids_for_person as
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2 as pdi
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id PREWHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0
+     and person_id = '01881f12-59e9-0000-5ca6-17030369c913') ,
+       events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-04 12:00:00'
+     AND timestamp <= '2023-05-19 11:59:59'
+     AND event IN ['$pageview', 'custom-event']
+     AND ((event = 'custom-event'))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-05 00:00:00'
+  AND max_last_timestamp <= '2023-05-18 23:59:59'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  AND distinct_id in
+    (select distinct_id
+     from distinct_ids_for_person)
+  GROUP BY session_id
+  HAVING 1=1
+  AND duration > 60
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 08:00:00'
+     AND 1 = 1
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2021-01-14 00:00:00'
+  AND max_last_timestamp <= '2021-01-21 20:00:00'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties.1
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 08:00:00'
+     AND 1 = 1
+     AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2021-01-14 00:00:00'
+  AND max_last_timestamp <= '2021-01-21 20:00:00'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties.2
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 08:00:00'
+     AND 1 = 1
+     AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2021-01-14 00:00:00'
+  AND max_last_timestamp <= '2021-01-21 20:00:00'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 08:00:00'
+     AND 1 = 1
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2021-01-14 00:00:00'
+  AND max_last_timestamp <= '2021-01-21 20:00:00'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized.1
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 08:00:00'
+     AND 1 = 1
+     AND (has(['Chrome'], "mat_$browser"))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2021-01-14 00:00:00'
+  AND max_last_timestamp <= '2021-01-21 20:00:00'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized.2
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 08:00:00'
+     AND 1 = 1
+     AND (has(['Firefox'], "mat_$browser"))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2021-01-14 00:00:00'
+  AND max_last_timestamp <= '2021-01-21 20:00:00'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:18'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_paging
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:18'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 2
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_paging.1
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:18'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 2
+  OFFSET 1
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_paging.2
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:18'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 2
+  OFFSET 2
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_from_filter
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-15 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:18'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_from_filter.1
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-13 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:18'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_to_filter
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-11 23:59:59'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_to_filter.1
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-12 23:59:59'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_duration_filter
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:19'
+  GROUP BY session_id
+  HAVING 1=1
+  AND duration > 60
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_duration_filter.1
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:19'
+  GROUP BY session_id
+  HAVING 1=1
+  AND duration < 60
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:19'
+     AND event IN ['$pageview']
+     AND event = '$pageview'
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:19'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter.1
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:19'
+     AND event IN ['$autocapture']
+     AND event = '$autocapture'
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:19'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_cohort_properties
   '
   
@@ -16,5 +689,403 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_cohort_properties.2
+  '
+  with distinct_ids_for_person as
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2 as pdi
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id PREWHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0
+     AND (pdi.person_id IN
+            (SELECT DISTINCT person_id
+             FROM cohortpeople
+             WHERE team_id = 2
+               AND cohort_id = 2
+               AND version = 0 )))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2021-08-14 00:00:00'
+  AND max_last_timestamp <= '2021-08-21 20:00:00'
+  AND distinct_id in
+    (select distinct_id
+     from distinct_ids_for_person)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_matching_on_session_id
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:20'
+     AND event IN ['$pageview']
+     AND event = '$pageview'
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:20'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_matching_on_session_id.1
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:20'
+     AND event IN ['$autocapture']
+     AND event = '$autocapture'
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:20'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties
+  '
+  with distinct_ids_for_person as
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2 as pdi
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id PREWHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0)
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:21'
+  AND distinct_id in
+    (select distinct_id
+     from distinct_ids_for_person)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:22'
+     AND event IN ['$pageview']
+     AND event = '$pageview'
+     AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:22'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties.1
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:22'
+     AND event IN ['$pageview']
+     AND event = '$pageview'
+     AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:22'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties_materialized
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:23'
+     AND event IN ['$pageview']
+     AND event = '$pageview'
+     AND (has(['Chrome'], "mat_$browser"))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:23'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties_materialized.1
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:23'
+     AND event IN ['$pageview']
+     AND event = '$pageview'
+     AND (has(['Firefox'], "mat_$browser"))
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:23'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_multiple_event_filters
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:24'
+     AND event IN ['$pageview', 'new-event']
+     AND event = 'new-event'
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:24'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_multiple_event_filters.1
+  '
+  with events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2023-05-07 12:00:00'
+     AND timestamp <= '2023-05-15 23:01:24'
+     AND event IN ['$pageview', 'new-event2']
+     AND event = 'new-event2'
+     and notEmpty(session_id))
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:24'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter
+  '
+  with distinct_ids_for_person as
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2 as pdi
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id PREWHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0
+     and person_id = '01881f12-79b8-0000-5516-bc418fe0f321')
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2023-05-08 00:00:00'
+  AND max_last_timestamp <= '2023-05-15 11:01:24'
+  AND distinct_id in
+    (select distinct_id
+     from distinct_ids_for_person)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
   '
 ---

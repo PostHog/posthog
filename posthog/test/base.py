@@ -592,10 +592,10 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH"))
+        return self.capture_queries(("SELECT", "WITH", "select", "with"))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
+    def capture_queries(self, query_prefixes: Union[str, Tuple[str, ...]]):
         queries = []
         original_get_client = ch_pool.get_client
 
