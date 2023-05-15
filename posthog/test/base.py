@@ -354,6 +354,13 @@ class QueryMatchingTest:
             query,
         )
 
+        # Replace person id (when querying session recording replay events)
+        query = re.sub(
+            "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
+            r"and person_id = '00000000-0000-0000-0000-000000000000'",
+            query,
+        )
+
         # Replace tag id lookups for postgres
         query = re.sub(
             rf"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
@@ -592,10 +599,10 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH"))
+        return self.capture_queries(("SELECT", "WITH", "select", "with"))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
+    def capture_queries(self, query_prefixes: Union[str, Tuple[str, ...]]):
         queries = []
         original_get_client = ch_pool.get_client
 
