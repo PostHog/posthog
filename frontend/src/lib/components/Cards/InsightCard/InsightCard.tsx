@@ -10,7 +10,7 @@ import {
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
-import { SharingAccessTokenContext, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import {
@@ -520,14 +520,11 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
-    const sharingAccessToken = useContext(SharingAccessTokenContext)
-
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
         cachedInsight: insight,
         doNotLoad: true,
-        sharingAccessToken,
     }
 
     const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueries } = useValues(
