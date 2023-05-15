@@ -1,4 +1,5 @@
 import datetime
+from urllib.parse import quote
 import uuid
 from unittest.mock import ANY, Mock, patch
 
@@ -736,8 +737,39 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             locationHeader,
-            "http://127.0.0.1:8000#__posthog=%7B%22action%22%3A%20%22ph_authorize%22%2C%20%22token%22%3A%20%22token123%22%2C%20%22temporaryToken%22%3A%20%22tokenvalue%22%2C%20%22actionId%22%3A%20null%2C%20%22userIntent%22%3A%20%22add-action%22%2C%20%22toolbarVersion%22%3A%20%22toolbar%22%2C%20%22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22%2C%20%22dataAttributes%22%3A%20%5B%22data-attr%22%5D%2C%20%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22%7D",
+            "https://www.example.com#__posthog=%7B%22action%22%3A%20%22ph_authorize%22%2C%20%22token%22%3A%20%22token123%22%2C%20%22temporaryToken%22%3A%20%22tokenvalue%22%2C%20%22actionId%22%3A%20null%2C%20%22userIntent%22%3A%20%22add-action%22%2C%20%22toolbarVersion%22%3A%20%22toolbar%22%2C%20%22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22%2C%20%22dataAttributes%22%3A%20%5B%22data-attr%22%5D%2C%20%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22%7D",
         )
+
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_redirect_only_to_allowed_urls(self, patched_token):
+        patched_token.return_value = "tokenvalue"
+
+        self.team.app_urls = [
+            "https://www.example.com",
+            "https://*.otherexample.com",
+            "https://anotherexample.com",
+        ]
+        self.team.save()
+
+        def assert_allowed_url(url):
+            response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(url)}")
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            self.assertIn(f"{url}#__posthog=", response.headers.get("location"))
+
+        def assert_forbidden_url(url):
+            response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(url)}")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.headers.get("location"), None)
+
+        # hostnames
+        assert_allowed_url("https://www.example.com")
+        assert_forbidden_url("https://www.notexample.com")
+        assert_forbidden_url("https://www.anotherexample.com")
+
+        # wildcard domains and folders
+        assert_forbidden_url("https://subdomain.example.com")
+        assert_allowed_url("https://subdomain.otherexample.com")
+        assert_allowed_url("https://sub.subdomain.otherexample.com")
 
 
 class TestUserSlackWebhook(APIBaseTest):
