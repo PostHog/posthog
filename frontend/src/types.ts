@@ -1460,6 +1460,10 @@ export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
     date_marker: dayjs.Dayjs | null
 }
 
+export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
+    date_marker: dayjs.Dayjs
+}
+
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
