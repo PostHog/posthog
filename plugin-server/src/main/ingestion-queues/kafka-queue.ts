@@ -8,6 +8,7 @@ import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
 import Piscina from '../../worker/piscina'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
+import { makeServiceFromKafkaJSConsumer } from './scheduled-tasks-consumer'
 
 type ConsumerManagementPayload = {
     topic: string
@@ -24,6 +25,7 @@ export class IngestionConsumer {
     public consumerGroupId: string
     public eachBatch: EachBatchFunction
     public consumer: Consumer
+    public service: any
     private kafka: Kafka
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
@@ -40,6 +42,7 @@ export class IngestionConsumer {
         this.topic = topic
         this.consumerGroupId = consumerGroupId
         this.consumer = IngestionConsumer.buildConsumer(this.kafka, consumerGroupId)
+        this.service = makeServiceFromKafkaJSConsumer(this.consumer, this.consumerGroupId, this.topic)
         this.wasConsumerRan = false
 
         // TODO: remove `this.workerMethods` and just rely on
@@ -146,17 +149,21 @@ export class IngestionConsumer {
 
     async stop(): Promise<void> {
         status.info('⏳', 'Stopping Kafka queue...')
-        try {
-            await this.consumer.stop()
-            status.info('⏹', 'Kafka consumer stopped!')
-        } catch (error) {
-            status.error('⚠️', 'An error occurred while stopping Kafka queue:\n', error)
-        }
-        try {
-            await this.consumer.disconnect()
-        } catch {}
+        await this.service.stop()
 
         this.consumerReady = false
+    }
+
+    async join(): Promise<void> {
+        await this.service.join()
+    }
+
+    async isReady(): Promise<boolean> {
+        return await this.service.isReady()
+    }
+
+    async isHealthy(): Promise<boolean> {
+        return await this.service.isHealthy()
     }
 
     emitConsumerGroupMetrics(): Promise<void> {

@@ -73,7 +73,7 @@ export async function startPluginsServer(
             isReady: () => Promise<boolean> | boolean
             isHealthy: () => Promise<boolean> | boolean
             stop: () => Promise<void>
-            join?: () => Promise<void>
+            join: () => Promise<void>
         }
     } = {}
 
@@ -99,8 +99,7 @@ export async function startPluginsServer(
         httpServer?.close()
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
-        await pubSub?.stop()
-        await Promise.allSettled(Object.values(services).map(({ stop }) => stop()))
+        await Promise.allSettled([pubSub?.stop(), ...Object.values(services).map((service) => service.stop())])
 
         if (piscina) {
             await stopPiscina(piscina)
@@ -112,7 +111,12 @@ export async function startPluginsServer(
     }
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-        process.on(signal, () => process.emit('beforeExit', 0))
+        process.on(signal, async () => {
+            status.info('👋', `Received ${signal}, closing jobs...`)
+            await closeJobs()
+
+            process.exit(0)
+        })
     }
 
     process.on('beforeExit', async () => {
@@ -323,7 +327,7 @@ export async function startPluginsServer(
         }
 
         // If one of the services completes, we want to shut down everything.
-        Promise.race(Object.values(services).map(({ join }) => join?.())).finally(closeJobs)
+        Promise.race(Object.values(services).map((service) => service.join())).finally(closeJobs)
 
         if (capabilities.http) {
             httpServer = createHttpServer(services)

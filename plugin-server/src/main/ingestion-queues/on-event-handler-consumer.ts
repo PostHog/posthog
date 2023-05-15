@@ -6,7 +6,6 @@ import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { IngestionConsumer } from './kafka-queue'
-import { makeServiceFromKafkaJSConsumer } from './scheduled-tasks-consumer'
 
 export const startOnEventHandlerConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
@@ -39,7 +38,7 @@ export const startOnEventHandlerConsumer = async ({
         await piscina?.broadcastTask({ task: 'reloadAllActions' })
     })
 
-    return makeServiceFromKafkaJSConsumer(queue.consumer)
+    return queue
 }
 
 export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {

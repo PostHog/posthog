@@ -48,6 +48,7 @@ export const startScheduledTasksConsumer = async ({
 
     const groupId = 'scheduled-tasks-runner'
     const consumer = kafka.consumer({ groupId })
+    const service = makeServiceFromKafkaJSConsumer(consumer, groupId, KAFKA_SCHEDULED_TASKS)
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting scheduled tasks consumer')
@@ -135,7 +136,7 @@ export const startScheduledTasksConsumer = async ({
         },
     })
 
-    return makeServiceFromKafkaJSConsumer(consumer)
+    return service
 }
 
 const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) => {
@@ -204,8 +205,9 @@ const getTasksFromBatch = async (batch: Batch, producer: KafkaProducerWrapper) =
         .sort((a, b) => Number.parseInt(a.message.offset) - Number.parseInt(b.message.offset))
 }
 
-export const makeServiceFromKafkaJSConsumer = (consumer: Consumer) => {
+export const makeServiceFromKafkaJSConsumer = (consumer: Consumer, groupId: string, topic: string) => {
     let isReady = false
+
     consumer.on(consumer.events.GROUP_JOIN, () => {
         isReady = true
     })
@@ -237,7 +239,11 @@ export const makeServiceFromKafkaJSConsumer = (consumer: Consumer) => {
             }
         },
         stop: async () => {
-            await consumer.stop()
+            status.info('🛑', 'stopping_consumer', {
+                groupId,
+                topic,
+            })
+            await consumer.disconnect()
         },
         join: async () => {
             await new Promise<void>((resolve, reject) => {

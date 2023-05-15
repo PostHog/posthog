@@ -16,7 +16,6 @@ import Piscina from '../../worker/piscina'
 import { eachBatch } from './batch-processing/each-batch'
 import { eachBatchIngestion, eachMessageIngestion } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
-import { makeServiceFromKafkaJSConsumer } from './scheduled-tasks-consumer'
 
 export const ingestionPartitionKeyOverflowed = new Counter({
     name: 'ingestion_partition_key_overflowed',
@@ -59,13 +58,8 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // enabling re-production of events to the OVERFLOW topic.
     const batchHandler = isIngestionOverflowEnabled() ? eachBatchIngestionWithOverflow : eachBatchIngestion
 
-    const queue = new IngestionConsumer(
-        hub,
-        piscina,
-        KAFKA_EVENTS_PLUGIN_INGESTION,
-        `${KAFKA_PREFIX}clickhouse-ingestion`,
-        batchHandler
-    )
+    const groupId = `${KAFKA_PREFIX}clickhouse-ingestion`
+    const queue = new IngestionConsumer(hub, piscina, KAFKA_EVENTS_PLUGIN_INGESTION, groupId, batchHandler)
 
     await queue.start()
 
@@ -73,7 +67,7 @@ export const startAnalyticsEventsIngestionConsumer = async ({
         await queue.emitConsumerGroupMetrics()
     })
 
-    return makeServiceFromKafkaJSConsumer(queue.consumer)
+    return queue
 }
 
 export async function eachBatchIngestionWithOverflow(

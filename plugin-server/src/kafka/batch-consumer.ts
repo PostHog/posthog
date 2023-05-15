@@ -194,7 +194,7 @@ export const startBatchConsumer = async ({
 
     const isReady = () => {
         // A crude check to see is
-        return consumer.assignments.length > 0
+        return consumer.assignments().length > 0
     }
 
     const stop = async () => {

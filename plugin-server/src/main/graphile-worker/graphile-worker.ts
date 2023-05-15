@@ -237,6 +237,13 @@ export class GraphileWorker {
         status.info('🛑', 'Stopped Graphile worker...')
     }
 
+    async join(): Promise<void> {
+        await new Promise((resolve, reject) => {
+            this.runner?.events.once('worker:stop', resolve)
+            this.runner?.events.once('worker:fatalError', ({ error }) => reject(error))
+        })
+    }
+
     async pause(): Promise<void> {
         status.info('🔄', 'Pausing Graphile worker...')
         this.paused = true

@@ -13,13 +13,13 @@ export function createHttpServer(services: {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {
             const healthChecks = Object.fromEntries(
-                Object.entries(services).map(([service, { isHealthy }]) => [service, isHealthy])
+                Object.entries(services).map(([name, service]) => [name, service.isHealthy.bind(service)])
             )
 
             await makeCheckResponse(healthChecks, res)
         } else if (req.url === '/_ready' && req.method === 'GET') {
             const readinessChecks = Object.fromEntries(
-                Object.entries(services).map(([service, { isReady }]) => [service, isReady])
+                Object.entries(services).map(([name, service]) => [name, service.isReady.bind(service)])
             )
 
             await makeCheckResponse(readinessChecks, res)
@@ -98,6 +98,7 @@ const runChecks = async (healthChecks: { [k: string]: () => Promise<boolean> | b
             try {
                 return { service, status: (await check()) ? 'ok' : 'error' }
             } catch (error) {
+                status.warn('🩺', `Error while checking ${service}`, { error: error.stack ?? error })
                 return { service, status: 'error', error: error.message }
             }
         })
