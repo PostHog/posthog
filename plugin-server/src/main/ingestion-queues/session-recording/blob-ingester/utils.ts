@@ -27,6 +27,7 @@ export function decompressFromString(input: string, doubleDecode = false): strin
     } catch (e: any) {
         if (e.code === 'Z_DATA_ERROR' && e.errno === -3 && !doubleDecode) {
             // some received data (particularly chunks) are double encoded
+            status.warn('🪞', 'attempting double decoding while decompressing snapshot data', { error: e, input })
             return decompressFromString(input, true)
         }
         let message = `Failed to decompress data: ${e.message}`
