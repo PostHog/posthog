@@ -1110,6 +1110,9 @@ const api = {
         async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccsesFeatureType> {
             return await new ApiRequest().earlyAccessFeatures().create({ data })
         },
+        async delete(featureId: EarlyAccsesFeatureType['id']): Promise<void> {
+            await new ApiRequest().earlyAccessFeature(featureId).delete()
+        },
         async update(
             featureId: EarlyAccsesFeatureType['id'],
             data: Pick<EarlyAccsesFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>

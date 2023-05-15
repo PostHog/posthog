@@ -19,7 +19,7 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { PersonLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
-import { Col } from 'antd'
+import { Col, Popconfirm } from 'antd'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -32,7 +32,8 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote } = useActions(earlyAccessFeatureLogic)
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote, deleteEarlyAccessFeature } =
+        useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
@@ -41,9 +42,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
             <PageHeader
                 title={isNewEarlyAccessFeature ? 'New Feature Release' : earlyAccessFeature.name}
                 buttons={
-                    !earlyAccessFeatureLoading &&
-                    earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability ? (
-                        isNewEarlyAccessFeature || isEditingFeature ? (
+                    !earlyAccessFeatureLoading ? (
+                        earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability &&
+                        (isNewEarlyAccessFeature || isEditingFeature) ? (
                             <>
                                 <LemonButton
                                     type="secondary"
@@ -65,16 +66,38 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </>
                         ) : (
                             <>
-                                <LemonButton
-                                    type="secondary"
-                                    htmlType="submit"
-                                    onClick={() => {
-                                        editFeature(true)
+                                <Popconfirm
+                                    title={
+                                        <>
+                                            Permanently delete feature? <br />
+                                            <b>Doing so will remove any opt in conditions from the feature flag.</b>
+                                        </>
+                                    }
+                                    okText="Delete"
+                                    okType="danger"
+                                    placement="topLeft"
+                                    onConfirm={() => {
+                                        // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
+                                        deleteEarlyAccessFeature((earlyAccessFeature as EarlyAccsesFeatureType)?.id)
                                     }}
-                                    loading={false}
                                 >
-                                    Edit
-                                </LemonButton>
+                                    <LemonButton data-attr="delete-feature" status="danger" type="secondary">
+                                        Delete
+                                    </LemonButton>
+                                </Popconfirm>
+
+                                {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
+                                    <LemonButton
+                                        type="secondary"
+                                        htmlType="submit"
+                                        onClick={() => {
+                                            editFeature(true)
+                                        }}
+                                        loading={false}
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                )}
                             </>
                         )
                     ) : undefined
@@ -213,7 +236,7 @@ function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Element {
         optionsFromProp: undefined,
         popoverEnabled: true,
         selectFirstItem: true,
-        taxonomicFilterLogicKey: 'universalSearch',
+        taxonomicFilterLogicKey: 'flag-selectorz',
     }
 
     return (
