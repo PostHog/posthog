@@ -188,7 +188,7 @@ class ActorBaseQuery:
                 self._team.pk, cast(int, self.aggregation_group_type_index), actor_ids, value_per_actor_id
             )
         else:
-            actors, serialized_actors = get_people(self._team.pk, actor_ids, value_per_actor_id)
+            actors, serialized_actors = get_people(self._team, actor_ids, value_per_actor_id)
 
         if self.ACTOR_VALUES_INCLUDED:
             # We fetched actors from Postgres in get_groups/get_people, so `ORDER BY actor_value DESC` no longer holds
@@ -209,7 +209,7 @@ def get_groups(
 
 
 def get_people(
-    team_id: int, people_ids: List[Any], value_per_actor_id: Optional[Dict[str, float]] = None, distinct_id_limit=None
+    team: Team, people_ids: List[Any], value_per_actor_id: Optional[Dict[str, float]] = None, distinct_id_limit=1000
 ) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
     distinct_id_subquery = Subquery(
@@ -218,7 +218,7 @@ def get_people(
         ]
     )
     persons: QuerySet[Person] = (
-        Person.objects.filter(team_id=team_id, uuid__in=people_ids)
+        Person.objects.filter(team_id=team.pk, uuid__in=people_ids)
         .prefetch_related(
             Prefetch(
                 "persondistinctid_set",
@@ -229,10 +229,12 @@ def get_people(
         .order_by("-created_at", "uuid")
         .only("id", "is_identified", "created_at", "properties", "uuid")
     )
-    return persons, serialize_people(persons, value_per_actor_id)
+    return persons, serialize_people(team, persons, value_per_actor_id)
 
 
-def serialize_people(data: QuerySet[Person], value_per_actor_id: Optional[Dict[str, float]]) -> List[SerializedPerson]:
+def serialize_people(
+    team: Team, data: QuerySet[Person], value_per_actor_id: Optional[Dict[str, float]]
+) -> List[SerializedPerson]:
     from posthog.api.person import get_person_name
 
     return [
@@ -243,7 +245,7 @@ def serialize_people(data: QuerySet[Person], value_per_actor_id: Optional[Dict[s
             created_at=person.created_at,
             properties=person.properties,
             is_identified=person.is_identified,
-            name=get_person_name(person),
+            name=get_person_name(team, person),
             distinct_ids=person.distinct_ids,
             matched_recordings=[],
             value_at_data_point=value_per_actor_id[str(person.uuid)] if value_per_actor_id else None,

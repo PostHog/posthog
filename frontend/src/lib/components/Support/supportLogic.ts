@@ -7,6 +7,9 @@ import { UserType } from '~/types'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { captureException } from '@sentry/react'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -15,7 +18,7 @@ function getSessionReplayLink(): string {
         0
     )
     const link = `https://app.posthog.com/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
-    return `\nSession replay: ${link}`
+    return `[Session replay](${link})`
 }
 
 function getDjangoAdminLink(user: UserType | null): string {
@@ -23,35 +26,52 @@ function getDjangoAdminLink(user: UserType | null): string {
         return ''
     }
     const link = `${window.location.origin}/admin/posthog/user/?q=${user.email}`
-    console.log(`\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`)
-    return `\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`
+    return `[Admin](${link}) (Organization: '${user.organization?.name}'; Project: ${user.team?.id}:'${user.team?.name}')`
 }
 
-export const TargetAreaToName = {
-    analytics: 'Analytics',
+function getSentryLinks(user: UserType | null): string {
+    if (!user) {
+        return ''
+    }
+    const cloud = window.location.origin == 'https://eu.posthog.com' ? 'EU' : 'US'
+    const link = `http://go/sentry${cloud}/${user.email}`
+    const pluginServer = `http://go/pluginServerSentry${cloud}/${user.team?.id}`
+    return `[Sentry](${link}) | [Plugin Server Sentry](${pluginServer})`
+}
+
+export const TARGET_AREA_TO_NAME = {
+    analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     app_performance: 'App Performance',
     apps: 'Apps',
+    login: 'Authentication (Login / Sign-up / Invites)',
     billing: 'Billing',
     cohorts: 'Cohorts',
-    data_management: 'Data Management',
     data_integrity: 'Data Integrity',
-    ingestion: 'Events Ingestion',
+    data_management: 'Data Management',
+    ingestion: 'Event Ingestion',
     experiments: 'Experiments',
     feature_flags: 'Feature Flags',
     login: 'Login',
     signup: 'Sign up / Invites',
-    session_reply: 'Session Replay',
+    session_replay: 'Session Replay (Recordings)',
 }
 
-export type supportTicketTargetArea = keyof typeof TargetAreaToName | null
-export type supportTicketKind = 'bug' | 'feedback' | null
-export const URLPathToTargetArea: Record<string, supportTicketTargetArea> = {
+export const SUPPORT_KIND_TO_SUBJECT = {
+    bug: 'Bug Report',
+    feedback: 'Feedback',
+    support: 'Support Ticket',
+}
+export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
+export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
+
+export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
     insights: 'analytics',
-    recordings: 'session_reply',
+    recordings: 'session_replay',
+    replay: 'session_replay',
     dashboard: 'analytics',
     feature_flags: 'feature_flags',
     experiments: 'experiments',
-    'web-performance': 'session_reply',
+    'web-performance': 'session_replay',
     events: 'analytics',
     'data-management': 'data_management',
     cohorts: 'cohorts',
@@ -62,9 +82,9 @@ export const URLPathToTargetArea: Record<string, supportTicketTargetArea> = {
     toolbar: 'analytics',
 }
 
-export function getURLPathToTargetArea(pathname: string): supportTicketTargetArea | null {
+export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const first_part = pathname.split('/')[1]
-    return URLPathToTargetArea[first_part] ?? null
+    return URL_PATH_TO_TARGET_AREA[first_part] ?? null
 }
 
 export const supportLogic = kea<supportLogicType>([
@@ -75,22 +95,24 @@ export const supportLogic = kea<supportLogicType>([
     })),
     actions(() => ({
         closeSupportForm: () => true,
-        // TODO: can these be combined reasonably?
-        openSupportForm: (kind: supportTicketKind = null, target_area: supportTicketTargetArea = null) => ({
+        openSupportForm: (
+            kind: SupportTicketKind | null = null,
+            target_area: SupportTicketTargetArea | null = null
+        ) => ({
             kind,
             target_area,
         }),
         openSupportLoggedOutForm: (
             name: string | null = null,
             email: string | null = null,
-            kind: supportTicketKind = null,
-            target_area: supportTicketTargetArea = null
+            kind: SupportTicketKind | null = null,
+            target_area: SupportTicketTargetArea | null = null
         ) => ({ name, email, kind, target_area }),
         submitZendeskTicket: (
             name: string,
             email: string,
-            kind: supportTicketKind,
-            target_area: supportTicketTargetArea,
+            kind: SupportTicketKind | null,
+            target_area: SupportTicketTargetArea | null,
             message: string
         ) => ({
             name,
@@ -113,8 +135,8 @@ export const supportLogic = kea<supportLogicType>([
     forms(({ actions }) => ({
         sendSupportRequest: {
             defaults: {} as unknown as {
-                kind: supportTicketKind
-                target_area: supportTicketTargetArea
+                kind: SupportTicketKind | null
+                target_area: SupportTicketTargetArea | null
                 message: string
             },
             errors: ({ message, kind, target_area }) => {
@@ -136,8 +158,8 @@ export const supportLogic = kea<supportLogicType>([
             defaults: {} as unknown as {
                 name: string
                 email: string
-                kind: supportTicketKind
-                target_area: supportTicketTargetArea
+                kind: SupportTicketKind
+                target_area: SupportTicketTargetArea
                 message: string
             },
             errors: ({ name, email, message, kind, target_area }) => {
@@ -175,19 +197,30 @@ export const supportLogic = kea<supportLogicType>([
         },
         submitZendeskTicket: async ({ name, email, kind, target_area, message }) => {
             const zendesk_ticket_uuid = uuid()
+            const subject =
+                SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
+                ': ' +
+                (target_area ? TARGET_AREA_TO_NAME[target_area] : 'General') +
+                ' (' +
+                zendesk_ticket_uuid +
+                ')'
             const payload = {
                 request: {
                     requester: { name: name, email: email },
-                    subject: 'Help in-app',
+                    subject: subject,
                     comment: {
                         body:
                             message +
                             `\n\n-----` +
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
-                            `\nInternal link: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
+                            `\nInternal links: [Event](http://go/ticketByUUID/${zendesk_ticket_uuid})` +
+                            '\n' +
                             getSessionReplayLink() +
-                            getDjangoAdminLink(userLogic.values.user),
+                            '\n' +
+                            getDjangoAdminLink(userLogic.values.user) +
+                            '\n' +
+                            getSentryLinks(userLogic.values.user),
                     },
                 },
             }
@@ -208,10 +241,46 @@ export const supportLogic = kea<supportLogicType>([
                         zendesk_ticket_link: `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`,
                     }
                     actions.reportSupportFormSubmitted(properties)
+                    lemonToast.success(
+                        "Got the message! If we have follow-up information for you, we'll reply via email."
+                    )
                 })
                 .catch((err) => {
+                    captureException(err)
                     console.log(err)
+                    lemonToast.error(`There was an error sending the message.`)
                 })
         },
     })),
+
+    urlToAction(({ actions, values }) => ({
+        '*': (_, _search, hashParams) => {
+            if ('supportModal' in hashParams && !values.isSupportFormOpen) {
+                const [kind, area] = (hashParams['supportModal'] || '').split(':')
+
+                actions.openSupportForm(
+                    Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
+                    Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
+                )
+            }
+        },
+    })),
+    actionToUrl(({ values }) => {
+        const updateUrl = (): any => {
+            const hashParams = router.values.hashParams
+            hashParams['supportModal'] = `${values.sendSupportRequest.kind || ''}:${
+                values.sendSupportRequest.target_area || ''
+            }`
+            return [router.values.location.pathname, router.values.searchParams, hashParams]
+        }
+        return {
+            openSupportForm: () => updateUrl(),
+            setSendSupportRequestValue: () => updateUrl(),
+            closeSupportForm: () => {
+                const hashParams = router.values.hashParams
+                delete hashParams['supportModal']
+                return [router.values.location.pathname, router.values.searchParams, hashParams]
+            },
+        }
+    }),
 ])

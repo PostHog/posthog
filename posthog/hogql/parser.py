@@ -536,7 +536,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Or(exprs=left_array + right_array)
 
     def visitColumnExprTupleAccess(self, ctx: HogQLParser.ColumnExprTupleAccessContext):
-        raise NotImplementedException(f"Unsupported node: ColumnExprTupleAccess")
+        return ast.TupleAccess(tuple=self.visit(ctx.columnExpr()), index=int(ctx.DECIMAL_LITERAL().getText()))
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):
         raise NotImplementedException(f"Unsupported node: ColumnExprCase")

@@ -54,7 +54,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("[1,2,3][1]"), "[1, 2, 3][1]")
         self.assertEqual(
             self._expr("events.properties[1]"),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(self._expr("events.event[1 + 2]"), "events.event[plus(1, 2)]")
 
@@ -75,20 +75,20 @@ class TestPrinter(BaseTest):
     def test_fields_and_properties(self):
         self.assertEqual(
             self._expr("properties.bla"),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(
             self._expr("properties['bla']"),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(
             self._expr("properties['bla']['bla']"),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
         )
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
             self._expr("properties.$bla", context),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
         )
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
@@ -97,7 +97,7 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
-                "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
+                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
             )
             context = HogQLContext(team_id=self.team.pk)
             self.assertEqual(
@@ -111,12 +111,12 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
-                "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
             )
             context = HogQLContext(team_id=self.team.pk)
             self.assertEqual(
                 self._expr("person.properties.bla", context),
-                "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
             )
 
     def test_hogql_properties(self):
@@ -156,7 +156,15 @@ class TestPrinter(BaseTest):
             self._expr("properties['$browser \\\\with a \\n` tick']", HogQLContext(team_id=self.team.pk), "hogql"),
             "properties.`$browser \\\\with a \\n\\` tick`",
         )
-        self._assert_expr_error("properties.0", "Unsupported node: ColumnExprTupleAccess", "hogql")
+        # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
+        self.assertEqual(
+            self._expr("properties.0", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.0",
+        )
+        self.assertEqual(
+            self._expr("properties.`0`", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.`0`",
+        )
         self._assert_expr_error(
             "properties.'no strings'", "mismatched input ''no strings'' expecting DECIMAL_LITERAL", "hogql"
         )
@@ -165,11 +173,11 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
             self._expr("properties.nomat.json.yet", context),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(context.values, {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"})
 
-    def test_hogql_properties_json_materialized(self):
+    def test_hogql_properties_materialized_json_access(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
@@ -181,7 +189,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
             self._expr("properties.withmat.json.yet", context),
-            "replaceRegexpAll(JSONExtractRaw(events.mat_withmat, %(hogql_val_0)s, %(hogql_val_1)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(nullIf(nullIf(events.mat_withmat, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
@@ -193,16 +201,23 @@ class TestPrinter(BaseTest):
             self.assertEqual(1 + 2, 3)
             return
         materialize("events", "$browser")
-        self.assertEqual(self._expr("properties['$browser']"), "events.`mat_$browser`")
+        self.assertEqual(self._expr("properties['$browser']"), "nullIf(nullIf(events.`mat_$browser`, ''), 'null')")
 
         materialize("events", "withoutdollar")
-        self.assertEqual(self._expr("properties['withoutdollar']"), "events.mat_withoutdollar")
+        self.assertEqual(
+            self._expr("properties['withoutdollar']"), "nullIf(nullIf(events.mat_withoutdollar, ''), 'null')"
+        )
 
         materialize("events", "$browser and string")
-        self.assertEqual(self._expr("properties['$browser and string']"), "events.`mat_$browser_and_string`")
+        self.assertEqual(
+            self._expr("properties['$browser and string']"),
+            "nullIf(nullIf(events.`mat_$browser_and_string`, ''), 'null')",
+        )
 
         materialize("events", "$browser%%%#@!@")
-        self.assertEqual(self._expr("properties['$browser%%%#@!@']"), "events.`mat_$browser_______`")
+        self.assertEqual(
+            self._expr("properties['$browser%%%#@!@']"), "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')"
+        )
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
@@ -223,8 +238,13 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("count(1,2,3,4)", "Aggregation 'count' requires between 0 and 1 arguments, found 4")
         self._assert_expr_error("countIf()", "Aggregation 'countIf' requires between 1 and 2 arguments, found 0")
         self._assert_expr_error("countIf(2,3,4)", "Aggregation 'countIf' requires between 1 and 2 arguments, found 3")
+        self._assert_expr_error("uniq()", "Aggregation 'uniq' requires at least 1 argument, found 0")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
+        self._assert_expr_error("noway(event)", "Unsupported function call 'noway(...)'. Perhaps you meant 'now(...)'?")
+        self._assert_expr_error(
+            "tostring(event)", "Unsupported function call 'tostring(...)'. Perhaps you meant 'toString(...)'?"
+        )
         self._assert_expr_error("yeet.the.cloud", "Unable to resolve field: yeet")
         self._assert_expr_error("chipotle", "Unable to resolve field: chipotle")
         self._assert_expr_error(
@@ -245,19 +265,19 @@ class TestPrinter(BaseTest):
     def test_logic(self):
         self.assertEqual(
             self._expr("event or timestamp"),
-            "or(events.event, toTimezone(events.timestamp, %(hogql_val_0)s))",
+            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s))",
         )
         self.assertEqual(
             self._expr("properties.bla and properties.bla2"),
-            "and(replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_1)s), '^\"|\"$', ''))",
+            "and(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))",
         )
         self.assertEqual(
             self._expr("event or timestamp or true or count()"),
-            "or(events.event, toTimezone(events.timestamp, %(hogql_val_0)s), true, count())",
+            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), true, count())",
         )
         self.assertEqual(
             self._expr("event or not timestamp"),
-            "or(events.event, not(toTimezone(events.timestamp, %(hogql_val_0)s)))",
+            "or(events.event, not(toTimeZone(events.timestamp, %(hogql_val_0)s)))",
         )
 
     def test_comparisons(self):
@@ -357,7 +377,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._select("select event from events order by event desc, timestamp"),
-            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC, toTimezone(events.timestamp, %(hogql_val_0)s) ASC LIMIT 65535",
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) ASC LIMIT 65535",
         )
 
     def test_select_limit(self):
@@ -402,23 +422,23 @@ class TestPrinter(BaseTest):
     def test_select_group_by(self):
         self.assertEqual(
             self._select("select event from events group by event, timestamp"),
-            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimezone(events.timestamp, %(hogql_val_0)s) LIMIT 65535",
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT 65535",
         )
 
     def test_select_distinct(self):
         self.assertEqual(
             self._select("select distinct event from events group by event, timestamp"),
-            f"SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimezone(events.timestamp, %(hogql_val_0)s) LIMIT 65535",
+            f"SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT 65535",
         )
 
     def test_select_subquery(self):
         self.assertEqual(
             self._select("SELECT event from (select distinct event from events group by event, timestamp)"),
-            f"SELECT event FROM (SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimezone(events.timestamp, %(hogql_val_0)s)) LIMIT 65535",
+            f"SELECT event FROM (SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s)) LIMIT 65535",
         )
         self.assertEqual(
             self._select("SELECT event from (select distinct event from events group by event, timestamp) e"),
-            f"SELECT e.event FROM (SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimezone(events.timestamp, %(hogql_val_0)s)) AS e LIMIT 65535",
+            f"SELECT e.event FROM (SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s)) AS e LIMIT 65535",
         )
 
     def test_select_union_all(self):
@@ -515,7 +535,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
             self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
-            f"SELECT now(%(hogql_val_0)s), toDateTimeOrNull(toTimezone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTimeOrNull(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+            f"SELECT now64(6, %(hogql_val_0)s), parseDateTime64BestEffortOrNull(toTimeZone(events.timestamp, %(hogql_val_1)s), 6, %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
         )
         self.assertEqual(
             context.values,
@@ -534,7 +554,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
             self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
-            f"SELECT now(%(hogql_val_0)s), toDateTimeOrNull(toTimezone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTimeOrNull(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+            f"SELECT now64(6, %(hogql_val_0)s), parseDateTime64BestEffortOrNull(toTimeZone(events.timestamp, %(hogql_val_1)s), 6, %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
         )
         self.assertEqual(
             context.values,

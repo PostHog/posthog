@@ -94,6 +94,7 @@ interface RecordingViewedProps {
     end_time?: number // End timestamp of the session
     page_change_events_length: number
     recording_width?: number
+    loadedFromBlobStorage: boolean
 
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
@@ -362,8 +363,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             playerData: SessionPlayerData,
             durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
-            delay?: number
-        ) => ({ playerData, durations, type, delay }),
+            delay?: number,
+            loadedFromBlobStorage?: boolean
+        ) => ({ playerData, durations, type, delay, loadedFromBlobStorage }),
         reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
@@ -522,6 +524,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             optionType,
         }),
         reportSupportFormSubmitted: (properties: Record<string, any>) => ({ ...properties }),
+        reportFlagsCodeExampleLanguage: (language: string) => ({
+            language,
+        }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -927,7 +932,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ playerData, durations, type }) => {
+        reportRecording: ({ playerData, durations, type, loadedFromBlobStorage }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
@@ -937,11 +942,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 performance_events_load_time: durations.performanceEvents?.duration,
                 first_paint_load_time: durations.firstPaint?.duration,
                 duration: eventIndex.getDuration(),
-                start_time: playerData.metadata.segments[0]?.startTimeEpochMs,
-                end_time: playerData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
+                start_time: playerData.start?.valueOf() ?? 0,
+                end_time: playerData.end?.valueOf() ?? 0,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
                 load_time: durations.firstPaint?.duration ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
+                loadedFromBlobStorage,
             }
             posthog.capture(`recording ${type}`, payload)
         },
@@ -1273,6 +1279,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportSupportFormSubmitted: (properties) => {
             posthog.capture('support form submitted', properties)
+        },
+        reportFlagsCodeExampleLanguage: ({ language }) => {
+            posthog.capture('flags code example language selected', {
+                language,
+            })
         },
     }),
 })

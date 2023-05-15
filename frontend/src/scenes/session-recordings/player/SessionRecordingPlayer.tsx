@@ -1,6 +1,6 @@
 import './SessionRecordingPlayer.scss'
-import { useEffect, useMemo, useRef } from 'react'
-import { useActions, useValues } from 'kea'
+import { useMemo, useState } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
 import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
@@ -18,31 +18,12 @@ import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotke
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { SessionRecordingType } from '~/types'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
-
-export function useFrameRef({
-    sessionRecordingId,
-    playerKey,
-}: SessionRecordingPlayerLogicProps): React.MutableRefObject<HTMLDivElement | null> {
-    const { setRootFrame } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const frame = useRef<HTMLDivElement | null>(null)
-    // Need useEffect to populate replayer on component paint
-    useEffect(() => {
-        if (frame.current) {
-            setRootFrame(frame.current)
-        }
-    }, [frame, sessionRecordingId])
-
-    return frame
-}
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     includeMeta?: boolean
     noBorder?: boolean
-    embedded?: boolean // hides unimportant meta information and no border
-    nextSessionRecording?: Partial<SessionRecordingType>
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -65,19 +46,18 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         nextSessionRecording,
     } = props
 
-    const logicProps = {
+    const logicProps: SessionRecordingPlayerLogicProps = {
         sessionRecordingId,
         playerKey,
         matching,
         sessionRecordingData,
         recordingStartTime,
+        nextSessionRecording,
     }
     const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed, closeExplorer } =
         useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound } = useValues(sessionRecordingDataLogic(logicProps))
     const { isFullScreen, explorerMode } = useValues(sessionRecordingPlayerLogic(logicProps))
-    const frame = useFrameRef(logicProps)
-
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
     useKeyboardHotkeys(
@@ -85,7 +65,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             f: {
                 action: () => setIsFullScreen(!isFullScreen),
             },
-            ' ': {
+            space: {
                 action: () => togglePlayPause(),
             },
             arrowleft: {
@@ -128,6 +108,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         1000: 'medium',
     })
 
+    const [inspectorFocus, setInspectorFocus] = useState(false)
+
     if (isNotFound) {
         return (
             <div className="text-center">
@@ -137,35 +119,30 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     }
 
     return (
-        <div
-            ref={ref}
-            className={clsx('SessionRecordingPlayer', {
-                'SessionRecordingPlayer--fullscreen': isFullScreen,
-                'SessionRecordingPlayer--no-border': noBorder || embedded,
-                'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
-                'SessionRecordingPlayer--explorer-mode': !!explorerMode,
-            })}
-        >
-            <div className="SessionRecordingPlayer__main">
-                {includeMeta || isFullScreen ? <PlayerMeta {...props} /> : null}
-                <div className="SessionRecordingPlayer__body">
-                    <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
-                    <PlayerFrameOverlay
-                        sessionRecordingId={sessionRecordingId}
-                        playerKey={playerKey}
-                        nextSessionRecording={nextSessionRecording}
-                    />
+        <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
+            <div
+                ref={ref}
+                className={clsx('SessionRecordingPlayer', {
+                    'SessionRecordingPlayer--fullscreen': isFullScreen,
+                    'SessionRecordingPlayer--no-border': noBorder || embedded,
+                    'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
+                    'SessionRecordingPlayer--explorer-mode': !!explorerMode,
+                    'SessionRecordingPlayer--inspector-focus': inspectorFocus,
+                })}
+            >
+                <div className="SessionRecordingPlayer__main">
+                    {includeMeta || isFullScreen ? <PlayerMeta /> : null}
+                    <div className="SessionRecordingPlayer__body">
+                        <PlayerFrame />
+                        <PlayerFrameOverlay />
+                    </div>
+                    <LemonDivider className="my-0" />
+                    <PlayerController />
                 </div>
-                <LemonDivider className="my-0" />
-                <PlayerController sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            </div>
-            {!isFullScreen && (
-                <div className="SessionRecordingPlayer__inspector">
-                    <PlayerInspector {...logicProps} />
-                </div>
-            )}
+                <PlayerInspector onFocusChange={setInspectorFocus} />
 
-            {explorerMode && <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />}
-        </div>
+                {explorerMode && <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />}
+            </div>
+        </BindLogic>
     )
 }

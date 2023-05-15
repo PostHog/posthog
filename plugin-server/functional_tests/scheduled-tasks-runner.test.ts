@@ -22,7 +22,7 @@ describe('dlq handling', () => {
     beforeAll(async () => {
         dlq = []
         dlqConsumer = kafka.consumer({ groupId: 'scheduled-tasks-consumer-test' })
-        await dlqConsumer.subscribe({ topic: 'scheduled_tasks_dlq' })
+        await dlqConsumer.subscribe({ topic: 'scheduled_tasks_dlq', fromBeginning: true })
         await dlqConsumer.run({
             eachMessage: ({ message }) => {
                 dlq.push(message)

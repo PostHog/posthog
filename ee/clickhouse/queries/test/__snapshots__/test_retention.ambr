@@ -378,7 +378,7 @@
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e.person_id as target
         FROM events e
-        INNER JOIN
+        LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
@@ -404,7 +404,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
+        LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
@@ -454,7 +454,7 @@
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e.person_id as target
         FROM events e
-        INNER JOIN
+        LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
@@ -480,7 +480,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
+        LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
@@ -669,11 +669,12 @@
                if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as target
         FROM events e
         LEFT OUTER JOIN
-          (SELECT override_person_id as person_id,
+          (SELECT argMax(override_person_id, version) as person_id,
                   old_person_id
            FROM person_overrides
-           WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
-        INNER JOIN
+           WHERE team_id = 2
+           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+        LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
@@ -700,11 +701,12 @@
                       ] as breakdown_values
         FROM events e
         LEFT OUTER JOIN
-          (SELECT override_person_id as person_id,
+          (SELECT argMax(override_person_id, version) as person_id,
                   old_person_id
            FROM person_overrides
-           WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
-        INNER JOIN
+           WHERE team_id = 2
+           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+        LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups

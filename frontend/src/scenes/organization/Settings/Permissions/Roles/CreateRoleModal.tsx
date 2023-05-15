@@ -94,7 +94,7 @@ export function CreateRoleModal(): JSX.Element {
                                 placeholder="Search for team members to add…"
                                 value={roleMembersToAdd}
                                 loading={roleMembersInFocusLoading}
-                                onChange={(newValues) => setRoleMembersToAdd(newValues)}
+                                onChange={(newValues: string[]) => setRoleMembersToAdd(newValues)}
                                 filterOption={true}
                                 mode="multiple"
                                 data-attr="subscribed-emails"

@@ -37,7 +37,6 @@ TREND_FILTER_TYPE_EVENTS = "events"
 
 SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
 SESSION_RECORDINGS_FILTER_IDS = "session_ids"
-SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
@@ -154,6 +153,7 @@ FUNNEL_STEP = "funnel_step"
 FUNNEL_CUSTOM_STEPS = "funnel_custom_steps"
 FUNNEL_STEP_BREAKDOWN = "funnel_step_breakdown"
 FUNNEL_LAYOUT = "layout"
+FUNNEL_AGGREAGTE_BY_HOGQL = "funnel_aggregate_by_hogql"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"

@@ -20,8 +20,15 @@ describe('Event Pipeline integration test', () => {
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
-        const resultEvent = result.args[0]
-        return runner.runAsyncHandlersEventPipeline(resultEvent)
+        // TODO: update runEventPipeline to return ClickHouseRawEvent with all the person info
+        const person = await hub.db.fetchPerson(result.args[1].teamId, result.args[1].distinctId)
+        const postIngestionEvent = {
+            ...result.args[0],
+            person_id: person?.uuid,
+            person_properties: person?.properties,
+            person_created_at: person?.created_at,
+        }
+        return runner.runAsyncHandlersEventPipeline(postIngestionEvent)
     }
 
     beforeEach(async () => {
@@ -30,6 +37,7 @@ describe('Event Pipeline integration test', () => {
         ;[hub, closeServer] = await createHub()
 
         jest.spyOn(hub.db, 'fetchPerson')
+        jest.spyOn(hub.db, 'createPerson')
     })
 
     afterEach(async () => {
@@ -186,9 +194,7 @@ describe('Event Pipeline integration test', () => {
                 ip: null,
                 elementsList: [],
                 person: {
-                    id: expect.any(Number),
                     created_at: expect.any(String),
-                    team_id: 2,
                     properties: {
                         $creator_event_uuid: event.uuid,
                     },
@@ -207,7 +213,7 @@ describe('Event Pipeline integration test', () => {
         expect(secondArg!.method).toBe('POST')
     })
 
-    it('loads person data once', async () => {
+    it('single postgres action per run to create or load person', async () => {
         const event: PluginEvent = {
             event: 'xyz',
             properties: { foo: 'bar' },
@@ -222,6 +228,11 @@ describe('Event Pipeline integration test', () => {
 
         await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
+        expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).not.toHaveBeenCalled()
+
+        // second time single fetch
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
     })
 })

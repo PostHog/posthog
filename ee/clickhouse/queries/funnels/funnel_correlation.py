@@ -427,7 +427,7 @@ class FunnelCorrelation:
 
     def _get_aggregation_target_join_query(self) -> str:
 
-        if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED:
+        if self._team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
             aggregation_person_join = f"""
                 JOIN funnel_actors as actors
                     ON event.person_id = actors.actor_id
@@ -575,7 +575,7 @@ class FunnelCorrelation:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
                 events.update(action.get_step_events())
-            else:
+            elif entity.id is not None:
                 events.add(entity.id)
 
         return sorted(list(events))

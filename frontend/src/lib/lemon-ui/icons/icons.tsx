@@ -49,13 +49,13 @@ export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { 
     return (
         <LemonIconBase {...props}>
             {/* top-right */}
-            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : '#1D4AFF'} fillOpacity={1} />
+            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : 'var(--brand-blue)'} fillOpacity={1} />
             {/* top-left */}
             <circle
                 cx="7"
                 cy="7.574"
                 r="3"
-                fill={monocolor ? 'currentColor' : '#F9BD2B'}
+                fill={monocolor ? 'currentColor' : 'var(--brand-yellow)'}
                 fillOpacity={monocolor ? 0.75 : 1}
             />
 
@@ -64,7 +64,7 @@ export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { 
                 cx="7"
                 cy="17.574"
                 r="3"
-                fill={monocolor ? 'currentColor' : '#F54E00'}
+                fill={monocolor ? 'currentColor' : 'var(--brand-red)'}
                 fillOpacity={monocolor ? 0.5 : 1}
             />
             {/* bottom-right */}
@@ -72,7 +72,7 @@ export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { 
                 cx="17"
                 cy="17.574"
                 r="3"
-                fill={monocolor ? 'currentColor' : '#000000'}
+                fill={monocolor ? 'currentColor' : 'var(--brand-key)'}
                 fillOpacity={monocolor ? 0.25 : 1}
             />
         </LemonIconBase>
@@ -235,8 +235,8 @@ export function IconTrendUp(props: LemonIconProps): JSX.Element {
     )
 }
 
-/** Material Design Announcement icon. */
-export function IconFeedbackWarning(props: LemonIconProps): JSX.Element {
+/** Material Design Feedback / Announcement icon. */
+export function IconFeedback(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase viewBox="0 0 32 32" {...props}>
             <path
@@ -614,6 +614,30 @@ export function IconFlag(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Material Design Rocket Launch icon. */
+export function IconRocketLaunch(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M6,15c-0.83,0-1.58,0.34-2.12,0.88C2.7,17.06,2,22,2,22s4.94-0.7,6.12-1.88C8.66,19.58,9,18.83,9,18C9,16.34,7.66,15,6,15 z M6.71,18.71c-0.28,0.28-2.17,0.76-2.17,0.76s0.47-1.88,0.76-2.17C5.47,17.11,5.72,17,6,17c0.55,0,1,0.45,1,1 C7,18.28,6.89,18.53,6.71,18.71z M17.42,13.65L17.42,13.65c6.36-6.36,4.24-11.31,4.24-11.31s-4.95-2.12-11.31,4.24l-2.49-0.5 C7.21,5.95,6.53,6.16,6.05,6.63L2,10.69l5,2.14L11.17,17l2.14,5l4.05-4.05c0.47-0.47,0.68-1.15,0.55-1.81L17.42,13.65z M7.41,10.83L5.5,10.01l1.97-1.97l1.44,0.29C8.34,9.16,7.83,10.03,7.41,10.83z M13.99,18.5l-0.82-1.91 c0.8-0.42,1.67-0.93,2.49-1.5l0.29,1.44L13.99,18.5z M16,12.24c-1.32,1.32-3.38,2.4-4.04,2.73l-2.93-2.93 c0.32-0.65,1.4-2.71,2.73-4.04c4.68-4.68,8.23-3.99,8.23-3.99S20.68,7.56,16,12.24z M15,11c1.1,0,2-0.9,2-2s-0.9-2-2-2s-2,0.9-2,2 S13.9,11,15,11z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design New Releases icon. */
+export function IconNewReleases(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="m23 12-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12zm-4.51 2.11.26 2.79-2.74.62-1.43 2.41L12 18.82l-2.58 1.11-1.43-2.41-2.74-.62.26-2.8L3.66 12l1.85-2.12-.26-2.78 2.74-.61 1.43-2.41L12 5.18l2.58-1.11 1.43 2.41 2.74.62-.26 2.79L20.34 12l-1.85 2.11zM11 15h2v2h-2zm0-8h2v6h-2z"
+                fill="currentColor"
+            />{' '}
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Show Chart icon. */
 export function IconShowChart(props: LemonIconProps): JSX.Element {
     return (
@@ -759,6 +783,18 @@ export function IconExclamation(props: LemonIconProps): JSX.Element {
                 <path d="m12 21c1.1046 0 2-.8954 2-2s-.8954-2-2-2-2 .8954-2 2 .8954 2 2 2z" />
                 <path d="m10 3h4v12h-4z" />
             </g>
+        </LemonIconBase>
+    )
+}
+
+/** Material Design Support icon. */
+export function IconSupport(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M12,2C6.48,2,2,6.48,2,12c0,5.52,4.48,10,10,10s10-4.48,10-10C22,6.48,17.52,2,12,2z M19.46,9.12l-2.78,1.15 c-0.51-1.36-1.58-2.44-2.95-2.94l1.15-2.78C16.98,5.35,18.65,7.02,19.46,9.12z M12,15c-1.66,0-3-1.34-3-3s1.34-3,3-3s3,1.34,3,3 S13.66,15,12,15z M9.13,4.54l1.17,2.78c-1.38,0.5-2.47,1.59-2.98,2.97L4.54,9.13C5.35,7.02,7.02,5.35,9.13,4.54z M4.54,14.87 l2.78-1.15c0.51,1.38,1.59,2.46,2.97,2.96l-1.17,2.78C7.02,18.65,5.35,16.98,4.54,14.87z M14.88,19.46l-1.15-2.78 c1.37-0.51,2.45-1.59,2.95-2.97l2.78,1.17C18.65,16.98,16.98,18.65,14.88,19.46z"
+                fill="currentColor"
+            />
         </LemonIconBase>
     )
 }
@@ -1108,6 +1144,24 @@ export function IconSchedule(props: LemonIconProps): JSX.Element {
                 d="m11.992 4c-4.416 0-7.992 3.584-7.992 8s3.576 8 7.992 8c4.424 0 8.008-3.584 8.008-8s-3.584-8-8.008-8zm.008 14.4c-3.536 0-6.4-2.864-6.4-6.4s2.864-6.4 6.4-6.4 6.4 2.864 6.4 6.4-2.864 6.4-6.4 6.4zm.4-10.4h-1.2v4.8l4.2 2.52.6-.984-3.6-2.136z"
                 fill="currentColor"
             />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design Data Object `{}` icon. */
+export function IconDataObject(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <g>
+                <path
+                    d="M4,7v2c0,0.55-0.45,1-1,1H2v4h1c0.55,0,1,0.45,1,1v2c0,1.65,1.35,3,3,3h3v-2H7c-0.55,0-1-0.45-1-1v-2 c0-1.3-0.84-2.42-2-2.83v-0.34C5.16,11.42,6,10.3,6,9V7c0-0.55,0.45-1,1-1h3V4H7C5.35,4,4,5.35,4,7z"
+                    fill="currentColor"
+                />
+                <path
+                    d="M21,10c-0.55,0-1-0.45-1-1V7c0-1.65-1.35-3-3-3h-3v2h3c0.55,0,1,0.45,1,1v2c0,1.3,0.84,2.42,2,2.83v0.34 c-1.16,0.41-2,1.52-2,2.83v2c0,0.55-0.45,1-1,1h-3v2h3c1.65,0,3-1.35,3-3v-2c0-0.55,0.45-1,1-1h1v-4H21z"
+                    fill="currentColor"
+                />
+            </g>
         </LemonIconBase>
     )
 }
@@ -2315,6 +2369,16 @@ export function IconDragHandle(props: LemonIconProps): JSX.Element {
         <LemonIconBase {...props}>
             <path
                 d="m11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+export function IconBugReport(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M20 8h-2.81c-.45-.78-1.07-1.45-1.82-1.96L17 4.41 15.59 3l-2.17 2.17C12.96 5.06 12.49 5 12 5s-.96.06-1.41.17L8.41 3 7 4.41l1.62 1.63C7.88 6.55 7.26 7.22 6.81 8H4v2h2.09c-.05.33-.09.66-.09 1v1H4v2h2v1c0 .34.04.67.09 1H4v2h2.81c1.04 1.79 2.97 3 5.19 3s4.15-1.21 5.19-3H20v-2h-2.09c.05-.33.09-.66.09-1v-1h2v-2h-2v-1c0-.34-.04-.67-.09-1H20V8zm-4 4v3c0 .22-.03.47-.07.7l-.1.65-.37.65c-.72 1.24-2.04 2-3.46 2s-2.74-.77-3.46-2l-.37-.64-.1-.65C8.03 15.48 8 15.23 8 15v-4c0-.23.03-.48.07-.7l.1-.65.37-.65c.3-.52.72-.97 1.21-1.31l.57-.39.74-.18c.31-.08.63-.12.94-.12.32 0 .63.04.95.12l.68.16.61.42c.5.34.91.78 1.21 1.31l.38.65.1.65c.04.22.07.47.07.69v1zm-6 2h4v2h-4zm0-4h4v2h-4z"
                 fill="currentColor"
             />
         </LemonIconBase>

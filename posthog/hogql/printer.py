@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from difflib import get_close_matches
 from typing import List, Literal, Optional, Union, cast
 
 
@@ -13,7 +14,8 @@ from posthog.hogql.constants import (
     ADD_TIMEZONE_TO_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import Table, create_hogql_database
+from posthog.hogql.database.models import Table
+from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -22,8 +24,7 @@ from posthog.hogql.escape_sql import (
     escape_hogql_string,
 )
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_types
-from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
-from posthog.hogql.transforms.macros import expand_macros
+from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
@@ -39,7 +40,7 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
         right=ast.Constant(value=context.team_id),
-        type=ast.ConstantType(data_type="bool"),
+        type=ast.BooleanType(),
     )
 
 
@@ -60,12 +61,9 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> ast.Expr:
-    type = stack[-1].type if stack else None
 
     context.database = context.database or create_hogql_database(context.team_id)
-    node = expand_macros(node, stack)
-    resolve_types(node, context.database, type)
-    expand_asterisks(node)
+    node = resolve_types(node, context.database, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
@@ -153,7 +151,8 @@ class _Printer(Visitor):
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
             if next_join.type is None:
-                raise HogQLException("Printing queries with a FROM clause is not permitted before type resolution")
+                if self.dialect == "clickhouse":
+                    raise HogQLException("Printing queries with a FROM clause is not permitted before type resolution")
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
@@ -309,6 +308,14 @@ class _Printer(Visitor):
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
 
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        visited_tuple = self.visit(node.tuple)
+        visited_index = int(str(node.index))
+        if isinstance(node.tuple, ast.Field):
+            return f"{visited_tuple}.{visited_index}"
+
+        return f"({visited_tuple}).{visited_index}"
+
     def visit_tuple(self, node: ast.Tuple):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
@@ -405,10 +412,15 @@ class _Printer(Visitor):
                     f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
                 )
             if isinstance(required_arg_count, tuple) and (
-                len(node.args) < required_arg_count[0] or len(node.args) > required_arg_count[1]
+                (required_arg_count[0] is not None and len(node.args) < required_arg_count[0])
+                or (required_arg_count[1] is not None and len(node.args) > required_arg_count[1])
             ):
+                if required_arg_count[1] is None:
+                    raise HogQLException(
+                        f"Aggregation '{node.name}' requires at least {required_arg_count[0]} argument{'s' if required_arg_count[0] != 1 else ''}, found {len(node.args)}"
+                    )
                 raise HogQLException(
-                    f"Aggregation '{node.name}' requires between {required_arg_count[0]} and {required_arg_count[1]} arguments, found {len(node.args)}"
+                    f"Aggregation '{node.name}' requires between {required_arg_count[0] or '0'} and {required_arg_count[1] or 'unlimited'} arguments, found {len(node.args)}"
                 )
 
             # check that we're not running inside another aggregate
@@ -443,12 +455,23 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
+                if (clickhouse_name == "now64" and len(args) == 0) or (
+                    clickhouse_name == "parseDateTime64BestEffortOrNull" and len(args) == 1
+                ):
+                    # must add precision if adding timezone in the next step
+                    args.append("6")
                 if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
                 return f"{node.name}({', '.join(args)})"
         else:
+            all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
+            close_matches = get_close_matches(node.name, all_function_names, 1)
+            if len(close_matches) > 0:
+                raise HogQLException(
+                    f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
+                )
             raise HogQLException(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
@@ -561,8 +584,7 @@ class _Printer(Visitor):
             materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
-                if not self.context.within_non_hogql_query:
-                    property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
+                property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
                 materialized_property_sql = property_sql
         elif (
             self.context.within_non_hogql_query
@@ -577,23 +599,26 @@ class _Printer(Visitor):
             if materialized_column:
                 materialized_property_sql = self._print_identifier(materialized_column)
 
+        args: List[str] = []
         if materialized_property_sql is not None:
+            # When reading materialized columns, treat the values "" and "null" as NULL-s.
+            # TODO: rematerialize all columns to support empty strings and "null" string values.
+            materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
+
             if len(type.chain) == 1:
                 return materialized_property_sql
             else:
-                args = [materialized_property_sql]
                 for name in type.chain[1:]:
                     key = f"hogql_val_{len(self.context.values)}"
                     self.context.values[key] = name
                     args.append(f"%({key})s")
-                return trim_quotes_expr(f"JSONExtractRaw({', '.join(args)})")
+                return self._unsafe_json_extract_trim_quotes(materialized_property_sql, args)
 
-        args = [self.visit(field_type)]
         for name in type.chain:
             key = f"hogql_val_{len(self.context.values)}"
             self.context.values[key] = name
             args.append(f"%({key})s")
-        return trim_quotes_expr(f"JSONExtractRaw({', '.join(args)})")
+        return self._unsafe_json_extract_trim_quotes(self.visit(field_type), args)
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         sample_value = self.visit_ratio_expr(node.sample_value)
@@ -648,6 +673,9 @@ class _Printer(Visitor):
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
+    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: List[str]) -> str:
+        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field] + unsafe_args)}), ''), 'null'), '^\"|\"$', '')"
+
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
@@ -664,7 +692,3 @@ class _Printer(Visitor):
 
     def _get_timezone(self):
         return self.context.database.get_timezone() if self.context.database else "UTC"
-
-
-def trim_quotes_expr(expr: str) -> str:
-    return f"replaceRegexpAll({expr}, '^\"|\"$', '')"

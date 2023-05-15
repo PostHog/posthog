@@ -68,7 +68,7 @@ describe('EventsProcessor#createEvent()', () => {
     it('emits event with person columns, re-using event properties', async () => {
         jest.spyOn(eventsProcessor.db, 'getPersonData')
 
-        const result = await eventsProcessor.createEvent(preIngestionEvent, personContainer)
+        await eventsProcessor.createEvent(preIngestionEvent, personContainer)
 
         await eventsProcessor.kafkaProducer.flush()
 
@@ -98,7 +98,6 @@ describe('EventsProcessor#createEvent()', () => {
                 $group_4: '',
             })
         )
-        expect(result).toEqual(preIngestionEvent)
         expect(jest.mocked(eventsProcessor.db.getPersonData)).not.toHaveBeenCalled()
     })
 

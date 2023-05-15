@@ -6,7 +6,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -33,7 +33,7 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
+     LEFT JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -136,11 +136,6 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND ((replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '') ILIKE '%test%')) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '') ILIKE '%test%'))) person ON pdi.person_id = person.id

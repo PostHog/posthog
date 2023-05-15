@@ -15,6 +15,7 @@ import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { FunnelBinsPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
+import { ValueOnSeriesFilterDataExploration } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -27,6 +28,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showDateRange,
         disableDateRange,
         showCompare,
+        showValueOnSeries,
         showUnit,
         showChart,
         showInterval,
@@ -74,6 +76,12 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 {showCompare && (
                     <ConfigFilter>
                         <CompareFilter />
+                    </ConfigFilter>
+                )}
+
+                {showValueOnSeries && (
+                    <ConfigFilter>
+                        <ValueOnSeriesFilterDataExploration />
                     </ConfigFilter>
                 )}
             </div>

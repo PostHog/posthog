@@ -170,12 +170,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconAction,
         inMenu: true,
     },
-    [NodeKind.NewEntityNode]: {
-        name: 'New Entity',
-        description: 'Something to do with new series 🤷',
-        icon: IconQuestionAnswer,
-        inMenu: true,
-    },
     [NodeKind.EventsQuery]: {
         name: 'Events Query',
         description: 'Hmmm, not every kind should be displayable I guess',
@@ -497,7 +491,6 @@ export function SavedInsights(): JSX.Element {
     return (
         <div className="saved-insights">
             <PageHeader title="Insights" buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
-
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}

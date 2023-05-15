@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useContext, useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
@@ -20,8 +20,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '../../models/groupsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SharingAccessTokenContext } from 'scenes/insights/insightLogic'
 
-interface Props {
+interface DashboardProps {
     id?: string
     dashboard?: DashboardType
     placement?: DashboardPlacement
@@ -30,15 +31,20 @@ interface Props {
 export const scene: SceneExport = {
     component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }: { params: Props }): DashboardLogicProps => ({
+    paramsToProps: ({ params: { id, placement } }: { params: DashboardProps }): DashboardLogicProps => ({
         id: id ? parseInt(id) : undefined,
         placement,
     }),
 }
 
-export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
+    const sharingAccessToken = useContext(SharingAccessTokenContext)
+
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
+        <BindLogic
+            logic={dashboardLogic}
+            props={{ id: id ? parseInt(id) : undefined, placement, dashboard, sharingAccessToken }}
+        >
             <DashboardScene />
         </BindLogic>
     )
@@ -47,8 +53,7 @@ export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element
 function DashboardScene(): JSX.Element {
     const {
         placement,
-        // dashboard on dashboardLogic isn't the dashboard on dashboardLogic (╯°□°)╯︵ ┻━┻
-        allItems: dashboard,
+        dashboard,
         canEditDashboard,
         tiles,
         itemsLoading,

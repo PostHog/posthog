@@ -68,10 +68,8 @@ describe('insightNavLogic', () => {
                             type: 'events',
                         },
                     ],
-                    filter_test_accounts: false,
                     insight: 'TRENDS',
                     interval: 'day',
-                    properties: [],
                 },
             })
         })

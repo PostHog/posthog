@@ -37,6 +37,8 @@ import {
     RecentPerformancePageView,
     DashboardTemplateType,
     DashboardTemplateEditorType,
+    EarlyAccsesFeatureType,
+    NewEarlyAccessFeatureType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -255,6 +257,10 @@ class ApiRequest {
             .addPathComponent(propertyDefinitionId)
     }
 
+    public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
+    }
+
     // # Cohorts
     public cohorts(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('cohorts')
@@ -383,6 +389,15 @@ class ApiRequest {
             return this.featureFlag(id, teamId).addPathComponent('activity')
         }
         return this.featureFlags(teamId).addPathComponent('activity')
+    }
+
+    // # Features
+    public earlyAccessFeatures(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('early_access_feature')
+    }
+
+    public earlyAccessFeature(id: EarlyAccsesFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.earlyAccessFeatures(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -540,6 +555,17 @@ const api = {
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
                     return new ApiRequest().pluginsActivity()
+                },
+                [ActivityScope.DATA_MANAGEMENT]: () => {
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.EVENT_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ event definitions?
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.PROPERTY_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ property definitions?
+                    return new ApiRequest().dataManagementActivity()
                 },
             }
 
@@ -1074,6 +1100,27 @@ const api = {
                 .withAction('recordings')
                 .withAction(session_recording_id)
                 .delete()
+        },
+    },
+
+    earlyAccessFeatures: {
+        async get(featureId: EarlyAccsesFeatureType['id']): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeature(featureId).get()
+        },
+        async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeatures().create({ data })
+        },
+        async update(
+            featureId: EarlyAccsesFeatureType['id'],
+            data: Pick<EarlyAccsesFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+        ): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
+        },
+        async list(): Promise<PaginatedResponse<EarlyAccsesFeatureType>> {
+            return await new ApiRequest().earlyAccessFeatures().get()
+        },
+        async promote(featureId: EarlyAccsesFeatureType['id']): Promise<PaginatedResponse<EarlyAccsesFeatureType>> {
+            return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
         },
     },
 

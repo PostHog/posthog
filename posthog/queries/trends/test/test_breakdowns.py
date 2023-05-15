@@ -312,3 +312,20 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_histogram_by_missing_property_regression(self):
+        response = self._run(
+            {
+                "breakdown": "this_property_does_not_exist",
+                "breakdown_type": "event",
+                "breakdown_histogram_bin_count": 10,
+            },
+        )
+
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                ("[nan,nan]", 0.0, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )

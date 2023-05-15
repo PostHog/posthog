@@ -32,11 +32,6 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
@@ -62,32 +57,28 @@
        (SELECT person_id,
                event,
                properties,
-               distinct_id,
-               timestamp,
-               event_0_latest_0,
-               min(event_0_latest_1) over (PARTITION by person_id
-                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1,
-                                          event_1_latest_0,
-                                          min(event_1_latest_1) over (PARTITION by person_id
-                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_1_latest_1
+               distinct_id, timestamp, event_0_latest_0,
+                                       min(event_0_latest_1) over (PARTITION by person_id
+                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1,
+                                                                  event_1_latest_0,
+                                                                  min(event_1_latest_1) over (PARTITION by person_id
+                                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_1_latest_1
         FROM
           (SELECT pdi.person_id AS person_id,
                   event,
                   properties,
-                  distinct_id,
-                  timestamp,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_0_step_0,
-                  if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_0_step_1,
-                  if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1,
-                  if(event = '$new_view'
-                     AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_1_step_0,
-                  if(event_1_step_0 = 1, timestamp, null) AS event_1_latest_0,
-                  if(event = '$new_view'
-                     AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_1_step_1,
-                  if(event_1_step_1 = 1, timestamp, null) AS event_1_latest_1
+                  distinct_id, timestamp, if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_0_step_0,
+                                          if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                                          if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_0_step_1,
+                                          if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1,
+                                          if(event = '$new_view'
+                                             AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_1_step_0,
+                                          if(event_1_step_0 = 1, timestamp, null) AS event_1_latest_0,
+                                          if(event = '$new_view'
+                                             AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_1_step_1,
+                                          if(event_1_step_1 = 1, timestamp, null) AS event_1_latest_1
            FROM events AS e
            INNER JOIN
              (SELECT distinct_id,
@@ -108,11 +99,6 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))) person ON person.person_id = funnel_query.person_id
@@ -150,11 +136,6 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))))) person ON person.person_id = behavior_query.person_id
@@ -212,23 +193,19 @@
        (SELECT person_id,
                event,
                properties,
-               distinct_id,
-               timestamp,
-               event_0_latest_0,
-               min(event_0_latest_1) over (PARTITION by person_id
-                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
+               distinct_id, timestamp, event_0_latest_0,
+                                       min(event_0_latest_1) over (PARTITION by person_id
+                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
           (SELECT pdi.person_id AS person_id,
                   event,
                   properties,
-                  distinct_id,
-                  timestamp,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
-                  if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
-                  if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
+                  distinct_id, timestamp, if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
+                                          if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                                          if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
+                                          if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
            INNER JOIN
              (SELECT distinct_id,
@@ -262,23 +239,19 @@
        (SELECT person_id,
                event,
                properties,
-               distinct_id,
-               timestamp,
-               event_0_latest_0,
-               min(event_0_latest_1) over (PARTITION by person_id
-                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
+               distinct_id, timestamp, event_0_latest_0,
+                                       min(event_0_latest_1) over (PARTITION by person_id
+                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
           (SELECT pdi.person_id AS person_id,
                   event,
                   properties,
-                  distinct_id,
-                  timestamp,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
-                  if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
-                  if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
+                  distinct_id, timestamp, if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
+                                          if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                                          if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
+                                          if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
            INNER JOIN
              (SELECT distinct_id,
@@ -313,23 +286,19 @@
        (SELECT person_id,
                event,
                properties,
-               distinct_id,
-               timestamp,
-               event_0_latest_0,
-               min(event_0_latest_1) over (PARTITION by person_id
-                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
+               distinct_id, timestamp, event_0_latest_0,
+                                       min(event_0_latest_1) over (PARTITION by person_id
+                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
           (SELECT pdi.person_id AS person_id,
                   event,
                   properties,
-                  distinct_id,
-                  timestamp,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
-                  if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
-                  if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
+                  distinct_id, timestamp, if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
+                                          if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                                          if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
+                                          if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
            INNER JOIN
              (SELECT distinct_id,
@@ -350,11 +319,6 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))))) person ON person.person_id = funnel_query.person_id
@@ -472,11 +436,6 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
@@ -493,14 +452,6 @@
   SELECT id
   FROM person
   WHERE team_id = 2
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 2
-         AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '')))
-               OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))
-              OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))
-                  AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))
@@ -535,12 +486,6 @@
   SELECT id
   FROM person
   WHERE team_id = 2
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 2
-         AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))))
-              OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))
@@ -548,6 +493,15 @@
   '
 ---
 # name: TestCohortQuery.test_static_cohort_filter
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '
+---
+# name: TestCohortQuery.test_static_cohort_filter.1
   '
   
   SELECT person.person_id AS id
@@ -569,6 +523,15 @@
   '
 ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '
+---
+# name: TestCohortQuery.test_static_cohort_filter_with_extra.1
   '
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
@@ -608,7 +571,7 @@
           AND (performed_event_condition_None_level_level_0_level_1_0)))
   '
 ---
-# name: TestCohortQuery.test_static_cohort_filter_with_extra.1
+# name: TestCohortQuery.test_static_cohort_filter_with_extra.2
   '
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
@@ -649,6 +612,15 @@
   '
 ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '
+---
+# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.1
   '
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id

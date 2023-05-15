@@ -88,6 +88,7 @@ class PersonQuery:
         )
         person_filters, person_params = self._get_person_filters(prepend=prepend)
         cohort_filters, cohort_filter_params = self._get_cohort_filters(prepend=prepend)
+
         cohort_query, cohort_params = self._get_cohort_query()
         if paginate:
             limit_offset, limit_params = self._get_limit_offset()
@@ -102,17 +103,23 @@ class PersonQuery:
         )
         updated_after_clause, updated_after_params = self._get_updated_after_clause()
 
+        cohort_subquery = (
+            f"""AND id IN (
+            SELECT id FROM person
+            {cohort_query}
+            WHERE team_id = %(team_id)s
+            {person_filters}
+        )
+        """
+            if cohort_query
+            else ""
+        )
         return (
             f"""
             SELECT {fields}
             FROM person
             WHERE team_id = %(team_id)s
-            AND id IN (
-                SELECT id FROM person
-                {cohort_query}
-                WHERE team_id = %(team_id)s
-                {person_filters}
-            )
+            {cohort_subquery}
             {cohort_filters}
             GROUP BY id
             HAVING max(is_deleted) = 0 {filter_future_persons_query} {updated_after_clause}

@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 
 import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent } from '../../../../src/types'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
-import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/emitToBufferStep'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
@@ -13,7 +12,6 @@ import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipe
 import { generateEventDeadLetterQueueMessage } from '../../../../src/worker/ingestion/utils'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/emitToBufferStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
@@ -99,17 +97,13 @@ describe('EventPipelineRunner', () => {
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
         jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
-        jest.mocked(emitToBufferStep).mockResolvedValue([
-            pluginEvent,
-            { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
-        ])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
         jest.mocked(processPersonsStep).mockResolvedValue([
             pluginEvent,
             { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
         ])
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
-        jest.mocked(createEventStep).mockResolvedValue(preIngestionEvent)
+        jest.mocked(createEventStep).mockResolvedValue(null)
         jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
     })
 
@@ -119,7 +113,6 @@ describe('EventPipelineRunner', () => {
 
             expect(runner.steps).toEqual([
                 'populateTeamDataStep',
-                'emitToBufferStep',
                 'pluginsProcessEventStep',
                 'processPersonsStep',
                 'prepareEventStep',
@@ -131,7 +124,7 @@ describe('EventPipelineRunner', () => {
         it('emits metrics for every step', async () => {
             await runner.runEventPipeline(pipelineEvent)
 
-            expect(hub.statsd.timing).toHaveBeenCalledTimes(6)
+            expect(hub.statsd.timing).toHaveBeenCalledTimes(5)
             expect(hub.statsd.increment).toHaveBeenCalledTimes(9)
 
             expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
@@ -152,13 +145,13 @@ describe('EventPipelineRunner', () => {
             it('stops processing after step', async () => {
                 await runner.runEventPipeline(pipelineEvent)
 
-                expect(runner.steps).toEqual(['populateTeamDataStep', 'emitToBufferStep', 'pluginsProcessEventStep'])
+                expect(runner.steps).toEqual(['populateTeamDataStep', 'pluginsProcessEventStep'])
             })
 
             it('reports metrics and last step correctly', async () => {
                 await runner.runEventPipeline(pipelineEvent)
 
-                expect(hub.statsd.timing).toHaveBeenCalledTimes(3)
+                expect(hub.statsd.timing).toHaveBeenCalledTimes(2)
                 expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last', {
                     step: 'pluginsProcessEventStep',
                     team_id: '2',
@@ -211,26 +204,15 @@ describe('EventPipelineRunner', () => {
         })
     })
 
-    describe('runBufferEventPipeline()', () => {
-        it('runs remaining steps', async () => {
-            jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
-
-            await runner.runBufferEventPipeline(pluginEvent)
-
-            expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
-                'processPersonsStep',
-                'prepareEventStep',
-                'createEventStep',
-            ])
-        })
-    })
-
     describe('runAsyncHandlersEventPipeline()', () => {
         it('runs remaining steps', async () => {
             jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
 
-            await runner.runAsyncHandlersEventPipeline(preIngestionEvent)
+            await runner.runAsyncHandlersEventPipeline({
+                ...preIngestionEvent,
+                person_properties: {},
+                person_created_at: '2020-02-23T02:11:00.000Z' as ISOTimestamp,
+            })
 
             expect(runner.steps).toEqual(['runAsyncHandlersStep'])
         })

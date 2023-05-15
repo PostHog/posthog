@@ -65,6 +65,7 @@ describe('Insights', () => {
             const pageTitle = $pageTitle.text()
 
             cy.get('[data-attr="add-action-event-button"]').click()
+            cy.get('[data-attr="trend-element-subject-1"]').click()
             cy.get('[data-attr="prop-filter-events-0"]').click()
             cy.get('[data-attr="insight-save-dropdown"]').click()
             cy.get('[data-attr="insight-save-and-continue"]').click()

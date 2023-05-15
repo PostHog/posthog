@@ -235,7 +235,7 @@ export function Billing(): JSX.Element {
             </div>
 
             {(products || [])
-                .filter((x) => !x.contact_support)
+                .filter((x) => !x.inclusion_only)
                 .map((x) => (
                     <div key={x.type}>
                         <LemonDivider dashed className="my-2" />

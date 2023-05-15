@@ -50,6 +50,9 @@ class TraversingVisitor(Visitor):
     def visit_order_expr(self, node: ast.OrderExpr):
         self.visit(node.expr)
 
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        self.visit(node.tuple)
+
     def visit_tuple(self, node: ast.Tuple):
         for expr in node.exprs:
             self.visit(expr)
@@ -159,10 +162,38 @@ class TraversingVisitor(Visitor):
         self.visit(node.table_type)
 
     def visit_call_type(self, node: ast.CallType):
-        for expr in node.args:
+        for expr in node.arg_types:
             self.visit(expr)
 
-    def visit_constant_type(self, node: ast.ConstantType):
+    def visit_integer_type(self, node: ast.IntegerType):
+        pass
+
+    def visit_float_type(self, node: ast.FloatType):
+        pass
+
+    def visit_string_type(self, node: ast.StringType):
+        pass
+
+    def visit_boolean_type(self, node: ast.BooleanType):
+        pass
+
+    def visit_unknown_type(self, node: ast.UnknownType):
+        pass
+
+    def visit_array_type(self, node: ast.ArrayType):
+        self.visit(node.item_type)
+
+    def visit_tuple_type(self, node: ast.TupleType):
+        for expr in node.item_types:
+            self.visit(expr)
+
+    def visit_date_type(self, node: ast.DateType):
+        pass
+
+    def visit_date_time_type(self, node: ast.DateTimeType):
+        pass
+
+    def visit_uuid_type(self, node: ast.UUIDType):
         pass
 
     def visit_property_type(self, node: ast.PropertyType):
@@ -225,6 +256,13 @@ class CloningVisitor(Visitor):
             order=node.order,
         )
 
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        return ast.TupleAccess(
+            type=None if self.clear_types else node.type,
+            tuple=self.visit(node.tuple),
+            index=node.index,
+        )
+
     def visit_tuple(self, node: ast.Array):
         return ast.Tuple(type=None if self.clear_types else node.type, exprs=[self.visit(expr) for expr in node.exprs])
 
@@ -273,6 +311,7 @@ class CloningVisitor(Visitor):
         )
 
     def visit_join_expr(self, node: ast.JoinExpr):
+        # :TRICKY: when adding new fields, also add them to visit_join_expr of resolver.py
         return ast.JoinExpr(
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
@@ -288,8 +327,8 @@ class CloningVisitor(Visitor):
         return ast.SelectQuery(
             type=None if self.clear_types else node.type,
             macros={key: expr for key, expr in node.macros.items()} if node.macros else None,  # to not traverse
+            select_from=self.visit(node.select_from),  # keep "select_from" before "select" to resolve tables first
             select=[self.visit(expr) for expr in node.select] if node.select else None,
-            select_from=self.visit(node.select_from),
             where=self.visit(node.where),
             prewhere=self.visit(node.prewhere),
             having=self.visit(node.having),

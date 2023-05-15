@@ -443,6 +443,10 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
     kafka_partition_key = None
 
     if event["event"] in ("$snapshot", "$performance_event"):
+        # We only need locality for snapshot events, not performance events, so
+        # we only set the partition key for snapshot events.
+        if event["event"] == "$snapshot":
+            kafka_partition_key = event["properties"]["$session_id"]
         return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
 
     candidate_partition_key = f"{token}:{distinct_id}"

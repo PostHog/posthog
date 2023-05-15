@@ -15,7 +15,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
 const TabToIcon = {
@@ -25,10 +25,12 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.NETWORK]: IconGauge,
 }
 
-export function PlayerInspectorControls(props: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerInspectorControls(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
     const { windowIdFilter, tab, searchQuery, syncScrollingPaused, tabsState, windowIds, showMatchingEventsFilter } =
-        useValues(playerInspectorLogic(props))
-    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScrollPaused } = useActions(playerInspectorLogic(props))
+        useValues(inspectorLogic)
+    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScrollPaused } = useActions(inspectorLogic)
     const { showOnlyMatching, timestampMode, miniFilters, syncScroll } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll } = useActions(playerSettingsLogic)
 
@@ -40,7 +42,7 @@ export function PlayerInspectorControls(props: SessionRecordingPlayerLogicProps)
     ]
 
     return (
-        <div className="bg-side p-2 space-y-2">
+        <div className="bg-side p-2 space-y-2 border-b">
             <div className="flex justify-between gap-2 flex-wrap">
                 <div className="flex flex-1 items-center gap-1">
                     {tabs.map((tabId) => {
@@ -85,11 +87,11 @@ export function PlayerInspectorControls(props: SessionRecordingPlayerLogicProps)
                         <LemonSelect
                             size="small"
                             data-attr="player-window-select"
-                            value={windowIdFilter ?? undefined}
+                            value={windowIdFilter}
                             onChange={(val) => setWindowIdFilter(val || null)}
                             options={[
                                 {
-                                    value: undefined,
+                                    value: null,
                                     label: 'All windows',
                                     icon: <IconWindow size="small" value="A" className="text-muted" />,
                                 },

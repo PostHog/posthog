@@ -1,8 +1,7 @@
 # name: TestClickhousePaths.test_path_by_funnel_after_dropoff_with_group_filter
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp
+    (SELECT aggregation_target AS actor_id , timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -34,35 +33,29 @@
                      if(isNotNull(latest_2)
                         AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        min(latest_2) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       min(latest_2) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           latest_1,
-                           step_2,
-                           if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          latest_1,
+                                                          step_2,
+                                                          if(latest_2 < latest_1, NULL, latest_2) as latest_2
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
-                              step_0,
-                              latest_0,
-                              step_1,
-                              min(latest_1) over (PARTITION by aggregation_target
-                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                 step_2,
-                                                 min(latest_2) over (PARTITION by aggregation_target
-                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                      (SELECT aggregation_target, timestamp, step_0,
+                                                             latest_0,
+                                                             step_1,
+                                                             min(latest_1) over (PARTITION by aggregation_target
+                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                                step_2,
+                                                                                min(latest_2) over (PARTITION by aggregation_target
+                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
@@ -151,7 +144,7 @@
                     WHERE team_id = 2
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 INNER JOIN
+                 LEFT JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
@@ -183,8 +176,7 @@
 # name: TestClickhousePaths.test_path_by_funnel_after_dropoff_with_group_filter.1
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp
+    (SELECT aggregation_target AS actor_id , timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -216,35 +208,29 @@
                      if(isNotNull(latest_2)
                         AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        min(latest_2) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       min(latest_2) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           latest_1,
-                           step_2,
-                           if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          latest_1,
+                                                          step_2,
+                                                          if(latest_2 < latest_1, NULL, latest_2) as latest_2
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
-                              step_0,
-                              latest_0,
-                              step_1,
-                              min(latest_1) over (PARTITION by aggregation_target
-                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                 step_2,
-                                                 min(latest_2) over (PARTITION by aggregation_target
-                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                      (SELECT aggregation_target, timestamp, step_0,
+                                                             latest_0,
+                                                             step_1,
+                                                             min(latest_1) over (PARTITION by aggregation_target
+                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                                step_2,
+                                                                                min(latest_2) over (PARTITION by aggregation_target
+                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
@@ -330,7 +316,7 @@
                     WHERE team_id = 2
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 INNER JOIN
+                 LEFT JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
@@ -360,8 +346,7 @@
 # name: TestClickhousePaths.test_path_by_funnel_after_dropoff_with_group_filter.2
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp
+    (SELECT aggregation_target AS actor_id , timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -393,35 +378,29 @@
                      if(isNotNull(latest_2)
                         AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        min(latest_2) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       min(latest_2) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           latest_1,
-                           step_2,
-                           if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          latest_1,
+                                                          step_2,
+                                                          if(latest_2 < latest_1, NULL, latest_2) as latest_2
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
-                              step_0,
-                              latest_0,
-                              step_1,
-                              min(latest_1) over (PARTITION by aggregation_target
-                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                 step_2,
-                                                 min(latest_2) over (PARTITION by aggregation_target
-                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                      (SELECT aggregation_target, timestamp, step_0,
+                                                             latest_0,
+                                                             step_1,
+                                                             min(latest_1) over (PARTITION by aggregation_target
+                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                                step_2,
+                                                                                min(latest_2) over (PARTITION by aggregation_target
+                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
@@ -507,7 +486,7 @@
                     WHERE team_id = 2
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 INNER JOIN
+                 LEFT JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
@@ -537,8 +516,7 @@
 # name: TestClickhousePaths.test_path_by_funnel_after_dropoff_with_group_filter.3
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp
+    (SELECT aggregation_target AS actor_id , timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -570,35 +548,29 @@
                      if(isNotNull(latest_2)
                         AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        min(latest_2) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       min(latest_2) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           latest_1,
-                           step_2,
-                           if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          latest_1,
+                                                          step_2,
+                                                          if(latest_2 < latest_1, NULL, latest_2) as latest_2
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
-                              step_0,
-                              latest_0,
-                              step_1,
-                              min(latest_1) over (PARTITION by aggregation_target
-                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                 step_2,
-                                                 min(latest_2) over (PARTITION by aggregation_target
-                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                      (SELECT aggregation_target, timestamp, step_0,
+                                                             latest_0,
+                                                             step_1,
+                                                             min(latest_1) over (PARTITION by aggregation_target
+                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                                step_2,
+                                                                                min(latest_2) over (PARTITION by aggregation_target
+                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
@@ -684,7 +656,7 @@
                     WHERE team_id = 2
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 INNER JOIN
+                 LEFT JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
@@ -714,8 +686,7 @@
 # name: TestClickhousePaths.test_path_by_funnel_after_dropoff_with_group_filter.4
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp
+    (SELECT aggregation_target AS actor_id , timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -747,35 +718,29 @@
                      if(isNotNull(latest_2)
                         AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        min(latest_2) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       min(latest_2) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           latest_1,
-                           step_2,
-                           if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          latest_1,
+                                                          step_2,
+                                                          if(latest_2 < latest_1, NULL, latest_2) as latest_2
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
-                              step_0,
-                              latest_0,
-                              step_1,
-                              min(latest_1) over (PARTITION by aggregation_target
-                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                 step_2,
-                                                 min(latest_2) over (PARTITION by aggregation_target
-                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                      (SELECT aggregation_target, timestamp, step_0,
+                                                             latest_0,
+                                                             step_1,
+                                                             min(latest_1) over (PARTITION by aggregation_target
+                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                                step_2,
+                                                                                min(latest_2) over (PARTITION by aggregation_target
+                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
@@ -861,7 +826,7 @@
                     WHERE team_id = 2
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 INNER JOIN
+                 LEFT JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
@@ -1018,7 +983,7 @@
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
@@ -1101,7 +1066,7 @@
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
@@ -1184,7 +1149,7 @@
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_1
                     FROM groups
@@ -1483,10 +1448,9 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(100)((timestamp,
-                              uuid,
-                              $session_id,
-                              $window_id)) as matching_events
+         groupUniqArray(100)((timestamp, uuid,
+                                         $session_id,
+                                         $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1604,10 +1568,9 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(100)((timestamp,
-                              uuid,
-                              $session_id,
-                              $window_id)) as matching_events
+         groupUniqArray(100)((timestamp, uuid,
+                                         $session_id,
+                                         $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1725,10 +1688,9 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(100)((timestamp,
-                              uuid,
-                              $session_id,
-                              $window_id)) as matching_events
+         groupUniqArray(100)((timestamp, uuid,
+                                         $session_id,
+                                         $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1845,10 +1807,9 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(100)((timestamp,
-                              uuid,
-                              $session_id,
-                              $window_id)) as matching_events
+         groupUniqArray(100)((timestamp, uuid,
+                                         $session_id,
+                                         $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -2037,10 +1998,11 @@
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
                  LEFT OUTER JOIN
-                   (SELECT override_person_id as person_id,
+                   (SELECT argMax(override_person_id, version) as person_id,
                            old_person_id
                     FROM person_overrides
-                    WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
+                    WHERE team_id = 2
+                    GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
                  WHERE team_id = 2
                    AND (event = '$pageview'
                         OR event = '$screen'
