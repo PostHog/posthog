@@ -354,6 +354,12 @@ class QueryMatchingTest:
             query,
         )
 
+        query = re.sub(
+            rf"and person_id = '\d{8}-\d{4}-\d{4}-\d{4}-\d{12}'",
+            r"and person_id = '00000000-0000-0000-0000-000000000000'",
+            query,
+        )
+
         # Replace tag id lookups for postgres
         query = re.sub(
             rf"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",

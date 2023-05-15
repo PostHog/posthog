@@ -61,7 +61,7 @@ class SessionReplaySummaryQuery:
 class TestReceiveSummarizedSessionReplays(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
     def test_session_replay_summaries_can_be_queried(self):
-        session_id = str(uuid4())
+        session_id = "test_session_replay_summaries_can_be_queried-session-id"
 
         produce_replay_summary(
             session_id=session_id,

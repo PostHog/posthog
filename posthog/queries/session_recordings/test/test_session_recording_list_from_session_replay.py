@@ -578,8 +578,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
     def test_action_filter(self):
         user = "test_action_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
-        session_id_one = f"test_action_filter-{str(uuid4())}"
-        window_id = str(uuid4())
+        session_id_one = f"test_action_filter-session-one"
+        window_id = "test_action_filter-window-id"
         action1 = self.create_action(
             "custom-event",
             properties=[

@@ -8,8 +8,8 @@
      AND event IN ['custom-event']
      AND ((event = 'custom-event'
            AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
-                AND has(['test_action_filter-afbda398-6b48-4249-94d7-b3ce57a7b81f'], "$session_id")
-                AND has(['5065ac5b-4e87-4b3d-aeb4-e543899e7093'], "$window_id"))))
+                AND has(['test_action_filter-session-one'], "$session_id")
+                AND has(['test_action_filter-window-id'], "$window_id"))))
      and notEmpty(session_id))
   SELECT session_id,
          any(team_id),
@@ -45,8 +45,8 @@
      AND timestamp <= '2023-01-04 12:00:00'
      AND event IN ['custom-event']
      AND ((event = 'custom-event'
-           AND (has(['test_action_filter-afbda398-6b48-4249-94d7-b3ce57a7b81f'], "$session_id")
-                AND has(['5065ac5b-4e87-4b3d-aeb4-e543899e7093'], "$window_id"))))
+           AND (has(['test_action_filter-session-one'], "$session_id")
+                AND has(['test_action_filter-window-id'], "$window_id"))))
      and notEmpty(session_id))
   SELECT session_id,
          any(team_id),
@@ -82,8 +82,8 @@
      AND timestamp <= '2023-01-04 12:00:00'
      AND event IN ['custom-event']
      AND ((event = 'custom-event'
-           AND (has(['test_action_filter-afbda398-6b48-4249-94d7-b3ce57a7b81f'], "$session_id")
-                AND has(['5065ac5b-4e87-4b3d-aeb4-e543899e7093'], "$window_id"))))
+           AND (has(['test_action_filter-session-one'], "$session_id")
+                AND has(['test_action_filter-window-id'], "$window_id"))))
      AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
      and notEmpty(session_id))
   SELECT session_id,
@@ -125,7 +125,7 @@
         HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id PREWHERE team_id = 2
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0
-     and person_id = '01881f16-60dd-0000-db39-e075d4f65ecb') ,
+     and person_id = '01881f27-a0bd-0000-d643-897da6be1526') ,
        events_session_ids AS
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
@@ -387,7 +387,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:42'
+  AND max_last_timestamp <= '2023-05-15 11:24:32'
   WHERE 1=1
   GROUP BY session_id
   HAVING 1=1
@@ -412,7 +412,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:42'
+  AND max_last_timestamp <= '2023-05-15 11:24:33'
   WHERE 1=1
   GROUP BY session_id
   HAVING 1=1
@@ -437,7 +437,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:42'
+  AND max_last_timestamp <= '2023-05-15 11:24:33'
   WHERE 1=1
   GROUP BY session_id
   HAVING 1=1
@@ -462,7 +462,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:42'
+  AND max_last_timestamp <= '2023-05-15 11:24:33'
   WHERE 1=1
   GROUP BY session_id
   HAVING 1=1
@@ -487,7 +487,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-15 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:43'
+  AND max_last_timestamp <= '2023-05-15 11:24:33'
   WHERE 1=1
   GROUP BY session_id
   HAVING 1=1
@@ -512,7 +512,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-13 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:43'
+  AND max_last_timestamp <= '2023-05-15 11:24:33'
   WHERE 1=1
   GROUP BY session_id
   HAVING 1=1
@@ -587,7 +587,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:43'
+  AND max_last_timestamp <= '2023-05-15 11:24:33'
   WHERE 1=1
   GROUP BY session_id
   HAVING 1=1
@@ -613,7 +613,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:43'
+  AND max_last_timestamp <= '2023-05-15 11:24:33'
   WHERE 1=1
   GROUP BY session_id
   HAVING 1=1
@@ -629,7 +629,7 @@
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2023-05-07 12:00:00'
-     AND timestamp <= '2023-05-15 23:05:43'
+     AND timestamp <= '2023-05-15 23:24:33'
      AND event IN ['$pageview']
      AND event = '$pageview'
      and notEmpty(session_id))
@@ -646,7 +646,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:43'
+  AND max_last_timestamp <= '2023-05-15 11:24:33'
   AND session_id in
     (select session_id
      from events_session_ids)
@@ -664,7 +664,7 @@
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2023-05-07 12:00:00'
-     AND timestamp <= '2023-05-15 23:05:43'
+     AND timestamp <= '2023-05-15 23:24:33'
      AND event IN ['$autocapture']
      AND event = '$autocapture'
      and notEmpty(session_id))
@@ -681,7 +681,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:43'
+  AND max_last_timestamp <= '2023-05-15 11:24:33'
   AND session_id in
     (select session_id
      from events_session_ids)
@@ -764,7 +764,7 @@
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2023-05-07 12:00:00'
-     AND timestamp <= '2023-05-15 23:05:45'
+     AND timestamp <= '2023-05-15 23:24:35'
      AND event IN ['$pageview']
      AND event = '$pageview'
      and notEmpty(session_id))
@@ -781,7 +781,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:45'
+  AND max_last_timestamp <= '2023-05-15 11:24:35'
   AND session_id in
     (select session_id
      from events_session_ids)
@@ -799,7 +799,7 @@
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2023-05-07 12:00:00'
-     AND timestamp <= '2023-05-15 23:05:45'
+     AND timestamp <= '2023-05-15 23:24:35'
      AND event IN ['$autocapture']
      AND event = '$autocapture'
      and notEmpty(session_id))
@@ -816,7 +816,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:45'
+  AND max_last_timestamp <= '2023-05-15 11:24:35'
   AND session_id in
     (select session_id
      from events_session_ids)
@@ -856,7 +856,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:46'
+  AND max_last_timestamp <= '2023-05-15 11:24:36'
   WHERE 1=1
     AND distinct_id in
       (select distinct_id
@@ -874,7 +874,7 @@
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2023-05-07 12:00:00'
-     AND timestamp <= '2023-05-15 23:05:46'
+     AND timestamp <= '2023-05-15 23:24:37'
      AND event IN ['$pageview']
      AND event = '$pageview'
      AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
@@ -892,7 +892,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:46'
+  AND max_last_timestamp <= '2023-05-15 11:24:37'
   AND session_id in
     (select session_id
      from events_session_ids)
@@ -910,7 +910,7 @@
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2023-05-07 12:00:00'
-     AND timestamp <= '2023-05-15 23:05:47'
+     AND timestamp <= '2023-05-15 23:24:37'
      AND event IN ['$pageview']
      AND event = '$pageview'
      AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
@@ -928,7 +928,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:47'
+  AND max_last_timestamp <= '2023-05-15 11:24:37'
   AND session_id in
     (select session_id
      from events_session_ids)
@@ -946,7 +946,7 @@
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2023-05-07 12:00:00'
-     AND timestamp <= '2023-05-15 23:05:48'
+     AND timestamp <= '2023-05-15 23:24:38'
      AND event IN ['$pageview']
      AND event = '$pageview'
      AND (has(['Chrome'], "mat_$browser"))
@@ -964,7 +964,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:48'
+  AND max_last_timestamp <= '2023-05-15 11:24:38'
   AND session_id in
     (select session_id
      from events_session_ids)
@@ -982,7 +982,7 @@
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2023-05-07 12:00:00'
-     AND timestamp <= '2023-05-15 23:05:48'
+     AND timestamp <= '2023-05-15 23:24:38'
      AND event IN ['$pageview']
      AND event = '$pageview'
      AND (has(['Firefox'], "mat_$browser"))
@@ -1000,7 +1000,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:48'
+  AND max_last_timestamp <= '2023-05-15 11:24:38'
   AND session_id in
     (select session_id
      from events_session_ids)
@@ -1018,7 +1018,7 @@
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2023-05-07 12:00:00'
-     AND timestamp <= '2023-05-15 23:05:48'
+     AND timestamp <= '2023-05-15 23:24:38'
      AND event IN ['$pageview', 'new-event']
      AND event = 'new-event'
      and notEmpty(session_id))
@@ -1035,7 +1035,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:48'
+  AND max_last_timestamp <= '2023-05-15 11:24:38'
   AND session_id in
     (select session_id
      from events_session_ids)
@@ -1053,7 +1053,7 @@
     (SELECT distinct `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2023-05-07 12:00:00'
-     AND timestamp <= '2023-05-15 23:05:48'
+     AND timestamp <= '2023-05-15 23:24:38'
      AND event IN ['$pageview', 'new-event2']
      AND event = 'new-event2'
      and notEmpty(session_id))
@@ -1070,7 +1070,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:48'
+  AND max_last_timestamp <= '2023-05-15 11:24:38'
   AND session_id in
     (select session_id
      from events_session_ids)
@@ -1096,7 +1096,7 @@
         HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id PREWHERE team_id = 2
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0
-     and person_id = '01881f16-81fd-0000-edbd-02df1e996c97')
+     and person_id = '01881f27-c06d-0000-2dd3-54d0543f9087')
   SELECT session_id,
          any(team_id),
          any(distinct_id),
@@ -1110,7 +1110,7 @@
          round((sum(active_milliseconds)/1000)/duration, 2) as active_time
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2023-05-08 00:00:00'
-  AND max_last_timestamp <= '2023-05-15 11:05:48'
+  AND max_last_timestamp <= '2023-05-15 11:24:38'
   WHERE 1=1
     AND distinct_id in
       (select distinct_id

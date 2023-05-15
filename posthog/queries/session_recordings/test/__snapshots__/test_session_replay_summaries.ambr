@@ -15,7 +15,7 @@
   from session_replay_events prewhere team_id = 2
   and min_first_timestamp >= '2023-04-24 19:18:24.597000'
   and max_last_timestamp <= '2023-04-28 19:18:24.597000'
-  and session_id in ('b476f60b-9d50-4df8-a5db-fe64b25cccb9')
+  and session_id in ('test_session_replay_summaries_can_be_queried-session-id')
   group by session_id
   '
 ---
