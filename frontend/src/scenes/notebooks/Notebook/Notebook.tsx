@@ -31,7 +31,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
     const editor = useEditor({
         extensions: [
             StarterKit,
-            LinkExtension.configure({}),
+            NotebookNodeLink,
 
             NotebookNodeInsight,
             NotebookNodeQuery,
@@ -41,7 +41,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             NotebookNodeFlag,
 
             // Ensure this is last as a fallback for all PostHog links
-            NotebookNodeLink,
+            // LinkExtension.configure({}),
         ],
         content,
         editorProps: {

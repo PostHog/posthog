@@ -43,7 +43,6 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const [path, icon] = useMemo(() => {
         const path = href.replace(window.location.origin, '')
         const pathStart = path.split('/')[1]?.toLowerCase()
-        console.log('href.split', path.split('/'))
 
         return [path, ICON_MAP[pathStart] || <IconLink />]
     }, [href])
@@ -53,7 +52,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             <Link
                 to={path}
                 className={clsx(
-                    'p-px rounded',
+                    'py-px px-1 rounded',
                     props.selected && 'bg-primary-light text-white',
                     !props.selected && 'bg-primary-highlight'
                 )}
