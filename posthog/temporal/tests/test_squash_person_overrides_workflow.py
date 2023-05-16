@@ -24,8 +24,6 @@ from posthog.models.person_overrides.sql import (
     PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
 from posthog.temporal.workflows.squash_person_overrides import (
-    ClickHouseConnectionInputs,
-    PostgresConnectionInputs,
     QueryInputs,
     SerializablePersonOverrideToDelete,
     SquashPersonOverridesInputs,
@@ -64,7 +62,7 @@ def activity_environment():
 
 
 @pytest.fixture
-def person_overrides_table():
+def person_overrides_table(query_inputs):
     """Manage person_overrides tables for testing."""
     sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL)
     sync_execute(KAFKA_PERSON_OVERRIDES_TABLE_SQL)
@@ -132,10 +130,7 @@ def query_inputs():
     test_pg = {"default": settings.DATABASES["default"] | {"NAME": f"test_{settings.PG_DATABASE}"}}
 
     with patch.dict(settings.DATABASES, test_pg):
-        query_inputs = QueryInputs(
-            clickhouse=ClickHouseConnectionInputs.from_posthog_settings(settings),
-            postgres=PostgresConnectionInputs.from_posthog_settings(settings),
-        )
+        query_inputs = QueryInputs()
 
         return query_inputs
 
@@ -795,7 +790,13 @@ def organization_uuid(query_inputs, django_db_setup_fixture):
     """
     organization_uuid = uuid4()
 
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -833,7 +834,13 @@ def organization_uuid(query_inputs, django_db_setup_fixture):
 
     yield organization_uuid
 
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("DELETE FROM posthog_organization WHERE id = %s", [organization_uuid])
 
@@ -846,7 +853,13 @@ def team_id(query_inputs, organization_uuid):
     on the database. This means we need to clean up after ourselves, which we do after
     yielding.
     """
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -908,7 +921,13 @@ def team_id(query_inputs, organization_uuid):
 
     yield team_id
 
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("DELETE FROM posthog_team WHERE id = %s", [team_id])
 
@@ -925,7 +944,13 @@ def person_overrides(query_inputs, team_id):
     override_person_id = uuid4()
     person_override = PersonOverrideTuple(old_person_id, override_person_id)
 
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         with connection.cursor() as cursor:
             person_ids = []
             for person_uuid in (override_person_id, old_person_id):
@@ -972,7 +997,13 @@ def person_overrides(query_inputs, team_id):
 
     yield person_override
 
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 "DELETE FROM posthog_personoverride WHERE team_id = %s AND old_person_id = %s",
@@ -994,7 +1025,13 @@ async def test_delete_squashed_person_overrides_from_postgres(
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         # These are sanity checks to ensure the fixtures are working properly.
         # If any assertions fail here, its likely a test setup issue.
         with connection.cursor() as cursor:
@@ -1021,7 +1058,13 @@ async def test_delete_squashed_person_overrides_from_postgres(
 
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
@@ -1039,7 +1082,13 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
     query_inputs, activity_environment, team_id, person_overrides
 ):
     """Test we do not delete person overrides when dry_run=True."""
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         # These are sanity checks to ensure the fixtures are working properly.
         # If any assertions fail here, its likely a test setup issue.
         with connection.cursor() as cursor:
@@ -1066,7 +1115,13 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
 
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
@@ -1088,7 +1143,13 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         # These are sanity checks to ensure the fixtures are working properly.
         # If any assertions fail here, its likely a test setup issue.
         with connection.cursor() as cursor:
@@ -1100,7 +1161,13 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
             overrides = cursor.fetchall()
             assert len(overrides) == 1
 
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         with connection.cursor() as cursor:
             # Let's insert a newer mapping that arrives while we are running the squash job.
             # Since only one mapping can exist per old_person_id, we'll bump the version number.
@@ -1136,7 +1203,13 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
 
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
-    with psycopg2.connect(query_inputs.postgres.database_url) as connection:
+    with psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
@@ -1167,7 +1240,11 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_person_overrides_workflow(
-    query_inputs, events_to_override, person_overrides_data, person_overrides
+    query_inputs,
+    events_to_override,
+    person_overrides_data,
+    person_overrides,
+    person_overrides_table,
 ):
     """Test the squash_person_overrides workflow end-to-end."""
     client = await Client.connect(
