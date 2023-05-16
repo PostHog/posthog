@@ -66,7 +66,7 @@ export function NotebookListMini({
 
     return (
         <LemonMenu placement="right-start" items={items} onVisibilityChange={onVisibilityChange}>
-            <LemonButton size="small" icon={<IconJournal />} status="primary-alt">
+            <LemonButton size="small" icon={<IconJournal />} status="primary-alt" sideIcon={null}>
                 <span className="font-semibold">{selectedNotebookId || 'Notebooks'}</span>
             </LemonButton>
         </LemonMenu>

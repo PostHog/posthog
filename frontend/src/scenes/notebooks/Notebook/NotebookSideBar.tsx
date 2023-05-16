@@ -13,6 +13,16 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import React from 'react'
 import { NotebookListMini } from './NotebookListMini'
 import { notebooksListLogic } from './notebooksListLogic'
+import { NotebookType } from '~/types'
+import { notebookLogic } from './notebookLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+
+const SyncStatus = ({ id }: { id: NotebookType['id'] }): JSX.Element => {
+    const { syncStatus } = useValues(notebookLogic({ id }))
+    const content = syncStatus === 'synced' ? '✅' : syncStatus === 'saving' ? <Spinner /> : '💭'
+
+    return <span className="text-muted-alt">{content}</span>
+}
 
 export function NotebookSideBar({ children }: { children: React.ReactElement<any> }): JSX.Element {
     const { notebookSideBarShown, fullScreen, selectedNotebook } = useValues(notebookSidebarLogic)
@@ -61,7 +71,9 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                         onNewNotebook={() => createNotebook()}
                                     />
                                 </span>
-                                <span className="flex gap-1 px-1">
+                                <span className="flex items-center gap-1 px-1">
+                                    {selectedNotebook && <SyncStatus id={selectedNotebook} />}
+
                                     <LemonButton
                                         size="small"
                                         onClick={() => setIsEditable(!isEditable)}

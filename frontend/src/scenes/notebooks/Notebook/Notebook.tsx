@@ -18,6 +18,7 @@ import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylis
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import { sampleOne } from 'lib/utils'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export type NotebookProps = {
     id: string
@@ -33,8 +34,8 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ id, sourceMode, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ id })
-    const { jsonContent } = useValues(logic)
-    const { setEditorRef, syncContent } = useActions(logic)
+    const { notebook, content, notebookLoading } = useValues(logic)
+    const { setEditorRef, onEditorUpdate } = useActions(logic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [id])
 
@@ -69,10 +70,12 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             // Ensure this is last as a fallback for all PostHog links
             // LinkExtension.configure({}),
         ],
-        content: jsonContent,
+        // This is only the default content. It is not reactive
+        content,
+        // content: `<h1>RFC: Notebooks </h1><h2><em>or:</em> How to convince everyone that this is a great idea 🤔</h2><p></p><ol><li><p>Involve HogQL somehow</p></li><li><p>Mention <strong>10x</strong> at least ten times</p></li><li><p>Talk about how awesome it is that we can use &lt;Query&gt;</p></li><li><p>Dad jokes</p></li><li><p>🥳</p></li></ol><p></p><p>Let's start with an <strong>Insight </strong>showing how the product will sky-rocket once Notebooks are released:</p><p></p><ph-insight shortid=\"OlmLXv6Q\"></ph-insight><p></p><p></p><p>Numbers are great and all but we should check out <strong>related Recordings </strong>of people who did the thing in the previous Insight. If we get this right <strong>clicking on a point in the graph</strong> would open a preview below which can then be stuck to the Notebook if desired. (Think opening a file in VSCode and it staying open once saved or double clicked.</p><p></p><ph-recording-playlist filters=\"[object Object]\"></ph-recording-playlist><p></p><p></p><p>Watching these recordings made me think - <em>\"I wonder what people are fitting into this insight I'm building up\"</em> so using the magical world of Data Exploration I duplicate the <strong>Playlist</strong> node and convert it to a <strong>Persons</strong> table, now seeing all Persons who match the filters from before</p><p></p><p></p><ph-query query=\"{&quot;kind&quot;:&quot;DataTableNode&quot;,&quot;columns&quot;:[&quot;person&quot;,&quot;id&quot;,&quot;created_at&quot;,&quot;person.$delete&quot;],&quot;source&quot;:{&quot;kind&quot;:&quot;PersonsNode&quot;,&quot;properties&quot;:[{&quot;type&quot;:&quot;person&quot;,&quot;key&quot;:&quot;$browser&quot;,&quot;operator&quot;:&quot;exact&quot;,&quot;value&quot;:&quot;Chrome&quot;}]}}\"></ph-query><p></p><p></p><p></p><p>I think these are our <strong>ICP!!!!</strong></p><ph-query query=\"{&quot;kind&quot;:&quot;DataTableNode&quot;,&quot;full&quot;:true,&quot;source&quot;:{&quot;kind&quot;:&quot;EventsQuery&quot;,&quot;select&quot;:[&quot;*&quot;,&quot;event&quot;,&quot;person&quot;],&quot;orderBy&quot;:[&quot;timestamp DESC&quot;],&quot;after&quot;:&quot;-24h&quot;,&quot;limit&quot;:100,&quot;event&quot;:&quot;$pageview&quot;},&quot;propertiesViaUrl&quot;:true,&quot;showSavedQueries&quot;:true}\"></ph-query><p></p><p></p><h1>Finalising my argument</h1><p></p><p>Now that I have a bunch of insights and dynamic data, maybe I want to freeze some points in time for the future. Forget <strong>Pinned Recordings</strong> or <strong>Saved Insights</strong> - that's so 1995.</p><p></p><p>As this is more like an editable document I could just <strong>pull</strong> <strong>Recordings that I like</strong> into the document as standalone items. By default they would start in a <strong>Preview </strong>state (as would many components to aid rendering and readability) but with the ability to expand this out</p><p></p><p>Whilst I'm here I might mention <strong>@Charles </strong>that this is a great thing to talk about for our next marketing push. He could even copy and pate sections of this Notebook into his own <strong>Public Release Notebook</strong> which could then be shared publicly, even as a template for others to import and use...</p><h1>🤔🤔🤔🤔</h1><p></p><p></p><p></p><ph-recording sessionrecordingid=\"186cc347fb825b9-0589308f1c8c0b-1e525634-16a7f0-186cc347fb92fd9\"></ph-recording><ph-recording sessionrecordingid=\"186cc347fb825b9-0589308f1c8c0b-1e525634-16a7f0-186cc347fb92fd9\"></ph-recording><p></p><p>As this is a document we could \"<strong>FREEZE\" </strong>any Query by simply storing the result data <em>in the Notebook</em>. Not only does this make it much faster to load but fits well into the general concept used elsewhere of a Notebook.</p><ph-insight shortid=\"OlmLXv6Q\"></ph-insight><p></p><p></p><h1>Big picture thinking...</h1><p></p><p>One day we won't just have Clickhouse Event data and Recordings but potentially Exceptions, Stripe data, Relational DB connections. We're going to need a way to explore this dynamically and usefully. Most Data Scientist-y types are used to <strong>Python Notebooks</strong> which work like this:</p><p></p><ol><li><p>I build a query in Python or SQL etc.</p></li><li><p>I can use other parts of the Notebook as an input source (e.g. the results from the Insight above can be available as a variable)</p></li><li><p>I write my code and when I run it, the result is stored <strong>in the Notebook</strong> and any other queries depending on it are updated.</p></li><li><p>The output of the code snippet is rendered automatically with controls to change how it looks (very similar to the Data Exploration we already have...)</p></li></ol><p></p><p></p><p></p><ph-query query=\"{&quot;kind&quot;:&quot;DataTableNode&quot;,&quot;full&quot;:true,&quot;source&quot;:{&quot;kind&quot;:&quot;HogQLQuery&quot;,&quot;query&quot;:&quot;   select event,\\n          person.properties.email,\\n          properties.$browser,\\n          count()\\n     from events\\n    where timestamp > now () - interval 1 day\\n      and person.properties.email is not null\\n group by event,\\n          properties.$browser,\\n          person.properties.email\\n order by count() desc\\n    limit 100&quot;}}\"></ph-query><p></p><p></p><p></p><p></p>`,
         editorProps: {
             attributes: {
-                class: 'Notebook',
+                class: 'NotebookEditor',
             },
             handleDrop: (view, event, _slice, moved) => {
                 if (!moved && event.dataTransfer) {
@@ -106,8 +109,8 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
                 return false
             },
         },
-        onUpdate: ({ editor }) => {
-            syncContent(editor.getJSON(), editor.getHTML())
+        onUpdate: ({}) => {
+            onEditorUpdate()
         },
     })
 
@@ -118,12 +121,12 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
     }, [editor])
 
     useEffect(() => {
-        editor?.setEditable(editable)
-    }, [editable, editor])
+        editor?.setEditable(editable && !!notebook)
+    }, [editable, editor, notebook])
 
     return (
         <BindLogic logic={notebookLogic} props={{ id }}>
-            <div className="flex-1 overflow-hidden flex flex-col h-full">
+            <div className="Notebook">
                 {/* {editor && (
                 <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex items-center gap-2">
                     <LemonButton
@@ -155,21 +158,31 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
                 </FloatingMenu>
             )} */}
 
-                {!sourceMode ? (
+                {!notebook && notebookLoading ? (
+                    <div className="space-y-4">
+                        <LemonSkeleton className="w-1/2 h-8" />
+                        <LemonSkeleton className="w-1/3 h-4" />
+                        <LemonSkeleton className="h-4" />
+                        <LemonSkeleton className="h-4" />
+                    </div>
+                ) : !sourceMode ? (
                     <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
                 ) : (
                     <AutoSizer disableWidth>
                         {({ height }) => (
                             <MonacoEditor
                                 theme="vs-light"
-                                className="border"
-                                language="html"
-                                value={editor?.getHTML() ?? ''}
+                                language="json"
+                                value={JSON.stringify(editor?.getJSON(), null, 2) ?? ''}
                                 height={height}
                                 loading={<Spinner />}
                                 onChange={(value) => {
                                     if (value) {
-                                        editor?.chain().setContent(value).run()
+                                        try {
+                                            editor?.chain().setContent(JSON.parse(value)).run()
+                                        } catch (e) {
+                                            console.error(e)
+                                        }
                                     }
                                 }}
                             />
