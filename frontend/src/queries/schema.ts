@@ -37,7 +37,6 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
-    NewEntityNode = 'NewEntityNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
@@ -136,7 +135,8 @@ export interface EntityNode extends DataNode {
 
 export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
-    event?: string
+    /** The event or `null` for all events. */
+    event?: string | null
     limit?: number
     /** Columns to order by */
     orderBy?: string[]
@@ -150,11 +150,6 @@ export interface EventsNode extends EntityNode {
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
-}
-
-export interface NewEntityNode extends EntityNode {
-    kind: NodeKind.NewEntityNode
-    event?: string | null
 }
 
 export interface EventsQueryResponse {
@@ -183,7 +178,7 @@ export interface EventsQuery extends DataNode {
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
     /** Limit to events matching this string */
-    event?: string
+    event?: string | null
     /**
      * Number of rows to return
      * @asType integer
@@ -311,7 +306,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -329,7 +324,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -363,7 +358,7 @@ export interface StickinessQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
 }
@@ -379,7 +374,7 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
 }
@@ -497,9 +492,8 @@ export interface BreakdownFilter {
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    aggregation_group_type_index?: number | undefined // Groups aggregation
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */

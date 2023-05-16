@@ -13,6 +13,7 @@ import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
 import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
 import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 
 export type NotebookProps = {
     id: string
@@ -32,12 +33,44 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             NotebookNodeQuery,
             NotebookNodeRecording,
             NotebookNodePlaylist,
+            NotebookNodePerson,
             NotebookNodeFlag,
         ],
         content,
         editorProps: {
             attributes: {
                 class: 'Notebook',
+            },
+            handleDrop: (view, event, _slice, moved) => {
+                if (!moved && event.dataTransfer) {
+                    const text = event.dataTransfer.getData('text/plain')
+
+                    if (text.indexOf(window.location.origin) === 0) {
+                        // PostHog link - ensure this gets input as a proper link
+                        const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
+
+                        if (!coordinates) {
+                            return false
+                        }
+
+                        editor?.chain().focus().setTextSelection(coordinates.pos).run()
+                        view.pasteText(text)
+
+                        return true
+                    }
+
+                    if (event.dataTransfer.files && event.dataTransfer.files[0]) {
+                        // if dropping external files
+                        const file = event.dataTransfer.files[0] // the dropped file
+
+                        console.log('TODO: Dropped file!', file)
+                        // TODO: Detect if it is an image and add image upload handler
+
+                        return true
+                    }
+                }
+
+                return false
             },
         },
         onUpdate: ({ editor }) => {

@@ -279,6 +279,7 @@ describe('sessionRecordingsListLogic', () => {
 
                 logic = sessionRecordingsListLogic({
                     key: 'hash-recording-tests',
+                    updateSearchParams: true,
                 })
                 logic.mount()
 

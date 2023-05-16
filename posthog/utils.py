@@ -104,7 +104,11 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if provided_url.hostname and provided_url.scheme:
         site_url = urlparse(settings.SITE_URL)
         provided_url = provided_url
-        if site_url.hostname != provided_url.hostname:
+        if (
+            site_url.hostname != provided_url.hostname
+            or site_url.port != provided_url.port
+            or site_url.scheme != provided_url.scheme
+        ):
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
@@ -319,8 +323,10 @@ def render_template(
     context["impersonated_session"] = is_impersonated_session(request)
     context["self_capture"] = settings.SELF_CAPTURE
 
-    if os.environ.get("SENTRY_DSN"):
-        context["sentry_dsn"] = os.environ["SENTRY_DSN"]
+    if sentry_dsn := os.environ.get("SENTRY_DSN"):
+        context["sentry_dsn"] = sentry_dsn
+    if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
+        context["sentry_environment"] = sentry_environment
 
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True

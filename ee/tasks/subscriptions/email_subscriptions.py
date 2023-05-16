@@ -25,7 +25,7 @@ def send_email_subscription_report(
     is_invite = invite_message is not None
     self_invite = inviter.email == email
 
-    subject = "Posthog Report"
+    subject = "PostHog Report"
     invite_summary = None
 
     resource_info = subscription.resource_info

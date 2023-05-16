@@ -9,7 +9,6 @@ import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
-import { emitToBufferStep } from './emitToBufferStep'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
@@ -75,52 +74,27 @@ export class EventPipelineRunner {
     }
 
     async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
-        const bufferResult = await this.runStep(emitToBufferStep, [this, event])
-        if (bufferResult != null) {
-            const [bufferResultEvent, personContainer] = bufferResult
-            return this.runBufferEventPipelineSteps(bufferResultEvent, personContainer)
-        } else {
-            return this.registerLastStep('emitToBufferStep', event.team_id, [event])
+        if (
+            process.env.POE_EMBRACE_JOIN_FOR_TEAMS === '*' ||
+            process.env.POE_EMBRACE_JOIN_FOR_TEAMS?.split(',').includes(event.team_id.toString())
+        ) {
+            // https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
+            // We're not using the buffer anymore
+            // instead we'll (if within timeframe) merge into the newer personId
+
+            // TODO: remove this step and runner env once we're confident that the new
+            // ingestion pipeline is working well for all teams.
+            this.poEEmbraceJoin = true
         }
-    }
-
-    async runBufferEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
-        try {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
-            const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, this.hub)
-            const didPersonExistAtStart = !!(await personContainer.get())
-            const result = await this.runBufferEventPipelineSteps(event, personContainer)
-
-            this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested', {
-                didPersonExistAtStart: String(!!didPersonExistAtStart),
-            })
-            return result
-        } catch (error) {
-            if (error instanceof DependencyUnavailableError) {
-                // If this is an error with a dependency that we control, we want to
-                // ensure that the caller knows that the event was not processed,
-                // for a reason that we control and that is transient.
-                throw error
-            }
-
-            return { lastStep: error.step, args: [], error: error.message }
-        }
-    }
-
-    async runBufferEventPipelineSteps(
-        event: PluginEvent,
-        personContainer: LazyPersonContainer
-    ): Promise<EventPipelineResult> {
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event])
 
         if (processedEvent == null) {
             return this.registerLastStep('pluginsProcessEventStep', event.team_id, [event])
         }
-        const [normalizedEvent, newPersonContainer] = await this.runStep(processPersonsStep, [
-            this,
-            processedEvent,
-            personContainer,
-        ])
+        const [normalizedEvent, newPersonContainer] = await this.runStep(processPersonsStep, [this, processedEvent])
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.person_loaded_after_person_step', {
+            loaded: String(newPersonContainer.loaded),
+        })
 
         const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent])
 

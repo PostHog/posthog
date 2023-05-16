@@ -362,7 +362,7 @@ export enum ActionStepUrlMatching {
 }
 
 export interface ActionStepType {
-    event?: string
+    event?: string | null
     href?: string | null
     id?: number
     name?: string
@@ -646,6 +646,7 @@ export enum SessionRecordingPlayerTab {
 }
 
 export enum SessionPlayerState {
+    READY = 'ready',
     BUFFER = 'buffer',
     PLAY = 'play',
     PAUSE = 'pause',
@@ -653,6 +654,8 @@ export enum SessionPlayerState {
     SKIP = 'skip',
     ERROR = 'error',
 }
+
+export type AutoplayDirection = 'newer' | 'older' | null
 
 /** Sync with plugin-server/src/types.ts */
 export type ActionStepProperties =
@@ -700,7 +703,6 @@ export interface Entity {
 export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
-    NEW_ENTITY = 'new_entity',
 }
 
 export type EntityFilter = {
@@ -1063,7 +1065,7 @@ export interface BillingV2TierType {
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
-    projected_amount_usd: number | null
+    projected_amount_usd: string | null
     up_to: number | null
 }
 
@@ -1445,8 +1447,8 @@ export enum AnnotationScope {
 export interface RawAnnotationType {
     id: number
     scope: AnnotationScope
-    content: string
-    date_marker: string
+    content: string | null
+    date_marker: string | null
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
@@ -1458,6 +1460,10 @@ export interface RawAnnotationType {
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+    date_marker: dayjs.Dayjs | null
+}
+
+export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
     date_marker: dayjs.Dayjs
 }
 
@@ -1555,7 +1561,6 @@ export interface FilterType {
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
 }
@@ -1584,11 +1589,11 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
-    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
@@ -1970,6 +1975,8 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    /** If showing a shared insight/dashboard, we need the access token for refreshing. */
+    sharingAccessToken?: string
 }
 
 export interface SetInsightOptions {
@@ -1984,7 +1991,6 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
-    feature_preview?: string
 }
 
 export interface MultivariateFlagVariant {
@@ -2002,6 +2008,7 @@ export interface FeatureFlagFilters {
     multivariate: MultivariateFlagOptions | null
     aggregation_group_type_index?: number | null
     payloads: Record<string, JsonType>
+    super_groups?: FeatureFlagGroupType[]
 }
 
 export interface FeatureFlagBasicType {
@@ -2044,13 +2051,20 @@ export interface CombinedFeatureFlagAndValueType {
     value: boolean | string
 }
 
+export enum EarlyAccessFeatureStage {
+    Concept = 'concept',
+    Alpha = 'alpha',
+    Beta = 'beta',
+    GeneralAvailability = 'general-availability',
+}
+
 export interface EarlyAccsesFeatureType {
     /** UUID */
     id: string
     feature_flag: FeatureFlagBasicType
     name: string
     description: string
-    stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
+    stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string
@@ -2687,7 +2701,13 @@ export type OnlineExportContext = {
     max_limit?: number
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext
+export type QueryExportContext = {
+    source: Record<string, any>
+    filename?: string
+    max_limit?: number
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
 
 export interface ExportedAssetType {
     id: number

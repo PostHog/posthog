@@ -1,7 +1,6 @@
-import { LemonButton, LemonDivider, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { EarlyAccsesFeatureType } from '~/types'
@@ -25,7 +24,14 @@ export function EarlyAccessFeatures(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Early Access Management"
+                title={
+                    <div className="flex items-center gap-2">
+                        Early Access Management
+                        <LemonTag type="warning" className="uppercase">
+                            Beta
+                        </LemonTag>
+                    </div>
+                }
                 caption="Release features in a controlled way. Track adoption in stages."
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
@@ -74,38 +80,6 @@ export function EarlyAccessFeatures(): JSX.Element {
                             )
                         },
                         sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
-                    },
-                    {
-                        width: 0,
-                        render(_, feature) {
-                            return (
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                status="stealth"
-                                                to={urls.earlyAccessFeature(feature.id)}
-                                                fullWidth
-                                            >
-                                                View
-                                            </LemonButton>
-                                            <LemonDivider />
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() => {
-                                                    // TODO: Allow archival
-                                                }}
-                                                fullWidth
-                                            >
-                                                {/* Using "Archive" as "Deleting" a feature is very close to implying
-                                    that it'll be deleted from code */}
-                                                Archive feature
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                            )
-                        },
                     },
                 ]}
                 dataSource={earlyAccessFeatures}

@@ -1,6 +1,6 @@
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 import { BindLogic } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { SharingAccessTokenContext, insightLogic } from 'scenes/insights/insightLogic'
 import { InsightViz } from 'lib/components/Cards/InsightCard/InsightCard'
 import './ExportedInsight.scss'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
@@ -13,6 +13,7 @@ import { isDataTableNode } from '~/queries/utils'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 import { Query } from '~/queries/Query/Query'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { useContext } from 'react'
 
 export function ExportedInsight({
     insight,
@@ -35,10 +36,13 @@ export function ExportedInsight({
         insight.query.showActions = false
     }
 
+    const sharingAccessToken = useContext(SharingAccessTokenContext)
+
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         cachedInsight: insight,
         doNotLoad: true,
+        sharingAccessToken,
     }
 
     const { filters, query, name, derived_name, description } = insight

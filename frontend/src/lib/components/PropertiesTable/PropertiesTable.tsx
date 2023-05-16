@@ -190,6 +190,45 @@ export function PropertiesTable({
         )
     }
 
+    const objectProperties = useMemo(() => {
+        if (!(properties instanceof Object)) {
+            return []
+        }
+        let entries = Object.entries(properties)
+        if (searchTerm) {
+            const normalizedSearchTerm = searchTerm.toLowerCase()
+            entries = entries.filter(
+                ([key, value]) =>
+                    key.toLowerCase().includes(normalizedSearchTerm) ||
+                    JSON.stringify(value).toLowerCase().includes(normalizedSearchTerm)
+            )
+        }
+
+        if (filterable && filtered) {
+            entries = entries.filter(([key]) => !key.startsWith('$') && !keyMappingKeys.includes(key))
+        }
+
+        if (sortProperties) {
+            entries.sort(([aKey], [bKey]) => {
+                if (highlightedKeys) {
+                    const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
+                    const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
+                    if (aHighlightValue !== bHighlightValue) {
+                        return aHighlightValue - bHighlightValue
+                    }
+                }
+                return aKey.localeCompare(bKey)
+            })
+        } else if (highlightedKeys) {
+            entries.sort(([aKey], [bKey]) => {
+                const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
+                const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
+                return aHighlightValue - bHighlightValue
+            })
+        }
+        return entries
+    }, [properties, sortProperties, searchTerm, filtered])
+
     if (properties instanceof Object) {
         const columns: LemonTableColumns<Record<string, any>> = [
             {
@@ -272,45 +311,6 @@ export function PropertiesTable({
             })
         }
 
-        const objectProperties = useMemo(() => {
-            if (!(properties instanceof Object)) {
-                return []
-            }
-            let entries = Object.entries(properties)
-            if (searchTerm) {
-                const normalizedSearchTerm = searchTerm.toLowerCase()
-                entries = entries.filter(
-                    ([key, value]) =>
-                        key.toLowerCase().includes(normalizedSearchTerm) ||
-                        JSON.stringify(value).toLowerCase().includes(normalizedSearchTerm)
-                )
-            }
-
-            if (filterable && filtered) {
-                entries = entries.filter(([key]) => !key.startsWith('$') && !keyMappingKeys.includes(key))
-            }
-
-            if (sortProperties) {
-                entries.sort(([aKey], [bKey]) => {
-                    if (highlightedKeys) {
-                        const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
-                        const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
-                        if (aHighlightValue !== bHighlightValue) {
-                            return aHighlightValue - bHighlightValue
-                        }
-                    }
-                    return aKey.localeCompare(bKey)
-                })
-            } else if (highlightedKeys) {
-                entries.sort(([aKey], [bKey]) => {
-                    const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
-                    const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
-                    return aHighlightValue - bHighlightValue
-                })
-            }
-            return entries
-        }, [properties, sortProperties, searchTerm, filtered])
-
         return (
             <>
                 {(searchable || filterable) && (
@@ -320,7 +320,6 @@ export function PropertiesTable({
                                 <LemonInput
                                     type="search"
                                     placeholder="Search for property keys and values"
-                                    autoFocus
                                     value={searchTerm || ''}
                                     onChange={setSearchTerm}
                                 />

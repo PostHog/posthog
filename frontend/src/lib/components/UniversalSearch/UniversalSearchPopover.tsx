@@ -56,6 +56,9 @@ function redirectOnSelectItems(
     groupType: TaxonomicFilterGroupType,
     item: SearchDefinitionTypes
 ): void {
+    if (value === null) {
+        return
+    }
     if (groupType === TaxonomicFilterGroupType.Events) {
         router.actions.push(
             combineUrl(

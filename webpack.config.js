@@ -69,7 +69,7 @@ function createEntry(entry) {
                 },
                 {
                     test: /\.[jt]sx?$/,
-                    exclude: /node_modules(?!(\/\.pnpm|)(\/sql-formatter))/,
+                    exclude: /(node_modules)/,
                     use: {
                         loader: 'babel-loader',
                     },

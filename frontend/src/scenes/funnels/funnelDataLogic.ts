@@ -24,7 +24,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
-import { isFunnelsQuery, isNewEntityNode } from '~/queries/utils'
+import { isFunnelsQuery } from '~/queries/utils'
 import { percentage, sum, average } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import {
@@ -158,7 +158,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         isFunnelWithEnoughSteps: [
             (s) => [s.series],
             (series) => {
-                return (series?.filter((node) => !isNewEntityNode(node)).length || 0) > 1
+                return (series?.length || 0) > 1
             },
         ],
         steps: [

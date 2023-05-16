@@ -45,9 +45,9 @@ def traces_sampler(sampling_context: dict) -> float:
         elif path.startswith("/api/feature_flag"):
             return 0.00001  # 0.001%
         elif path.startswith("/api/projects") and ("dashboard" in path or "insight" in path) and "timing" not in path:
-            return 0.1  # 10%
+            return 0.001  # 0.1%
         elif path.startswith("/api/projects") and path.endswith("/query/"):
-            return 0.01  # 1%
+            return 0.001  # 0.1%
         elif path.startswith("/api"):
             return 0.001  # 0.1%
         else:
@@ -77,7 +77,6 @@ def sentry_init() -> None:
 
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"],
-            environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration(), sentry_logging],
             request_bodies="always",
             sample_rate=1.0,

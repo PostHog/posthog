@@ -1,6 +1,6 @@
 from typing import Any, Dict, Set, Tuple, Union
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql.hogql import translate_hogql
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
@@ -127,7 +127,10 @@ class FunnelEventQuery(EventQuery):
             self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id
         )
         is_using_cohort_propertes = self._column_optimizer.is_using_cohort_propertes
-        if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED or (
+
+        if self._person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            self._should_join_distinct_ids = True
+        elif self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED or (
             non_person_id_aggregation and not is_using_cohort_propertes
         ):
             self._should_join_distinct_ids = False
@@ -147,7 +150,9 @@ class FunnelEventQuery(EventQuery):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
                 events.update(action.get_step_events())
-            else:
+            elif entity.type == TREND_FILTER_TYPE_EVENTS and entity.id is None:
+                return "AND 1 = 1", {}
+            elif entity.id is not None:
                 events.add(entity.id)
 
         return f"AND event IN %({entity_name})s", {entity_name: sorted(list(events))}

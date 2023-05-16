@@ -206,7 +206,7 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
                 label: 'does not equal',
             },
             [PropertyOperator.IContains]: {
-                label: 'contain',
+                label: 'contains',
             },
             [PropertyOperator.NotIContains]: {
                 label: 'does not contain',

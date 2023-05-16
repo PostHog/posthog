@@ -62,19 +62,6 @@ export function ActionsTable(): JSX.Element {
                 )
             },
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags',
-                      width: 250,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-              ]
-            : []),
         {
             title: 'Type',
             key: 'type',
@@ -128,6 +115,19 @@ export function ActionsTable(): JSX.Element {
                 )
             },
         },
+        ...(hasAvailableFeature(AvailableFeature.TAGGING)
+            ? [
+                  {
+                      title: 'Tags',
+                      dataIndex: 'tags',
+                      width: 250,
+                      key: 'tags',
+                      render: function renderTags(tags: string[]) {
+                          return <ObjectTags tags={tags} staticOnly />
+                      },
+                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
+              ]
+            : []),
         createdByColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         ...(currentTeam?.slack_incoming_webhook
