@@ -377,6 +377,10 @@ class TestParser(BaseTest):
             parse_expr("this.can.go.on.for.miles"),
             ast.Field(chain=["this", "can", "go", "on", "for", "miles"]),
         )
+        self.assertEqual(
+            parse_expr("properties.something:more"),
+            ast.Field(chain=["properties", "something:more"]),
+        )
 
     def test_calls(self):
         self.assertEqual(
