@@ -6,6 +6,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
 import dateutil.parser
 from django.db.models import Q
 from django.utils import timezone
+from prometheus_client import Gauge
 from sentry_sdk import capture_exception
 
 from posthog.cache_utils import cache_for
@@ -17,10 +18,22 @@ from posthog.tasks.usage_report import (
     find_count_for_team_in_rows,
     get_teams_with_event_count_in_period,
     get_teams_with_recording_count_in_period,
+    get_teams_with_replay_count_in_period,
 )
 from posthog.utils import get_current_day
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
+
+
+replay_billing_difference = Gauge(
+    "replay_vs_recording_session_count_difference",
+    "The difference between the old billing count and the new billing count.",
+    labelnames=["team"],
+)
 
 
 class QuotaResource(Enum):
@@ -144,11 +157,28 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
     period = get_current_day()
     period_start, period_end = period
 
-    # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
+    # Clickhouse is good at counting things, so we count across all teams rather than doing it one by one
     all_data = dict(
         teams_with_event_count_in_period=get_teams_with_event_count_in_period(period_start, period_end),
         teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
     )
+
+    # When we move to the session_replay_events table we'll no longer be ingesting events into session_recording_events
+    # so, we'll need to base take billing data from the session_replay_events table
+    # this code loads that data, logs missing teams
+    # (i.e. teams in the current billing data that are not in the new data)
+    # then updates a gauge with the difference between the old and new counts
+    # if, everything is working correctly, the gauge should be 0 for all teams
+    # this will be relatively high cardinality, but it's only going to exist for a short time
+    teams_with_replay_count_in_period = get_teams_with_replay_count_in_period(period_start, period_end)
+    new_team_counts_as_dict = dict(teams_with_replay_count_in_period)
+    for team, current_count in all_data["teams_with_recording_count_in_period"]:
+        new_team_count = new_team_counts_as_dict.get(team, None)
+        if new_team_count is None:
+            logger.error(f"update_all_org_billing_quotas: team {team} not found in new_team_counts_as_dict", team=team)
+        else:
+            new_count = new_team_counts_as_dict[team]
+            replay_billing_difference.labels(team=team).set(new_count - current_count)
 
     teams: Sequence[Team] = list(
         Team.objects.select_related("organization").exclude(

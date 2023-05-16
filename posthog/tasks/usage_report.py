@@ -364,6 +364,23 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
     return result
 
 
+def get_teams_with_replay_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+    result = sync_execute(
+        """
+        SELECT team_id, count(distinct session_id) as count
+        FROM session_replay_events
+        -- we don't need to aggregate timestamps because
+        -- all the minimums for a session are greater than begin even if they're not the most minimum
+        WHERE min_first_timestamp >= %(begin)s
+        -- and all the maximums for a session are less than end even if they're not the most maximum
+        AND max_last_timestamp <= %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+    )
+    return result
+
+
 def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
