@@ -135,7 +135,7 @@ export class OffsetManager {
             partition,
         }
 
-        if (offsetToCommit) {
+        if (offsetToCommit !== undefined) {
             this.consumer.commit({
                 topic,
                 partition,
