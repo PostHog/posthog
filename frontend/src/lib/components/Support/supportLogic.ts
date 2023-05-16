@@ -6,7 +6,6 @@ import { forms } from 'kea-forms'
 import { UserType } from '~/types'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { captureException } from '@sentry/react'
@@ -40,9 +39,9 @@ function getSentryLinks(user: UserType | null): string {
 }
 
 export const TARGET_AREA_TO_NAME = {
-    analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     app_performance: 'App Performance',
     apps: 'Apps',
+    login: 'Authentication (Login / Sign-up / Invites)',
     billing: 'Billing',
     cohorts: 'Cohorts',
     data_integrity: 'Data Integrity',
@@ -50,8 +49,7 @@ export const TARGET_AREA_TO_NAME = {
     ingestion: 'Event Ingestion',
     experiments: 'Experiments',
     feature_flags: 'Feature Flags',
-    login: 'Login',
-    signup: 'Sign up / Invites',
+    analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
 }
 
@@ -90,7 +88,6 @@ export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
         values: [userLogic, ['user']],
-        actions: [eventUsageLogic, ['reportSupportFormSubmitted']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
@@ -163,7 +160,7 @@ export const supportLogic = kea<supportLogicType>([
             },
             errors: ({ name, email, message, kind, target_area }) => {
                 return {
-                    name: !name ? 'Please enter your name' : '', // TODO: make name optional, but pre-fill it if user filled it in the form or remove it completely
+                    name: !name ? 'Please enter your name' : '',
                     email: !email ? 'Please enter your email' : '',
                     message: !message ? 'Please enter a message' : '',
                     kind: !kind ? 'Please choose' : undefined,
@@ -239,7 +236,7 @@ export const supportLogic = kea<supportLogicType>([
                         zendesk_ticket_id,
                         zendesk_ticket_link: `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`,
                     }
-                    actions.reportSupportFormSubmitted(properties)
+                    posthog.capture('support_ticket', properties)
                     lemonToast.success(
                         "Got the message! If we have follow-up information for you, we'll reply via email."
                     )

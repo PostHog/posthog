@@ -33,22 +33,14 @@ interface ErrorMessage {
     actions: JSX.Element
 }
 
-function SupportModalLink({
-    name,
-    email,
-    target,
-}: {
-    name?: string
-    email?: string
-    target?: 'signup' | 'login'
-}): JSX.Element {
+function SupportModalLink({ name, email }: { name?: string; email?: string }): JSX.Element {
     const { openSupportLoggedOutForm } = useActions(supportLogic)
     return (
         <>
             <div className="text-center">
                 <LemonButton
                     onClick={() => {
-                        openSupportLoggedOutForm(name, email, null, target ?? null)
+                        openSupportLoggedOutForm(name, email, null, 'login')
                     }}
                     status="stealth"
                     icon={<IconBugShield />}
@@ -140,7 +132,7 @@ function ErrorView(): JSX.Element | null {
     }
 
     return (
-        <BridgePage view="signup-error" hedgehog message="Oops!" footer={<SupportModalLink target="signup" />}>
+        <BridgePage view="signup-error" hedgehog message="Oops!" footer={<SupportModalLink />}>
             <h2>{ErrorMessages[error.code].title}</h2>
             <div className="error-message">{ErrorMessages[error.code].detail}</div>
             <LemonDivider dashed className="my-4" />
@@ -159,7 +151,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
             view={'accept-invite'}
             hedgehog
             message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}
-            footer={<SupportModalLink name={user?.first_name} email={user?.email} target="signup" />}
+            footer={<SupportModalLink name={user?.first_name} email={user?.email} />}
         >
             <div className="space-y-2">
                 <h2>You have been invited to join {invite.organization_name}</h2>
@@ -242,13 +234,12 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     </div>
                 </div>
             }
-            footer={<SupportModalLink name={invite.first_name} email={invite.target_email} target="signup" />}
+            footer={<SupportModalLink name={invite.first_name} email={invite.target_email} />}
         >
             <h2 className="text-center">Create your PostHog account</h2>
             <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
                 <PureField label="Email">
                     <LemonInput type="email" disabled value={invite?.target_email} />
-                    {/* todo: use the email */}
                 </PureField>
                 <Field
                     name="password"
@@ -279,7 +270,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                         invite?.first_name ? 'Your name was provided in the invite, feel free to change it.' : undefined
                     }
                 >
-                    {/* todo re-use the name */}
                     <LemonInput data-attr="first_name" placeholder="Jane" />
                 </Field>
 

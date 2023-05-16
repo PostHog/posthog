@@ -523,7 +523,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFlagsCodeExampleInteraction: (optionType: string) => ({
             optionType,
         }),
-        reportSupportFormSubmitted: (properties: Record<string, any>) => ({ ...properties }),
         reportFlagsCodeExampleLanguage: (language: string) => ({
             language,
         }),
@@ -1276,9 +1275,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('flags code example option selected', {
                 option_type: optionType,
             })
-        },
-        reportSupportFormSubmitted: (properties) => {
-            posthog.capture('support form submitted', properties)
         },
         reportFlagsCodeExampleLanguage: ({ language }) => {
             posthog.capture('flags code example language selected', {

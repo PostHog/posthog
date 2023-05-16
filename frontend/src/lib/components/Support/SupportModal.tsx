@@ -85,8 +85,8 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
             >
                 {!loggedIn && (
                     <>
-                        <Field name="name" label="First Name">
-                            <LemonInput data-attr="first_name" placeholder="Jane" />
+                        <Field name="name" label="Name">
+                            <LemonInput data-attr="name" placeholder="Jane" />
                         </Field>
                         <Field name="email" label="Email">
                             <LemonInput data-attr="email" placeholder="your@email.com" />
