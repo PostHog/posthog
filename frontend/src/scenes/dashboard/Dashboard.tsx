@@ -157,8 +157,9 @@ function DashboardScene(): JSX.Element {
                         {placement !== DashboardPlacement.Export && (
                             <div className="flex space-x-4 dashoard-items-actions">
                                 <div
-                                    className="left-item"
-                                    style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
+                                    className={`left-item ${
+                                        placement === DashboardPlacement.Public ? 'text-right' : ''
+                                    }`}
                                 >
                                     {[DashboardPlacement.Public].includes(placement) ? (
                                         <LastRefreshText />
