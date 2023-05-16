@@ -28,4 +28,12 @@
     &.ProseMirror-focused {
         outline: none;
     }
+
+    .is-empty::before {
+        content: attr(data-placeholder);
+        float: left;
+        color: rgba(0, 0, 0, 0.2);
+        pointer-events: none;
+        height: 0;
+    }
 }

@@ -1,6 +1,8 @@
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { useEffect } from 'react'
+import ExtensionDocument from '@tiptap/extension-document'
+import ExtensionPlaceholder from '@tiptap/extension-placeholder'
+import { useEffect, useMemo } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -15,6 +17,7 @@ import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecord
 import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
+import { sampleOne } from 'lib/utils'
 
 export type NotebookProps = {
     id: string
@@ -22,14 +25,34 @@ export type NotebookProps = {
     editable?: boolean
 }
 
+const CustomDocument = ExtensionDocument.extend({
+    content: 'heading block*',
+})
+
+const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
+
 export function Notebook({ id, sourceMode, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ id })
     const { content } = useValues(logic)
     const { setEditorRef, syncContent } = useActions(logic)
 
+    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [id])
+
     const editor = useEditor({
         extensions: [
-            StarterKit,
+            CustomDocument,
+            StarterKit.configure({
+                document: false,
+            }),
+            ExtensionPlaceholder.configure({
+                placeholder: ({ node }) => {
+                    if (node.type.name === 'heading') {
+                        return `Untitled - maybe.. "${headingPlaceholder}"`
+                    }
+
+                    return ''
+                },
+            }),
             NotebookNodeLink,
 
             NotebookNodeInsight,
