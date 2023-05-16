@@ -46,8 +46,12 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             }),
             ExtensionPlaceholder.configure({
                 placeholder: ({ node }) => {
-                    if (node.type.name === 'heading') {
+                    if (node.type.name === 'heading' && node.attrs.level === 1) {
                         return `Untitled - maybe.. "${headingPlaceholder}"`
+                    }
+
+                    if (node.type.name === 'heading') {
+                        return `Heading ${node.attrs.level}`
                     }
 
                     return ''
