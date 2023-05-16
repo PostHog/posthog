@@ -1,12 +1,16 @@
 import api from 'lib/api'
-import { kea } from 'kea'
+import { kea, path, actions, reducers, listeners, events, selectors } from 'kea'
 import type { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
-import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult, InstanceSetting } from '~/types'
+import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult, InstanceSetting, UserType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isUserLoggedIn } from 'lib/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
+import { forms } from 'kea-forms'
+import { captureException } from '@sentry/react'
 
 export enum ConfigMode {
     View = 'view',
@@ -48,20 +52,21 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'HEATMAP_SAMPLE_N',
 ]
 
+export interface InstanceConfigUpdateForm {
+    password: string
+}
+
 // Note: This logic does some heavy calculations - avoid connecting it outside of system status pages!
-export const systemStatusLogic = kea<systemStatusLogicType>({
-    path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
-    actions: {
+export const systemStatusLogic = kea<systemStatusLogicType>([
+    path(['scenes', 'instance', 'SystemStatus', 'systemStatusLogic']),
+    actions({
         setTab: (tab: InstanceStatusTabName) => ({ tab }),
         setOpenSections: (sections: string[]) => ({ sections }),
         setInstanceConfigMode: (mode: ConfigMode) => ({ mode }),
         updateInstanceConfigValue: (key: string, value?: string | boolean | number) => ({ key, value }),
         clearInstanceConfigEditing: true,
-        saveInstanceConfig: true,
-        setUpdatedInstanceConfigCount: (count: number | null) => ({ count }),
-        increaseUpdatedInstanceConfigCount: true,
-    },
-    loaders: () => ({
+    }),
+    loaders({
         systemStatus: [
             null as SystemStatus | null,
             {
@@ -94,7 +99,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
             },
         ],
     }),
-    reducers: {
+    reducers({
         tab: [
             'overview' as InstanceStatusTabName,
             {
@@ -135,17 +140,38 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
                 clearInstanceConfigEditing: () => ({}),
             },
         ],
-        updatedInstanceConfigCount: [
-            null as number | null, // Number of config items that have been updated; `null` means no update is in progress
-            {
-                setUpdatedInstanceConfigCount: (_, { count }) => count,
-                loadInstanceSettings: () => null,
-                increaseUpdatedInstanceConfigCount: (state) => (state ?? 0) + 1,
-            },
-        ],
-    },
+    }),
 
-    selectors: () => ({
+    forms(({ values }) => ({
+        instanceConfigSave: {
+            defaults: { password: '' } as InstanceConfigUpdateForm,
+            errors: ({ password }) => ({
+                password: !password
+                    ? 'Please enter your password to continue'
+                    : password.length < 8
+                    ? 'Password must be at least 8 characters'
+                    : undefined,
+            }),
+            submit: async ({ password }) => {
+                await Promise.all(
+                    Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
+                        await api.update(
+                            `api/instance_settings/${key}`,
+                            {
+                                value,
+                            },
+                            {
+                                basicAuthCredentials: [(userLogic.values.user as UserType).email, password],
+                            }
+                        )
+                        eventUsageLogic.actions.reportInstanceSettingChange(key, value)
+                    })
+                )
+            },
+        },
+    })),
+
+    selectors({
         overview: [
             (s) => [s.systemStatus],
             (status: SystemStatus | null): SystemStatusRow[] => (status ? status.overview : []),
@@ -157,7 +183,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
         ],
     }),
 
-    listeners: ({ actions, values }) => ({
+    listeners(({ actions, values }) => ({
         setTab: ({ tab }: { tab: InstanceStatusTabName }) => {
             if (tab === 'metrics') {
                 actions.loadQueries()
@@ -170,42 +196,38 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
                 actions.updateInstanceConfigValue(key, undefined)
             }
         },
-        saveInstanceConfig: async (_, breakpoint) => {
-            actions.setUpdatedInstanceConfigCount(0)
-            Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
-                try {
-                    await api.update(`api/instance_settings/${key}`, {
-                        value,
-                    })
-                    eventUsageLogic.actions.reportInstanceSettingChange(key, value)
-                    actions.increaseUpdatedInstanceConfigCount()
-                } catch {
-                    lemonToast.error('There was an error updating instance settings – please try again')
-                    await breakpoint(1000)
-                    actions.loadInstanceSettings()
-                }
-            })
-            await breakpoint(1000)
-            if (values.updatedInstanceConfigCount === Object.keys(values.instanceConfigEditingState).length) {
+        submitInstanceConfigSaveSuccess: () => {
+            actions.loadInstanceSettings()
+            actions.resetInstanceConfigSave()
+            actions.clearInstanceConfigEditing()
+            actions.setInstanceConfigMode(ConfigMode.View)
+            lemonToast.success('Instance configuration updated')
+        },
+        submitInstanceConfigSaveFailure: ({ error }) => {
+            if ((error as any).status === 401) {
+                actions.setInstanceConfigSaveManualErrors({ password: 'Incorrect password' })
+            } else {
+                captureException(error)
+                lemonToast.error('There was an error updating instance settings - please try again later')
                 actions.loadInstanceSettings()
-                actions.clearInstanceConfigEditing()
-                actions.setInstanceConfigMode(ConfigMode.View)
-                lemonToast.success('Instance settings updated')
             }
         },
-    }),
+        setInstanceConfigMode: () => {
+            actions.resetInstanceConfigSave()
+        },
+    })),
 
-    events: ({ actions }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadSystemStatus()
         },
-    }),
+    })),
 
-    actionToUrl: ({ values }) => ({
+    actionToUrl(({ values }) => ({
         setTab: () => '/instance/' + (values.tab === 'overview' ? 'status' : values.tab),
-    }),
+    })),
 
-    urlToAction: ({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/instance(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
             const currentTab =
                 tab && ['metrics', 'settings', 'staff_users', 'kafka_inspector'].includes(tab) ? tab : 'overview'
@@ -213,5 +235,5 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
                 actions.setTab(currentTab)
             }
         },
-    }),
-})
+    })),
+])

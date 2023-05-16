@@ -1,10 +1,11 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { pluralize } from 'lib/utils'
 import { SystemStatusRow } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
 import { systemStatusLogic } from './systemStatusLogic'
+import { Form } from 'kea-forms'
+import { Field } from 'lib/forms/Field'
 
 interface ChangeRowInterface extends Pick<SystemStatusRow, 'value'> {
     oldValue?: boolean | string | number | null
@@ -50,28 +51,39 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
 }
 
 export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => void; isOpen: boolean }): JSX.Element {
-    const { instanceConfigEditingState, editableInstanceSettings, updatedInstanceConfigCount } =
+    const { instanceConfigEditingState, editableInstanceSettings, isInstanceConfigSaveSubmitting } =
         useValues(systemStatusLogic)
-    const { saveInstanceConfig } = useActions(systemStatusLogic)
-    const loading = updatedInstanceConfigCount !== null
+    const { submitInstanceConfigSave } = useActions(systemStatusLogic)
+
+    const changeNoun = Object.keys(instanceConfigEditingState).length === 1 ? 'change' : 'changes'
+
     return (
         <LemonModal
-            title="Confirm new changes"
+            title={`Confirm ${changeNoun} to instance configuration`}
             isOpen={isOpen}
-            closable={!loading}
+            closable={!isInstanceConfigSaveSubmitting}
             onClose={onClose}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={onClose} loading={loading}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={onClose}
+                        disabledReason={isInstanceConfigSaveSubmitting ? 'Saving in progress' : undefined}
+                    >
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" status="danger" loading={loading} onClick={saveInstanceConfig}>
-                        Apply changes
+                    <LemonButton
+                        type="primary"
+                        status="danger"
+                        loading={isInstanceConfigSaveSubmitting}
+                        onClick={submitInstanceConfigSave}
+                    >
+                        Apply {changeNoun}
                     </LemonButton>
                 </>
             }
         >
-            <div className="space-y-2">
+            <Form logic={systemStatusLogic} formKey="instanceConfigSave" enableFormOnSubmit className="space-y-2">
                 {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
                     <LemonBanner type="info">
                         <>
@@ -98,7 +110,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                         </>
                     </LemonBanner>
                 )}
-                <div>The following changes will be immediately applied to your instance.</div>
+                <div>The following {changeNoun} will be immediately applied to your instance.</div>
                 {Object.keys(instanceConfigEditingState).map((key) => (
                     <ChangeRow
                         key={key}
@@ -108,12 +120,16 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                         isSecret={editableInstanceSettings.find((record) => record.key === key)?.is_secret}
                     />
                 ))}
-                {loading && (
-                    <div className="mt-4 text-success">
-                        <b>{pluralize(updatedInstanceConfigCount || 0, 'change')} updated successfully.</b>
-                    </div>
-                )}
-            </div>
+                <Field name="password" label="Your password is required for this operation">
+                    <LemonInput
+                        type="password"
+                        className="ph-ignore-input"
+                        data-attr="password"
+                        placeholder="••••••••••"
+                        autoComplete="current-password"
+                    />
+                </Field>
+            </Form>
         </LemonModal>
     )
 }
