@@ -3,7 +3,6 @@ import random
 from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta
 from typing import TypedDict
-from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import psycopg2
@@ -120,19 +119,10 @@ def person_overrides_data(person_overrides_table):
 
 @pytest.fixture
 def query_inputs():
-    """A default set of QueryInputs to use in all tests.
+    """A default set of QueryInputs to use in all tests."""
+    query_inputs = QueryInputs()
 
-    Notice we are mocking the PG database name: Django creates a database exclusively for unit tests.
-    However, we don't use the Django ORM; we query the database directly. So, we need to update the
-    settings to point to the test database Django creates. Luckily, it's named the same but with a
-    `test_` prefix.
-    """
-    test_pg = {"default": settings.DATABASES["default"] | {"NAME": f"test_{settings.PG_DATABASE}"}}
-
-    with patch.dict(settings.DATABASES, test_pg):
-        query_inputs = QueryInputs()
-
-        return query_inputs
+    return query_inputs
 
 
 @pytest.mark.django_db
@@ -781,7 +771,24 @@ def django_db_setup_fixture():
 
 
 @pytest.fixture
-def organization_uuid(query_inputs, django_db_setup_fixture):
+def pg_connection():
+    """Manage a Postgres connection with psycopg2."""
+    conn = psycopg2.connect(
+        dbname=settings.DATABASES["default"]["NAME"],
+        user=settings.DATABASES["default"]["USER"],
+        password=settings.DATABASES["default"]["PASSWORD"],
+        host=settings.DATABASES["default"]["HOST"],
+        port=settings.DATABASES["default"]["PORT"],
+    )
+
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def organization_uuid(pg_connection, query_inputs, django_db_setup_fixture):
     """Create an Organization and return its UUID.
 
     We cannot use the Django ORM safely in an async context, so we INSERT INTO directly
@@ -790,14 +797,8 @@ def organization_uuid(query_inputs, django_db_setup_fixture):
     """
     organization_uuid = uuid4()
 
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        with connection.cursor() as cursor:
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO posthog_organization (
@@ -834,33 +835,21 @@ def organization_uuid(query_inputs, django_db_setup_fixture):
 
     yield organization_uuid
 
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        with connection.cursor() as cursor:
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute("DELETE FROM posthog_organization WHERE id = %s", [organization_uuid])
 
 
 @pytest.fixture
-def team_id(query_inputs, organization_uuid):
+def team_id(query_inputs, organization_uuid, pg_connection):
     """Create a Team and return its ID.
 
     We cannot use the Django ORM safely in an async context, so we INSERT INTO directly
     on the database. This means we need to clean up after ourselves, which we do after
     yielding.
     """
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        with connection.cursor() as cursor:
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO posthog_team (
@@ -921,19 +910,13 @@ def team_id(query_inputs, organization_uuid):
 
     yield team_id
 
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        with connection.cursor() as cursor:
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute("DELETE FROM posthog_team WHERE id = %s", [team_id])
 
 
 @pytest.fixture
-def person_overrides(query_inputs, team_id):
+def person_overrides(query_inputs, team_id, pg_connection):
     """Create a PersonOverrideMapping and a PersonOverride.
 
     We cannot use the Django ORM safely in an async context, so we INSERT INTO directly
@@ -944,14 +927,8 @@ def person_overrides(query_inputs, team_id):
     override_person_id = uuid4()
     person_override = PersonOverrideTuple(old_person_id, override_person_id)
 
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        with connection.cursor() as cursor:
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             person_ids = []
             for person_uuid in (override_person_id, old_person_id):
                 cursor.execute(
@@ -997,14 +974,8 @@ def person_overrides(query_inputs, team_id):
 
     yield person_override
 
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        with connection.cursor() as cursor:
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute(
                 "DELETE FROM posthog_personoverride WHERE team_id = %s AND old_person_id = %s",
                 [team_id, person_ids[1]],
@@ -1018,23 +989,17 @@ def person_overrides(query_inputs, team_id):
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_delete_squashed_person_overrides_from_postgres(
-    query_inputs, activity_environment, team_id, person_overrides
+    query_inputs, activity_environment, team_id, person_overrides, pg_connection
 ):
     """Test we can delete person overrides that have already been squashed.
 
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        # These are sanity checks to ensure the fixtures are working properly.
-        # If any assertions fail here, its likely a test setup issue.
-        with connection.cursor() as cursor:
+    # These are sanity checks to ensure the fixtures are working properly.
+    # If any assertions fail here, its likely a test setup issue.
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
             assert len(mappings) == 2
@@ -1058,14 +1023,8 @@ async def test_delete_squashed_person_overrides_from_postgres(
 
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        with connection.cursor() as cursor:
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
             assert len(mappings) == 1
@@ -1079,19 +1038,13 @@ async def test_delete_squashed_person_overrides_from_postgres(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_delete_squashed_person_overrides_from_postgres_dry_run(
-    query_inputs, activity_environment, team_id, person_overrides
+    query_inputs, activity_environment, team_id, person_overrides, pg_connection
 ):
     """Test we do not delete person overrides when dry_run=True."""
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        # These are sanity checks to ensure the fixtures are working properly.
-        # If any assertions fail here, its likely a test setup issue.
-        with connection.cursor() as cursor:
+    # These are sanity checks to ensure the fixtures are working properly.
+    # If any assertions fail here, its likely a test setup issue.
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
             assert len(mappings) == 2
@@ -1115,14 +1068,8 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
 
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        with connection.cursor() as cursor:
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
             assert len(mappings) == 2
@@ -1136,23 +1083,17 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_delete_squashed_person_overrides_from_postgres_with_newer_override(
-    query_inputs, activity_environment, team_id, person_overrides
+    query_inputs, activity_environment, team_id, person_overrides, pg_connection
 ):
     """Test we do not delete a newer mapping from Postgres.
 
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        # These are sanity checks to ensure the fixtures are working properly.
-        # If any assertions fail here, its likely a test setup issue.
-        with connection.cursor() as cursor:
+    # These are sanity checks to ensure the fixtures are working properly.
+    # If any assertions fail here, its likely a test setup issue.
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
             assert len(mappings) == 2
@@ -1161,14 +1102,8 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
             overrides = cursor.fetchall()
             assert len(overrides) == 1
 
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        with connection.cursor() as cursor:
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             # Let's insert a newer mapping that arrives while we are running the squash job.
             # Since only one mapping can exist per old_person_id, we'll bump the version number.
             cursor.execute(
@@ -1203,14 +1138,8 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
 
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    ) as connection:
-        with connection.cursor() as cursor:
+    with pg_connection:
+        with pg_connection.cursor() as cursor:
             cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
 
