@@ -118,7 +118,7 @@ class Insight(models.Model):
             if dashboard_date_to or insight_date_to:
                 filters["date_to"] = dashboard_date_to or insight_date_to
 
-            if dashboard_date_from == "all" and filters["compare"] == True:
+            if dashboard_date_from == "all" and filters["compare"] is True:
                 filters["compare"] = None
 
             if dashboard_properties:

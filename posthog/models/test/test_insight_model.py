@@ -58,7 +58,7 @@ class TestInsightModel(BaseTest):
 
         filters = insight.dashboard_filters(dashboard=dashboard)
 
-        assert filters["compare"] == None
+        assert filters["compare"] is None
 
     def test_dashboard_does_not_affect_filters_hash_with_absent_date_from(self) -> None:
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
