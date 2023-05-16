@@ -289,8 +289,8 @@ export function FunnelPropertyCorrelationTableComponent({
                             <Empty />
                         ) : (
                             <p style={{ margin: 'auto', maxWidth: 500 }}>
-                                Correlated properties highlights properties users have that are likely to have affected
-                                their conversion rate within the funnel.{' '}
+                                Highlight properties which are likely to have affected the conversion rate within the
+                                funnel.{' '}
                                 <Link to="https://posthog.com/manual/correlation">
                                     Learn more about correlation analysis.
                                 </Link>

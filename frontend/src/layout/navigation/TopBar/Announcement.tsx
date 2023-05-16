@@ -1,4 +1,3 @@
-import ReactMarkdown from 'react-markdown'
 import clsx from 'clsx'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/announcementLogic'
@@ -7,6 +6,7 @@ import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { IconClose } from 'lib/lemon-ui/icons'
+import ReactMarkdown from 'react-markdown'
 
 window.process = MOCK_NODE_PROCESS
 

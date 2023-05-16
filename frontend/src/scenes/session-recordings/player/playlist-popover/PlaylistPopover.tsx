@@ -2,21 +2,19 @@ import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { IconPlus, IconOpenInNew, IconWithCount } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Field } from 'lib/forms/Field'
 import { urls } from 'scenes/urls'
-import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const dataLogic = sessionRecordingDataLogic(props)
-    const { sessionPlayerData } = useValues(dataLogic)
-    const logic = playlistPopoverLogic(props)
+export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
+    const { sessionRecordingId, logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
         searchQuery,
@@ -30,7 +28,7 @@ export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.El
         useActions(logic)
 
     return (
-        <IconWithCount count={sessionPlayerData.metadata.pinnedCount ?? 0} showZero={false}>
+        <IconWithCount count={sessionPlayerData.pinnedCount ?? 0} showZero={false}>
             <Popover
                 visible={showPlaylistPopover}
                 onClickOutside={() => setShowPlaylistPopover(false)}
@@ -42,7 +40,7 @@ export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.El
                                 <Form
                                     formKey="newPlaylist"
                                     logic={playlistPopoverLogic}
-                                    props={props}
+                                    props={{ sessionRecordingId }}
                                     enableFormOnSubmit
                                     className="space-y-1"
                                 >
@@ -100,7 +98,7 @@ export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.El
                                         >
                                             {playlist.name || playlist.derived_name}
 
-                                            {props.playlistShortId === playlist.short_id && (
+                                            {logicProps.playlistShortId === playlist.short_id && (
                                                 <span className="text-muted-alt italic text-sm ml-1">(current)</span>
                                             )}
                                         </LemonButton>
@@ -122,14 +120,12 @@ export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.El
                 }
             >
                 <LemonButton
-                    data-attr="export-button"
                     icon={<IconPlus />}
                     active={showPlaylistPopover}
                     onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}
-                    size={'small'}
-                >
-                    <span>Pin to list</span>
-                </LemonButton>
+                    sideIcon={null}
+                    {...props}
+                />
             </Popover>
         </IconWithCount>
     )

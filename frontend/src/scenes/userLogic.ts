@@ -176,7 +176,21 @@ export const userLogic = kea<userLogicType>([
         hasAvailableFeature: [
             (s) => [s.user],
             (user) => {
-                return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
+                return (feature: AvailableFeature, currentUsage?: number) => {
+                    const availableProductFeatures = user?.organization?.available_product_features
+                    if (availableProductFeatures && availableProductFeatures.length > 0) {
+                        const availableFeature = availableProductFeatures.find((obj) => obj.key === feature)
+                        return availableFeature
+                            ? currentUsage
+                                ? availableFeature?.limit
+                                    ? availableFeature?.limit > currentUsage
+                                    : true
+                                : true
+                            : false
+                    }
+                    // if we don't have the new available_product_features obj, fallback to old available_features
+                    return !!user?.organization?.available_features.includes(feature)
+                }
             },
         ],
         otherOrganizations: [

@@ -77,9 +77,7 @@ jobs:
 
     backend-code-quality:
         needs: changes
-        timeout-minutes: 5
-        # Make sure we only run on backend changes
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+        timeout-minutes: 10
 
         name: Python code quality checks
         runs-on: ubuntu-latest
@@ -119,8 +117,7 @@ jobs:
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   cd current
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
+                  python -m pip install -r requirements.txt -r requirements-dev.txt
 
             - name: Check for syntax errors, import sort, and code style violations
               run: |
@@ -135,7 +132,7 @@ jobs:
             - name: Check static typing
               run: |
                   cd current
-                  mypy .
+                  mypy . --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py
 
             - name: Check if "schema.py" is up to date
               run: |
@@ -165,9 +162,8 @@ jobs:
 
     check-migrations:
         needs: changes
+        if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 5
-
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
         name: Validate Django migrations
         runs-on: ubuntu-latest
@@ -202,8 +198,7 @@ jobs:
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
+                  python -m pip install -r requirements.txt -r requirements-dev.txt
 
             - uses: actions/checkout@v3
               with:
@@ -213,8 +208,7 @@ jobs:
               run: |
                   # We need to ensure we have requirements for the master branch
                   # now also, so we can run migrations up to master.
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
+                  python -m pip install -r requirements.txt -r requirements-dev.txt
                   python manage.py migrate
 
             - uses: actions/checkout@v3
@@ -234,7 +228,6 @@ jobs:
     django:
         needs: changes
         timeout-minutes: 30
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
@@ -251,6 +244,9 @@ jobs:
                 group: [1, 2, 3, 4, 5]
 
         steps:
+            # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
+            # All the other ones should rely on `needs.changes.outputs.backend` directly or indirectly, so that they're
+            # effectively skipped if backend code is unchanged. See https://github.com/PostHog/posthog/pull/15174.
             - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
@@ -260,6 +256,7 @@ jobs:
                   token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - uses: ./.github/actions/run-backend-tests
+              if: needs.changes.outputs.backend == 'true'
               with:
                   segment: ${{ matrix.segment }}
                   person-on-events: ${{ matrix.person-on-events }}
@@ -272,7 +269,7 @@ jobs:
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
-              if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
+              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               with:
                   add: '["ee", "posthog/clickhouse/test/__snapshots__", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/", "posthog/migrations"]'
                   message: 'Update query snapshots'
@@ -281,7 +278,7 @@ jobs:
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
-              if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
+              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               run: |
                   if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
@@ -299,7 +296,7 @@ jobs:
 
             - name: Archive email renders
               uses: actions/upload-artifact@v3
-              if: matrix.segment == 'FOSS' && matrix.person-on-events == false
+              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'FOSS' && matrix.person-on-events == false
               with:
                   name: email_renders
                   path: posthog/tasks/test/__emails__
@@ -308,7 +305,8 @@ jobs:
     cloud:
         needs: changes
         timeout-minutes: 30
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+        # This workflow may be skipped as a whole (as opposed to the other ones), as it's optional on forks anyway
+        if: github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true'
 
         name: Django tests – Cloud
         runs-on: ubuntu-latest
@@ -355,8 +353,7 @@ jobs:
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install -r master/requirements-dev.txt
-                  python -m pip install -r master/requirements.txt
+                  python -m pip install -r master/requirements.txt -r master/requirements-dev.txt
 
             - name: Wait for Clickhouse & Kafka
               run: master/bin/check_kafka_clickhouse_up
@@ -375,9 +372,7 @@ jobs:
             - name: Install requirements.txt dependencies with pip at current branch
               run: |
                   cd current
-                  python -m pip install --upgrade pip
-                  python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django syrupy
+                  python -m pip install -r requirements.txt -r requirements-dev.txt
 
             - name: Link posthog-cloud at current branch
               run: |
@@ -411,6 +406,8 @@ jobs:
 
     async-migrations:
         name: Async migrations tests
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
@@ -419,7 +416,6 @@ jobs:
                   fetch-depth: 1
 
             - name: Start stack with Docker Compose
-              shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ inputs.clickhouse-server-image-version }}
                   docker compose -f docker-compose.dev.yml down
@@ -432,7 +428,6 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install SAML (python3-saml) dependencies
-              shell: bash
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
@@ -449,15 +444,12 @@ jobs:
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               shell: bash
               run: |
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
+                  python -m pip install -r requirements.txt -r requirements-dev.txt
 
             - name: Add kafka host to /etc/hosts for kafka connectivity
-              shell: bash
               run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up needed files
-              shell: bash
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -465,10 +457,8 @@ jobs:
                   touch frontend/dist/exporter.html
 
             - name: Wait for Clickhouse & Kafka
-              shell: bash
               run: bin/check_kafka_clickhouse_up
 
             - name: Run async migrations tests
-              shell: bash
               run: |
                   pytest -m "async_migrations"

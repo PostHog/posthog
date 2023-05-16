@@ -6,7 +6,7 @@ import { CohortEdit } from 'scenes/cohorts/CohortEdit'
 export const scene: SceneExport = {
     component: Cohort,
     logic: cohortLogic,
-    paramsToProps: ({ params: { id } }): typeof cohortLogic['props'] => ({
+    paramsToProps: ({ params: { id } }): (typeof cohortLogic)['props'] => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
 }

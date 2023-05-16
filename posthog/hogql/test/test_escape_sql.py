@@ -64,10 +64,10 @@ class TestPrintString(BaseTest):
         uuid = UUIDT()
         self.assertEqual(escape_clickhouse_string(uuid), f"toUUIDOrNull('{str(uuid)}')")
         date = datetime.fromisoformat("2020-02-02 02:02:02")
-        self.assertEqual(escape_clickhouse_string(date), "toDateTime('2020-02-02 02:02:02', 'UTC')")
+        self.assertEqual(escape_clickhouse_string(date), "toDateTime64('2020-02-02 02:02:02.000000', 6, 'UTC')")
         self.assertEqual(
             escape_clickhouse_string(date, timezone="Europe/Brussels"),
-            "toDateTime('2020-02-02 03:02:02', 'Europe/Brussels')",
+            "toDateTime64('2020-02-02 03:02:02.000000', 6, 'Europe/Brussels')",
         )
         self.assertEqual(escape_clickhouse_string(date.date()), "toDate('2020-02-02')")
         self.assertEqual(escape_clickhouse_string(1), "1")
@@ -98,8 +98,10 @@ class TestPrintString(BaseTest):
         uuid = UUIDT()
         self.assertEqual(escape_hogql_string(uuid), f"toUUID('{str(uuid)}')")
         date = datetime.fromisoformat("2020-02-02 02:02:02")
-        self.assertEqual(escape_hogql_string(date), "toDateTime('2020-02-02 02:02:02')")
-        self.assertEqual(escape_hogql_string(date, timezone="Europe/Brussels"), "toDateTime('2020-02-02 03:02:02')")
+        self.assertEqual(escape_hogql_string(date), "toDateTime('2020-02-02 02:02:02.000000')")
+        self.assertEqual(
+            escape_hogql_string(date, timezone="Europe/Brussels"), "toDateTime('2020-02-02 03:02:02.000000')"
+        )
         self.assertEqual(escape_hogql_string(date.date()), "toDate('2020-02-02')")
         self.assertEqual(escape_hogql_string(1), "1")
         self.assertEqual(escape_hogql_string(-1), "-1")

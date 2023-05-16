@@ -56,7 +56,7 @@ class TestEmail(BaseTest):
 
                 _send_email(
                     campaign_key="campaign_1",
-                    to=[{"raw_email": "test0@posthog.com", "recipient": "Test Posthog <test0@posthog.com>"}],
+                    to=[{"raw_email": "test0@posthog.com", "recipient": "Test PostHog <test0@posthog.com>"}],
                     subject="Test email",
                     headers={},
                 )

@@ -8,7 +8,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.trends.util import get_active_user_params
+from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS, get_active_user_params
 from posthog.queries.util import get_person_properties_mode
 from posthog.utils import PersonOnEventsMode
 
@@ -72,9 +72,16 @@ class TrendsEventQueryBase(EventQuery):
         if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
             self._should_join_distinct_ids = False
 
-        is_entity_per_user = self._entity.math in (UNIQUE_USERS, WEEKLY_ACTIVE, MONTHLY_ACTIVE)
+        is_entity_per_user = self._entity.math in (
+            UNIQUE_USERS,
+            WEEKLY_ACTIVE,
+            MONTHLY_ACTIVE,
+            *COUNT_PER_ACTOR_MATH_FUNCTIONS.keys(),
+        )
         if (
-            is_entity_per_user and not self._aggregate_users_by_distinct_id
+            is_entity_per_user
+            and not self._aggregate_users_by_distinct_id
+            and self._entity.math_group_type_index is None
         ) or self._column_optimizer.is_using_cohort_propertes:
             self._should_join_distinct_ids = True
 
@@ -133,6 +140,7 @@ class TrendsEventQueryBase(EventQuery):
             table_name=self.EVENT_TABLE_ALIAS,
             person_properties_mode=get_person_properties_mode(self._team),
             hogql_context=self._filter.hogql_context,
+            person_id_joined_alias=self._person_id_alias,
         )
 
         return entity_format_params["entity_query"], entity_params

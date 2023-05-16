@@ -1,6 +1,5 @@
 import './PlayerUpNext.scss'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
-import { SessionRecordingType } from '~/types'
+import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { CSSTransition } from 'react-transition-group'
 import { useActions, useValues } from 'kea'
 import { IconPlay } from 'lib/lemon-ui/icons'
@@ -9,27 +8,20 @@ import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { router } from 'kea-router'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 
-export interface PlayerUpNextProps extends SessionRecordingPlayerLogicProps {
-    nextSessionRecording?: Partial<SessionRecordingType>
+export interface PlayerUpNextProps {
     interrupted?: boolean
     clearInterrupted?: () => void
 }
 
-export function PlayerUpNext({
-    sessionRecordingId,
-    playerKey,
-    nextSessionRecording,
-    interrupted,
-    clearInterrupted,
-}: PlayerUpNextProps): JSX.Element | null {
+export function PlayerUpNext({ interrupted, clearInterrupted }: PlayerUpNextProps): JSX.Element | null {
     const timeoutRef = useRef<any>()
-    const unmountNextRecordingDataLogicRef = useRef<() => void>()
-    const { endReached } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const { reportNextRecordingTriggered } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { reportNextRecordingTriggered } = useActions(sessionRecordingPlayerLogic)
     const [animate, setAnimate] = useState(false)
     const { autoplayEnabled } = useValues(playerSettingsLogic)
+
+    let nextSessionRecording = logicProps.nextSessionRecording
 
     if (!autoplayEnabled) {
         nextSessionRecording = undefined
@@ -47,13 +39,6 @@ export function PlayerUpNext({
         clearTimeout(timeoutRef.current)
 
         if (endReached && nextSessionRecording?.id) {
-            if (!unmountNextRecordingDataLogicRef.current) {
-                // Small optimisation - preload the next recording session data
-                unmountNextRecordingDataLogicRef.current = sessionRecordingDataLogic({
-                    sessionRecordingId: nextSessionRecording.id,
-                }).mount()
-            }
-
             setAnimate(true)
             clearInterrupted?.()
             timeoutRef.current = setTimeout(() => {
@@ -70,17 +55,6 @@ export function PlayerUpNext({
             setAnimate(false)
         }
     }, [interrupted])
-
-    useEffect(() => {
-        // If we have a mounted logic for preloading, unmount it
-        return () => {
-            const unmount = unmountNextRecordingDataLogicRef.current
-            unmountNextRecordingDataLogicRef.current = undefined
-            setTimeout(() => {
-                unmount?.()
-            }, 3000)
-        }
-    }, [nextSessionRecording?.id])
 
     if (!nextSessionRecording) {
         return null

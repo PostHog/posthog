@@ -155,7 +155,7 @@ export function fromParamsGivenUrl(url: string): Record<string, any> {
     return !url
         ? {}
         : url
-              .slice(1)
+              .replace(/^\?/, '')
               .split('&')
               .reduce((paramsObject, paramString) => {
                   const [key, value] = paramString.split('=')
@@ -697,7 +697,7 @@ export function truncate(str: string, maxLength: number): string {
 }
 
 export function eventToDescription(
-    event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     shortForm: boolean = false
 ): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
@@ -1308,7 +1308,7 @@ export function humanTzOffset(timezone?: string): string {
 }
 
 /** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
-export function humanList(arr: string[]): string {
+export function humanList(arr: readonly string[]): string {
     return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.slice(-1) : arr.join(' and ')
 }
 
@@ -1621,7 +1621,7 @@ export function downloadFile(file: File): void {
     }, 0)
 }
 
-export function insightUrlForEvent(event: EventType): string | undefined {
+export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
     let insightParams: Partial<TrendsFilterType> | undefined
     if (event.event === '$pageview') {
         insightParams = {

@@ -1,4 +1,4 @@
-import { dayjs, now } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import {
     kea,
     path,
@@ -271,6 +271,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
+        query: [(_, p) => [p.query], (query) => query],
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
@@ -369,26 +370,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     : null
             },
         ],
-        insightRefreshButtonDisabledReason: [
+        getInsightRefreshButtonDisabledReason: [
             (s) => [s.nextAllowedRefresh, s.lastRefresh],
-            (nextAllowedRefresh: string | null, lastRefresh: string | null): string => {
+            (nextAllowedRefresh: string | null, lastRefresh: string | null) => (): string => {
+                const now = dayjs()
                 let disabledReason = ''
-
-                if (!!nextAllowedRefresh && now().isBefore(dayjs(nextAllowedRefresh))) {
+                if (!!nextAllowedRefresh && now.isBefore(dayjs(nextAllowedRefresh))) {
                     // If this is a saved insight, the result will contain nextAllowedRefresh, and we use that to disable the button
-                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).fromNow()}`
+                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).from(now)}`
                 } else if (
                     !!lastRefresh &&
-                    now()
-                        .subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
-                        .isBefore(lastRefresh)
+                    now.subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes').isBefore(lastRefresh)
                 ) {
                     // Unsaved insights don't get cached and get refreshed on every page load, but we avoid allowing users to click
                     // 'refresh' more than once every UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES. This can be bypassed by simply
                     // refreshing the page though, as there's no cache layer on the backend
                     disabledReason = `You can refresh this insight again ${dayjs(lastRefresh)
                         .add(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
-                        .fromNow()}`
+                        .from(now)}`
                 }
 
                 return disabledReason

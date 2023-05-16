@@ -28,6 +28,8 @@
     .LemonButton__content {
         flex: 1;
         line-height: initial;
+        display: flex;
+        align-items: center;
     }
 
     &.LemonButton--full-width {
@@ -136,7 +138,8 @@
 
             // These buttons keep their font-weight when actve
             &.LemonButtonWithSideAction,
-            &.LemonButtonWithDropdown {
+            &[role='menuitem'],
+            &[aria-haspopup='true'] {
                 font-weight: 400;
             }
         }
@@ -242,7 +245,7 @@
         }
 
         &:not(.LemonButton--disabled):active {
-            transform: scale(0.9375); // 30/32 (1px less on both sides, assuming a 32px tall button)
+            transform: scale(0.96875); // 31/32 (0.5px less on both sides, assuming a 32px tall button)
         }
 
         &.LemonButton--status-primary {

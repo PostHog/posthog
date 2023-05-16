@@ -41,7 +41,7 @@ export function NotebookSideBar(): JSX.Element {
             <CSSTransition in={notebookSideBarShown} timeout={200} mountOnEnter unmountOnExit>
                 <div className="NotebookSidebar__floater">
                     <div className="NotebookSidebar__content">
-                        <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-2 border-b">
+                        <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
                             <span className="flex items-center gap-1 text-primary-alt">
                                 <LemonButtonWithDropdown
                                     status="primary-alt"
@@ -76,12 +76,10 @@ export function NotebookSideBar(): JSX.Element {
                                     icon={<IconJournal />}
                                     sideIcon={null}
                                 >
-                                    <span className="font-semibold">Notebooks</span>
+                                    <span className="font-semibold">{selectedNotebook}</span>
                                 </LemonButtonWithDropdown>
-                                <span>/</span>
-                                <span className="font-semibold px-2">{selectedNotebook}</span>
                             </span>
-                            <span className="flex gap-2">
+                            <span className="flex gap-1 px-1">
                                 <LemonButton
                                     size="small"
                                     onClick={() => setIsEditable(!isEditable)}

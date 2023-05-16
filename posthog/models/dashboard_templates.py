@@ -182,9 +182,9 @@ class DashboardTemplate(UUIDModel):
                         "display": "FunnelViz",
                         "insight": "FUNNELS",
                         "interval": "day",
-                        "breakdowns": [{"type": "event", "property": "$browser"}],
                         "exclusions": [],
                         "breakdown_type": "event",
+                        "breakdown": "$browser",
                         "funnel_viz_type": "steps",
                     },
                     "layouts": {

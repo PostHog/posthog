@@ -70,7 +70,7 @@ export function CorrelationConfig(): JSX.Element {
                             onChange={(excludedEvents) => handleChange(undefined, excludedEvents)}
                             selectedEvents={funnelCorrelationConfig.excluded_event_names || []}
                             addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />}>
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
                                     Add exclusion
                                 </LemonButton>
                             }
@@ -84,7 +84,7 @@ export function CorrelationConfig(): JSX.Element {
                         <div className="max-w-160">
                             <LemonSelectMultiple
                                 mode="multiple-custom"
-                                onChange={(properties) => handleChange(undefined, undefined, properties)}
+                                onChange={(properties: string[]) => handleChange(undefined, undefined, properties)}
                                 value={funnelCorrelationConfig.excluded_event_property_names || []}
                             />
                         </div>

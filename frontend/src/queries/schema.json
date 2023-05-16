@@ -134,9 +134,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -267,9 +264,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -410,9 +404,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -464,6 +455,9 @@
                         },
                         "funnel_advanced": {
                             "type": "boolean"
+                        },
+                        "funnel_aggregate_by_hogql": {
+                            "type": "string"
                         },
                         "funnel_correlation_person_converted": {
                             "enum": ["true", "false"],
@@ -598,9 +592,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -764,9 +755,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -885,9 +873,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -998,9 +983,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -1144,14 +1126,14 @@
         "BreakdownFilter": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "type": "number"
-                },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "breakdown_group_type_index": {
                     "type": ["number", "null"]
+                },
+                "breakdown_histogram_bin_count": {
+                    "type": "number"
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -1165,9 +1147,6 @@
                             "type": "null"
                         }
                     ]
-                },
-                "breakdown_value": {
-                    "type": ["string", "number"]
                 },
                 "breakdowns": {
                     "items": {
@@ -1540,10 +1519,6 @@
         "EventType": {
             "additionalProperties": false,
             "properties": {
-                "colonTimestamp": {
-                    "description": "Used in session recording events list",
-                    "type": "string"
-                },
                 "distinct_id": {
                     "type": "string"
                 },
@@ -1601,7 +1576,8 @@
                     "type": "string"
                 },
                 "event": {
-                    "type": "string"
+                    "description": "The event or `null` for all events.",
+                    "type": ["string", "null"]
                 },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
@@ -1695,7 +1671,7 @@
                 },
                 "event": {
                     "description": "Limit to events matching this string",
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
@@ -1889,6 +1865,9 @@
                 "funnel_advanced": {
                     "type": "boolean"
                 },
+                "funnel_aggregate_by_hogql": {
+                    "type": "string"
+                },
                 "funnel_correlation_person_converted": {
                     "enum": ["true", "false"],
                     "type": "string"
@@ -2015,9 +1994,6 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -2256,9 +2232,6 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -2271,67 +2244,6 @@
         "LifecycleToggle": {
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
-        },
-        "NewEntityNode": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "type": "string"
-                },
-                "event": {
-                    "type": ["string", "null"]
-                },
-                "fixedProperties": {
-                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "kind": {
-                    "const": "NewEntityNode",
-                    "type": "string"
-                },
-                "math": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/BaseMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/CountPerActorMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/GroupMathType"
-                        }
-                    ]
-                },
-                "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
-                    "type": "number"
-                },
-                "math_property": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "properties": {
-                    "description": "Properties configurable in the interface",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "response": {
-                    "description": "Cached query response",
-                    "type": "object"
-                }
-            },
-            "required": ["kind"],
-            "type": "object"
         },
         "PathCleaningFilter": {
             "additionalProperties": false,
@@ -2898,9 +2810,6 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -3048,9 +2957,6 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },

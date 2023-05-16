@@ -46,8 +46,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
 
-        with self.assertNumQueries(9):
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
         self.assertEqual(
             response["results"][0]["person"],
             {"distinct_ids": ["2"], "is_identified": True, "properties": {"email": "tim@posthog.com"}},
@@ -61,11 +60,12 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         _create_event(event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
-        expected_queries = 9  # Django session, PostHog user, PostHog team, PostHog org membership, person and distinct id, 3x PoE check
 
-        with self.assertNumQueries(expected_queries):
+        # Django session, rate limit instance setting, PostHog user,
+        # PostHog team, PostHog org membership, person and distinct id, 3x PoE check
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
-        self.assertEqual(response["results"][0]["event"], "event_name")
+            self.assertEqual(response["results"][0]["event"], "event_name")
 
     def test_filter_events_by_properties(self):
         _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])

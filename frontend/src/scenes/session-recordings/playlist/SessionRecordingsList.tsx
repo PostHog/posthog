@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { IconUnfoldLess, IconUnfoldMore, IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils'
-import React, { Fragment } from 'react'
+import React, { Fragment, useRef } from 'react'
 import { SessionRecordingType } from '~/types'
 import {
     SessionRecordingPlaylistItem,
@@ -14,6 +14,9 @@ import { useActions, useValues } from 'kea'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
+const SCROLL_TRIGGER_OFFSET = 100
 
 export type SessionRecordingsListProps = {
     listKey: string
@@ -31,6 +34,10 @@ export type SessionRecordingsListProps = {
     empty?: React.ReactNode
     className?: string
     embedded?: boolean // if embedded don't show border
+    footer?: React.ReactNode
+    onScrollToStart?: () => void
+    onScrollToEnd?: () => void
+    draggableHref?: string
 }
 
 export function SessionRecordingsList({
@@ -48,15 +55,15 @@ export function SessionRecordingsList({
     onPropertyClick,
     activeRecordingId,
     className,
+    footer,
+    onScrollToStart,
+    onScrollToEnd,
     embedded = false,
+    draggableHref,
 }: SessionRecordingsListProps): JSX.Element {
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
-
-    const logic = sessionRecordingsListPropertiesLogic({
-        key: listKey,
-        sessionIds: recordings?.map((r) => r.id) ?? [],
-    })
-    const { sessionRecordingIdToProperties, sessionRecordingsPropertiesResponseLoading } = useValues(logic)
+    const lastScrollPositionRef = useRef(0)
+    const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
 
     const titleContent = (
         <span className="font-bold uppercase text-xs my-1 tracking-wide flex-1 flex gap-1 items-center">
@@ -74,6 +81,28 @@ export function SessionRecordingsList({
         reportRecordingListVisibilityToggled(listKey, !val)
     }
 
+    const handleScroll =
+        onScrollToEnd || onScrollToStart
+            ? (e: React.UIEvent<HTMLUListElement>): void => {
+                  // If we are scrolling down then check if we are at the bottom of the list
+                  if (e.currentTarget.scrollTop > lastScrollPositionRef.current) {
+                      const scrollPosition = e.currentTarget.scrollTop + e.currentTarget.clientHeight
+                      if (e.currentTarget.scrollHeight - scrollPosition < SCROLL_TRIGGER_OFFSET) {
+                          onScrollToEnd?.()
+                      }
+                  }
+
+                  // Same again but if scrolling to the top
+                  if (e.currentTarget.scrollTop < lastScrollPositionRef.current) {
+                      if (e.currentTarget.scrollTop < SCROLL_TRIGGER_OFFSET) {
+                          onScrollToStart?.()
+                      }
+                  }
+
+                  lastScrollPositionRef.current = e.currentTarget.scrollTop
+              }
+            : undefined
+
     return (
         <div
             className={clsx('flex flex-col w-full bg-white', className, !embedded && 'border rounded', {
@@ -81,39 +110,45 @@ export function SessionRecordingsList({
                 'overflow-hidden': recordings?.length,
             })}
         >
-            <div className="shrink-0 relative flex justify-between items-center p-1 gap-1">
-                {onCollapse ? (
-                    <LemonButton
-                        className="flex-1"
-                        status="stealth"
-                        icon={collapsed ? <IconUnfoldMore /> : <IconUnfoldLess />}
-                        size="small"
-                        onClick={() => setCollapsedWrapper(!collapsed)}
-                    >
-                        {titleContent}
-                    </LemonButton>
-                ) : (
-                    <span className="px-2 py-1">{titleContent}</span>
-                )}
-                {titleRight}
-                <LemonTableLoader loading={loading} />
-            </div>
+            <DraggableToNotebook href={draggableHref}>
+                <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap">
+                    {onCollapse ? (
+                        <LemonButton
+                            className="flex-1"
+                            status="stealth"
+                            icon={collapsed ? <IconUnfoldMore /> : <IconUnfoldLess />}
+                            size="small"
+                            onClick={() => setCollapsedWrapper(!collapsed)}
+                        >
+                            {titleContent}
+                        </LemonButton>
+                    ) : (
+                        <span className="px-2 py-1">{titleContent}</span>
+                    )}
+                    {titleRight}
+                    <LemonTableLoader loading={loading} />
+                </div>
+            </DraggableToNotebook>
             {!collapsed ? (
                 recordings?.length ? (
-                    <ul className="overflow-y-auto border-t">
+                    <ul className="overflow-y-auto border-t" onScroll={handleScroll}>
                         {recordings.map((rec, i) => (
                             <Fragment key={rec.id}>
                                 {i > 0 && <div className="border-t" />}
                                 <SessionRecordingPlaylistItem
                                     recording={rec}
-                                    recordingProperties={sessionRecordingIdToProperties[rec.id]}
-                                    recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
+                                    recordingProperties={recordingPropertiesById[rec.id]}
+                                    recordingPropertiesLoading={
+                                        !recordingPropertiesById[rec.id] && recordingPropertiesLoading
+                                    }
                                     onClick={() => onRecordingClick(rec)}
                                     onPropertyClick={onPropertyClick}
                                     isActive={activeRecordingId === rec.id}
                                 />
                             </Fragment>
                         ))}
+
+                        {footer}
                     </ul>
                 ) : loading ? (
                     <>

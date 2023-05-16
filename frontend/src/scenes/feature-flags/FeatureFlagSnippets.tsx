@@ -11,7 +11,12 @@ export interface FeatureFlagSnippet {
     groupType?: GroupType
     localEvaluation?: boolean
     payload?: boolean
+    samplePropertyName?: string
+    instantlyAvailableProperties?: boolean
 }
+
+const LOCAL_EVAL_REMINDER = `// Remember to set a personal API key in the SDK to enable local evaluation.
+`
 
 export function NodeJSSnippet({
     flagKey,
@@ -19,20 +24,23 @@ export function NodeJSSnippet({
     multivariant,
     localEvaluation,
     payload,
+    samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'await client.'
     const flagFunction = payload ? 'getFeatureFlagPayload' : multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+
+    const propertyName = samplePropertyName || 'is_authorized'
 
     const localEvalAddition = localEvaluation
         ? groupType
             ? `
                 // add group properties used in the flag to ensure the flag
                 // is evaluated locally, vs. going to our servers
-                groupProperties: { ${groupType.group_type}: {'created': true, 'name': 'xyz'}}`
+                groupProperties: { ${groupType.group_type}: {'${propertyName}': 'value', 'name': 'xyz'}}`
             : `
                 // add person properties used in the flag to ensure the flag
                 // is evaluated locally, vs. going to our servers
-                personProperties: {'is_authorized': true}`
+                personProperties: {'${propertyName}': 'value'}`
         : ''
 
     const flagSnippet = groupType
@@ -66,16 +74,24 @@ if (${conditional}) {
     return (
         <>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`const ${variableName} = ${flagSnippet}${followUpCode}`}
+                {`${localEvaluation ? LOCAL_EVAL_REMINDER : ''}const ${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
 }
 
-export function PHPSnippet({ flagKey, groupType, multivariant, localEvaluation }: FeatureFlagSnippet): JSX.Element {
+export function PHPSnippet({
+    flagKey,
+    groupType,
+    multivariant,
+    localEvaluation,
+    samplePropertyName,
+}: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'PostHog::'
 
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+
+    const propertyName = samplePropertyName || 'is_authorized'
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -84,11 +100,11 @@ export function PHPSnippet({ flagKey, groupType, multivariant, localEvaluation }
             [],
             // add group properties used in the flag to ensure the flag
             // is evaluated locally, vs. going to our servers
-            [${groupType.group_type} =>  ['created' => true, 'name' => 'xyz']]`
+            [${groupType.group_type} =>  ['${propertyName}' => 'value', 'name' => 'xyz']]`
             : `
             // add person properties used in the flag to ensure the flag
             // is evaluated locally, vs. going to our servers
-            ['is_authorized' => true]`
+            ['${propertyName}' => 'value']`
         : ''
 
     const flagSnippet = groupType
@@ -111,7 +127,7 @@ export function PHPSnippet({ flagKey, groupType, multivariant, localEvaluation }
     return (
         <>
             <CodeSnippet language={Language.PHP} wrap>
-                {`${variableName} = ${flagSnippet}
+                {`${localEvaluation ? LOCAL_EVAL_REMINDER : ''}${variableName} = ${flagSnippet}
 
 if (${conditional}) {
     // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
@@ -121,10 +137,18 @@ if (${conditional}) {
     )
 }
 
-export function GolangSnippet({ flagKey, groupType, multivariant, localEvaluation }: FeatureFlagSnippet): JSX.Element {
+export function GolangSnippet({
+    flagKey,
+    groupType,
+    multivariant,
+    localEvaluation,
+    samplePropertyName,
+}: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'client.'
 
     const flagFunction = multivariant ? 'GetFeatureFlag' : 'IsFeatureEnabled'
+
+    const propertyName = samplePropertyName || 'is_authorized'
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -132,11 +156,11 @@ export function GolangSnippet({ flagKey, groupType, multivariant, localEvaluatio
                 // add group properties used in the flag to ensure the flag
                 // is evaluated locally, vs. going to our servers
                 
-                groupProperties: map[string]Properties{"${groupType.group_type}": posthog.NewProperties().Set("created", true).Set("name", "xyz")}`
+                groupProperties: map[string]Properties{"${groupType.group_type}": posthog.NewProperties().Set("${propertyName}", "value").Set("name", "xyz")}`
             : `
                 // add person properties used in the flag to ensure the flag
                 // is evaluated locally, vs. going to our servers
-                PersonProperties: posthog.NewProperties().Set("is_authorized", true)`
+                PersonProperties: posthog.NewProperties().Set("${propertyName}", "value")`
         : ''
 
     const flagSnippet = groupType
@@ -161,7 +185,7 @@ export function GolangSnippet({ flagKey, groupType, multivariant, localEvaluatio
     return (
         <>
             <CodeSnippet language={Language.Go} wrap>
-                {`${variableName} := ${flagSnippet}
+                {`${localEvaluation ? LOCAL_EVAL_REMINDER : ''}${variableName} := ${flagSnippet}
 
 if ${conditional} {
     // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
@@ -177,28 +201,30 @@ export function RubySnippet({
     multivariant,
     localEvaluation,
     payload,
+    samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
     const flagFunction = payload ? 'get_feature_flag_payload' : multivariant ? 'get_feature_flag' : 'is_feature_enabled'
+
+    const propertyName = samplePropertyName || 'is_authorized'
 
     const localEvalAddition = localEvaluation
         ? groupType
             ? `
             # // add group properties used in the flag to ensure the flag
             # // is evaluated locally, vs. going to our servers
-            group_properties: { ${groupType.group_type}: {'created': true, 'name': 'xyz'}}`
+            group_properties: { ${groupType.group_type}: {'${propertyName}': 'value', 'name': 'xyz'}}`
             : `
             # // add person properties used in the flag to ensure the flag
             # // is evaluated locally, vs. going to our servers
-            person_properties: {'is_authorized': true}`
+            person_properties: {'${propertyName}': 'value'}`
         : ''
 
     const flagSnippet = groupType
         ? `${clientSuffix}${flagFunction}(
             '${flagKey}',
             'user distinct id',
-            groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },
-            ${localEvalAddition}
+            groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
         )`
         : localEvalAddition
         ? `${clientSuffix}${flagFunction}(
@@ -221,7 +247,7 @@ end`
     return (
         <>
             <CodeSnippet language={Language.Ruby} wrap>
-                {`${variableName} = ${flagSnippet}${followUpCode}`}
+                {`${localEvaluation ? '# ' + LOCAL_EVAL_REMINDER : ''}${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
@@ -233,28 +259,30 @@ export function PythonSnippet({
     multivariant,
     localEvaluation,
     payload,
+    samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
     const flagFunction = payload ? 'get_feature_flag_payload' : multivariant ? 'get_feature_flag' : 'feature_enabled'
+
+    const propertyName = samplePropertyName || 'is_authorized'
 
     const localEvalAddition = localEvaluation
         ? groupType
             ? `
             # // add group properties used in the flag to ensure the flag
             # // is evaluated locally, vs. going to our servers
-            group_properties={ ${groupType.group_type}: {'created': True, 'name': 'xyz'}}`
+            group_properties={ ${groupType.group_type}: {'${propertyName}': 'value', 'name': 'xyz'}}`
             : `
             # // add person properties used in the flag to ensure the flag
             # // is evaluated locally, vs. going to our servers
-            person_properties={'is_authorized': True}`
+            person_properties={'${propertyName}': 'value'}`
         : ''
 
     const flagSnippet = groupType
         ? `${clientSuffix}${flagFunction}(
             '${flagKey}',
             'user distinct id',
-            groups={ '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },
-            ${localEvalAddition}
+            groups={ '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
         )`
         : localEvalAddition
         ? `${clientSuffix}${flagFunction}(
@@ -277,7 +305,7 @@ if ${conditional}:
     return (
         <>
             <CodeSnippet language={Language.Python} wrap>
-                {`${variableName} = ${flagSnippet}${followUpCode}`}
+                {`${localEvaluation ? '# ' + LOCAL_EVAL_REMINDER : ''}${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
@@ -337,8 +365,34 @@ const MyComponent = () => {
 }
 
 // Or calling on the method directly
-${clientSuffix}${flagFunction}('my-flag')
+${clientSuffix}${flagFunction}('${flagKey}')
             `}
+        </CodeSnippet>
+    )
+}
+
+export function ReactSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+    const flagFunction = payload
+        ? 'useFeatureFlagPayload'
+        : multivariant
+        ? 'useFeatureFlagVariantKey'
+        : 'useFeatureFlagEnabled'
+
+    const variable = payload ? 'payload' : multivariant ? 'variant' : 'flagEnabled'
+    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
+
+    return (
+        <CodeSnippet language={Language.JSX} wrap>
+            {`
+import { ${flagFunction} } from 'posthog-js/react'
+
+function App() {
+    const ${variable} = ${flagFunction}('${flagKey}')
+
+    if (${variable}${variantSuffix}) {
+        // do something
+    }
+}`}
         </CodeSnippet>
     )
 }
@@ -366,7 +420,14 @@ export function APISnippet({ groupType }: FeatureFlagSnippet): JSX.Element {
     )
 }
 
-export function JSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+export function JSSnippet({
+    flagKey,
+    multivariant,
+    payload,
+    groupType,
+    instantlyAvailableProperties,
+    samplePropertyName,
+}: FeatureFlagSnippet): JSX.Element {
     if (payload) {
         return (
             <>
@@ -377,6 +438,19 @@ export function JSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet
         )
     }
 
+    const propertyName = samplePropertyName || 'is_authorized'
+
+    const propertyOverrideSnippet = `// Your flag depends on properties that are not instantly available. If you want
+// to make them available without waiting for server delays, send these properties for flag evaluation, like so:
+// Make sure to call this before evaluating flags. More info: https://posthog.com/docs/libraries/js#overriding-server-properties 
+posthog.${
+        groupType
+            ? `setGroupPropertiesForFlags({ '${groupType.group_type}': {'${propertyName}': 'value'}})`
+            : `setPersonPropertiesForFlags({'${propertyName}': 'value'})`
+    }
+
+`
+
     const clientSuffix = 'posthog.'
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
@@ -384,9 +458,8 @@ export function JSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet
     return (
         <>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`// Ensure flags are loaded before usage.
+                {`${instantlyAvailableProperties ? '' : propertyOverrideSnippet}// Ensure flags are loaded before usage.
 // You'll only need to call this on the code for when the first time a user visits.
-
 ${clientSuffix}onFeatureFlags(function() {
     // feature flags should be available at this point
     if (${clientSuffix}${flagFunction}('${flagKey ?? ''}') ${variantSuffix}) {
@@ -394,8 +467,7 @@ ${clientSuffix}onFeatureFlags(function() {
     }
 })
 
-// Otherwise, you can just do
-
+// Otherwise, you can just do:
 if (${clientSuffix}${flagFunction}('${flagKey ?? ''}') ${variantSuffix}) {
     // do something
 }`}

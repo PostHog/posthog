@@ -86,6 +86,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                         "name": "helloworldplugin",
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "short_id": None,
                     },
                 }
@@ -296,6 +297,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                         "name": "helloworldplugin",
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "short_id": None,
                     },
                 },
@@ -309,6 +311,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                         "name": "helloworldplugin",
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "short_id": None,
                     },
                 },
@@ -736,7 +739,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_listing_plugins_is_not_nplus1(self, _mock_get, _mock_reload) -> None:
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             self._assert_number_of_when_listed_plugins(0)
 
         Plugin.objects.create(organization=self.organization)
@@ -1271,6 +1274,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "helloworldplugin",
                         "short_id": None,
                     },
@@ -1284,6 +1288,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "detail": {
                         "changes": [],
                         "trigger": None,
+                        "type": None,
                         "name": "helloworldplugin",
                         "short_id": None,
                     },

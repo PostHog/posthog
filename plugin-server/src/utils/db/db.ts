@@ -278,7 +278,7 @@ export class DB {
     public redisGet<T = unknown>(key: string, defaultValue: T, options: CacheOptions = {}): Promise<T | null> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery(this.statsd, 'query.regisGet', undefined, async () => {
+        return instrumentQuery(this.statsd, 'query.redisGet', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
             try {
@@ -1134,17 +1134,18 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    public async doesPersonBelongToCohort(cohortId: number, person: IngestionPersonData): Promise<boolean> {
+    public async doesPersonBelongToCohort(cohortId: number, personUuid: string, teamId: number): Promise<boolean> {
         const psqlResult = await this.postgresQuery(
             `
             SELECT count(1) AS count
             FROM posthog_cohortpeople
             JOIN posthog_cohort ON (posthog_cohort.id = posthog_cohortpeople.cohort_id)
+            JOIN (SELECT * FROM posthog_person where team_id = $3) AS posthog_person_in_team ON (posthog_cohortpeople.person_id = posthog_person_in_team.id)
             WHERE cohort_id=$1
-              AND person_id=$2
+              AND posthog_person_in_team.uuid=$2
               AND posthog_cohortpeople.version IS NOT DISTINCT FROM posthog_cohort.version
             `,
-            [cohortId, person.id],
+            [cohortId, personUuid, teamId],
             'doesPersonBelongToCohort'
         )
         return psqlResult.rows[0].count > 0

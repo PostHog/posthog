@@ -63,7 +63,7 @@ def execute_hogql_query(
             print_columns.append(node.alias)
         else:
             print_columns.append(
-                print_ast(node=node, context=hogql_query_context, dialect="hogql", stack=[select_query_hogql])
+                print_prepared_ast(node=node, context=hogql_query_context, dialect="hogql", stack=[select_query_hogql])
             )
 
     # Print the ClickHouse SQL query

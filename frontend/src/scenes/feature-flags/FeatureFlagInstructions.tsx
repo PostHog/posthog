@@ -18,6 +18,7 @@ import {
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { groupsModel } from '~/models/groupsModel'
+import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
@@ -30,23 +31,29 @@ function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLin
     )
 }
 
+export interface CodeInstructionsProps {
+    options: InstructionOption[]
+    selectedLanguage?: string
+    featureFlag?: FeatureFlagType
+    dataAttr?: string
+    showLocalEval?: boolean
+    showBootstrap?: boolean
+}
+
 export function CodeInstructions({
     options,
     selectedLanguage,
     featureFlag,
     dataAttr = '',
-}: {
-    options: InstructionOption[]
-    selectedLanguage?: string
-    featureFlag?: FeatureFlagType
-    dataAttr?: string
-}): JSX.Element {
+    showLocalEval = false,
+    showBootstrap = false,
+}: CodeInstructionsProps): JSX.Element {
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
     const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
     const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
-    const [showLocalEvalCode, setShowLocalEvalCode] = useState(false)
-    const [showBootstrapCode, setShowBootstrapCode] = useState(false)
+    const [showLocalEvalCode, setShowLocalEvalCode] = useState(showLocalEval)
+    const [showBootstrapCode, setShowBootstrapCode] = useState(showBootstrap)
 
     const multivariantFlag = !!featureFlag?.filters.multivariate?.variants
 
@@ -58,7 +65,7 @@ export function CodeInstructions({
             ? groupTypes[featureFlag?.filters?.aggregation_group_type_index]
             : undefined
 
-    const { reportFlagsCodeExampleInteraction } = useActions(eventUsageLogic)
+    const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)
     const getDocumentationLink = (): string => {
         const documentationLink = selectedOption.documentationLink
 
@@ -104,7 +111,11 @@ export function CodeInstructions({
     useEffect(() => {
         if (selectedLanguage) {
             selectOption(selectedLanguage)
+        } else {
+            // When flag definition changes, de-select any options that can't be selected anymore
+            selectOption(selectedOption.value)
         }
+
         if (
             Object.keys(featureFlag?.filters.payloads || {}).length > 0 &&
             Object.values(featureFlag?.filters.payloads || {}).some((value) => value)
@@ -114,13 +125,22 @@ export function CodeInstructions({
             setShowPayloadCode(false)
         }
 
-        if (featureFlag?.filters.multivariate?.variants || !featureFlag?.filters.multivariate) {
-            selectOption(selectedOption.value)
-        }
         if (featureFlag?.ensure_experience_continuity) {
             setShowLocalEvalCode(false)
         }
     }, [selectedLanguage, featureFlag])
+
+    const groups = featureFlag?.filters?.groups || []
+    // return first non-instant property in group
+    const firstNonInstantProperty = groups
+        .find(
+            (group) =>
+                group.properties?.length &&
+                group.properties.some((property) => !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || ''))
+        )
+        ?.properties?.find((property) => !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || ''))?.key
+
+    const randomProperty = groups.find((group) => group.properties?.length)?.properties?.[0]?.key
 
     return (
         <div>
@@ -153,6 +173,7 @@ export function CodeInstructions({
                         onChange={(val) => {
                             if (val) {
                                 selectOption(val)
+                                reportFlagsCodeExampleLanguage(val)
                             }
                         }}
                         value={selectedOption.value}
@@ -225,7 +246,7 @@ export function CodeInstructions({
             <div className="mt-4 mb">
                 {showLocalEvalCode && (
                     <>
-                        <h3>Local evaluation</h3>
+                        <h4 className="l4">Local evaluation</h4>
                     </>
                 )}
                 <selectedOption.Snippet
@@ -234,10 +255,12 @@ export function CodeInstructions({
                     multivariant={multivariantFlag}
                     groupType={groupType}
                     localEvaluation={showLocalEvalCode}
+                    instantlyAvailableProperties={!firstNonInstantProperty}
+                    samplePropertyName={firstNonInstantProperty || randomProperty}
                 />
                 {showPayloadCode && (
                     <>
-                        <h3>Payload</h3>
+                        <h4 className="l4">Payload</h4>
                         <selectedOption.Snippet
                             data-attr="feature-flag-instructions-payload-snippet"
                             flagKey={featureFlagKey}
@@ -250,7 +273,7 @@ export function CodeInstructions({
                 )}
                 {showBootstrapCode && (
                     <>
-                        <h3>Bootstrap</h3>
+                        <h4 className="l4">Bootstrap</h4>
                         <bootstrapOption.Snippet flagKey={featureFlagKey} />
                     </>
                 )}
@@ -261,12 +284,6 @@ export function CodeInstructions({
     )
 }
 
-export function FeatureFlagInstructions({
-    language,
-    featureFlag,
-}: {
-    featureFlag: FeatureFlagType
-    language?: string
-}): JSX.Element {
-    return <CodeInstructions options={OPTIONS} selectedLanguage={language} featureFlag={featureFlag} />
+export function FeatureFlagInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    return <CodeInstructions options={OPTIONS} featureFlag={featureFlag} />
 }

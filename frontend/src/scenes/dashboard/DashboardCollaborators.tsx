@@ -27,12 +27,7 @@ export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrict
 ]
 
 export function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element | null {
-    const {
-        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
-        allItemsLoading: dashboardLoading,
-        canEditDashboard,
-        canRestrictDashboard,
-    } = useValues(dashboardLogic)
+    const { dashboard, dashboardLoading, canEditDashboard, canRestrictDashboard } = useValues(dashboardLogic)
     const { triggerDashboardUpdate } = useActions(dashboardLogic)
     const { allCollaborators, explicitCollaboratorsLoading, addableMembers, explicitCollaboratorsToBeAdded } =
         useValues(dashboardCollaboratorsLogic({ dashboardId }))
@@ -45,7 +40,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
             <>
                 <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>
                     {(!canEditDashboard || !canRestrictDashboard) && (
-                        <LemonBanner type="info">
+                        <LemonBanner type="info" className="mb-4">
                             {canEditDashboard
                                 ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
                                 : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
@@ -73,7 +68,9 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                             placeholder="Search for team members to add…"
                                             value={explicitCollaboratorsToBeAdded}
                                             loading={explicitCollaboratorsLoading}
-                                            onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
+                                            onChange={(newValues: string[]) =>
+                                                setExplicitCollaboratorsToBeAdded(newValues)
+                                            }
                                             filterOption={true}
                                             mode="multiple"
                                             data-attr="subscribed-emails"

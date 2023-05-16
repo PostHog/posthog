@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional, Tuple, cast
+from typing import Any, Dict, Optional, cast
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -124,13 +124,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
     permission_classes = []  # type: ignore
     include_in_docs = False
 
-    def get_object(self) -> Tuple[Optional[SharingConfiguration], Optional[ExportedAsset]]:
+    def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:
         # JWT based access (ExportedAsset)
         token = self.request.query_params.get("token")
         if token:
             asset = asset_for_token(token)
             if asset:
-                return (None, asset)
+                return asset
 
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token", "").split(".")[0]
@@ -144,15 +144,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                 raise NotFound()
 
             if sharing_configuration and sharing_configuration.enabled:
-                return (sharing_configuration, None)
+                return sharing_configuration
 
-        return (None, None)
+        return None
 
     @xframe_options_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
-        sharing_configuration, asset = self.get_object()
+        resource = self.get_object()
 
-        resource = sharing_configuration or asset
         if not resource:
             raise NotFound()
 
@@ -165,10 +164,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         }
         exported_data: Dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
-        if asset:
-            if request.path.endswith(f".{asset.file_ext}"):
-                return get_content_response(asset, request.query_params.get("download") == "true")
-
+        if isinstance(resource, SharingConfiguration):
+            exported_data["accessToken"] = resource.access_token
+        elif isinstance(resource, ExportedAsset):
+            if request.path.endswith(f".{resource.file_ext}"):
+                return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
 
         if resource.insight and not resource.insight.deleted:
@@ -200,4 +200,5 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             "exporter.html",
             request=request,
             context={"exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder)},
+            team_for_public_context=resource.team,
         )

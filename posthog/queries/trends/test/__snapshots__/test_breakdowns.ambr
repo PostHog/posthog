@@ -601,3 +601,65 @@
   ORDER BY breakdown_value
   '
 ---
+# name: TestBreakdowns.test_breakdown_histogram_by_missing_property_regression
+  '
+  
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00)(value)))
+  FROM
+    (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'watched movie'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+     GROUP BY value)
+  '
+---
+# name: TestBreakdowns.test_breakdown_histogram_by_missing_property_regression.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['[nan,nan]'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) >= nan
+                                    AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) < nan, '[nan,nan]', '["",""]') as breakdown_value
+           FROM events e
+           WHERE e.team_id = 2
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) is not null
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---

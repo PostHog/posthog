@@ -1,3 +1,4 @@
+import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import {
     Element,
@@ -106,6 +107,7 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
+    KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
@@ -127,7 +129,6 @@ export interface PluginsServerConfig {
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    INTERNAL_MMDB_SERVER_PORT: number // port of the internal server used for IP location (0 means random)
     JOB_QUEUES: string // retry queue engine and fallback queues
     JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
     JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
@@ -139,7 +140,6 @@ export interface PluginsServerConfig {
     JOB_QUEUE_S3_BUCKET_NAME: string
     JOB_QUEUE_S3_PREFIX: string // S3 filename prefix for the S3 job queue
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
-    STALENESS_RESTART_SECONDS: number // trigger a restart if no event ingested for this duration
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     PISCINA_USE_ATOMICS: boolean // corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)
     PISCINA_ATOMICS_TIMEOUT: number // (advanced) corresponds to the length of time a piscina worker should block for when looking for tasks
@@ -154,10 +154,10 @@ export interface PluginsServerConfig {
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
-    OBJECT_STORAGE_ENDPOINT: string // minio endpoint
+    OBJECT_STORAGE_REGION: string // s3 region
+    OBJECT_STORAGE_ENDPOINT: string // s3 endpoint
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string // the top level folder for storing session recordings inside the storage bucket
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE:
         | 'ingestion'
@@ -168,6 +168,7 @@ export interface PluginsServerConfig {
         | 'scheduler'
         | 'analytics-ingestion'
         | 'recordings-ingestion'
+        | 'recordings-blob-ingestion'
         | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
@@ -180,6 +181,15 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
+
+    SESSION_RECORDING_BLOB_PROCESSING_TEAMS: string
+    // local directory might be a volume mount or a directory on disk (e.g. in local dev)
+    SESSION_RECORDING_LOCAL_DIRECTORY: string
+    SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
+    SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
+    SESSION_RECORDING_REMOTE_FOLDER: string
+
+    SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -218,6 +228,8 @@ export interface Hub extends PluginsServerConfig {
     personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
+    // geoip database, setup in workers
+    mmdb?: ReaderModel
     // diagnostics
     lastActivity: number
     lastActivityType: string
@@ -234,6 +246,7 @@ export interface PluginServerCapabilities {
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
     sessionRecordingIngestion?: boolean
+    sessionRecordingBlobIngestion?: boolean
     http?: boolean
     mmdb?: boolean
 }
@@ -604,7 +617,11 @@ interface BaseIngestionEvent {
 export type PreIngestionEvent = BaseIngestionEvent
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export type PostIngestionEvent = BaseIngestionEvent
+export interface PostIngestionEvent extends BaseIngestionEvent {
+    person_id?: string // This is not optional, but BaseEvent needs to be fixed first
+    person_created_at: ISOTimestamp | null
+    person_properties: Properties
+}
 
 export interface DeadLetterQueueEvent {
     id: string

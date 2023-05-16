@@ -38,7 +38,7 @@
          (SELECT id
           FROM person
           WHERE team_id = 2
-            AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
+            AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -88,7 +88,7 @@
                 (SELECT id
                  FROM person
                  WHERE team_id = 2
-                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))) )
+                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
             GROUP BY id
             HAVING max(is_deleted) = 0
             AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
@@ -159,7 +159,7 @@
                 (SELECT id
                  FROM person
                  WHERE team_id = 2
-                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))) )
+                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
             GROUP BY id
             HAVING max(is_deleted) = 0
             AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
@@ -237,14 +237,14 @@
   '
   SELECT e.timestamp as timestamp
   FROM events e
-  INNER JOIN
+  LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  INNER JOIN
+  LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_1
      FROM groups
@@ -279,11 +279,11 @@
          (SELECT id
           FROM person
           WHERE team_id = 2
-            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))) )
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))))) person ON person.id = pdi.person_id
-  INNER JOIN
+  LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups

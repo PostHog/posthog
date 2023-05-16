@@ -28,9 +28,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { currentTeam } = useValues(teamLogic)
-    const {
-        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
-    } = useValues(dashboardLogic(dashboardLogicProps))
+    const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)

@@ -17,7 +17,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import {
@@ -41,7 +41,6 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
-
 import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -54,21 +53,17 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
-import { dayjs, now } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
 import { globalInsightLogic } from './globalInsightLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import React from 'react'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
-
-export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
-    // if the current _global_ value is true respect that over any local preference
-    return localStorage.getItem('default_filter_test_accounts') === 'true' || current_filter_test_accounts
-}
 
 function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
     return (
@@ -88,6 +83,9 @@ export const createEmptyInsight = (
     filters: filterTestAccounts ? { filter_test_accounts: true } : {},
     result: null,
 })
+
+/** Context for passing down the insight/dashboard sharing access token. */
+export const SharingAccessTokenContext = React.createContext<string | undefined>(undefined)
 
 export const insightLogic = kea<insightLogicType>([
     props({} as InsightLogicProps),
@@ -337,7 +335,15 @@ export const insightLogic = kea<insightLogicType>([
                         ) {
                             // Instead of making a search for filters, reload the insight via its id if possible.
                             // This makes sure we update the insight's cache key if we get new default filters.
-                            apiUrl = `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`
+                            apiUrl = combineUrl(
+                                `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
+                                {
+                                    refresh: true,
+                                    ...(props.sharingAccessToken
+                                        ? { sharing_access_token: props.sharingAccessToken }
+                                        : {}),
+                                }
+                            ).url
                             fetchResponse = await api.getResponse(apiUrl, methodOptions)
                         } else {
                             const params = {
@@ -672,9 +678,13 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.filters, actionsModel.selectors.actions],
             (filters, actions: ActionType[]) => {
                 const allEvents = [
-                    ...(filters.events || []).map((e) => String(e.id)),
+                    ...(filters.events || []).map((e) => e.id),
                     ...(filters.actions || []).flatMap((action) => getEventNamesForAction(action.id, actions)),
                 ]
+                // Has one "all events" event.
+                if (allEvents.some((e) => e === null)) {
+                    return []
+                }
                 // remove duplicates and empty events
                 return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
@@ -805,26 +815,24 @@ export const insightLogic = kea<insightLogicType>([
                 return !!featureFlags[FEATURE_FLAGS.HOGQL]
             },
         ],
-        insightRefreshButtonDisabledReason: [
+        getInsightRefreshButtonDisabledReason: [
             (s) => [s.nextAllowedRefresh, s.lastRefresh],
-            (nextAllowedRefresh: string | null, lastRefresh: string | null): string => {
+            (nextAllowedRefresh: string | null, lastRefresh: string | null) => (): string => {
+                const now = dayjs()
                 let disabledReason = ''
-
-                if (!!nextAllowedRefresh && now().isBefore(dayjs(nextAllowedRefresh))) {
+                if (!!nextAllowedRefresh && now.isBefore(dayjs(nextAllowedRefresh))) {
                     // If this is a saved insight, the result will contain nextAllowedRefresh and we use that to disable the button
-                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).fromNow()}`
+                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).from(now)}`
                 } else if (
                     !!lastRefresh &&
-                    now()
-                        .subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
-                        .isBefore(lastRefresh)
+                    now.subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes').isBefore(lastRefresh)
                 ) {
                     // Unsaved insights don't get cached and get refreshed on every page load, but we avoid allowing users to click
                     // 'refresh' more than once every UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES. This can be bypassed by simply
                     // refreshing the page though, as there's no cache layer on the backend
                     disabledReason = `You can refresh this insight again ${dayjs(lastRefresh)
                         .add(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
-                        .fromNow()}`
+                        .from(now)}`
                 }
 
                 return disabledReason

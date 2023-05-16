@@ -11,8 +11,9 @@ from posthog.hogql.property import (
     selector_to_expr,
     tag_name_to_expr,
 )
-from posthog.models import Action, ActionStep, Cohort, Property
+from posthog.models import Action, ActionStep, Cohort, Property, PropertyDefinition
 from posthog.models.property import PropertyGroup
+from posthog.models.property_definition import PropertyType
 from posthog.schema import HogQLPropertyFilter, PropertyOperator
 from posthog.test.base import BaseTest
 
@@ -89,6 +90,32 @@ class TestProperty(BaseTest):
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
             parse_expr("not(match(properties.a, '.*'))"),
+        )
+
+    def test_property_to_expr_boolean(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="boolean_prop",
+            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Boolean,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="string_prop",
+            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.String,
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "boolean_prop", "value": "true"}, team=self.team),
+            parse_expr("properties.boolean_prop = true"),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "string_prop", "value": "true"}, team=self.team),
+            parse_expr("properties.string_prop = 'true'"),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "unknown_prop", "value": "true"}, team=self.team),
+            parse_expr("properties.unknown_prop = true"),
         )
 
     def test_property_to_expr_event_list(self):
@@ -342,6 +369,6 @@ class TestProperty(BaseTest):
         self.assertEqual(
             property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             parse_expr(
-                f"person_id IN (SELECT person_id FROM cohort_people WHERE cohort_id = {cohort.pk} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+                f"person_id IN (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort.pk} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
             ),
         )

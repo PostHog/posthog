@@ -175,6 +175,9 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
                 op && onChange(op)
             }}
             className={props.className}
+            menu={{
+                closeParentPopoverOnClickInside: false,
+            }}
         />
     )
 }

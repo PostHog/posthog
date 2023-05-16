@@ -13,6 +13,13 @@ describe('sessionRecordingsListLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/projects/:team/session_recordings/properties': {
+                    results: [
+                        { id: 's1', properties: { blah: 'blah1' } },
+                        { id: 's2', properties: { blah: 'blah2' } },
+                    ],
+                },
+
                 '/api/projects/:team/session_recordings': (req) => {
                     const { searchParams } = req.url
                     if (
@@ -272,6 +279,7 @@ describe('sessionRecordingsListLogic', () => {
 
                 logic = sessionRecordingsListLogic({
                     key: 'hash-recording-tests',
+                    updateSearchParams: true,
                 })
                 logic.mount()
 

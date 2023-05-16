@@ -7,9 +7,6 @@ name: E2E CI
 
 on:
     pull_request:
-    push:
-        branches:
-            - master
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -27,11 +24,8 @@ jobs:
         steps:
             - name: Wait for the container image to be ready
               uses: lewagon/wait-on-check-action@v1.2.0
-              # if we are on master then we use the CD image (GitHub Action Job
-              # "Build and push PostHog"), otherwise we use the CI image (GitHub
-              # Action Job "Build PostHog")
               with:
-                  check-name: ${{ github.ref == 'refs/heads/master' && 'Build and push PostHog' || 'Build PostHog' }}
+                  check-name: Build PostHog
                   ref: ${{ github.event.pull_request.head.sha }}
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   wait-interval: 10
@@ -66,7 +60,7 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@v2
               with:
-                  version: 7.x.x
+                  version: 8.x.x
 
             - name: Set up Node.js
               uses: actions/setup-node@v3
@@ -129,21 +123,7 @@ jobs:
               id: meta
               uses: docker/metadata-action@v4
               with:
-                  # This runs on both PRs and pushes to master, so we need to
-                  # check the ref to know which image to use. If we are on
-                  # master then we use the DockerHub image that will have been
-                  # pushed by the "Build and push PostHog" job which will have
-                  # been pushed as posthog/posthog:latest, otherwise if we are
-                  # on a pull_request we use the image built by the "Build
-                  # PostHog" job, which are tagged with the pr and use the GHCR
-                  # repo e.g. ghcr.io/posthog/posthog/posthog:pr-1234.
-                  images: |
-                      ${{ github.ref == 'refs/heads/master' && 'posthog/posthog' || 'ghcr.io/posthog/posthog/posthog' }}
-                  # If we're on master, use the latest tag, if we are a
-                  # GitHub Actions pull_request event, use the pr tag.
-                  tags: |
-                      type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
-                      type=ref,event=pr,enable=${{ github.event_name == 'pull_request' }}
+                  images: ghcr.io/posthog/posthog/posthog
 
             - name: Start PostHog
               run: |

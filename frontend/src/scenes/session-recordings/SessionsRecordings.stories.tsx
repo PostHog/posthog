@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
-import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
+import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
 export default {
@@ -24,7 +24,9 @@ export default {
                 '/api/projects/:team_id/session_recordings': { results: recordings },
                 '/api/projects/:team/session_recordings/:id/snapshots': { result: recordingSnapshotsJson },
                 '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
-                '/api/projects/:team/events': { results: recordingEventsJson },
+            },
+            post: {
+                '/api/projects/:team/query': recordingEventsJson,
             },
         }),
     ],
