@@ -1,6 +1,6 @@
 [tool.black]
 line-length = 120
-target-version = ['py38']
+target-version = ['py310']
 
 [tool.isort]
 multi_line_output = 3
@@ -95,4 +95,3 @@ max-complexity = 10
 "./posthog/management/commands/test_migrations_are_safe.py" = ["T201"]
 "./posthog/management/commands/api_keys.py" = ["T201"]
 "./posthog/demo/matrix/manager.py" = ["T201"]
-
