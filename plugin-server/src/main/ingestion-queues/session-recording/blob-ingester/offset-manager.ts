@@ -17,8 +17,35 @@
  */
 
 import { KafkaConsumer } from 'node-rdkafka-acosom'
+import { Gauge } from 'prom-client'
 
 import { status } from '../../../../utils/status'
+
+export const gaugeOffsetCommitAttempted = new Gauge({
+    name: 'offset_manager_offset_commit_attempted',
+    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed. This may result in that offset being committed',
+    labelNames: ['committed'],
+})
+
+export const gaugeOffsetRemovalImpossible = new Gauge({
+    name: 'offset_manager_offset_removal_impossible',
+    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed. That should always match an offset being managed',
+})
+
+interface OffsetSummary {
+    lowest: number | null
+    highest: number | null
+    count: number | null
+}
+
+const offsetSummary = (offsets: number[] | undefined): OffsetSummary => {
+    // assumes the offsets have been sorted already
+    return {
+        lowest: !!offsets?.length ? offsets[0] : null,
+        highest: !!offsets?.length ? offsets[offsets.length - 1] : null,
+        count: offsets?.length || null,
+    }
+}
 
 export class OffsetManager {
     // We have to track every message's offset so that we can commit them only after they've been written to S3
@@ -74,12 +101,10 @@ export class OffsetManager {
         const inFlightOffsets = this.offsetsByPartitionTopic.get(key)
 
         if (!inFlightOffsets) {
-            // TODO: Add a metric so that we can see if and when this happens
-            status.warn('💾', `No inflight offsets found to remove for key: ${key}.`)
+            gaugeOffsetRemovalImpossible.inc()
+            status.warn('💾', `offset_manager - no inflight offsets found to remove`, { partition })
             return
         }
-
-        status.info('💾', `Removing offsets`, { removing: offsetsToRemove, current: inFlightOffsets, partition })
 
         offsetsToRemove.forEach((offset) => {
             // Remove from the list. If it is the lowest value - set it
@@ -97,16 +122,35 @@ export class OffsetManager {
 
         this.offsetsByPartitionTopic.set(key, inFlightOffsets)
 
+        const inflightOffsetSummary = offsetSummary(inFlightOffsets)
+        const offsetsToRemoveSummary = offsetSummary(offsetsToRemove)
+        const logContext = {
+            offsetToCommit,
+            inflightOffsetsCount: inflightOffsetSummary.count,
+            lowestInflightOffset: inflightOffsetSummary.highest,
+            highestInflightOffset: inflightOffsetSummary.lowest,
+            offsetsToRemoveCount: offsetsToRemoveSummary.count,
+            lowestOffsetToRemove: offsetsToRemoveSummary.highest,
+            highestOffsetToRemove: offsetsToRemoveSummary.lowest,
+            partition,
+        }
+
         if (offsetToCommit) {
-            status.info('💾', `Committing offset ${offsetToCommit} for ${topic}-${partition}`)
             this.consumer.commit({
                 topic,
                 partition,
                 offset: offsetToCommit,
             })
-        } else {
-            status.info('💾', `No offset to commit from: ${inFlightOffsets}`)
         }
+
+        status.info(
+            '💾',
+            `offset_manager committing_offsets - ${
+                offsetToCommit !== undefined ? 'committed offset' : 'no offsets to commit'
+            }`,
+            logContext
+        )
+        gaugeOffsetCommitAttempted.labels({ committed: offsetToCommit !== undefined ? 'true' : 'false' }).inc()
 
         return offsetToCommit
     }
