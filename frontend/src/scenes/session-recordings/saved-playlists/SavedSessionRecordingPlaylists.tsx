@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { SessionRecordingsTabs, SessionRecordingPlaylistType } from '~/types'
+import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
 import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -14,7 +14,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { IconPinOutline, IconPinFilled, IconCalendar } from 'lib/lemon-ui/icons'
 
 export type SavedSessionRecordingPlaylistsProps = {
-    tab: SessionRecordingsTabs.Playlists
+    tab: ReplayTabs.Playlists
 }
 
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {

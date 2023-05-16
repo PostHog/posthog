@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { RecordingFilters, SessionRecordingType, SessionRecordingsTabs } from '~/types'
+import { RecordingFilters, SessionRecordingType, ReplayTabs } from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
@@ -187,7 +187,7 @@ export function RecordingsLists({
                             </>
                         ) : null
                     }
-                    draggableHref={urls.sessionRecordings(SessionRecordingsTabs.Recent, filters)}
+                    draggableHref={urls.replay(ReplayTabs.Recent, filters)}
                 />
             </div>
         </>

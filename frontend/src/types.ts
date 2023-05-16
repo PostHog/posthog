@@ -447,7 +447,7 @@ export enum SavedInsightsTabs {
     History = 'history',
 }
 
-export enum SessionRecordingsTabs {
+export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
     FilePlayback = 'file-playback',

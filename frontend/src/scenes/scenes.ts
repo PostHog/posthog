@@ -3,7 +3,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
-import { InsightShortId, SessionRecordingsTabs } from '~/types'
+import { InsightShortId, ReplayTabs } from '~/types'
 import { combineUrl } from 'kea-router'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
@@ -328,7 +328,7 @@ export const routes: Record<string, Scene> = {
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
-    ...Object.values(SessionRecordingsTabs).reduce((acc, tab) => {
+    ...Object.values(ReplayTabs).reduce((acc, tab) => {
         acc[urls.replay(tab)] = Scene.Replay
         return acc
     }, {} as Record<string, Scene>),

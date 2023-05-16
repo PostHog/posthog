@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
-import { SessionRecordingsTabs } from '~/types'
+import { ReplayTabs } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import {
     DEFAULT_PLAYLIST_FILTERS,
@@ -92,7 +92,7 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
     })
 
     beforeEach(() => {
-        logic = savedSessionRecordingPlaylistsLogic({ tab: SessionRecordingsTabs.Playlists })
+        logic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
         logic.mount()
     })
 
@@ -111,7 +111,7 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
 
         describe('is set by setSavedPlaylistsFilters and loads filtered results and sets the url', () => {
             beforeEach(() => {
-                router.actions.push(urls.replay(SessionRecordingsTabs.Playlists))
+                router.actions.push(urls.replay(ReplayTabs.Playlists))
             })
 
             const params = {
@@ -144,7 +144,7 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
         })
 
         it('reads filters from the URL', async () => {
-            router.actions.push(urls.replay(SessionRecordingsTabs.Playlists), {
+            router.actions.push(urls.replay(ReplayTabs.Playlists), {
                 order: 'last_modified_at',
                 search: 'blah',
                 createdBy: 1,

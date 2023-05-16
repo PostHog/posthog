@@ -4,7 +4,7 @@ import {
     FilterType,
     InsightShortId,
     PerformancePageView,
-    SessionRecordingsTabs,
+    ReplayTabs,
 } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
@@ -66,7 +66,7 @@ export const urls = {
         return `/web-performance/waterfall${queryParams}`
     },
 
-    replay: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
+    replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
     replayPlaylist: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,

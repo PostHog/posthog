@@ -36,7 +36,7 @@ import {
     PropertyOperator,
     Resource,
     FeatureFlagType,
-    SessionRecordingsTabs,
+    ReplayTabs,
     FeatureFlagGroupType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
@@ -441,7 +441,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
                                                     <>
                                                         <LemonButton
-                                                            to={urls.replay(SessionRecordingsTabs.Recent, {
+                                                            to={urls.replay(ReplayTabs.Recent, {
                                                                 events: defaultEntityFilterOnFlag(featureFlag.key)
                                                                     .events,
                                                             })}

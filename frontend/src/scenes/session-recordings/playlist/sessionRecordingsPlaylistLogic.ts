@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { Breadcrumb, RecordingFilters, SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
+import { Breadcrumb, RecordingFilters, SessionRecordingPlaylistType, ReplayTabs } from '~/types'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 import { urls } from 'scenes/urls'
 import equal from 'fast-deep-equal'
@@ -55,7 +55,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 deletePlaylist: async () => {
                     if (values.playlist) {
                         return deletePlaylist(values.playlist, () => {
-                            router.actions.replace(urls.replay(SessionRecordingsTabs.Playlists))
+                            router.actions.replace(urls.replay(ReplayTabs.Playlists))
                         })
                     }
                     return null
@@ -101,7 +101,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
                 {
                     name: 'Playlists',
-                    path: urls.replay(SessionRecordingsTabs.Playlists),
+                    path: urls.replay(ReplayTabs.Playlists),
                 },
                 {
                     name: playlist?.name || playlist?.derived_name || '(Untitled)',
