@@ -213,7 +213,7 @@ def get_people(
 ) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
     distinct_id_subquery = Subquery(
-        PersonDistinctId.objects.filter(person_id=OuterRef("person_id")).values_list("id", flat=True)[
+        PersonDistinctId.objects.filter(person_id=OuterRef("person_id"), version=0).values_list("id", flat=True)[
             :distinct_id_limit
         ]
     )
