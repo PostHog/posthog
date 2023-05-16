@@ -104,7 +104,11 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if provided_url.hostname and provided_url.scheme:
         site_url = urlparse(settings.SITE_URL)
         provided_url = provided_url
-        if site_url.hostname != provided_url.hostname:
+        if (
+            site_url.hostname != provided_url.hostname
+            or site_url.port != provided_url.port
+            or site_url.scheme != provided_url.scheme
+        ):
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
