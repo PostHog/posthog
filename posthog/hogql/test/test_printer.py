@@ -91,7 +91,7 @@ class TestPrinter(BaseTest):
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
         )
 
-        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+        with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             context = HogQLContext(
                 team_id=self.team.pk, within_non_hogql_query=True, person_on_events_mode=PersonOnEventsMode.DISABLED
             )
@@ -481,7 +481,7 @@ class TestPrinter(BaseTest):
             f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
         )
 
-        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+        with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             self.assertEqual(
                 self._select(
                     "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id"
