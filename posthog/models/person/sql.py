@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     distinct_id VARCHAR,
     person_id UUID,
     is_deleted Int8,
-    version Int64 DEFAULT 1
+    version Int64
     {extra_fields}
 ) ENGINE = {engine}
 """
