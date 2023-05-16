@@ -84,6 +84,7 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 loadNotebook: async () => {
                     // NOTE: This is all hacky and temporary until we have a backend
+                    // TODO: Add a "revision" counter to handle updates for now
                     let found: NotebookListItemType | undefined
 
                     await delay(1000)

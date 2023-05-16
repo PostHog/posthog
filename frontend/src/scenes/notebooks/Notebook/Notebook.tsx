@@ -166,7 +166,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
                         <LemonSkeleton className="h-4" />
                     </div>
                 ) : !sourceMode ? (
-                    <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
+                    <EditorContent editor={editor} className="flex flex-col flex-1 overflow-y-auto" />
                 ) : (
                     <AutoSizer disableWidth>
                         {({ height }) => (

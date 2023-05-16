@@ -26,6 +26,11 @@ export function NotebookListMini({
         }
     }, [])
 
+    const selectedTitle =
+        selectedNotebookId === 'scratchpad'
+            ? 'Scratchpad'
+            : notebooks.find((notebook) => notebook.id === selectedNotebookId)?.title
+
     const items: LemonMenuItems = [
         {
             items: [
@@ -67,7 +72,7 @@ export function NotebookListMini({
     return (
         <LemonMenu placement="right-start" items={items} onVisibilityChange={onVisibilityChange}>
             <LemonButton size="small" icon={<IconJournal />} status="primary-alt" sideIcon={null}>
-                <span className="font-semibold">{selectedNotebookId || 'Notebooks'}</span>
+                <span className="font-semibold">{selectedTitle || 'Notebooks'}</span>
             </LemonButton>
         </LemonMenu>
     )
