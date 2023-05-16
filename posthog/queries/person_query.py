@@ -91,7 +91,7 @@ class PersonQuery:
         multiple_cohorts_condition, multiple_cohorts_params = self._get_multiple_cohorts_clause(prepend=prepend)
         single_cohort_join, single_cohort_params = self._get_fast_single_cohort_clause()
         if paginate:
-            order = "ORDER BY max(created_at) DESC, id" if paginate else ""
+            order = "ORDER BY argMax(created_at, version) DESC, id" if paginate else ""
             limit_offset, limit_params = self._get_limit_offset_clause()
         else:
             order = ""

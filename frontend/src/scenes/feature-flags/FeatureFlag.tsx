@@ -462,7 +462,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     onClick={() => {
                                                         deleteFeatureFlag(featureFlag)
                                                     }}
-                                                    disabled={featureFlagLoading || !featureFlag.can_edit}
+                                                    disabledReason={
+                                                        featureFlagLoading
+                                                            ? 'Loading...'
+                                                            : !featureFlag.can_edit
+                                                            ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                            : (featureFlag.features?.length || 0) > 0
+                                                            ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                            : null
+                                                    }
                                                 >
                                                     Delete feature flag
                                                 </LemonButton>
