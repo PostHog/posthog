@@ -220,6 +220,9 @@ dependencies:
   react-input-autosize:
     specifier: ^3.0.0
     version: 3.0.0(react@16.14.0)
+  react-intersection-observer:
+    specifier: ^9.4.3
+    version: 9.4.3(react@16.14.0)
   react-json-view:
     specifier: ^1.21.3
     version: 1.21.3(@types/react@16.14.34)(react-dom@16.14.0)(react@16.14.0)
@@ -16687,6 +16690,14 @@ packages:
       prop-types: 15.8.1
       react: 16.14.0
     dev: true
+
+  /react-intersection-observer@9.4.3(react@16.14.0):
+    resolution: {integrity: sha512-WNRqMQvKpupr6MzecAQI0Pj0+JQong307knLP4g/nBex7kYfIaZsPpXaIhKHR+oV8z+goUbH9e10j6lGRnTzlQ==}
+    peerDependencies:
+      react: ^15.0.0 || ^16.0.0 || ^17.0.0 || ^18.0.0
+    dependencies:
+      react: 16.14.0
+    dev: false
 
   /react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}

@@ -1,6 +1,6 @@
 @import '../../../styles/mixins';
 
-$sidebar-width: 40%;
+$sidebar-width: 40rem;
 
 .NotebookSidebar {
     position: relative;
@@ -12,18 +12,14 @@ $sidebar-width: 40%;
     flex-shrink: 0;
 
     .NotebookSidebar__floater {
-        position: fixed;
-        top: 3.5rem;
-        right: 0;
         width: $sidebar-width;
-        height: calc(100vh - 3.5rem);
+        height: 100%;
         transform: translateX(0);
         display: flex;
         z-index: var(--z-notebook-sidebar);
     }
 
     .NotebookSidebar__content {
-        margin: 0.5rem;
         flex: 1;
         overflow: hidden;
         display: flex;
@@ -76,8 +72,8 @@ $sidebar-width: 40%;
     }
 
     .NotebookSidebar__content {
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
+        border-left: 1px solid var(--border);
+        // border-radius: var(--radius);
         background-color: var(--side);
         box-shadow: var(--shadow--elevation);
     }
