@@ -27,10 +27,10 @@
     box-shadow: var(--shadow-elevation);
     background: var(--bg-light);
     flex-grow: 1;
-    padding: 0.5rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
     opacity: 0;
+    overflow: auto;
 
     .Popover--actionable & {
         border-color: var(--primary);
@@ -119,6 +119,6 @@
 }
 
 .Popover__content {
-    overflow: auto;
     max-height: 100%;
+    padding: 0.5rem;
 }

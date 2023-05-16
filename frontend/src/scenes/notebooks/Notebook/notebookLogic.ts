@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 import type { notebookLogicType } from './notebookLogicType'
@@ -7,13 +7,6 @@ import type { notebookLogicType } from './notebookLogicType'
 // import type { Editor } from '@tiptap/core'
 
 export type Editor = any
-
-const START_CONTENT = `
-<h2>Introducing Notebook!</h2>
-<blockquote>This is an experimental feature allowing you to bring multiple items from across PostHog into one place</blockquote>
-<ph-query></ph-query>
-
-`
 
 export type NotebookLogicProps = {
     id: string
@@ -31,7 +24,7 @@ export const notebookLogic = kea<notebookLogicType>([
     }),
     reducers({
         content: [
-            START_CONTENT as string,
+            '' as string,
             { persist: true },
             {
                 syncContent: (_, { content }) => content,
@@ -51,6 +44,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 setReady: () => true,
             },
         ],
+    }),
+    selectors({
+        // TODO: This isn't used yet
+        editable: [(s) => [s.ready], (ready): boolean => ready],
     }),
     listeners(({ values }) => ({
         addNodeToNotebook: ({ type, props }) => {

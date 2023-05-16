@@ -10,19 +10,14 @@ $sidebar-width: 40rem;
     width: $sidebar-width;
     flex: 1;
 
-    .NotebookSidebar__floater {
+    .NotebookSidebar__content {
         width: $sidebar-width;
         height: 100%;
         transform: translateX(0);
         display: flex;
-    }
-
-    .NotebookSidebar__content {
+        flex-direction: column;
         flex: 1;
         overflow: hidden;
-        display: flex;
-        flex-direction: column;
-
         border-left: 1px solid var(--border);
         background-color: var(--side);
         box-shadow: var(--shadow--elevation);
@@ -32,7 +27,7 @@ $sidebar-width: 40rem;
 
     &--enter {
         width: 0;
-        .NotebookSidebar__floater {
+        .NotebookSidebar__content {
             transform: translateX(100%);
         }
     }
@@ -40,7 +35,7 @@ $sidebar-width: 40rem;
     &--enter-active,
     &--enter-done {
         width: $sidebar-width;
-        .NotebookSidebar__floater {
+        .NotebookSidebar__content {
             transition: 200ms ease transform;
             transform: translateX(0%);
         }
@@ -48,7 +43,7 @@ $sidebar-width: 40rem;
 
     &--exit {
         width: $sidebar-width;
-        .NotebookSidebar__floater {
+        .NotebookSidebar__content {
             transition: 200ms ease transform;
             transform: translateX(0%);
         }
@@ -56,7 +51,7 @@ $sidebar-width: 40rem;
 
     &--exit-active {
         width: 0;
-        .NotebookSidebar__floater {
+        .NotebookSidebar__content {
             transform: translateX(100%);
         }
     }
@@ -64,7 +59,7 @@ $sidebar-width: 40rem;
     &--full-screen {
         width: auto;
 
-        .NotebookSidebar__floater {
+        .NotebookSidebar__content {
             width: 100%;
         }
 
@@ -76,10 +71,6 @@ $sidebar-width: 40rem;
     .Navigation3000 & {
         .NotebookSidebar__content {
             background-color: var(--accent-3000);
-        }
-
-        .NotebookSidebar__floater {
-            background-color: var(--bg-3000);
         }
     }
 }
