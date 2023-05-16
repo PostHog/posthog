@@ -19,11 +19,13 @@ class TestInstanceSettings(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_alter_queries
     def test_update_recordings_ttl_setting(self):
         response = self.client.get(f"/api/instance_settings/RECORDINGS_TTL_WEEKS")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["value"], 3)
 
-        response = self.client.patch(f"/api/instance_settings/RECORDINGS_TTL_WEEKS", {"value": 5})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.patch(
+            f"/api/instance_settings/RECORDINGS_TTL_WEEKS", {"value": 5}, **self.basic_auth_headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["value"], 5)
 
         self.assertEqual(get_instance_setting("RECORDINGS_TTL_WEEKS"), 5)
@@ -37,11 +39,13 @@ class TestInstanceSettings(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_alter_queries
     def test_update_recordings_performance_events_ttl_setting(self):
         response = self.client.get(f"/api/instance_settings/RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["value"], 3)
 
-        response = self.client.patch(f"/api/instance_settings/RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS", {"value": 5})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.patch(
+            f"/api/instance_settings/RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS", {"value": 5}, **self.basic_auth_headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["value"], 5)
 
         self.assertEqual(get_instance_setting("RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS"), 5)

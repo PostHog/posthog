@@ -97,7 +97,9 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], False)
 
-        response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        response = self.client.patch(
+            f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True}, **self.basic_auth_headers
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], True)
 
@@ -108,7 +110,9 @@ class TestInstanceSettings(APIBaseTest):
         set_instance_setting("EMAIL_HOST", "localhost")
         with self.settings(SITE_URL="http://localhost:8000", CELERY_TASK_ALWAYS_EAGER=True):
             response = self.client.patch(
-                f"/api/instance_settings/EMAIL_DEFAULT_FROM", {"value": "hellohello@posthog.com"}
+                f"/api/instance_settings/EMAIL_DEFAULT_FROM",
+                {"value": "hellohello@posthog.com"},
+                **self.basic_auth_headers,
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], "hellohello@posthog.com")
@@ -120,14 +124,18 @@ class TestInstanceSettings(APIBaseTest):
 
     def test_update_integer_setting(self):
         response = self.client.patch(
-            f"/api/instance_settings/ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", {"value": 48343943943}
+            f"/api/instance_settings/ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
+            {"value": 48343943943},
+            **self.basic_auth_headers,
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], 48343943943)
         self.assertEqual(get_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT"), 48343943943)
 
     def test_cant_update_setting_that_is_not_overridable(self):
-        response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False})
+        response = self.client.patch(
+            f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False}, **self.basic_auth_headers
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -140,15 +148,33 @@ class TestInstanceSettings(APIBaseTest):
         )
         self.assertEqual(get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"), True)
 
-    def test_non_staff_user_cant_update(self):
+    def test_non_staff_user_cannot_access(self):
         self.user.is_staff = False
         self.user.save()
 
-        response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response_get = self.client.get("/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        response_patch = self.client.patch(
+            "/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True}, **self.basic_auth_headers
+        )
+
+        self.assertEqual(response_get.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json(), self.permission_denied_response("You are not a staff user, contact your instance admin.")
+            response_get.json(),
+            self.permission_denied_response("You are not a staff user, contact your instance admin."),
+        )
+        self.assertEqual(response_patch.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response_patch.json(),
+            self.permission_denied_response("You are not a staff user, contact your instance admin."),
         )
 
         self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, False)
         self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), False)
+
+    def test_staff_user_cannot_update_without_basic_auth(self):
+        response_patch = self.client.patch("/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+
+        self.assertEqual(response_patch.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(
+            response_patch.json(), self.unauthenticated_response("Authentication credentials were not provided.")
+        )
