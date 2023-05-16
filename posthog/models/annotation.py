@@ -9,6 +9,7 @@ class Annotation(models.Model):
         INSIGHT = "dashboard_item", "insight"
         PROJECT = "project", "project"
         ORGANIZATION = "organization", "organization"
+        RECORDING = "recording", "recording"
 
     class CreationType(models.TextChoices):
         USER = "USR", "user"
@@ -27,6 +28,11 @@ class Annotation(models.Model):
     creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER)
     date_marker: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
+
+    # when scope is recording
+    # seconds into recording for the annotation
+    recording_timestamp: models.FloatField = models.FloatField(null=True, blank=True)
+    session_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     # DEPRECATED: replaced by scope
     apply_all: models.BooleanField = models.BooleanField(null=True)

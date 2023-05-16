@@ -126,6 +126,123 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
 
     @patch("posthog.api.annotation.report_user_action")
+    def test_creating_annotation_on_a_recording(self, mock_capture):
+        team2 = Organization.objects.bootstrap(None)[2]
+
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "😍",
+                "scope": "recording",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+                "recording_timestamp": "230",
+                "session_id": "123",
+                "team": team2.pk,  # make sure this is set automatically
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        date_marker: datetime = datetime(2020, 1, 1, 0, 0, 0).replace(tzinfo=pytz.UTC)
+        instance = Annotation.objects.get(pk=response.json()["id"])
+        self.assertEqual(instance.content, "😍")
+        self.assertEqual(instance.scope, "recording")
+        self.assertEqual(instance.date_marker, date_marker)
+        self.assertEqual(instance.team, self.team)
+        self.assertEqual(instance.creation_type, "USR")
+        self.assertEqual(instance.recording_timestamp, 230)
+        self.assertEqual(instance.session_id, "123")
+
+    @patch("posthog.api.annotation.report_user_action")
+    def test_retrieving_annotation_by_content(self, _mock_capture) -> None:
+        user = User.objects.create_and_join(self.organization, "one", "")
+
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_at="2020-01-04T12:00:00Z",
+            created_by=user,
+            content="needle",
+        )
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_at="2020-01-04T12:00:00Z",
+            created_by=user,
+            content="needl",
+        )
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_at="2020-01-04T12:00:00Z",
+            created_by=user,
+            content="need",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/?search=needl").json()
+        self.assertEqual(len(response["results"]), 2)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/?search=needle").json()
+        self.assertEqual(len(response["results"]), 1)
+
+    @patch("posthog.api.annotation.report_user_action")
+    def test_retrieving_annotation_by_session_id(self, _mock_capture) -> None:
+        user = User.objects.create_and_join(self.organization, "one", "")
+
+        # not a recording
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_at="2020-01-04T12:00:00Z",
+            created_by=user,
+            content="😍",
+            scope="organization",
+            # but it accidentally has a session_id
+            session_id="123",
+        )
+
+        # 2 annotations on the same recording
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_at="2020-01-04T12:00:00Z",
+            created_by=user,
+            content="🤯",
+            scope="recording",
+            session_id="123",
+            recording_timestamp=234,
+        )
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_at="2020-01-04T12:00:00Z",
+            created_by=user,
+            content="😍",
+            scope="recording",
+            session_id="123",
+            recording_timestamp=123,
+        )
+
+        # a different recording
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_at="2020-01-04T12:00:00Z",
+            created_by=user,
+            content="🤯",
+            scope="recording",
+            session_id="234",
+            recording_timestamp=234,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/annotations/?session_id=123&order=recording_timestamp"
+        ).json()
+        self.assertEqual(len(response["results"]), 2)
+        self.assertEqual([r["recording_timestamp"] for r in response["results"]], [123, 234])
+
+    @patch("posthog.api.annotation.report_user_action")
     def test_can_create_annotations_as_a_bot(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",

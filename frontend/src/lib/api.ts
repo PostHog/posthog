@@ -1016,8 +1016,27 @@ const api = {
         async list(): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest().annotations().get()
         },
+        async listBySessionid(sessionId: string): Promise<PaginatedResponse<RawAnnotationType>> {
+            return await new ApiRequest()
+                .annotations()
+                .withQueryString(
+                    toParams({
+                        session_id: sessionId,
+                        order: 'recording_timestamp',
+                    })
+                )
+                .get()
+        },
         async create(
             data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<RawAnnotationType> {
+            return await new ApiRequest().annotations().create({ data })
+        },
+        async annotateRecording(
+            data: Pick<
+                RawAnnotationType,
+                'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'recording_timestamp' | 'session_id'
+            >
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },

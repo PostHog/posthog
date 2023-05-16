@@ -1442,6 +1442,7 @@ export enum AnnotationScope {
     Insight = 'dashboard_item',
     Project = 'project',
     Organization = 'organization',
+    Recording = 'recording',
 }
 
 export interface RawAnnotationType {
@@ -1457,6 +1458,8 @@ export interface RawAnnotationType {
     insight_name?: InsightModel['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
+    session_id?: string | null
+    recording_timestamp?: number | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {

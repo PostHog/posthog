@@ -1,4 +1,5 @@
 import './SessionRecordingPlayer.scss'
+import './Annotations.scss'
 import { useMemo, useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import {

@@ -9,6 +9,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PlayerFrameOverlay.scss'
 import { PlayerUpNext } from './PlayerUpNext'
 import { useState } from 'react'
+import { sessionRecordingAnnotationLogic } from 'scenes/session-recordings/player/sessionRecordingAnnotationsLogic'
 
 export interface PlayerFrameOverlayProps extends SessionRecordingPlayerLogicProps {
     nextSessionRecording?: Partial<SessionRecordingType>
@@ -64,8 +65,12 @@ const PlayerFrameOverlayContent = ({
 }
 
 export function PlayerFrameOverlay(): JSX.Element {
-    const { currentPlayerState } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
+
+    const annotationsLogic = sessionRecordingAnnotationLogic(logicProps)
+    const { annotations } = useValues(annotationsLogic)
+    console.log({ annotations })
 
     const [interrupted, setInterrupted] = useState(false)
 
@@ -78,6 +83,28 @@ export function PlayerFrameOverlay(): JSX.Element {
         >
             <PlayerFrameOverlayContent currentPlayerState={currentPlayerState} />
             <PlayerUpNext interrupted={interrupted} clearInterrupted={() => setInterrupted(false)} />
+            {annotations ? (
+                <div className={'h-4 w-full absolute text-xl'} style={{ bottom: '8px' }}>
+                    {annotations.map((a, i) => {
+                        if (a.recording_timestamp === null || a.recording_timestamp === undefined) {
+                            return null
+                        }
+                        const left = (a.recording_timestamp / sessionPlayerData.durationMs) * 100
+                        return (
+                            // eslint-disable-next-line react/forbid-dom-props
+                            <span
+                                key={i}
+                                className={'absolute RecordingAnnotation rounded p-1'}
+                                style={{
+                                    left: `${left}%`,
+                                }}
+                            >
+                                {a.content}
+                            </span>
+                        )
+                    })}
+                </div>
+            ) : null}
         </div>
     )
 }

@@ -14,10 +14,15 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { sessionRecordingAnnotationLogic } from 'scenes/session-recordings/player/sessionRecordingAnnotationsLogic'
+// import EmojiPicker from 'emoji-picker-react'
 
 export function PlayerController(): JSX.Element {
-    const { currentPlayerState } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, currentPlayerTime, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, exportRecordingToFile, openExplorer } = useActions(sessionRecordingPlayerLogic)
+
+    const annotationsLogic = sessionRecordingAnnotationLogic(logicProps)
+    const { annotate } = useActions(annotationsLogic)
 
     const { speed, skipInactivitySetting, isFullScreen } = useValues(playerSettingsLogic)
     const { setSpeed, setSkipInactivitySetting, setIsFullScreen } = useActions(playerSettingsLogic)
@@ -26,7 +31,35 @@ export function PlayerController(): JSX.Element {
         <div className="p-3 bg-light flex flex-col select-none">
             <Seekbar />
             <div className="flex justify-between items-center h-8 gap-2">
-                <div className="flex-1" />
+                <div className="flex-1">
+                    <div className={'flex flex-row gap-x-2'}>
+                        <LemonButton
+                            status="stealth"
+                            size="small"
+                            icon={<>👍</>}
+                            onClick={() => annotate({ content: '👍', timestamp: currentPlayerTime })}
+                        />
+                        <LemonButton
+                            status="stealth"
+                            size="small"
+                            icon={<>👎</>}
+                            onClick={() => annotate({ content: '👎', timestamp: currentPlayerTime })}
+                        />
+                        <LemonButton
+                            status="stealth"
+                            size="small"
+                            icon={<>😍</>}
+                            onClick={() => annotate({ content: '😍', timestamp: currentPlayerTime })}
+                        />
+                        <LemonButton
+                            status="stealth"
+                            size="small"
+                            icon={<>🔥</>}
+                            onClick={() => annotate({ content: '🔥', timestamp: currentPlayerTime })}
+                        />
+                        {/*<EmojiPicker />*/}
+                    </div>
+                </div>
                 <div className="flex items-center gap-1">
                     <SeekSkip direction="backward" />
                     <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>

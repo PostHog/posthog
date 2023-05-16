@@ -95,6 +95,7 @@
         "d3": "^7.8.2",
         "d3-sankey": "^0.12.3",
         "dayjs": "^1.10.7",
+        "emoji-picker-react": "^4.4.9",
         "esbuild": "^0.14.54",
         "esbuild-plugin-less": "^1.1.7",
         "esbuild-sass-plugin": "^1.8.2",
