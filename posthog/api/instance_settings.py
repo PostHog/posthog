@@ -1,7 +1,8 @@
 import re
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from rest_framework import exceptions, mixins, permissions, serializers, viewsets
+from rest_framework import exceptions, mixins, permissions, serializers, viewsets, authentication
+from rest_framework.authentication import BaseAuthentication
 
 from posthog.cloud_utils import is_cloud
 from posthog.models.instance_setting import get_instance_setting as get_instance_setting_raw
@@ -121,6 +122,13 @@ class InstanceSettingsViewset(
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = InstanceSettingsSerializer
     lookup_field = "key"
+
+    def get_authenticators(self) -> List[BaseAuthentication]:
+        if self.request.method not in permissions.SAFE_METHODS:
+            # Write operations can only be performed with email + password auth
+            # This way knowledge of user credentials is REQUIRED to e.g. extract email credentials via the canary email
+            return [authentication.BasicAuthentication()]
+        return super().get_authenticators()
 
     def get_queryset(self):
         output = []
