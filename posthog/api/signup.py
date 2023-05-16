@@ -165,6 +165,9 @@ class InviteSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
     password: serializers.Field = serializers.CharField(required=False)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
+    role_at_organization: serializers.Field = serializers.CharField(
+        max_length=128, required=False, allow_blank=True, default=""
+    )
 
     def validate_password(self, value):
         password_validation.validate_password(value)
@@ -176,7 +179,6 @@ class InviteSignupSerializer(serializers.Serializer):
         return data
 
     def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
-
         if "request" not in self.context or not self.context["request"].user.is_authenticated:
             # If there's no authenticated user and we're creating a new one, attributes are required.
 
@@ -202,7 +204,7 @@ class InviteSignupSerializer(serializers.Serializer):
 
         try:
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
-        except (OrganizationInvite.DoesNotExist):
+        except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
         with transaction.atomic():
