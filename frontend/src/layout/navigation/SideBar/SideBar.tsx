@@ -169,6 +169,10 @@ function Pages(): JSX.Element {
                         to={urls.sessionRecordings()}
                     />
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
+                    {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
+                        !preflight?.instance_preferences?.disable_paid_fs) && (
+                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
+                    )}
                     {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
                         <PageButton
                             icon={<IconRocketLaunch />}
@@ -176,10 +180,6 @@ function Pages(): JSX.Element {
                             title={'Early Access Management'}
                             to={urls.earlyAccessFeatures()}
                         />
-                    )}
-                    {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
-                        !preflight?.instance_preferences?.disable_paid_fs) && (
-                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
                     )}
                     {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                         <PageButton
