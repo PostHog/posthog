@@ -1,13 +1,14 @@
 .Notebook {
     height: 100%;
     flex: 1;
-    padding: 1rem 2rem;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
 }
 .NotebookEditor {
     flex: 1;
+    padding: 1rem 2rem;
+
     > :not(.react-renderer) {
         max-width: 1000px;
         margin: 0 auto;

@@ -159,7 +159,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             )} */}
 
                 {!notebook && notebookLoading ? (
-                    <div className="space-y-4">
+                    <div className="space-y-4 px-8 py-4">
                         <LemonSkeleton className="w-1/2 h-8" />
                         <LemonSkeleton className="w-1/3 h-4" />
                         <LemonSkeleton className="h-4" />
