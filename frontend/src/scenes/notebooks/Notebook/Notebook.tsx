@@ -2,7 +2,7 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEffect } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import MonacoEditor from '@monaco-editor/react'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -89,8 +89,9 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
     }, [editable, editor])
 
     return (
-        <div className="flex-1 overflow-hidden flex flex-col h-full">
-            {/* {editor && (
+        <BindLogic logic={notebookLogic} props={{ id }}>
+            <div className="flex-1 overflow-hidden flex flex-col h-full">
+                {/* {editor && (
                 <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex items-center gap-2">
                     <LemonButton
                         size="small"
@@ -121,27 +122,28 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
                 </FloatingMenu>
             )} */}
 
-            {!sourceMode ? (
-                <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
-            ) : (
-                <AutoSizer disableWidth>
-                    {({ height }) => (
-                        <MonacoEditor
-                            theme="vs-light"
-                            className="border"
-                            language="html"
-                            value={editor?.getHTML() ?? ''}
-                            height={height}
-                            loading={<Spinner />}
-                            onChange={(value) => {
-                                if (value) {
-                                    editor?.chain().setContent(value).run()
-                                }
-                            }}
-                        />
-                    )}
-                </AutoSizer>
-            )}
-        </div>
+                {!sourceMode ? (
+                    <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
+                ) : (
+                    <AutoSizer disableWidth>
+                        {({ height }) => (
+                            <MonacoEditor
+                                theme="vs-light"
+                                className="border"
+                                language="html"
+                                value={editor?.getHTML() ?? ''}
+                                height={height}
+                                loading={<Spinner />}
+                                onChange={(value) => {
+                                    if (value) {
+                                        editor?.chain().setContent(value).run()
+                                    }
+                                }}
+                            />
+                        )}
+                    </AutoSizer>
+                )}
+            </div>
+        </BindLogic>
     )
 }

@@ -4,15 +4,40 @@ import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useValues } from 'kea'
+import { notebookLogic } from '../Notebook/notebookLogic'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
     className: string
     children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
+    heightEstimate?: number | string
     href?: string
 }
 
-export function NodeWrapper({ title, className, children, selected, href }: NodeWrapperProps): JSX.Element {
+export function NodeWrapper({
+    title,
+    className,
+    children,
+    selected,
+    href,
+    heightEstimate = '4rem',
+}: NodeWrapperProps): JSX.Element {
+    const { ready } = useValues(notebookLogic)
+
+    // We delay rendering heavy components until the logic says it is "ready"
+    if (!ready) {
+        return (
+            <>
+                <div className="h-4" /> {/* Placeholder for the drag handle */}
+                <div style={{ height: heightEstimate }}>
+                    <LemonSkeleton className="h-full" />
+                </div>
+            </>
+        )
+    }
+
     return (
         <NodeViewWrapper
             as="div"

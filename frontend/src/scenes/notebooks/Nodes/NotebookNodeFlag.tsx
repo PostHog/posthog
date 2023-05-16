@@ -22,6 +22,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             title="FeatureFlag"
             {...props}
             href={urls.featureFlag(id)}
+            heightEstimate={'3rem'}
         >
             <div className="border rounded bg-light">
                 <div className="flex items-center gap-2 p-4">

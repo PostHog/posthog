@@ -72,6 +72,7 @@
         "@sentry/react": "7.22.0",
         "@testing-library/dom": ">=7.21.4",
         "@tiptap/core": "2.0.0-beta.220",
+        "@tiptap/extension-placeholder": "2.0.0-beta.220",
         "@tiptap/pm": "2.0.0-beta.220",
         "@tiptap/react": "2.0.0-beta.220",
         "@tiptap/starter-kit": "2.0.0-beta.220",

@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 import type { notebookLogicType } from './notebookLogicType'
@@ -27,6 +27,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setEditorRef: (editor: Editor) => ({ editor }),
         addNodeToNotebook: (type: NotebookNodeType, props: Record<string, any>) => ({ type, props }),
         syncContent: (content: string) => ({ content }),
+        setReady: true,
     }),
     reducers({
         content: [
@@ -41,6 +42,13 @@ export const notebookLogic = kea<notebookLogicType>([
             null as Editor | null,
             {
                 setEditorRef: (_, { editor }) => editor,
+            },
+        ],
+
+        ready: [
+            false,
+            {
+                setReady: () => true,
             },
         ],
     }),
@@ -60,4 +68,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 .run()
         },
     })),
+
+    afterMount(({ actions }) => {
+        setTimeout(() => {
+            actions.setReady()
+        }, 250)
+    }),
 ])

@@ -31,14 +31,8 @@ export function NotebookSideBar(): JSX.Element {
     )
 
     return (
-        <div
-            className={clsx(
-                'NotebookSidebar',
-                notebookSideBarShown && 'NotebookSidebar--show',
-                fullScreen && 'NotebookSidebar--full-screen'
-            )}
-        >
-            <CSSTransition in={notebookSideBarShown} timeout={200} mountOnEnter unmountOnExit>
+        <CSSTransition in={notebookSideBarShown} timeout={200} mountOnEnter unmountOnExit classNames="NotebookSidebar-">
+            <div className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}>
                 <div className="NotebookSidebar__floater">
                     <div className="NotebookSidebar__content">
                         <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
@@ -126,7 +120,7 @@ export function NotebookSideBar(): JSX.Element {
                         />
                     </div>
                 </div>
-            </CSSTransition>
-        </div>
+            </div>
+        </CSSTransition>
     )
 }

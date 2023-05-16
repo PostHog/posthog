@@ -9,7 +9,6 @@ $sidebar-width: 40%;
     min-height: calc(100vh - 3.5rem);
     display: flex;
     width: 0px;
-    transition: 200ms ease width;
     flex-shrink: 0;
 
     .NotebookSidebar__floater {
@@ -18,9 +17,9 @@ $sidebar-width: 40%;
         right: 0;
         width: $sidebar-width;
         height: calc(100vh - 3.5rem);
-        transform: translateX(100%);
-        transition: 200ms ease transform;
+        transform: translateX(0);
         display: flex;
+        z-index: var(--z-notebook-sidebar);
     }
 
     .NotebookSidebar__content {
@@ -31,23 +30,47 @@ $sidebar-width: 40%;
         flex-direction: column;
     }
 
-    &--show {
+    width: $sidebar-width;
+
+    &--enter {
+        width: 0;
+        .NotebookSidebar__floater {
+            transform: translateX(100%);
+        }
+    }
+
+    &--enter-active,
+    &--enter-done {
+        width: $sidebar-width;
+        .NotebookSidebar__floater {
+            transition: 200ms ease transform;
+            transform: translateX(0%);
+        }
+    }
+
+    &--exit {
+        width: $sidebar-width;
+        .NotebookSidebar__floater {
+            transition: 200ms ease transform;
+            transform: translateX(0%);
+        }
+    }
+
+    &--exit-active {
+        width: 0;
+        .NotebookSidebar__floater {
+            transform: translateX(100%);
+        }
+    }
+
+    &--full-screen {
         width: $sidebar-width;
 
         .NotebookSidebar__floater {
-            transform: translateX(0);
-        }
+            width: calc(100vw - 15.5rem - 1rem); // TODO: Unhardcode this value
 
-        &.NotebookSidebar--full-screen {
-            width: $sidebar-width;
-
-            .NotebookSidebar__floater {
-                z-index: 10;
-                width: calc(100vw - 15.5rem - 1rem); // TODO: Unhardcode this value
-
-                .SideBar--hidden & {
-                    width: calc(100vw - 1rem); // TODO: Unhardcode this value
-                }
+            .SideBar--hidden & {
+                width: calc(100vw - 1rem); // TODO: Unhardcode this value
             }
         }
     }
