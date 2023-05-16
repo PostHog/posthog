@@ -15,6 +15,7 @@ import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
 import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
+import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 export type NotebookProps = {
     id: string
@@ -38,6 +39,9 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
+
+            // Ensure this is last as a fallback for all PostHog links
+            NotebookNodeLink,
         ],
         content,
         editorProps: {
