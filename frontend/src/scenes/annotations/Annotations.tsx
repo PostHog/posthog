@@ -44,13 +44,13 @@ export function Annotations(): JSX.Element {
             },
         },
         {
-            title: `Date and time (${shortTimeZone(timezone)})`,
+            title: `Date and time (${shortTimeZone(timezone)})`,
             dataIndex: 'date_marker',
             render: function RenderDateMarker(_, annotation: AnnotationType): string {
                 // Format marker. Minute precision is used, because that's as detailed as our graphs can be
-                return annotation.date_marker.format(ANNOTATION_DAYJS_FORMAT)
+                return annotation.date_marker?.format(ANNOTATION_DAYJS_FORMAT) || ''
             },
-            sorter: (a, b) => a.date_marker.diff(b.date_marker),
+            sorter: (a, b) => a.date_marker?.diff(b.date_marker) || 1,
         },
         {
             title: 'Scope',

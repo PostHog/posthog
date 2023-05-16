@@ -202,7 +202,7 @@ class PostgresConnectionInputs:
             password=settings.DATABASES["default"]["PASSWORD"],
             database=settings.DATABASES["default"]["NAME"],
             username=settings.DATABASES["default"]["USER"],
-            port=settings.DATABASES["default"]["PORT"],
+            port=int(settings.DATABASES["default"]["PORT"]),
         )
 
     @property

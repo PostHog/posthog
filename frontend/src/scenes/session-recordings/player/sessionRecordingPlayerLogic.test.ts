@@ -49,7 +49,7 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('loading session core', () => {
-        it('loads snapshots and metadata', async () => {
+        it('loads metadata only by default', async () => {
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActionsInAnyOrder([
@@ -59,7 +59,27 @@ describe('sessionRecordingPlayerLogic', () => {
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
 
-            await expectLogic(logic).toDispatchActionsInAnyOrder([
+            await expectLogic(logic).toNotHaveDispatchedActions([
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsSuccess,
+            ])
+        })
+
+        it('loads metadata and snapshots if autoplay', async () => {
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: true })
+            logic.mount()
+
+            silenceKeaLoadersErrors()
+
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+            ])
+
+            expect(logic.values.sessionPlayerData).toMatchSnapshot()
+
+            await expectLogic(logic).toDispatchActions([
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsSuccess,
             ])
@@ -79,6 +99,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 },
             })
             logic.mount()
+            logic.actions.loadRecording(true)
 
             await expectLogic(logic, () => {
                 logic.actions.seekToTime(50) // greater than null buffered time

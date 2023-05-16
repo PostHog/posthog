@@ -24,7 +24,14 @@ export function EarlyAccessFeatures(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Early Access Management"
+                title={
+                    <div className="flex items-center gap-2">
+                        Early Access Management
+                        <LemonTag type="warning" className="uppercase">
+                            Beta
+                        </LemonTag>
+                    </div>
+                }
                 caption="Release features in a controlled way. Track adoption in stages."
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>

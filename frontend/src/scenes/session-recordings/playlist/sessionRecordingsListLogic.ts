@@ -18,6 +18,7 @@ import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
 export type PersonUUID = string
 interface Params {
@@ -108,7 +109,7 @@ export const defaultPageviewPropertyEntityFilter = (
 }
 
 export function generateSessionRecordingListLogicKey(props: SessionRecordingListLogicProps): string {
-    return `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ?? '-with-search'}`
+    return `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
 }
 
 export interface SessionRecordingListLogicProps {
@@ -117,6 +118,7 @@ export interface SessionRecordingListLogicProps {
     personUUID?: PersonUUID
     filters?: RecordingFilters
     updateSearchParams?: boolean
+    autoPlay?: boolean
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
@@ -130,7 +132,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
         ],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], playerSettingsLogic, ['autoplayDirection']],
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
@@ -351,28 +353,45 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         getSessionRecordingsSuccess: () => {
             actions.maybeLoadPropertiesForSessions(values.sessionRecordings.map((s) => s.id))
         },
+        setSelectedRecordingId: () => {
+            if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {
+                // If we are at the end of the list then try to load more
+                const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
+                if (recordingIndex === values.sessionRecordings.length - 1) {
+                    actions.maybeLoadSessionRecordings('older')
+                }
+            }
+        },
     })),
     selectors({
         activeSessionRecording: [
-            (s) => [s.selectedRecordingId, s.sessionRecordings],
-            (selectedRecordingId, sessionRecordings): Partial<SessionRecordingType> | undefined => {
+            (s) => [s.selectedRecordingId, s.sessionRecordings, (_, props) => props.autoPlay],
+            (selectedRecordingId, sessionRecordings, autoPlay): Partial<SessionRecordingType> | undefined => {
                 return selectedRecordingId
                     ? sessionRecordings.find((sessionRecording) => sessionRecording.id === selectedRecordingId) || {
                           id: selectedRecordingId,
                       }
-                    : sessionRecordings[0]
+                    : autoPlay
+                    ? sessionRecordings[0]
+                    : undefined
             },
         ],
         nextSessionRecording: [
-            (s) => [s.activeSessionRecording, s.sessionRecordings],
-            (activeSessionRecording, sessionRecordings): Partial<SessionRecordingType> | undefined => {
-                if (!activeSessionRecording) {
+            (s) => [s.activeSessionRecording, s.sessionRecordings, s.autoplayDirection],
+            (
+                activeSessionRecording,
+                sessionRecordings,
+                autoplayDirection
+            ): Partial<SessionRecordingType> | undefined => {
+                if (!activeSessionRecording || !autoplayDirection) {
                     return
                 }
                 const activeSessionRecordingIndex = sessionRecordings.findIndex(
                     (x) => x.id === activeSessionRecording.id
                 )
-                return sessionRecordings[activeSessionRecordingIndex + 1]
+                return autoplayDirection === 'older'
+                    ? sessionRecordings[activeSessionRecordingIndex + 1]
+                    : sessionRecordings[activeSessionRecordingIndex - 1]
             },
         ],
 
@@ -389,6 +408,9 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     }),
 
     actionToUrl(({ props, values }) => {
+        if (!props.updateSearchParams) {
+            return {}
+        }
         const buildURL = (
             replace: boolean
         ): [
@@ -399,11 +421,9 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 replace: boolean
             }
         ] => {
-            const params: Params = props.updateSearchParams
-                ? {
-                      filters: values.filters,
-                  }
-                : {}
+            const params: Params = {
+                filters: values.filters,
+            }
             const hashParams: HashParams = {
                 ...router.values.hashParams,
             }
@@ -425,15 +445,18 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
     urlToAction(({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
+            if (!props.updateSearchParams) {
+                return
+            }
+
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.selectedRecordingId) {
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
             }
 
-            const filters = params.filters
-            if (filters && props.updateSearchParams) {
-                if (!equal(filters, values.filters)) {
-                    actions.replaceFilters(filters)
+            if (params.filters) {
+                if (!equal(params.filters, values.filters)) {
+                    actions.replaceFilters(params.filters)
                 }
             }
         }

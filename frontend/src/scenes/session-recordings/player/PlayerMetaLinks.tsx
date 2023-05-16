@@ -45,7 +45,7 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-row gap-1 items-center flex-1 justify-end">
+        <div className="flex flex-row gap-1 items-center justify-end">
             <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
                 <span>Share</span>
             </LemonButton>
@@ -58,7 +58,7 @@ export function PlayerMetaLinks(): JSX.Element {
                 <AddToNotebook
                     tooltip="Add to Notebook"
                     node={NotebookNodeType.Recording}
-                    properties={{ sessionRecordingId }}
+                    properties={{ id: sessionRecordingId }}
                     {...commonProps}
                 />
             )}
