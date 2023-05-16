@@ -226,7 +226,7 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
     """
     from django.conf import settings
 
-    activity.logger.info("Preparing %s.person_overrides table for squashing", settings.CLICKHOUSE_DATABASE)
+    activity.logger.info("Preparing person_overrides table for squashing")
 
     detach_query = "DETACH VIEW {database}.person_overrides_mv ON CLUSTER {cluster}".format(
         database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER
@@ -243,11 +243,11 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
         activity.logger.info("Would have run query: %s", optimize_query)
         return
 
-    activity.logger.info("Detaching %s.person_overrides_mv", settings.CLICKHOUSE_DATABASE)
+    activity.logger.info("Detaching person_overrides_mv")
 
     sync_execute(detach_query)
 
-    activity.logger.info("Optimizing %s.person_overrides", settings.CLICKHOUSE_DATABASE)
+    activity.logger.info("Optimizing person_overrides")
 
     sync_execute(optimize_query)
 
@@ -257,7 +257,7 @@ async def re_attach_person_overrides(inputs: QueryInputs) -> None:
     """Re-attach the person_overrides mat view after it was used in a squash."""
     from django.conf import settings
 
-    activity.logger.info("Re-attaching %s.person_overrides_mv", settings.CLICKHOUSE_DATABASE)
+    activity.logger.info("Re-attaching person_overrides_mv")
 
     attach_query = "ATTACH TABLE IF NOT EXISTS {database}.person_overrides_mv ON CLUSTER {cluster}".format(
         database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER
@@ -280,10 +280,10 @@ async def prepare_dictionary(inputs: QueryInputs) -> str:
     """
     from django.conf import settings
 
-    activity.logger.info("Preparing DICTIONARY %s.%s", settings.CLICKHOUSE_DATABASE, inputs.dictionary_name)
+    activity.logger.info("Preparing DICTIONARY %s", inputs.dictionary_name)
     latest_merged_at = sync_execute(SELECT_LATEST_MERGED_AT_QUERY.format(database=settings.CLICKHOUSE_DATABASE))[0][0]
 
-    activity.logger.info("Creating DICTIONARY %s.%s", settings.CLICKHOUSE_DATABASE, inputs.dictionary_name)
+    activity.logger.info("Creating DICTIONARY %s", inputs.dictionary_name)
     sync_execute(
         CREATE_DICTIONARY_QUERY.format(
             database=settings.CLICKHOUSE_DATABASE,
@@ -302,7 +302,7 @@ async def drop_dictionary(inputs: QueryInputs) -> None:
     """DROP the DICTIONARY used in the squash workflow."""
     from django.conf import settings
 
-    activity.logger.info("Dropping DICTIONARY %s.%s", settings.CLICKHOUSE_DATABASE, inputs.dictionary_name)
+    activity.logger.info("Dropping DICTIONARY %s", inputs.dictionary_name)
     sync_execute(
         DROP_DICTIONARY_QUERY.format(database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name)
     )
