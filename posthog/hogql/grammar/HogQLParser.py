@@ -1,4 +1,4 @@
-# Generated from HogQLParser.g4 by ANTLR 4.11.1
+# Generated from HogQLParser.g4 by ANTLR 4.12.0
 # encoding: utf-8
 from antlr4 import *
 from io import StringIO
@@ -797,7 +797,7 @@ class HogQLParser ( Parser ):
 
     def __init__(self, input:TokenStream, output:TextIO = sys.stdout):
         super().__init__(input, output)
-        self.checkVersion("4.11.1")
+        self.checkVersion("4.12.0")
         self._interp = ParserATNSimulator(self, self.atn, self.decisionsToDFA, self.sharedContextCache)
         self._predicates = None
 
@@ -2190,7 +2190,7 @@ class HogQLParser ( Parser ):
                         self.state = 282
                         self._errHandler.sync(self)
                         _la = self._input.LA(1)
-                        if ((_la) & ~0x3f) == 0 and ((1 << _la) & 4496) != 0 or (((_la - 68)) & ~0x3f) == 0 and ((1 << (_la - 68)) & 134250497) != 0 or _la==139 or _la==146:
+                        if (((_la) & ~0x3f) == 0 and ((1 << _la) & 4496) != 0) or ((((_la - 68)) & ~0x3f) == 0 and ((1 << (_la - 68)) & 134250497) != 0) or _la==139 or _la==146:
                             self.state = 281
                             self.joinOp()
 
@@ -2328,10 +2328,10 @@ class HogQLParser ( Parser ):
                     self.state = 294
                     self._errHandler.sync(self)
                     _la = self._input.LA(1)
-                    if ((_la) & ~0x3f) == 0 and ((1 << _la) & 4368) != 0:
+                    if (((_la) & ~0x3f) == 0 and ((1 << _la) & 4368) != 0):
                         self.state = 293
                         _la = self._input.LA(1)
-                        if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 4368) != 0):
+                        if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 4368) != 0)):
                             self._errHandler.recoverInline(self)
                         else:
                             self._errHandler.reportMatch(self)
@@ -2348,10 +2348,10 @@ class HogQLParser ( Parser ):
                     self.state = 299
                     self._errHandler.sync(self)
                     _la = self._input.LA(1)
-                    if ((_la) & ~0x3f) == 0 and ((1 << _la) & 4368) != 0:
+                    if (((_la) & ~0x3f) == 0 and ((1 << _la) & 4368) != 0):
                         self.state = 298
                         _la = self._input.LA(1)
-                        if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 4368) != 0):
+                        if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 4368) != 0)):
                             self._errHandler.recoverInline(self)
                         else:
                             self._errHandler.reportMatch(self)
@@ -2363,7 +2363,7 @@ class HogQLParser ( Parser ):
                 elif la_ == 3:
                     self.state = 301
                     _la = self._input.LA(1)
-                    if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 4368) != 0):
+                    if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 4368) != 0)):
                         self._errHandler.recoverInline(self)
                     else:
                         self._errHandler.reportMatch(self)
@@ -2383,10 +2383,10 @@ class HogQLParser ( Parser ):
                     self.state = 305
                     self._errHandler.sync(self)
                     _la = self._input.LA(1)
-                    if ((_la) & ~0x3f) == 0 and ((1 << _la) & 4496) != 0 or _la==146:
+                    if (((_la) & ~0x3f) == 0 and ((1 << _la) & 4496) != 0) or _la==146:
                         self.state = 304
                         _la = self._input.LA(1)
-                        if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 4496) != 0 or _la==146):
+                        if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 4496) != 0) or _la==146):
                             self._errHandler.recoverInline(self)
                         else:
                             self._errHandler.reportMatch(self)
@@ -2429,10 +2429,10 @@ class HogQLParser ( Parser ):
                     self.state = 316
                     self._errHandler.sync(self)
                     _la = self._input.LA(1)
-                    if ((_la) & ~0x3f) == 0 and ((1 << _la) & 4496) != 0 or _la==146:
+                    if (((_la) & ~0x3f) == 0 and ((1 << _la) & 4496) != 0) or _la==146:
                         self.state = 315
                         _la = self._input.LA(1)
-                        if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 4496) != 0 or _la==146):
+                        if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 4496) != 0) or _la==146):
                             self._errHandler.recoverInline(self)
                         else:
                             self._errHandler.reportMatch(self)
@@ -2923,10 +2923,10 @@ class HogQLParser ( Parser ):
             self.state = 378
             self._errHandler.sync(self)
             _la = self._input.LA(1)
-            if ((_la) & ~0x3f) == 0 and ((1 << _la) & 6597069768704) != 0:
+            if (((_la) & ~0x3f) == 0 and ((1 << _la) & 6597069768704) != 0):
                 self.state = 377
                 _la = self._input.LA(1)
-                if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 6597069768704) != 0):
+                if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 6597069768704) != 0)):
                     self._errHandler.recoverInline(self)
                 else:
                     self._errHandler.reportMatch(self)
@@ -3858,7 +3858,7 @@ class HogQLParser ( Parser ):
                 self.state = 493
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
-                if ((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0 or (((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0 or (((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0 or (((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0:
+                if (((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0) or ((((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0) or ((((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0):
                     self.state = 492
                     self.columnExprList()
 
@@ -4031,7 +4031,7 @@ class HogQLParser ( Parser ):
                 self.state = 510
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
-                if (((_la - 2)) & ~0x3f) == 0 and ((1 << (_la - 2)) & -1) != 0 or (((_la - 66)) & ~0x3f) == 0 and ((1 << (_la - 66)) & -633318697631745) != 0 or (((_la - 131)) & ~0x3f) == 0 and ((1 << (_la - 131)) & 6917529027641081855) != 0:
+                if ((((_la - 2)) & ~0x3f) == 0 and ((1 << (_la - 2)) & -1) != 0) or ((((_la - 66)) & ~0x3f) == 0 and ((1 << (_la - 66)) & -633318697631745) != 0) or ((((_la - 131)) & ~0x3f) == 0 and ((1 << (_la - 131)) & 6917529027641081855) != 0):
                     self.state = 507
                     self.tableIdentifier()
                     self.state = 508
@@ -5067,7 +5067,7 @@ class HogQLParser ( Parser ):
                 self.state = 584
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
-                if ((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0 or (((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0 or (((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0 or (((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0:
+                if (((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0) or ((((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0) or ((((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0):
                     self.state = 583
                     self.columnExprList()
 
@@ -5096,7 +5096,7 @@ class HogQLParser ( Parser ):
                 self.state = 596
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
-                if ((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0 or (((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0 or (((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0 or (((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0:
+                if (((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0) or ((((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0) or ((((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0):
                     self.state = 595
                     self.columnExprList()
 
@@ -5124,7 +5124,7 @@ class HogQLParser ( Parser ):
                     self.state = 606
                     self._errHandler.sync(self)
                     _la = self._input.LA(1)
-                    if ((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0 or (((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0 or (((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0 or (((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0:
+                    if (((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0) or ((((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0) or ((((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0):
                         self.state = 605
                         self.columnExprList()
 
@@ -5146,7 +5146,7 @@ class HogQLParser ( Parser ):
                 self.state = 616
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
-                if ((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0 or (((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0 or (((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0 or (((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0:
+                if (((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0) or ((((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0) or ((((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0):
                     self.state = 615
                     self.columnArgList()
 
@@ -5190,7 +5190,7 @@ class HogQLParser ( Parser ):
                 self.state = 628
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
-                if (((_la - 2)) & ~0x3f) == 0 and ((1 << (_la - 2)) & -1) != 0 or (((_la - 66)) & ~0x3f) == 0 and ((1 << (_la - 66)) & -633318697631745) != 0 or (((_la - 131)) & ~0x3f) == 0 and ((1 << (_la - 131)) & 6917529027641081855) != 0:
+                if ((((_la - 2)) & ~0x3f) == 0 and ((1 << (_la - 2)) & -1) != 0) or ((((_la - 66)) & ~0x3f) == 0 and ((1 << (_la - 66)) & -633318697631745) != 0) or ((((_la - 131)) & ~0x3f) == 0 and ((1 << (_la - 131)) & 6917529027641081855) != 0):
                     self.state = 625
                     self.tableIdentifier()
                     self.state = 626
@@ -5246,7 +5246,7 @@ class HogQLParser ( Parser ):
                 self.state = 645
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
-                if ((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0 or (((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0 or (((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0 or (((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0:
+                if (((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0) or ((((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0) or ((((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 578896255) != 0):
                     self.state = 644
                     self.columnExprList()
 
@@ -6352,7 +6352,7 @@ class HogQLParser ( Parser ):
             self.state = 831
             self._errHandler.sync(self)
             _la = self._input.LA(1)
-            if ((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0 or (((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0 or (((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0 or (((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 536952895) != 0:
+            if (((_la) & ~0x3f) == 0 and ((1 << _la) & -4) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0) or ((((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -5) != 0) or ((((_la - 193)) & ~0x3f) == 0 and ((1 << (_la - 193)) & 536952895) != 0):
                 self.state = 830
                 self.tableArgList()
 
@@ -6909,7 +6909,7 @@ class HogQLParser ( Parser ):
             self.enterOuterAlt(localctx, 1)
             self.state = 883
             _la = self._input.LA(1)
-            if not(_la==36 or (((_la - 75)) & ~0x3f) == 0 and ((1 << (_la - 75)) & 72057615512764417) != 0 or (((_la - 144)) & ~0x3f) == 0 and ((1 << (_la - 144)) & 36283883716609) != 0):
+            if not(_la==36 or ((((_la - 75)) & ~0x3f) == 0 and ((1 << (_la - 75)) & 72057615512764417) != 0) or ((((_la - 144)) & ~0x3f) == 0 and ((1 << (_la - 144)) & 36283883716609) != 0)):
                 self._errHandler.recoverInline(self)
             else:
                 self._errHandler.reportMatch(self)
@@ -7485,7 +7485,7 @@ class HogQLParser ( Parser ):
             self.enterOuterAlt(localctx, 1)
             self.state = 885
             _la = self._input.LA(1)
-            if not(((_la) & ~0x3f) == 0 and ((1 << _la) & -68719476740) != 0 or (((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -2577255255640065) != 0 or (((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -2377900603251687437) != 0):
+            if not((((_la) & ~0x3f) == 0 and ((1 << _la) & -68719476740) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -2577255255640065) != 0) or ((((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -2377900603251687437) != 0)):
                 self._errHandler.recoverInline(self)
             else:
                 self._errHandler.reportMatch(self)
@@ -7539,7 +7539,7 @@ class HogQLParser ( Parser ):
             self.enterOuterAlt(localctx, 1)
             self.state = 887
             _la = self._input.LA(1)
-            if not((((_la - 35)) & ~0x3f) == 0 and ((1 << (_la - 35)) & 36030996109328385) != 0):
+            if not(((((_la - 35)) & ~0x3f) == 0 and ((1 << (_la - 35)) & 36030996109328385) != 0)):
                 self._errHandler.recoverInline(self)
             else:
                 self._errHandler.reportMatch(self)
