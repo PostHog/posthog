@@ -265,13 +265,13 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
     return (
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
             <div className="SideBar__slider">
-                <div className="SideBar__content">
+                <div className="SideBar__slider__content">
                     <Pages />
                     <DebugNotice />
                 </div>
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
-            {children}
+            <div className="SideBar__content">{children}</div>
             <ActivationSidebar />
             <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
                 <NotebookSideBar />
