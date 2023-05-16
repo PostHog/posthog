@@ -312,7 +312,10 @@ export const PlanComparisonModal = ({
                                                     </th>
                                                 </tr>
                                                 {includedProduct.plans
-                                                    .find((plan) => plan.included_if == 'has_subscription')
+                                                    .find(
+                                                        (plan: BillingV2PlanType) =>
+                                                            plan.included_if == 'has_subscription'
+                                                    )
                                                     ?.features?.map((feature, i) => (
                                                         <tr key={`tr-${feature.key}`}>
                                                             <th
@@ -333,15 +336,29 @@ export const PlanComparisonModal = ({
                                                                 </Tooltip>
                                                             </th>
                                                             {includedProduct.plans?.map((plan) => (
-                                                                <td key={`${plan.plan_key}-${feature.key}`}>
-                                                                    <PlanIcon
-                                                                        feature={plan.features?.find(
-                                                                            (thisPlanFeature) =>
-                                                                                feature.key === thisPlanFeature.key
-                                                                        )}
-                                                                        className={'text-base'}
-                                                                    />
-                                                                </td>
+                                                                <React.Fragment key={`${plan.plan_key}-${feature.key}`}>
+                                                                    {/* Some products don't have a free plan, so we need to pretend there is one 
+                                                                        so the features line up in the correct columns in the UI. This is kind of 
+                                                                        hacky because it assumes we only have 2 plans total, but it works for now.
+                                                                    */}
+                                                                    {includedProduct.plans?.length === 1 && (
+                                                                        <td>
+                                                                            <PlanIcon
+                                                                                feature={undefined}
+                                                                                className={'text-base'}
+                                                                            />
+                                                                        </td>
+                                                                    )}
+                                                                    <td>
+                                                                        <PlanIcon
+                                                                            feature={plan.features?.find(
+                                                                                (thisPlanFeature) =>
+                                                                                    feature.key === thisPlanFeature.key
+                                                                            )}
+                                                                            className={'text-base'}
+                                                                        />
+                                                                    </td>
+                                                                </React.Fragment>
                                                             ))}
                                                         </tr>
                                                     ))}
