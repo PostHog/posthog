@@ -52,7 +52,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
 import { NotebookSideBar } from '~/scenes/notebooks/Notebook/NotebookSideBar'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -271,11 +270,10 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
                 </div>
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
-            <div className="SideBar__content">{children}</div>
+            <NotebookSideBar>
+                <div className="SideBar__content">{children}</div>
+            </NotebookSideBar>
             <ActivationSidebar />
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                <NotebookSideBar />
-            </FlaggedFeature>
         </div>
     )
 }

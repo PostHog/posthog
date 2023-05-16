@@ -72,6 +72,6 @@ export const notebookLogic = kea<notebookLogicType>([
     afterMount(({ actions }) => {
         setTimeout(() => {
             actions.setReady()
-        }, 250)
+        }, 500)
     }),
 ])

@@ -8,8 +8,11 @@ import { IconFullScreen, IconChevronRight, IconJournal, IconLock, IconLockOpen, 
 import { CSSTransition } from 'react-transition-group'
 import { useState } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import React from 'react'
 
-export function NotebookSideBar(): JSX.Element {
+export function NotebookSideBar({ children }: { children: React.ReactElement<any> }): JSX.Element {
     const { notebookSideBarShown, fullScreen, notebooks, selectedNotebook } = useValues(notebookSidebarLogic)
     const { setNotebookSideBarShown, setFullScreen, selectNotebook, createNotebook } = useActions(notebookSidebarLogic)
 
@@ -30,97 +33,112 @@ export function NotebookSideBar(): JSX.Element {
         [notebookSideBarShown]
     )
 
+    const clonedChild = React.cloneElement(children, {
+        style: fullScreen ? { display: 'none', visibility: 'hidden' } : {},
+    })
+
     return (
-        <CSSTransition in={notebookSideBarShown} timeout={200} mountOnEnter unmountOnExit classNames="NotebookSidebar-">
-            <div className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}>
-                <div className="NotebookSidebar__floater">
-                    <div className="NotebookSidebar__content">
-                        <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
-                            <span className="flex items-center gap-1 text-primary-alt">
-                                <LemonButtonWithDropdown
-                                    status="primary-alt"
-                                    dropdown={{
-                                        overlay: (
-                                            <>
-                                                {notebooks.map((notebook) => (
-                                                    <LemonButton
-                                                        key={notebook}
-                                                        status="stealth"
-                                                        onClick={() => {
-                                                            selectNotebook(notebook)
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        {notebook || <i>Untitled</i>}
-                                                    </LemonButton>
-                                                ))}
-                                                <LemonButton
-                                                    icon={<IconPlus />}
-                                                    onClick={() => createNotebook('Untitled')}
-                                                >
-                                                    New notebook
-                                                </LemonButton>
-                                            </>
-                                        ),
-                                        placement: 'right-start',
-                                        fallbackPlacements: ['left-start'],
-                                        closeParentPopoverOnClickInside: true,
-                                    }}
-                                    size="small"
-                                    icon={<IconJournal />}
-                                    sideIcon={null}
-                                >
-                                    <span className="font-semibold">{selectedNotebook}</span>
-                                </LemonButtonWithDropdown>
-                            </span>
-                            <span className="flex gap-1 px-1">
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => setIsEditable(!isEditable)}
-                                    status="primary-alt"
-                                    type={!isEditable ? 'primary' : undefined}
-                                    noPadding
-                                >
-                                    <div className="m-1">{!isEditable ? <IconLock /> : <IconLockOpen />}</div>
-                                </LemonButton>
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => setShowCode(!showCode)}
-                                    status="primary-alt"
-                                    type={showCode ? 'primary' : undefined}
-                                    noPadding
-                                >
-                                    <div className="m-1 font-mono">{'{}'}</div>
-                                </LemonButton>
+        <>
+            {clonedChild}
+            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+                <CSSTransition
+                    in={notebookSideBarShown}
+                    timeout={200}
+                    mountOnEnter
+                    unmountOnExit
+                    classNames="NotebookSidebar-"
+                >
+                    <div className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}>
+                        <div className="NotebookSidebar__floater">
+                            <div className="NotebookSidebar__content">
+                                <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
+                                    <span className="flex items-center gap-1 text-primary-alt">
+                                        <LemonButtonWithDropdown
+                                            status="primary-alt"
+                                            dropdown={{
+                                                overlay: (
+                                                    <>
+                                                        {notebooks.map((notebook) => (
+                                                            <LemonButton
+                                                                key={notebook}
+                                                                status="stealth"
+                                                                onClick={() => {
+                                                                    selectNotebook(notebook)
+                                                                }}
+                                                                fullWidth
+                                                            >
+                                                                {notebook || <i>Untitled</i>}
+                                                            </LemonButton>
+                                                        ))}
+                                                        <LemonButton
+                                                            icon={<IconPlus />}
+                                                            onClick={() => createNotebook('Untitled')}
+                                                        >
+                                                            New notebook
+                                                        </LemonButton>
+                                                    </>
+                                                ),
+                                                placement: 'right-start',
+                                                fallbackPlacements: ['left-start'],
+                                                closeParentPopoverOnClickInside: true,
+                                            }}
+                                            size="small"
+                                            icon={<IconJournal />}
+                                            sideIcon={null}
+                                        >
+                                            <span className="font-semibold">{selectedNotebook}</span>
+                                        </LemonButtonWithDropdown>
+                                    </span>
+                                    <span className="flex gap-1 px-1">
+                                        <LemonButton
+                                            size="small"
+                                            onClick={() => setIsEditable(!isEditable)}
+                                            status="primary-alt"
+                                            type={!isEditable ? 'primary' : undefined}
+                                            noPadding
+                                        >
+                                            <div className="m-1">{!isEditable ? <IconLock /> : <IconLockOpen />}</div>
+                                        </LemonButton>
+                                        <LemonButton
+                                            size="small"
+                                            onClick={() => setShowCode(!showCode)}
+                                            status="primary-alt"
+                                            type={showCode ? 'primary' : undefined}
+                                            noPadding
+                                        >
+                                            <div className="m-1 font-mono">{'{}'}</div>
+                                        </LemonButton>
 
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => setFullScreen(!fullScreen)}
-                                    status="primary-alt"
-                                    noPadding
-                                >
-                                    <IconFullScreen className="text-lg m-1" />
-                                </LemonButton>
+                                        <LemonButton
+                                            size="small"
+                                            onClick={() => setFullScreen(!fullScreen)}
+                                            status="primary-alt"
+                                            noPadding
+                                        >
+                                            <IconFullScreen className="text-lg m-1" />
+                                        </LemonButton>
 
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => setNotebookSideBarShown(false)}
-                                    status="primary-alt"
-                                    noPadding
-                                >
-                                    <IconChevronRight className="text-lg" />
-                                </LemonButton>
-                            </span>
-                        </header>
-                        <Notebook
-                            key={selectedNotebook}
-                            id={selectedNotebook}
-                            editable={isEditable}
-                            sourceMode={showCode}
-                        />
+                                        <LemonButton
+                                            size="small"
+                                            onClick={() => setNotebookSideBarShown(false)}
+                                            status="primary-alt"
+                                            noPadding
+                                        >
+                                            <IconChevronRight className="text-lg" />
+                                        </LemonButton>
+                                    </span>
+                                </header>
+                                <Notebook
+                                    key={selectedNotebook}
+                                    id={selectedNotebook}
+                                    editable={isEditable}
+                                    sourceMode={showCode}
+                                />
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-        </CSSTransition>
+                </CSSTransition>
+            </FlaggedFeature>
+        </>
     )
 }

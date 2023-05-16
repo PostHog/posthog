@@ -24,15 +24,14 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
         <div className="Navigation3000">
             <Navbar />
             {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} />}
-            <main>
-                <Breadcrumbs />
-                <div className="Navigation3000__scene">
-                    <div className="Navigation3000__content">{children}</div>
-                </div>
-            </main>
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                <NotebookSideBar />
-            </FlaggedFeature>
+            <NotebookSideBar>
+                <main>
+                    <Breadcrumbs />
+                    <div className="Navigation3000__scene">
+                        <div className="Navigation3000__content">{children}</div>
+                    </div>
+                </main>
+            </NotebookSideBar>
 
             <CommandPalette />
         </div>
