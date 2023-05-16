@@ -30,9 +30,17 @@ export const scene: SceneExport = {
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { annotations, annotationsLoading, next, loadingNext, timezone } = useValues(annotationModalLogic)
+    const {
+        annotations: allAnnotations,
+        annotationsLoading,
+        next,
+        loadingNext,
+        timezone,
+    } = useValues(annotationModalLogic)
     const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } =
         useActions(annotationModalLogic)
+
+    const annotations = allAnnotations.filter((annotation) => annotation.scope !== AnnotationScope.Recording)
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
