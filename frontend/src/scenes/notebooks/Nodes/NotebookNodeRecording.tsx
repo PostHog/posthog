@@ -9,6 +9,8 @@ import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { urls } from 'scenes/urls'
 import { createUrlRegex } from './utils'
 
+const HEIGHT = 500
+
 const Component = (props: NodeViewProps): JSX.Element => {
     const id = props.node.attrs.id
     const recordingLogicProps: SessionRecordingPlayerProps = {
@@ -23,10 +25,9 @@ const Component = (props: NodeViewProps): JSX.Element => {
             className={NotebookNodeType.Recording}
             title="Recording"
             href={urls.sessionRecording(recordingLogicProps.sessionRecordingId)}
-            // TODO: Fix "meta" preview
-            // preview={<PlayerMeta {...recordingLogicProps} />}
+            heightEstimate={HEIGHT}
         >
-            <div style={{ height: 500 }}>
+            <div style={{ height: HEIGHT }}>
                 <SessionRecordingPlayer {...recordingLogicProps} />
             </div>
         </NodeWrapper>
