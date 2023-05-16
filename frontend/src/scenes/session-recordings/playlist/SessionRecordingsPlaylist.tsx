@@ -173,9 +173,9 @@ export function RecordingsLists({
                                         handleContent={
                                             <span
                                                 className={clsx(
-                                                    'transition-all text-sm',
-                                                    !!autoplayDirection && 'text-primary-highlight pl-px',
-                                                    !autoplayDirection && 'text-border',
+                                                    'transition-all flex items-center',
+                                                    !autoplayDirection && 'text-border text-sm',
+                                                    !!autoplayDirection && 'text-primary-highlight text-xs pl-px',
                                                     autoplayDirection === 'newer' && 'rotate-180'
                                                 )}
                                             >
