@@ -1,14 +1,24 @@
-use axum::{routing::get, Router};
+use axum::{
+    routing::get,
+    Router,
+};
+
+use axum::{routing::get, routing::post, Router};
 use std::net::SocketAddr;
+use tower_http::trace::TraceLayer;
 
 mod capture;
+mod utils;
+mod api;
+mod token;
 
 #[tokio::main]
 async fn main() {
     // initialize tracing
     tracing_subscriber::fmt::init();
 
-    let app = Router::new().route("/", get(capture::root));
+    let app = Router::new().route("/capture", post(capture::event)).route("/batch", post(capture::batch)).layer(TraceLayer::new_for_http());
+
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
