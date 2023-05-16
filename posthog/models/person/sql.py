@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     team_id Int64,
     properties VARCHAR,
     is_identified Int8,
-    is_deleted Int8 DEFAULT 0,
+    is_deleted Int8,
     version UInt64
     {extra_fields}
 ) ENGINE = {engine}
