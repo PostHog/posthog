@@ -42,7 +42,7 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[List[str]], hostname
 
     for permitted_domain in permitted_domains:
         if "*" in permitted_domain:
-            pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", r"(\w*)"))
+            pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
             if re.search(pattern, hostname):
                 return True
         elif permitted_domain == hostname:

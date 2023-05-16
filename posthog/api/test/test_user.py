@@ -769,7 +769,7 @@ class TestUserAPI(APIBaseTest):
         # wildcard domains and folders
         assert_forbidden_url("https://subdomain.example.com")
         assert_allowed_url("https://subdomain.otherexample.com")
-        assert_forbidden_url("https://sub.subdomain.otherexample.com")
+        assert_allowed_url("https://sub.subdomain.otherexample.com")
 
 
 class TestUserSlackWebhook(APIBaseTest):
