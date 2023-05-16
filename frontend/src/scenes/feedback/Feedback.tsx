@@ -1,10 +1,12 @@
-import { LemonButton, LemonCollapse, LemonDivider, LemonInput, LemonTextArea } from "@posthog/lemon-ui"
+import { LemonButton, LemonCollapse, LemonDivider, LemonInput, LemonTable, LemonTextArea, Link } from "@posthog/lemon-ui"
 import { useValues } from "kea"
 import { EditableField } from "lib/components/EditableField/EditableField"
 import { ObjectTags } from "lib/components/ObjectTags/ObjectTags"
 import { PageHeader } from "lib/components/PageHeader"
 import { IconPlus } from "lib/lemon-ui/icons"
 import { LemonMenu } from "lib/lemon-ui/LemonMenu/LemonMenu"
+import { LemonTabs } from "lib/lemon-ui/LemonTabs"
+import { useState } from "react"
 import { FlagSelector } from "scenes/early-access-features/EarlyAccessFeature"
 import { SceneExport } from "scenes/sceneTypes"
 import { tagsModel } from "~/models/tagsModel"
@@ -133,17 +135,18 @@ export function FeedbackForm(): JSX.Element {
                     </div>
                 }
             />
+            <LemonDivider />
             <div className="flex flex-row h-full">
                 <div className="flex-col">
-                <div className="my-4">
+                    <div className="my-4">
                         <h3>Display conditions</h3>
                         <div>
                             <h4>Link to feature (optional)</h4>
-                        <div className="text-muted">Connect to a feature flag to track qualitative feature success.</div>
+                            <div className="text-muted">Connect to a feature flag to track qualitative feature success.</div>
                             <div className="mb-2">
-                                    <FlagSelector value={'5'} onChange={() => {}} />
-                                </div>
-                            
+                                <FlagSelector value={'5'} onChange={() => { }} />
+                            </div>
+
                             <div className="text-muted">Choose where your feedback prompt will show either on a url or based on a CSS selector.</div>
                             <span>Url</span>
                             <LemonInput />
@@ -204,7 +207,71 @@ export function FeedbackForm(): JSX.Element {
 }
 
 export function FeedbackSummary(): JSX.Element {
+    const [tabKey, setTabKey] = useState("results")
     return (
-        <div>summary</div>
+        <div>
+            <PageHeader
+                title={'Early access beta feature survey'}
+                buttons={
+                    <div className="flex items-center gap-2">
+                        <LemonButton type="secondary" status="danger">Stop</LemonButton>
+                    </div>
+                }
+            />
+            <LemonTabs activeKey={tabKey} onChange={(key) => setTabKey(key)} tabs={[
+                {
+                    content: <div>
+                        <div>
+                            <h3>Connected feature</h3>
+                            <Link>early-access-features</Link>
+                        </div>
+
+                        <div>
+                            <h3>Display conditions</h3>
+                            <span>Url: app.posthog.com/early-access-features</span>
+                        </div>
+                        <div className="my-4">
+                            <h3>Questions</h3>
+                            <span>Do you have any feedback for early access features?</span>
+                        </div>
+                        </div>,
+                    key: 'overview',
+                    label: 'Overview'
+                },
+                {
+                    content: <div>
+                        <div className="flex flex-row gap-4">
+                            <div className="border rounded p-4">
+                                <span>Impressions</span>
+                                <h2>257</h2>
+                            </div>
+                            <div className="border rounded p-4">
+                                <span>Started</span>
+                                <h2>78</h2>
+                            </div>
+                            <div className="border rounded p-4">
+                                <span>Completed</span>
+                                <h2>55</h2>
+                            </div>
+                        </div>
+                        <LemonDivider />
+                        <LemonButton type="secondary" className="mb-2">filter buttons and such</LemonButton>
+                        <LemonTable
+                            columns={[{ dataIndex: 'response', title: 'Response', width: 600 }, { dataIndex: 'email', title: 'Email' }]}
+                            dataSource={[
+                                { response: 'This feature has changed my life!! Before this feature I wasnt able to test my releases and now I can. Thanks so much posthog team!', email: 'iloveposthog@email.com' },
+                                { response: "I don't really understand how to use this feature, are there any tutorials or docs on it?", email: 'kendall@email.com' },
+                                { response: "my sesion recording is broken, help????", email: 'communityengineer12@email.com' },
+                                { response: "survey response", email: '' },
+                                { response: "survey response", email: '' },
+                                { response: "survey response", email: '' }
+                            ]}
+                        /></div>,
+                    key: 'results',
+                    label: 'Results'
+                }
+            ]}
+            />
+        </div>
     )
 }
