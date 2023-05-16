@@ -487,7 +487,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 name="cohort",
             )
             recalculate_cohortpeople(cohort, pending_version=0)
-            with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+            with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
                     "SELECT event, count() FROM events WHERE {cohort_filter} GROUP BY event",
                     team=self.team,
@@ -538,7 +538,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
             cohort.insert_users_by_list(["some_id"])
 
-            with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+            with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
                     "SELECT event, count() FROM events WHERE {cohort_filter} GROUP BY event",
                     team=self.team,
@@ -549,12 +549,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     },
                 )
                 self.assertEqual(response.results, [("$pageview", 1)])
+
                 self.assertEqual(
                     response.clickhouse,
                     f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) GROUP BY events.event LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
                 )
 
-            with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
+            with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True):
                 response = execute_hogql_query(
                     "SELECT event, count(*) FROM events WHERE {cohort_filter} GROUP BY event",
                     team=self.team,
@@ -645,7 +646,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
     def test_hogql_lambdas(self):
-        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+        with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             response = execute_hogql_query(
                 "SELECT arrayMap(x -> x * 2, [1, 2, 3]), 1",
                 team=self.team,
@@ -657,7 +658,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_hogql_arrays(self):
-        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+        with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             response = execute_hogql_query(
                 "SELECT [1, 2, 3], [10,11,12][1]",
                 team=self.team,

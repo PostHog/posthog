@@ -26,29 +26,6 @@
   LIMIT 100
   '
 ---
-# name: TestPerson.test_filter_person_list
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 2
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
-  AND id IN
-    (SELECT person_id
-     FROM
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'distinct_id' )
-  ORDER BY max(created_at) DESC, id
-  LIMIT 100
-  '
----
 # name: TestPerson.test_filter_person_list.1
   '
   /* user_id:0 request:_snapshot_ */
