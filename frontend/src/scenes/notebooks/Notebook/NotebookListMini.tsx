@@ -7,13 +7,13 @@ import { NotebookListItemType } from '~/types'
 import { useCallback } from 'react'
 
 export type NotebookListMiniProps = {
-    selectedNotebook?: string
+    selectedNotebookId?: string
     onSelectNotebook: (notebook: NotebookListItemType) => void
     onNewNotebook?: () => void
 }
 
 export function NotebookListMini({
-    selectedNotebook,
+    selectedNotebookId,
     onSelectNotebook,
     onNewNotebook,
 }: NotebookListMiniProps): JSX.Element {
@@ -67,7 +67,7 @@ export function NotebookListMini({
     return (
         <LemonMenu placement="right-start" items={items} onVisibilityChange={onVisibilityChange}>
             <LemonButton size="small" icon={<IconJournal />} status="primary-alt">
-                <span className="font-semibold">{selectedNotebook || 'Notebooks'}</span>
+                <span className="font-semibold">{selectedNotebookId || 'Notebooks'}</span>
             </LemonButton>
         </LemonMenu>
     )

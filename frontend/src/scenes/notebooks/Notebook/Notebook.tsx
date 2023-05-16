@@ -33,7 +33,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ id, sourceMode, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ id })
-    const { content } = useValues(logic)
+    const { jsonContent } = useValues(logic)
     const { setEditorRef, syncContent } = useActions(logic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [id])
@@ -69,7 +69,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             // Ensure this is last as a fallback for all PostHog links
             // LinkExtension.configure({}),
         ],
-        content,
+        content: jsonContent,
         editorProps: {
             attributes: {
                 class: 'Notebook',
@@ -107,7 +107,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
             },
         },
         onUpdate: ({ editor }) => {
-            syncContent(editor.getHTML())
+            syncContent(editor.getJSON(), editor.getHTML())
         },
     })
 

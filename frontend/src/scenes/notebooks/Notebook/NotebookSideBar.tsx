@@ -56,6 +56,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                             <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
                                 <span className="flex items-center gap-1 text-primary-alt">
                                     <NotebookListMini
+                                        selectedNotebookId={selectedNotebook}
                                         onSelectNotebook={(notebook) => selectNotebook(notebook.id)}
                                         onNewNotebook={() => createNotebook()}
                                     />

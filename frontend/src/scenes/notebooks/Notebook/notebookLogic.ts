@@ -2,6 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 import type { notebookLogicType } from './notebookLogicType'
+import { JSONContent } from '@tiptap/core'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we jusz use Any
 // import type { Editor } from '@tiptap/core'
@@ -19,15 +20,15 @@ export const notebookLogic = kea<notebookLogicType>([
     actions({
         setEditorRef: (editor: Editor) => ({ editor }),
         addNodeToNotebook: (type: NotebookNodeType, props: Record<string, any>) => ({ type, props }),
-        syncContent: (content: string) => ({ content }),
+        syncContent: (jsonContent: JSONContent, htmlContent: string) => ({ jsonContent, htmlContent }),
         setReady: true,
     }),
     reducers({
-        content: [
-            '' as string,
+        jsonContent: [
+            undefined as JSONContent | undefined,
             { persist: true },
             {
-                syncContent: (_, { content }) => content,
+                syncContent: (_, { jsonContent }) => jsonContent,
             },
         ],
 
