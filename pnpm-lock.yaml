@@ -137,7 +137,7 @@ specifiers:
   pngjs: ^6.0.0
   postcss: ^8.4.14
   postcss-loader: ^4.3.0
-  posthog-js: 1.39.2
+  posthog-js: 1.57.2
   posthog-js-lite: 2.0.0-alpha5
   prettier: ^2.3.1
   prop-types: ^15.7.2
@@ -236,7 +236,7 @@ dependencies:
   md5: 2.3.0
   moment: 2.29.4
   monaco-editor: 0.23.0
-  posthog-js: 1.39.2
+  posthog-js: 1.57.2
   posthog-js-lite: 2.0.0-alpha5
   prettier: 2.7.1
   prop-types: 15.8.1
