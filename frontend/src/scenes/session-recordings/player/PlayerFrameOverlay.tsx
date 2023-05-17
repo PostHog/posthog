@@ -121,8 +121,7 @@ export function PlayerFrameOverlay(): JSX.Element {
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
 
     const annotationsLogic = sessionRecordingAnnotationLogic(logicProps)
-    const { annotations } = useValues(annotationsLogic)
-    console.log({ annotations })
+    const { annotations, sessionRecordingAnnotationsEnabled } = useValues(annotationsLogic)
 
     const [interrupted, setInterrupted] = useState(false)
 
@@ -134,7 +133,7 @@ export function PlayerFrameOverlay(): JSX.Element {
             onMouseOut={() => setInterrupted(false)}
         >
             <PlayerFrameOverlayContent currentPlayerState={currentPlayerState} />
-            {annotations ? (
+            {sessionRecordingAnnotationsEnabled && annotations ? (
                 <div className={'h-4 w-full absolute text-xl'} style={{ bottom: '8px' }}>
                     {annotations.map((a, i) => (
                         <RecordingAnnotation annotation={a} durationMs={sessionPlayerData.durationMs} key={i} />

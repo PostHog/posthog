@@ -23,6 +23,7 @@ export function PlayerController(): JSX.Element {
 
     const annotationsLogic = sessionRecordingAnnotationLogic(logicProps)
     const { annotate } = useActions(annotationsLogic)
+    const { sessionRecordingAnnotationsEnabled } = useValues(annotationsLogic)
 
     const { speed, skipInactivitySetting, isFullScreen } = useValues(playerSettingsLogic)
     const { setSpeed, setSkipInactivitySetting, setIsFullScreen } = useActions(playerSettingsLogic)
@@ -32,33 +33,37 @@ export function PlayerController(): JSX.Element {
             <Seekbar />
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex-1">
-                    <div className={'flex flex-row gap-x-2'}>
-                        <LemonButton
-                            status="stealth"
-                            size="small"
-                            icon={<>👍</>}
-                            onClick={() => annotate({ content: '👍', timestamp: currentPlayerTime })}
-                        />
-                        <LemonButton
-                            status="stealth"
-                            size="small"
-                            icon={<>👎</>}
-                            onClick={() => annotate({ content: '👎', timestamp: currentPlayerTime })}
-                        />
-                        <LemonButton
-                            status="stealth"
-                            size="small"
-                            icon={<>😍</>}
-                            onClick={() => annotate({ content: '😍', timestamp: currentPlayerTime })}
-                        />
-                        <LemonButton
-                            status="stealth"
-                            size="small"
-                            icon={<>🔥</>}
-                            onClick={() => annotate({ content: '🔥', timestamp: currentPlayerTime })}
-                        />
-                        {/*<EmojiPicker />*/}
-                    </div>
+                    {sessionRecordingAnnotationsEnabled && (
+                        <>
+                            <div className={'flex flex-row gap-x-2'}>
+                                <LemonButton
+                                    status="stealth"
+                                    size="small"
+                                    icon={<>👍</>}
+                                    onClick={() => annotate({ content: '👍', timestamp: currentPlayerTime })}
+                                />
+                                <LemonButton
+                                    status="stealth"
+                                    size="small"
+                                    icon={<>👎</>}
+                                    onClick={() => annotate({ content: '👎', timestamp: currentPlayerTime })}
+                                />
+                                <LemonButton
+                                    status="stealth"
+                                    size="small"
+                                    icon={<>😍</>}
+                                    onClick={() => annotate({ content: '😍', timestamp: currentPlayerTime })}
+                                />
+                                <LemonButton
+                                    status="stealth"
+                                    size="small"
+                                    icon={<>🔥</>}
+                                    onClick={() => annotate({ content: '🔥', timestamp: currentPlayerTime })}
+                                />
+                                {/*<EmojiPicker />*/}
+                            </div>
+                        </>
+                    )}
                 </div>
                 <div className="flex items-center gap-1">
                     <SeekSkip direction="backward" />

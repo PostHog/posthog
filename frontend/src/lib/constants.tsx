@@ -150,6 +150,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SESSION_RECORDING_INFINITE_LIST: 'session-recording-infinite-list', // owner: #team-monitoring
     SESSION_RECORDING_SUMMARY_LISTING: 'session-recording-summary-listing', // owner: #team-monitoring
+    SESSION_RECORDING_ANNOTATIONS: 'session-recording-annotations', // owner: #team-monitoring
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
