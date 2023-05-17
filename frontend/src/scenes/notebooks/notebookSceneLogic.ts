@@ -1,10 +1,10 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { ItemMode, NotebookMode } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { urlToAction } from 'kea-router'
-import { teamLogic } from 'scenes/teamLogic'
+import { Breadcrumb, NotebookMode } from '~/types'
+import { actionToUrl, urlToAction } from 'kea-router'
 
 import type { notebookSceneLogicType } from './notebookSceneLogicType'
+import { notebookLogic } from './Notebook/notebookLogic'
+import { urls } from 'scenes/urls'
 
 export type NotebookSceneLogicProps = {
     id: string | number
@@ -14,10 +14,9 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     path((key) => ['scenes', 'notebooks', 'notebookSceneLogic', key]),
     props({} as NotebookSceneLogicProps),
     key(({ id }) => id),
-    connect({
-        logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeam']],
-    }),
+    connect((props: NotebookSceneLogicProps) => ({
+        values: [notebookLogic(props), ['notebook']],
+    })),
     actions({
         setNotebookMode: (mode: NotebookMode) => ({ mode }),
     }),
@@ -32,18 +31,18 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     selectors(() => ({
         notebookId: [() => [(_, props) => props], (props): string => props.id],
 
-        // breadcrumbs: [
-        //     (s) => [s.insight],
-        //     (insight): Breadcrumb[] => [
-        //         {
-        //             name: 'Insights',
-        //             path: urls.savedInsights(),
-        //         },
-        //         {
-        //             name: insight?.name || insight?.derived_name || 'Unnamed',
-        //         },
-        //     ],
-        // ],
+        breadcrumbs: [
+            (s) => [s.notebook],
+            (notebook): Breadcrumb[] => [
+                {
+                    name: 'Notebooks',
+                    path: urls.dashboards() + '?tab=notebooks',
+                },
+                {
+                    name: notebook?.title || 'Unnamed',
+                },
+            ],
+        ],
     })),
     urlToAction(({ actions, values }) => ({
         '/notebooks/:notebookId(/:mode)': (
@@ -60,26 +59,13 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                 }
             },
     })),
-    // actionToUrl(({ values }) => {
-    //     // Use the browser redirect to determine state to hook into beforeunload prevention
-    //     const actionToUrl = ({
-    //         insightMode = values.insightMode,
-    //         insightId = values.insightId,
-    //     }: {
-    //         insightMode?: ItemMode
-    //         insightId?: InsightShortId | 'new' | null
-    //     }): string | undefined =>
-    //         insightId && insightId !== 'new'
-    //             ? insightMode === ItemMode.View
-    //                 ? urls.insightView(insightId)
-    //                 : urls.insightEdit(insightId)
-    //             : undefined
-
-    //     return {
-    //         setInsightId: actionToUrl,
-    //         setInsightMode: actionToUrl,
-    //     }
-    // }),
+    actionToUrl(({ values, props }) => {
+        return {
+            setNotebookMode: () => {
+                return values.mode === NotebookMode.View ? urls.notebook(props.id) : urls.notebookEdit(props.id)
+            },
+        }
+    }),
     // beforeUnload(({ values }) => ({
     //     enabled: () => {
     //         const currentScene = sceneLogic.findMounted()?.values

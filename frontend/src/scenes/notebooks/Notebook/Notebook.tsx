@@ -123,6 +123,8 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
         editor?.setEditable(editable && !!notebook)
     }, [editable, editor, notebook])
 
+    // TODO - Render a special state if the notebook is empty
+
     return (
         <BindLogic logic={notebookLogic} props={{ id }}>
             <div className="Notebook">
