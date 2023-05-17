@@ -233,6 +233,8 @@ class FeatureFlagMatcher:
         # TODO: Right now super conditions with property overrides bork when the database is down,
         # because we're still going to the database in the line below. Ideally, we should not go to the database.
         # Don't skip test: test_super_condition_with_override_properties_doesnt_make_database_requests when this is fixed.
+        # This also doesn't handle the case when the super condition has a property & a non-100 percentage rollout; but
+        # we don't support that with super conditions anyway.
         super_condition_value_is_set = self._super_condition_is_set(feature_flag)
         super_condition_value = self._super_condition_matches(feature_flag)
 
