@@ -34,7 +34,6 @@ export const gaugeOffsetRemovalImpossible = new Gauge({
 interface OffsetSummary {
     lowest: number | null
     highest: number | null
-    count: number | null
 }
 
 const offsetSummary = (offsets: number[] | undefined): OffsetSummary => {
@@ -42,7 +41,6 @@ const offsetSummary = (offsets: number[] | undefined): OffsetSummary => {
     return {
         lowest: !!offsets?.length ? offsets[0] : null,
         highest: !!offsets?.length ? offsets[offsets.length - 1] : null,
-        count: offsets?.length || null,
     }
 }
 
@@ -63,16 +61,6 @@ export class OffsetManager {
         current.push(offset)
         current.sort((a, b) => a - b)
         this.offsetsByPartitionTopic.set(key, current)
-
-        const additionSummary = offsetSummary(current)
-        const logContext = {
-            offset,
-            additionOffsetsCount: additionSummary.count,
-            lowestAdditionOffset: additionSummary.lowest,
-            highestAdditionOffset: additionSummary.highest,
-            partition,
-        }
-        status.info('💾', `offset_manager adding_offset`, logContext)
     }
 
     /**
@@ -137,10 +125,8 @@ export class OffsetManager {
         const offsetsToRemoveSummary = offsetSummary(offsetsToRemove)
         const logContext = {
             offsetToCommit,
-            inflightOffsetsCount: inflightOffsetSummary.count,
             lowestInflightOffset: inflightOffsetSummary.lowest,
             highestInflightOffset: inflightOffsetSummary.highest,
-            offsetsToRemoveCount: offsetsToRemoveSummary.count,
             lowestOffsetToRemove: offsetsToRemoveSummary.lowest,
             highestOffsetToRemove: offsetsToRemoveSummary.highest,
             partition,

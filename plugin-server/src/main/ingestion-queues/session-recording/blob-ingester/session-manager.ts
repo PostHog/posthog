@@ -94,6 +94,7 @@ export class SessionManager {
             status.warn('⚠️', `blob_ingester_session_manager add called after destroy`, {
                 message,
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             return
         }
@@ -118,6 +119,7 @@ export class SessionManager {
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush on buffer size called after destroy`, {
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             return
         }
@@ -126,14 +128,28 @@ export class SessionManager {
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
+        // even if the buffer is over-size we can't flush if we have unfinished chunks
         if (gzippedCapacity > 1) {
-            // return the promise and let the caller decide whether to await
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
-                gzippedCapacity,
-                gzipSizeKb,
-                sessionId: this.sessionId,
-            })
-            return this.flush()
+            if (this.chunks.size === 0) {
+                // return the promise and let the caller decide whether to await
+                status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
+                    gzippedCapacity,
+                    gzipSizeKb,
+                    sessionId: this.sessionId,
+                })
+                return this.flush()
+            } else {
+                status.warn(
+                    '🚽',
+                    `blob_ingester_session_manager would flush buffer due to size, but chunks are still pending`,
+                    {
+                        gzippedCapacity,
+                        sessionId: this.sessionId,
+                        partition: this.partition,
+                        chunks: this.chunks.size,
+                    }
+                )
+            }
         }
     }
 
@@ -141,6 +157,7 @@ export class SessionManager {
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy`, {
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             return
         }
@@ -148,13 +165,28 @@ export class SessionManager {
         const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
         const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
         if (bufferAge >= tolerance) {
-            // return the promise and let the caller decide whether to await
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
-                bufferAge,
-                tolerance,
-                sessionId: this.sessionId,
-            })
-            return this.flush()
+            if (this.chunks.size === 0) {
+                // return the promise and let the caller decide whether to await
+                status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+                    bufferAge,
+                    tolerance,
+                    sessionId: this.sessionId,
+                    partition: this.partition,
+                })
+                return this.flush()
+            } else {
+                status.warn(
+                    '🚽',
+                    `blob_ingester_session_manager would flush buffer due to age, but chunks are still pending`,
+                    {
+                        bufferAge,
+                        tolerance,
+                        sessionId: this.sessionId,
+                        partition: this.partition,
+                        chunks: this.chunks.size,
+                    }
+                )
+            }
         }
     }
 
@@ -166,6 +198,7 @@ export class SessionManager {
         if (this.flushBuffer) {
             status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing", {
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             return
         }
@@ -173,6 +206,7 @@ export class SessionManager {
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush somehow called after destroy`, {
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             return
         }
@@ -203,6 +237,7 @@ export class SessionManager {
             gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
             status.info('🚽', `blob_ingester_session_manager - flushed buffer to S3`, {
                 sessionId: this.sessionId,
+                partition: this.partition,
                 flushedSize: this.flushBuffer.size,
                 flushedAge: this.flushBuffer.oldestKafkaTimestamp,
                 flushedCount: this.flushBuffer.count,
@@ -212,6 +247,7 @@ export class SessionManager {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
                 error,
                 sessionId: this.sessionId,
+                partition: this.partition,
                 team: this.teamId,
             })
             captureException(error)
@@ -250,6 +286,7 @@ export class SessionManager {
             status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', {
                 error,
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
@@ -270,6 +307,7 @@ export class SessionManager {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', {
                 error,
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
@@ -342,6 +380,7 @@ export class SessionManager {
                     status.error('🧨', 'blob_ingester_session_manager failed deleting session recording buffer', {
                         error,
                         sessionId: this.sessionId,
+                        partition: this.partition,
                     })
                     captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
                     throw error
