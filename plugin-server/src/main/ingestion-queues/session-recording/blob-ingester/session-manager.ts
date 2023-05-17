@@ -194,7 +194,12 @@ export class SessionManager {
             fileStream.close()
 
             counterS3FilesWritten.inc(1)
-            status.info('🚽', `blob_ingester_session_manager Flushed buffer`, { sessionId: this.sessionId })
+            status.info('🚽', `blob_ingester_session_manager - flushed buffer to S3`, {
+                sessionId: this.sessionId,
+                flushedSize: this.flushBuffer.size,
+                flushedAge: this.flushBuffer.oldestKafkaTimestamp,
+                flushedCount: this.flushBuffer.count,
+            })
         } catch (error) {
             // TODO: If we fail to write to S3 we should be do something about it
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
