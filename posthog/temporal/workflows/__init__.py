@@ -20,7 +20,7 @@ ACTIVITIES: Sequence[Callable] = [
     noop_activity,
     prepare_dictionary,
     prepare_person_overrides,
-    re_attach_person_overrides,
+    prepare_dictionary,
     select_persons_to_delete,
     squash_events_partition,
     update_export_run_status,
