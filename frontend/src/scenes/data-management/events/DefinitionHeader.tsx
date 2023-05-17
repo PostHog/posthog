@@ -7,7 +7,7 @@ import {
     IconUnverifiedEvent,
     IconVerifiedEvent,
     VerifiedPropertyIcon,
-    IconSelectAll,
+    ActionEvent,
 } from 'lib/lemon-ui/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -36,7 +36,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     )
 }
 
-export function getEventDefinitionIcon(definition: EventDefinition & { value: string | null }): JSX.Element {
+export function getEventDefinitionIcon(definition: EventDefinition | Record<string, any>): JSX.Element {
     // Rest are events
     if (definition.name === '$pageview' || definition.name === '$screen') {
         return (
@@ -66,10 +66,10 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
             </Tooltip>
         )
     }
-    if (definition.value === null) {
+    if (!('id' in definition) && definition.value === null) {
         return (
-            <Tooltip title="All events">
-                <IconSelectAll className="taxonomy-icon taxonomy-icon-built-in" />
+            <Tooltip title={`All events`}>
+                <ActionEvent className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
