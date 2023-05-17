@@ -13,6 +13,7 @@ import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
+import { eventDroppedCounter } from '../metrics'
 import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { IncomingRecordingMessage } from './blob-ingester/types'
@@ -162,6 +163,16 @@ export class SessionRecordingBlobIngester {
 
         if (this.enabledTeams && !this.enabledTeams.includes(team.id)) {
             // NOTE: due to the high volume of hits here we don't log this
+            return
+        }
+
+        if (!team.session_recording_opt_in) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'disabled',
+                })
+                .inc()
             return
         }
 
