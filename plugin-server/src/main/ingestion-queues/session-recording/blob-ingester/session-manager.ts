@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
 import path from 'path'
-import { Counter } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
@@ -22,6 +22,12 @@ export const counterS3FilesWritten = new Counter({
 export const counterS3WriteErrored = new Counter({
     name: 'recording_s3_write_errored',
     help: 'Indicates that we failed to flush to S3 without recovering',
+})
+
+export const gaugeS3FilesBytesWritten = new Gauge({
+    name: 'recording_s3_bytes_written',
+    help: 'Number of bytes flushed to S3, not strictly accurate as we gzip while uploading',
+    labelNames: ['team'],
 })
 
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
@@ -194,6 +200,7 @@ export class SessionManager {
             fileStream.close()
 
             counterS3FilesWritten.inc(1)
+            gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
             status.info('🚽', `blob_ingester_session_manager - flushed buffer to S3`, {
                 sessionId: this.sessionId,
                 flushedSize: this.flushBuffer.size,
@@ -205,6 +212,7 @@ export class SessionManager {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
                 error,
                 sessionId: this.sessionId,
+                team: this.teamId,
             })
             captureException(error)
             counterS3WriteErrored.inc()

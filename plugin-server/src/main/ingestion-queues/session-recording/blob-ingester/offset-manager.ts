@@ -21,10 +21,9 @@ import { Gauge } from 'prom-client'
 
 import { status } from '../../../../utils/status'
 
-export const gaugeOffsetCommitAttempted = new Gauge({
-    name: 'offset_manager_offset_commit_attempted',
-    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed. This may result in that offset being committed',
-    labelNames: ['committed'],
+export const gaugeOffsetCommitted = new Gauge({
+    name: 'offset_manager_offset_committed',
+    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed.',
 })
 
 export const gaugeOffsetRemovalImpossible = new Gauge({
@@ -64,6 +63,16 @@ export class OffsetManager {
         current.push(offset)
         current.sort((a, b) => a - b)
         this.offsetsByPartitionTopic.set(key, current)
+
+        const additionSummary = offsetSummary(current)
+        const logContext = {
+            offset,
+            additionOffsetsCount: additionSummary.count,
+            lowestAdditionOffset: additionSummary.lowest,
+            highestAdditionOffset: additionSummary.highest,
+            partition,
+        }
+        status.info('💾', `offset_manager adding_offset`, logContext)
     }
 
     /**
@@ -129,11 +138,11 @@ export class OffsetManager {
         const logContext = {
             offsetToCommit,
             inflightOffsetsCount: inflightOffsetSummary.count,
-            lowestInflightOffset: inflightOffsetSummary.highest,
-            highestInflightOffset: inflightOffsetSummary.lowest,
+            lowestInflightOffset: inflightOffsetSummary.lowest,
+            highestInflightOffset: inflightOffsetSummary.highest,
             offsetsToRemoveCount: offsetsToRemoveSummary.count,
-            lowestOffsetToRemove: offsetsToRemoveSummary.highest,
-            highestOffsetToRemove: offsetsToRemoveSummary.lowest,
+            lowestOffsetToRemove: offsetsToRemoveSummary.lowest,
+            highestOffsetToRemove: offsetsToRemoveSummary.highest,
             partition,
         }
 
@@ -152,7 +161,9 @@ export class OffsetManager {
             }`,
             logContext
         )
-        gaugeOffsetCommitAttempted.labels({ committed: offsetToCommit !== undefined ? 'true' : 'false' }).inc()
+        if (offsetToCommit !== undefined) {
+            gaugeOffsetCommitted.inc()
+        }
 
         return offsetToCommit
     }
