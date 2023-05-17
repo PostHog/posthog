@@ -1,4 +1,5 @@
 import { captureException } from '@sentry/node'
+import { DateTime } from 'luxon'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -25,6 +26,16 @@ const fetchBatchSize = 500
 const flushIntervalTimeoutMs = 30000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
+
+export const gaugeIngestionLag = new Gauge({
+    name: 'recording_blob_ingestion_lag',
+    help: 'A gauge of the number of milliseconds behind now for the timestamp of the latest message',
+})
+
+export const gaugeKafkaOffset = new Gauge({
+    name: 'recording_blob_kafka_offset',
+    help: "We believe this is an always increasing value... let's see",
+})
 
 export const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
@@ -205,9 +216,19 @@ export class SessionRecordingBlobIngester {
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
+        let highestTimestamp = -Infinity
+
         for (const message of messages) {
+            gaugeKafkaOffset.set(message.offset)
+
+            if (!!message.timestamp && message.timestamp > highestTimestamp) {
+                highestTimestamp = message.timestamp
+            }
+
             await this.handleKafkaMessage(message)
         }
+
+        gaugeIngestionLag.set(DateTime.now().toMillis() - highestTimestamp)
     }
 
     public async start(): Promise<void> {
