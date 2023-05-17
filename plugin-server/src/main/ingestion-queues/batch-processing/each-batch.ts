@@ -31,35 +31,26 @@ export async function eachBatch(
         for (const messageBatch of messageBatches) {
             const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: messageBatch.length } })
 
-            if (!isRunning() || isStale()) {
-                status.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
-                    isRunning: isRunning(),
-                    isStale: isStale(),
-                    msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
-                })
-                await heartbeat()
-                return
-            }
-
-            const lastBatchMessage = messageBatch[messageBatch.length - 1]
-            await Promise.all(messageBatch.map((message: KafkaMessage) => eachMessage(message, queue)))
-
-            // this if should never be false, but who can trust computers these days
-            if (lastBatchMessage) {
-                resolveOffset(lastBatchMessage.offset)
-            }
-            await commitOffsetsIfNecessary()
-
-            // Record that latest messages timestamp, such that we can then, for
-            // instance, alert on if this value is too old.
-            latestOffsetTimestampGauge
-                .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
-                .set(Number.parseInt(lastBatchMessage.timestamp))
-
-            await heartbeat()
+            const processingPromises = messageBatch.map((message: KafkaMessage) => eachMessage(message, queue))
+            processingPromises.push(heartbeat()) // Signal to the Kafka cluster that we are actively processing events
+            await Promise.all(processingPromises)
 
             batchSpan.finish()
         }
+
+        // Commit offsets once at the end of the batch. We run the risk of duplicates
+        // if the pod is prematurely killed in the middle of a batch, but this allows
+        // us to process events out of order within a batch, for higher throughput.
+        const commitSpan = transaction.startChild({ op: 'offsetCommit' })
+        const lastMessage = batch.messages.at(-1)
+        if (lastMessage) {
+            resolveOffset(lastMessage.offset)
+            await commitOffsetsIfNecessary()
+            latestOffsetTimestampGauge
+                .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
+                .set(Number.parseInt(lastMessage.timestamp))
+        }
+        commitSpan.finish()
 
         status.debug(
             '🧩',
@@ -67,6 +58,16 @@ export async function eachBatch(
                 new Date().valueOf() - batchStartTimer.valueOf()
             }ms (${loggingKey})`
         )
+
+        if (!isRunning() || isStale()) {
+            status.info('🚪', `Ending the consumer loop`, {
+                isRunning: isRunning(),
+                isStale: isStale(),
+                msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
+            })
+            await heartbeat()
+            return
+        }
     } finally {
         queue.pluginsServer.statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
         transaction.finish()
