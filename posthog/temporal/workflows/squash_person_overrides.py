@@ -712,10 +712,6 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
                 retry_policy=retry_policy,
             )
 
-            if not persons_to_delete:
-                workflow.logger.info("No overrides to delete were found, workflow done")
-                return
-
             query_inputs.person_overrides_to_delete = persons_to_delete
 
             await workflow.execute_activity(
@@ -726,6 +722,10 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
             )
 
             workflow.logger.info("Squash finished for all requested partitions, running clean up activities")
+
+            if not persons_to_delete:
+                workflow.logger.info("No overrides to delete were found, workflow done")
+                return
 
             await workflow.execute_activity(
                 delete_squashed_person_overrides_from_clickhouse,
