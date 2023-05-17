@@ -15,7 +15,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
-import { Button, Checkbox, Typography } from 'antd'
+import { Button, Checkbox } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopover/utils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -195,7 +195,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.Section>
                     <DefinitionPopover.Card
                         title="Sent as"
-                        value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_definition.name}</span>}
+                        value={<span className="font-mono text-xs">{_definition.name}</span>}
                     />
                 </DefinitionPopover.Section>
             </>
@@ -236,13 +236,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         title="Sent as"
                         value={
                             <>
-                                <Typography.Text
-                                    ellipsis={true}
-                                    title={_definition.name ?? undefined} // because Text can cope with undefined but not null ¯\_(ツ)_/¯
-                                    style={{ fontFamily: 'monaco', fontSize: 12, maxWidth: '20em' }}
-                                >
+                                <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
                                     {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
-                                </Typography.Text>
+                                </span>
                             </>
                         }
                     />

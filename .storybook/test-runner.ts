@@ -135,11 +135,28 @@ async function expectStoryToMatchComponentSnapshot(
 ): Promise<void> {
     await page.evaluate(() => {
         const rootEl = document.getElementById('root')
-        if (rootEl) {
-            // don't expand the container element to limit the screenshot
-            // to the component's size
-            rootEl.style.display = 'inline-block'
+        if (!rootEl) {
+            throw new Error('Could not find root element')
         }
+        // don't expand the container element to limit the screenshot
+        // to the component's size
+        rootEl.style.display = 'inline-block'
+        // If needed, resize the root element so that all popovers are visible
+        document.querySelectorAll('.Popover').forEach((popover) => {
+            const popoverBoundingClientRect = popover.getBoundingClientRect()
+            if (popoverBoundingClientRect.right > rootEl.clientWidth) {
+                rootEl.style.width = `${popoverBoundingClientRect.right}px`
+            }
+            if (popoverBoundingClientRect.bottom > rootEl.clientHeight) {
+                rootEl.style.height = `${popoverBoundingClientRect.bottom}px`
+            }
+            if (popoverBoundingClientRect.top < 0) {
+                rootEl.style.height = `${rootEl.clientHeight - popoverBoundingClientRect.top}px`
+            }
+            if (popoverBoundingClientRect.left < 0) {
+                rootEl.style.width = `${rootEl.clientWidth - popoverBoundingClientRect.left}px`
+            }
+        })
         // make the body transparent to take the screenshot
         // without background
         document.body.style.background = 'transparent'

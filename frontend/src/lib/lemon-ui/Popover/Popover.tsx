@@ -15,6 +15,7 @@ import {
     FloatingPortal,
     UseFloatingReturn,
     useMergeRefs,
+    hide,
 } from '@floating-ui/react'
 import { CSSTransition } from 'react-transition-group'
 import { useEventListener } from 'lib/hooks/useEventListener'
@@ -124,6 +125,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 },
             }),
             arrow({ element: arrowRef, padding: 8 }),
+            hide(),
             ...(middleware ?? []),
         ],
     })
@@ -221,7 +223,13 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                             data-placement={effectivePlacement}
                             ref={floating}
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ position: strategy, top, left, ...style }}
+                            style={{
+                                display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
+                                position: strategy,
+                                top,
+                                left,
+                                ...style,
+                            }}
                             onClick={_onClickInside}
                             aria-level={currentPopoverLevel}
                         >
