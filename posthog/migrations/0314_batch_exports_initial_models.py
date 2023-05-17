@@ -4,6 +4,7 @@ import django.contrib.postgres.fields
 import django.db.models.deletion
 from django.db import migrations, models
 
+import posthog.models.batch_export.batch_export
 import posthog.models.utils
 
 
@@ -70,7 +71,7 @@ class Migration(migrations.Migration):
                 ),
                 ("name", models.TextField()),
                 ("type", models.CharField(choices=[("S3", "S3")], max_length=64)),
-                ("config", models.JSONField(blank=True, default=dict)),
+                ("config", posthog.models.batch_export.batch_export.EncryptedJSONField(blank=True, default=dict)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("last_updated_at", models.DateTimeField(auto_now=True)),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
@@ -97,6 +98,7 @@ class Migration(migrations.Migration):
                     "schedule",
                     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.batchexportschedule"),
                 ),
+                ("table", models.CharField(choices=[("events", "Events")], default="events", max_length=256)),
                 ("retry_policy", models.JSONField(blank=True, default=dict)),
                 ("execution_timeout", models.DurationField(blank=True, default=None, null=True)),
                 ("run_timeout", models.DurationField(blank=True, default=None, null=True)),
