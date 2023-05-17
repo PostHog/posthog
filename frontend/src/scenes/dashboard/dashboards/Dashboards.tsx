@@ -48,7 +48,7 @@ export function Dashboards(): JSX.Element {
     if (notebooksEnabled) {
         enabledTabs.splice(1, 0, {
             key: DashboardsTab.Notebooks,
-            label: 'Notebooks',
+            label: 'Notebooks (beta)',
         })
     }
 

@@ -66,7 +66,7 @@ export function NotebookScene(): JSX.Element {
 
             <LemonDivider />
 
-            <Notebook id={notebookId} editable={mode === NotebookMode.Edit} />
+            <Notebook key={notebookId} id={notebookId} editable={mode === NotebookMode.Edit} />
         </div>
     )
 }

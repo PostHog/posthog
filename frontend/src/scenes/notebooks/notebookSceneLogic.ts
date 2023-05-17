@@ -44,8 +44,8 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
             ],
         ],
     })),
-    urlToAction(({ actions, values }) => ({
-        '/notebooks/:notebookId(/:mode)': (
+    urlToAction(({ props, actions, values }) => ({
+        [`/notebooks/${props.id}(/:mode)`]: (
             { mode } // url params
         ) => {
             const newMode = mode === 'edit' ? NotebookMode.Edit : NotebookMode.View
