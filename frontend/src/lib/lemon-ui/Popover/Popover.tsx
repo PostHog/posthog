@@ -125,7 +125,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 },
             }),
             arrow({ element: arrowRef, padding: 8 }),
-            hide(),
+            hide(), // Hide the overlay when the reference element is off-screen
             ...(middleware ?? []),
         ],
     })

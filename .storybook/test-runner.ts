@@ -138,10 +138,9 @@ async function expectStoryToMatchComponentSnapshot(
         if (!rootEl) {
             throw new Error('Could not find root element')
         }
-        // don't expand the container element to limit the screenshot
-        // to the component's size
+        // Don't grow the container element to limit the screenshot to the component's size
         rootEl.style.display = 'inline-block'
-        // If needed, resize the root element so that all popovers are visible
+        // If needed, resize the root element so that all popovers are visible in the screenshot
         document.querySelectorAll('.Popover').forEach((popover) => {
             const popoverBoundingClientRect = popover.getBoundingClientRect()
             if (popoverBoundingClientRect.right > rootEl.clientWidth) {
@@ -157,8 +156,7 @@ async function expectStoryToMatchComponentSnapshot(
                 rootEl.style.width = `${rootEl.clientWidth - popoverBoundingClientRect.left}px`
             }
         })
-        // make the body transparent to take the screenshot
-        // without background
+        // Make the body transparent to take the screenshot without background
         document.body.style.background = 'transparent'
     })
 
