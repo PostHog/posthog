@@ -302,9 +302,9 @@ export class SessionRecordingBlobIngester {
                     revokedPartitions.includes(sessionManager.partition)
                 )
 
-                this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
-
-                await this.destroySessions(sessionsToDrop)
+                await this.destroySessions(sessionsToDrop).then(() => {
+                    this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
+                })
 
                 status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
                     currentPartitions: currentPartitions,
