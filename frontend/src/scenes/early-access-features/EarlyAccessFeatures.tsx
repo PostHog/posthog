@@ -48,7 +48,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                 }
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
-                        New release
+                        New public beta
                     </LemonButton>
                 }
                 delimited
