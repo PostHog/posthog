@@ -63,6 +63,16 @@ export class OffsetManager {
         current.push(offset)
         current.sort((a, b) => a - b)
         this.offsetsByPartitionTopic.set(key, current)
+
+        const additionSummary = offsetSummary(current)
+        const logContext = {
+            offset,
+            additionOffsetsCount: additionSummary.count,
+            lowestAdditionOffset: additionSummary.lowest,
+            highestAdditionOffset: additionSummary.highest,
+            partition,
+        }
+        status.info('💾', `offset_manager adding_offset`, logContext)
     }
 
     /**
@@ -128,11 +138,11 @@ export class OffsetManager {
         const logContext = {
             offsetToCommit,
             inflightOffsetsCount: inflightOffsetSummary.count,
-            lowestInflightOffset: inflightOffsetSummary.highest,
-            highestInflightOffset: inflightOffsetSummary.lowest,
+            lowestInflightOffset: inflightOffsetSummary.lowest,
+            highestInflightOffset: inflightOffsetSummary.highest,
             offsetsToRemoveCount: offsetsToRemoveSummary.count,
-            lowestOffsetToRemove: offsetsToRemoveSummary.highest,
-            highestOffsetToRemove: offsetsToRemoveSummary.lowest,
+            lowestOffsetToRemove: offsetsToRemoveSummary.lowest,
+            highestOffsetToRemove: offsetsToRemoveSummary.highest,
             partition,
         }
 
