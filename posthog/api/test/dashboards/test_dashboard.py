@@ -1,6 +1,7 @@
 import json
 from typing import Dict
-from unittest.mock import ANY, MagicMock
+from unittest import mock
+from unittest.mock import ANY, MagicMock, patch
 
 from dateutil import parser
 from django.test import override_settings
@@ -584,10 +585,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
         assert dashboard_json["tiles"][0]["color"] == "red"
 
-    def test_dashboard_from_template(self):
+    @patch("posthog.api.dashboards.dashboard.report_user_action")
+    def test_dashboard_from_template(self, mock_capture):
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
         self.assertGreater(Insight.objects.count(), 1)
         self.assertEqual(response["creation_mode"], "template")
+
+        # Assert analytics are sent
+        mock_capture.assert_called_once_with(
+            self.user,
+            "dashboard created",
+            {
+                "created_at": mock.ANY,
+                "dashboard_id": None,
+                "duplicated": False,
+                "from_template": True,
+                "has_description": False,
+                "is_shared": False,
+                "item_count": 6,
+                "pinned": False,
+                "tags_count": 0,
+                "template_key": "DEFAULT_APP",
+            },
+        )
 
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
@@ -972,7 +992,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
-    def test_create_from_template_json(self) -> None:
+    @patch("posthog.api.dashboards.dashboard.report_user_action")
+    def test_create_from_template_json(self, mock_capture) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
             {"template": valid_template},
@@ -987,6 +1008,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(dashboard["description"], valid_template["dashboard_description"])
 
         self.assertEqual(len(dashboard["tiles"]), 1)
+
+        mock_capture.assert_called_once_with(
+            self.user,
+            "dashboard created",
+            {
+                "created_at": mock.ANY,
+                "dashboard_id": dashboard["id"],
+                "duplicated": False,
+                "from_template": True,
+                "has_description": True,
+                "is_shared": False,
+                "item_count": 1,
+                "pinned": False,
+                "tags_count": 0,
+                "template_key": valid_template["template_name"],
+            },
+        )
 
     def test_create_from_template_json_must_provide_at_least_one_tile(self) -> None:
         template: Dict = {**valid_template, "tiles": []}
