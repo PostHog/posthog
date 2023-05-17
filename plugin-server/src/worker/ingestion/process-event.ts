@@ -128,7 +128,7 @@ export class EventsProcessor {
         try {
             await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
         } catch (err) {
-            Sentry.captureException(err)
+            Sentry.captureException(err, { tags: { team_id: team.id } })
             status.warn('⚠️', 'Failed to update property definitions for an event', {
                 event,
                 properties,

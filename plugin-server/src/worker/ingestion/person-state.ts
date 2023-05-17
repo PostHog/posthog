@@ -147,6 +147,7 @@ export class PersonState {
                 status.error('🚨', 'create_person_failed', { error, teamId: this.teamId, distinctId: this.distinctId })
                 if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
                     Sentry.captureException(error, {
+                        tags: { team_id: this.teamId },
                         extra: {
                             teamId: this.teamId,
                             distinctId: this.distinctId,
