@@ -98,7 +98,9 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(response.json()["value"], False)
 
         response = self.client.patch(
-            f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True}, **self.basic_auth_headers
+            f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS",
+            {"value": True},
+            HTTP_AUTHORIZATION=self.http_authorization,
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], True)
@@ -112,7 +114,7 @@ class TestInstanceSettings(APIBaseTest):
             response = self.client.patch(
                 f"/api/instance_settings/EMAIL_DEFAULT_FROM",
                 {"value": "hellohello@posthog.com"},
-                **self.basic_auth_headers,
+                HTTP_AUTHORIZATION=self.http_authorization,
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], "hellohello@posthog.com")
@@ -126,7 +128,7 @@ class TestInstanceSettings(APIBaseTest):
         response = self.client.patch(
             f"/api/instance_settings/ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
             {"value": 48343943943},
-            **self.basic_auth_headers,
+            HTTP_AUTHORIZATION=self.http_authorization,
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], 48343943943)
@@ -134,7 +136,9 @@ class TestInstanceSettings(APIBaseTest):
 
     def test_cant_update_setting_that_is_not_overridable(self):
         response = self.client.patch(
-            f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False}, **self.basic_auth_headers
+            f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED",
+            {"value": False},
+            HTTP_AUTHORIZATION=self.http_authorization,
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -154,7 +158,9 @@ class TestInstanceSettings(APIBaseTest):
 
         response_get = self.client.get("/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
         response_patch = self.client.patch(
-            "/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True}, **self.basic_auth_headers
+            "/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS",
+            {"value": True},
+            HTTP_AUTHORIZATION=self.http_authorization,
         )
 
         self.assertEqual(response_get.status_code, status.HTTP_403_FORBIDDEN)

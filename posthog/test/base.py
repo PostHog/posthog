@@ -67,7 +67,7 @@ def _setup_test_data(klass):
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
         klass.organization_membership = klass.user.organization_memberships.get()
         encoded_credentials = b64encode(f"{klass.CONFIG_EMAIL}:{klass.CONFIG_PASSWORD}".encode("utf-8")).decode("utf-8")
-        klass.basic_auth_headers = {"HTTP_AUTHORIZATION": f"Basic {encoded_credentials}"}
+        klass.http_authorization = f"Basic {encoded_credentials}"
 
 
 class ErrorResponsesMixin:
@@ -122,8 +122,8 @@ class TestMixin:
     team: Team = None  # type: ignore
     user: User = None  # type: ignore
     organization_membership: OrganizationMembership = None  # type: ignore
-    # Headers for those rare endpoints where basic authentication is required for security
-    basic_auth_headers: Dict[str, str]
+    # The HTTP "Authorization" header value for those rare endpoints where basic authentication is required for security
+    http_authorization: str
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)

@@ -23,7 +23,7 @@ class TestInstanceSettings(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.json()["value"], 3)
 
         response = self.client.patch(
-            f"/api/instance_settings/RECORDINGS_TTL_WEEKS", {"value": 5}, **self.basic_auth_headers
+            f"/api/instance_settings/RECORDINGS_TTL_WEEKS", {"value": 5}, HTTP_AUTHORIZATION=self.http_authorization
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["value"], 5)
@@ -43,7 +43,9 @@ class TestInstanceSettings(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.json()["value"], 3)
 
         response = self.client.patch(
-            f"/api/instance_settings/RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS", {"value": 5}, **self.basic_auth_headers
+            f"/api/instance_settings/RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
+            {"value": 5},
+            HTTP_AUTHORIZATION=self.http_authorization,
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["value"], 5)
