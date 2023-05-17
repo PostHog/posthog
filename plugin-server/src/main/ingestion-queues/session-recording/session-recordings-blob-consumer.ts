@@ -32,11 +32,6 @@ export const gaugeIngestionLag = new Gauge({
     help: 'A gauge of the number of milliseconds behind now for the timestamp of the latest message',
 })
 
-export const gaugeKafkaOffset = new Gauge({
-    name: 'recording_blob_kafka_offset',
-    help: "We believe this is an always increasing value... let's see",
-})
-
 export const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
     help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
@@ -218,8 +213,12 @@ export class SessionRecordingBlobIngester {
     private async handleEachBatch(messages: Message[]): Promise<void> {
         let highestTimestamp = -Infinity
 
+        const offsetChecks: Record<number, number[]> = {}
         for (const message of messages) {
-            gaugeKafkaOffset.set(message.offset)
+            if (!offsetChecks[message.partition]) {
+                offsetChecks[message.partition] = []
+            }
+            offsetChecks[message.partition].push(message.offset)
 
             if (!!message.timestamp && message.timestamp > highestTimestamp) {
                 highestTimestamp = message.timestamp
@@ -228,6 +227,13 @@ export class SessionRecordingBlobIngester {
             await this.handleKafkaMessage(message)
         }
 
+        for (const partition in offsetChecks) {
+            const offsets = offsetChecks[partition]
+            const isSorted = offsets.every((value, index, array) => index === 0 || array[index - 1] <= value)
+            if (!isSorted) {
+                status.error('⚠️', 'blob_ingestion_consumer - offsets not sorted', { partition, offsets })
+            }
+        }
         gaugeIngestionLag.set(DateTime.now().toMillis() - highestTimestamp)
     }
 
