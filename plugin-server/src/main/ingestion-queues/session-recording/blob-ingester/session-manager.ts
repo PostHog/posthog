@@ -3,6 +3,7 @@ import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
+import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter } from 'prom-client'
 import * as zlib from 'zlib'
@@ -29,9 +30,11 @@ const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 // The buffer is a list of messages grouped
 type SessionBuffer = {
     id: string
+    oldestKafkaTimestamp: number | null
+    newestKafkaTimestamp: number | null
+    skippedChecksDueToLag: number
     count: number
     size: number
-    oldestKafkaTimestamp: number
     file: string
     offsets: number[]
 }
@@ -91,7 +94,16 @@ export class SessionManager {
             })
             return
         }
-        this.buffer.oldestKafkaTimestamp = Math.min(this.buffer.oldestKafkaTimestamp, message.metadata.timestamp)
+
+        this.buffer.oldestKafkaTimestamp = Math.min(
+            this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
+            message.metadata.timestamp
+        )
+        this.buffer.newestKafkaTimestamp = Math.max(
+            this.buffer.newestKafkaTimestamp ?? message.metadata.timestamp,
+            message.metadata.timestamp
+        )
+
         // TODO: Check that the offset is higher than the lastProcessed
         // If not - ignore it
         // If it is - update lastProcessed and process it
@@ -132,6 +144,17 @@ export class SessionManager {
     }
 
     public async flushIfSessionBufferIsOld(): Promise<void> {
+        /**
+         * This needs to check several things
+         * 1) if we are not lagging and the time between "now" and the oldest message is greater than threshold we should flush
+         *          this check makes sure we flush sessions about ten minutes after they start no matter what
+         * 2) if we are lagging and the time between the oldest and newest timestamp is greater than threshold then we should flush
+         *          this check stops us flushing every message in a session if we are lagging
+         * 3) if we are lagging and the flush as been skipped for more than 2 minutes then we should flush
+         *          this check stops us from never flushing sessions that are shorter than threshold in length when we are lagging
+         *
+         *  Lagging is defined as the time between the newest timestamp and the "now" being greater than twice the threshold
+         * */
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy`, {
                 sessionId: this.sessionId,
@@ -139,14 +162,42 @@ export class SessionManager {
             return
         }
 
-        const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
+        if (this.buffer.oldestKafkaTimestamp === null || this.buffer.newestKafkaTimestamp === null) {
+            // We have no messages yet, so we can't flush
+            if (this.buffer.count > 0) {
+                throw new Error('Session buffer has messages but oldest/newest timestamps are null')
+            }
+            return
+        }
+        const now = DateTime.now().toMillis()
+        const bufferAge = now - this.buffer.oldestKafkaTimestamp
         const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        if (bufferAge >= tolerance) {
-            // return the promise and let the caller decide whether to await
+        const isLagging = now - this.buffer.newestKafkaTimestamp > tolerance * 2
+
+        const bufferIsOldAndNotLagging = !isLagging && bufferAge >= tolerance
+
+        if (!bufferIsOldAndNotLagging) {
+            this.buffer.skippedChecksDueToLag += 1
+        }
+
+        const bufferIsOldWhileLagging =
+            isLagging && this.buffer.newestKafkaTimestamp - this.buffer.oldestKafkaTimestamp >= tolerance
+
+        const bufferIsIdleWhileLagging = isLagging && this.buffer.skippedChecksDueToLag >= 4
+
+        if (bufferIsOldWhileLagging || bufferIsIdleWhileLagging || bufferIsOldAndNotLagging) {
+            this.buffer.skippedChecksDueToLag = 0
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 bufferAge,
                 tolerance,
                 sessionId: this.sessionId,
+                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+                newestKafkaTimestamp: this.buffer.newestKafkaTimestamp,
+                referenceTime: now,
+                isLagging,
+                bufferIsOldWhileLagging,
+                bufferIsIdleWhileLagging,
+                bufferIsOldAndNotLagging,
             })
             return this.flush()
         }
@@ -226,12 +277,14 @@ export class SessionManager {
                 id,
                 count: 0,
                 size: 0,
-                oldestKafkaTimestamp: Date.now(),
+                oldestKafkaTimestamp: null,
+                newestKafkaTimestamp: null,
                 file: path.join(
                     bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
                     `${this.teamId}.${this.sessionId}.${id}.jsonl`
                 ),
                 offsets: [],
+                skippedChecksDueToLag: 0,
             }
 
             // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
