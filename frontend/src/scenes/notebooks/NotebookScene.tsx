@@ -45,6 +45,13 @@ export function NotebookScene(): JSX.Element {
                             setNotebookSideBarShown(true)
                             router.actions.push(urls.notebooks())
                         }}
+                        tooltip={
+                            <>
+                                Pins the notebook to the right, allowing you to view it while navigating the rest of
+                                PostHog. This is great for dragging and dropping elements like Insights, Recordings or
+                                even Feature Flags into your active Notebook.
+                            </>
+                        }
                     >
                         Pin to side
                     </LemonButton>

@@ -37,6 +37,7 @@ export function NotebookListMini({
                 {
                     label: 'Scratchpad',
                     onClick: () => onSelectNotebook(scratchpadNotebook),
+                    active: selectedNotebookId === 'scratchpad',
                 },
             ],
         },
@@ -45,10 +46,11 @@ export function NotebookListMini({
                 ? notebooks.map((notebook) => ({
                       label: notebook.title ?? notebook.short_id,
                       onClick: () => onSelectNotebook(notebook),
+                      active: notebook.short_id === selectedNotebookId,
                   }))
                 : [
                       {
-                          label: 'No notebooks',
+                          label: notebooksLoading ? 'Loading notebooks...' : 'No notebooks',
                           disabledReason: 'No notebooks found',
                           onClick: () => {},
                       },

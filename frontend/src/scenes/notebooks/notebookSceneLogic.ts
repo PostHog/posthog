@@ -15,7 +15,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     props({} as NotebookSceneLogicProps),
     key(({ id }) => id),
     connect((props: NotebookSceneLogicProps) => ({
-        values: [notebookLogic(props), ['notebook']],
+        values: [notebookLogic(props), ['notebook', 'notebookLoading']],
     })),
     actions({
         setNotebookMode: (mode: NotebookMode) => ({ mode }),
@@ -32,14 +32,14 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         notebookId: [() => [(_, props) => props], (props): string => props.id],
 
         breadcrumbs: [
-            (s) => [s.notebook],
-            (notebook): Breadcrumb[] => [
+            (s) => [s.notebook, s.notebookLoading],
+            (notebook, notebookLoading): Breadcrumb[] => [
                 {
                     name: 'Notebooks',
                     path: urls.dashboards() + '?tab=notebooks',
                 },
                 {
-                    name: notebook?.title || 'Unnamed',
+                    name: notebookLoading ? 'Loading...' : notebook?.title || 'Unnamed',
                 },
             ],
         ],
