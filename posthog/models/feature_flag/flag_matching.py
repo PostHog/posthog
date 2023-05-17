@@ -173,12 +173,11 @@ class FeatureFlagMatcher:
                 highest_priority_evaluation_reason, highest_priority_index, evaluation_reason, index
             )
 
-        payload = None
         return FeatureFlagMatch(
             match=False,
             reason=highest_priority_evaluation_reason,
             condition_index=highest_priority_index,
-            payload=payload,
+            payload=None,
         )
 
     def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
@@ -231,6 +230,9 @@ class FeatureFlagMatcher:
             return None
 
     def is_super_condition_match(self, feature_flag: FeatureFlag) -> Tuple[bool, bool, FeatureFlagMatchReason]:
+        # TODO: Right now super conditions with property overrides bork when the database is down,
+        # because we're still going to the database in the line below. Ideally, we should not go to the database.
+        # Don't skip test: test_super_condition_with_override_properties_doesnt_make_database_requests when this is fixed.
         super_condition_value_is_set = self._super_condition_is_set(feature_flag)
         super_condition_value = self._super_condition_matches(feature_flag)
 
