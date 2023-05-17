@@ -58,6 +58,7 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
 
     urlToAction(({ actions }) => ({
         '/*': () => {
+            // Any navigation should trigger exiting full screen
             actions.setFullScreen(false)
         },
     })),

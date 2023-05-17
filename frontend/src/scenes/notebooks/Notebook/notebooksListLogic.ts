@@ -4,7 +4,9 @@ import { loaders } from 'kea-loaders'
 import { NotebookListItemType } from '~/types'
 
 import type { notebooksListLogicType } from './notebooksListLogicType'
-import { uuid } from 'lib/utils'
+import { delay, uuid } from 'lib/utils'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     id: 'scratchpad',
@@ -26,7 +28,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
-        createNotebook: true,
+        createNotebook: (redirect = false) => ({ redirect }),
     }),
 
     reducers({
@@ -55,8 +57,17 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 loadNotebooks: () => {
                     return values.localNotebooks
                 },
-                createNotebook: () => {
+                createNotebook: async ({ redirect }) => {
                     const notebook = createLocalNotebook(uuid())
+
+                    await delay(1000)
+
+                    if (redirect) {
+                        setTimeout(() => {
+                            // TODO: Remove this once we have proper DB backing
+                            router.actions.push(urls.notebookEdit(notebook.short_id))
+                        }, 500)
+                    }
 
                     return [...values.localNotebooks, notebook]
                 },

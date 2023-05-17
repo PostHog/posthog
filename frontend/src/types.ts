@@ -2832,3 +2832,8 @@ export type NotebookListItemType = {
 export type NotebookType = NotebookListItemType & {
     content: any // TODO: Type this better
 }
+
+export enum NotebookMode {
+    View = 'view',
+    Edit = 'edit',
+}

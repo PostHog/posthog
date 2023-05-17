@@ -68,6 +68,7 @@ export enum Scene {
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
     Issues = 'Issues',
+    Notebook = 'Notebook',
 }
 
 export type SceneProps = Record<string, any>

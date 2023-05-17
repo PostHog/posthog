@@ -149,4 +149,7 @@ export const urls = {
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
+    // notebooks: (): string => '/notebooks',
+    notebook: (id: string | number): string => `/notebooks/${id}`,
+    notebookEdit: (id: string | number): string => `/notebooks/${id}/edit`,
 }

@@ -260,6 +260,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Issues',
     },
+    [Scene.Notebook]: {
+        projectBased: true,
+        name: 'Notebook',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -390,4 +394,6 @@ export const routes: Record<string, Scene> = {
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.issues()]: Scene.Issues,
+    [urls.notebook(':id')]: Scene.Notebook,
+    [urls.notebookEdit(':id')]: Scene.Notebook,
 }

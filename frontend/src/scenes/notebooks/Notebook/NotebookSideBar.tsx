@@ -16,12 +16,17 @@ import { notebooksListLogic } from './notebooksListLogic'
 import { NotebookType } from '~/types'
 import { notebookLogic } from './notebookLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 const SyncStatus = ({ id }: { id: NotebookType['id'] }): JSX.Element => {
     const { syncStatus } = useValues(notebookLogic({ id }))
     const content = syncStatus === 'synced' ? '✅' : syncStatus === 'saving' ? <Spinner /> : '💭'
 
-    return <span className="text-muted-alt">{content}</span>
+    return (
+        <Tooltip title={syncStatus}>
+            <span className="text-muted-alt">{content}</span>
+        </Tooltip>
+    )
 }
 
 export function NotebookSideBar({ children }: { children: React.ReactElement<any> }): JSX.Element {

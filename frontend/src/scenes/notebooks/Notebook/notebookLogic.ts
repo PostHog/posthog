@@ -16,7 +16,7 @@ const SYNC_DELAY = 1000
 export type Editor = any
 
 export type NotebookLogicProps = {
-    id: string
+    id: string | number
 }
 
 export const notebookLogic = kea<notebookLogicType>([
@@ -92,7 +92,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     if (props.id === 'scratchpad') {
                         found = values.scratchpadNotebook
                     } else {
-                        found = values.localNotebooks.find((x) => x.id === props.id)
+                        found = values.localNotebooks.find((x) => x.id === props.id || x.short_id === props.id)
                     }
 
                     if (!found) {
