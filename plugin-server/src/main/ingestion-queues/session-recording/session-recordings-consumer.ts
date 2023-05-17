@@ -32,14 +32,12 @@ export const startSessionRecordingEventsConsumer = async ({
     consumerMaxBytes,
     consumerMaxBytesPerPartition,
     consumerMaxWaitMs,
-    summaryIngestionEnabledTeams,
 }: {
     teamManager: TeamManager
     kafkaConfig: KafkaConfig
     consumerMaxBytes: number
     consumerMaxBytesPerPartition: number
     consumerMaxWaitMs: number
-    summaryIngestionEnabledTeams: string
 }) => {
     /*
         For Session Recordings we need to prepare the data for ClickHouse.
@@ -72,8 +70,6 @@ export const startSessionRecordingEventsConsumer = async ({
     const eachBatchWithContext = eachBatch({
         teamManager,
         producer,
-        summaryEnabledTeams:
-            summaryIngestionEnabledTeams === 'all' ? null : summaryIngestionEnabledTeams.split(',').map(parseInt),
     })
 
     // Create a node-rdkafka consumer that fetches batches of messages, runs
@@ -99,15 +95,7 @@ export const startSessionRecordingEventsConsumer = async ({
 }
 
 export const eachBatch =
-    ({
-        teamManager,
-        producer,
-        summaryEnabledTeams,
-    }: {
-        teamManager: TeamManager
-        producer: RdKafkaProducer
-        summaryEnabledTeams: number[] | null
-    }) =>
+    ({ teamManager, producer }: { teamManager: TeamManager; producer: RdKafkaProducer }) =>
     async (messages: Message[]) => {
         // To start with, we simply process each message in turn,
         // without attempting to perform any concurrency. There is a lot
@@ -128,7 +116,7 @@ export const eachBatch =
         // DependencyUnavailableError error to distinguish between
         // intermittent and permanent errors.
         const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
-        const eachMessageWithContext = eachMessage({ teamManager, producer, summaryEnabledTeams })
+        const eachMessageWithContext = eachMessage({ teamManager, producer })
 
         for (const message of messages) {
             const results = await retryOnDependencyUnavailableError(() => eachMessageWithContext(message))
@@ -171,15 +159,7 @@ export const eachBatch =
     }
 
 const eachMessage =
-    ({
-        teamManager,
-        producer,
-        summaryEnabledTeams,
-    }: {
-        teamManager: TeamManager
-        producer: RdKafkaProducer
-        summaryEnabledTeams: number[] | null
-    }) =>
+    ({ teamManager, producer }: { teamManager: TeamManager; producer: RdKafkaProducer }) =>
     async (message: Message) => {
         // For each message, we:
         //
@@ -285,18 +265,29 @@ const eachMessage =
 
                     let replayRecord: null | SummarizedSessionRecordingEvent = null
                     try {
-                        if (summaryEnabledTeams === null || summaryEnabledTeams?.includes(team.id)) {
-                            replayRecord = createSessionReplayEvent(
-                                messagePayload.uuid,
-                                team.id,
-                                messagePayload.distinct_id,
-                                event.ip,
-                                event.properties || {}
-                            )
-                        }
+                        replayRecord = createSessionReplayEvent(
+                            messagePayload.uuid,
+                            team.id,
+                            messagePayload.distinct_id,
+                            event.ip,
+                            event.properties || {}
+                        )
                     } catch (e) {
                         status.warn('??', 'session_replay_summarizer_error', { error: e })
-                        captureException(e)
+                        captureException(e, {
+                            extra: {
+                                clickHouseRecord: {
+                                    uuid: clickHouseRecord.uuid,
+                                    timestamp: clickHouseRecord.timestamp,
+                                    snapshot_data: clickHouseRecord.snapshot_data,
+                                },
+                                replayRecord,
+                            },
+                            tags: {
+                                team: team.id,
+                                session_id: clickHouseRecord.session_id,
+                            },
+                        })
                     }
 
                     const producePromises = [
