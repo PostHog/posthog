@@ -27,7 +27,7 @@ export interface PopoverProps {
     /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
     children?: React.ReactChild
     /** External reference element not passed as a direct child */
-    referenceElement?: HTMLElement
+    referenceElement?: HTMLElement | null
     /** Content of the overlay. */
     overlay: React.ReactNode | React.ReactNode[]
     /** Where the popover should start relative to children. */
@@ -54,8 +54,10 @@ export interface PopoverProps {
     showArrow?: boolean
 }
 
-export const PopoverLevelContext = React.createContext<number>(0)
-export const PopoverVisibilityContext = React.createContext<[boolean, Placement] | null>(null)
+/** Context for the popover overlay: parent popover visibility and parent popover level. */
+export const PopoverOverlayContext = React.createContext<[boolean, number]>([true, -1])
+/** Context for the popover reference element (if rendered as a Popover child and not externally). */
+export const PopoverReferenceContext = React.createContext<[boolean, Placement] | null>(null)
 
 let nestedPopoverReceivedClick = false
 
@@ -87,7 +89,12 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     },
     contentRef
 ): JSX.Element {
-    const popoverLevel = useContext(PopoverLevelContext)
+    const [parentPopoverVisibility, parentPopoverLevel] = useContext(PopoverOverlayContext)
+    const currentPopoverLevel = parentPopoverLevel + 1
+
+    if (!parentPopoverVisibility) {
+        visible = false // Hide all popovers of a hierarchy in sync
+    }
 
     const arrowRef = useRef<HTMLDivElement>(null)
     const {
@@ -179,7 +186,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
         onClickInside?.(e)
         // If we are not the top level popover, set a flag so that other popovers know that.
-        if (popoverLevel > 0 && !closeParentPopoverOnClickInside) {
+        if (parentPopoverLevel > 0 && !closeParentPopoverOnClickInside) {
             nestedPopoverReceivedClick = true
             setTimeout(() => {
                 nestedPopoverReceivedClick = false
@@ -195,12 +202,14 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     return (
         <>
-            <PopoverVisibilityContext.Provider value={[visible, effectivePlacement]}>
-                {clonedChildren}
-            </PopoverVisibilityContext.Provider>
+            {clonedChildren && (
+                <PopoverReferenceContext.Provider value={[visible, effectivePlacement]}>
+                    {clonedChildren}
+                </PopoverReferenceContext.Provider>
+            )}
             <FloatingPortal root={getPopupContainer?.()}>
                 <CSSTransition in={visible} timeout={100} classNames="Popover-" appear mountOnEnter unmountOnExit>
-                    <PopoverLevelContext.Provider value={popoverLevel + 1}>
+                    <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
                         <div
                             className={clsx(
                                 'Popover',
@@ -214,7 +223,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ position: strategy, top, left, ...style }}
                             onClick={_onClickInside}
-                            aria-level={popoverLevel + 1}
+                            aria-level={currentPopoverLevel}
                         >
                             <div className="Popover__box">
                                 {showArrow && isAttached && (
@@ -235,7 +244,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                 </div>
                             </div>
                         </div>
-                    </PopoverLevelContext.Provider>
+                    </PopoverOverlayContext.Provider>
                 </CSSTransition>
             </FloatingPortal>
         </>

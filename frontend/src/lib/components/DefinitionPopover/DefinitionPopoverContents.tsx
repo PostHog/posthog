@@ -17,12 +17,11 @@ import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopove
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
 import { Button, Checkbox, Typography } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopover/utils'
-import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { TitleWithIcon } from '../TitleWithIcon'
-import { UseFloatingReturn } from '@floating-ui/react'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { Popover } from 'lib/lemon-ui/Popover'
 
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
     <TitleWithIcon
@@ -419,29 +418,29 @@ function DefinitionEdit(): JSX.Element {
     )
 }
 
-interface BaseDefinitionPopoverContentsProps {
+interface ControlledDefinitionPopoverContentsProps {
+    visible: boolean
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
+    highlightedItemElement: HTMLDivElement | null
 }
 
-interface ControlledDefinitionPopoverContentsProps extends BaseDefinitionPopoverContentsProps {
-    floatingReturn: UseFloatingReturn<HTMLElement>
-}
-
-export function ControlledDefinitionPopoverContents({
+export function ControlledDefinitionPopover({
+    visible,
     item,
     group,
-    floatingReturn,
-}: ControlledDefinitionPopoverContentsProps): JSX.Element {
+    highlightedItemElement,
+}: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     // Supports all types specified in selectedItemHasPopover
     const value = group.getValue?.(item)
 
     if (!value || !item) {
-        return <></>
+        return null
     }
 
-    const { state, singularType, isElement, definition, onMouseLeave } = useValues(definitionPopoverLogic)
+    const { state, singularType, isElement, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
+
     const icon = group.getIcon?.(definition || item)
 
     // Must use `useEffect` here to hydrate popover card with newest item, since lifecycle of `ItemPopover` is controlled
@@ -450,52 +449,11 @@ export function ControlledDefinitionPopoverContents({
         setDefinition(item)
     }, [item])
 
-    const {
-        x,
-        y,
-        floating: setFloatingRef,
-        refs: { floating: floatingRef },
-        strategy,
-        update,
-    } = floatingReturn
-
-    // Force popper to recalculate position when popover state changes. Keep this independent of logic
-    useEffect(() => {
-        update()
-    }, [state])
-
     return (
-        <>
-            <CSSTransition timeout={150} classNames="definition-popover-overlay-" mountOnEnter unmountOnExit>
-                <div
-                    className="definition-popover-overlay click-outside-block hotkey-block"
-                    // zIndex: 1062 ensures definition popover overlay is between infinite list (1061) and definition popover (1063)
-                    // If not in edit mode, bury it.
-                    /* eslint-disable-next-line react/forbid-dom-props */
-                    style={{ zIndex: 'var(--z-definition-popover-overlay)' }}
-                    onClick={() => {
-                        floatingRef.current?.focus()
-                    }}
-                />
-            </CSSTransition>
-            <div
-                className="popper-tooltip click-outside-block hotkey-block Popover Popover__box"
-                tabIndex={-1} // Only programmatically focusable
-                ref={setFloatingRef}
-                /* eslint-disable-next-line react/forbid-dom-props */
-                style={{
-                    position: strategy,
-                    top: y ?? 0,
-                    left: x ?? 0,
-                    transition: 'none',
-                    zIndex: 'var(--z-definition-popover)',
-                }}
-                onMouseLeave={() => {
-                    if (state !== DefinitionPopoverState.Edit) {
-                        onMouseLeave?.()
-                    }
-                }}
-            >
+        <Popover
+            visible={visible}
+            referenceElement={highlightedItemElement}
+            overlay={
                 <DefinitionPopover.Wrapper>
                     <DefinitionPopover.Header
                         title={
@@ -513,7 +471,9 @@ export function ControlledDefinitionPopoverContents({
                     />
                     {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
                 </DefinitionPopover.Wrapper>
-            </div>
-        </>
+            }
+            placement="right"
+            fallbackPlacements={['left']}
+        />
     )
 }

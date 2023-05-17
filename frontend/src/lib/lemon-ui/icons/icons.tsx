@@ -267,6 +267,18 @@ export function IconSelectEvents(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Material Design Select All icon. */
+export function IconSelectAll(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zm-2-4h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2zM7 17h10V7H7v10zm2-8h6v6H9V9z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Logout icon. */
 export function IconLogout(props: LemonIconProps): JSX.Element {
     return (
@@ -1603,24 +1615,6 @@ export function IconVerifiedEvent(props: LemonIconProps): JSX.Element {
             />
             <path
                 d="M17.7289 6.04489L16.0628 4.37164L15 5.44166L17.7289 8.17774L23 2.89228L21.9372 1.82227L17.7289 6.04489Z"
-                fill="currentColor"
-            />
-        </LemonIconBase>
-    )
-}
-
-export function ActionEvent(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M14 3H4.8C3.81 3 3 3.81 3 4.8V12C3 12.99 3.81 13.8 4.8 13.8H19.2C20.19 13.8 21 12.99 21 12V11H19.2V12H4.8V4.8H14V3ZM19.2 17.4H4.8V15.6H19.2V17.4ZM17.4 21H6.6V19.2H17.4V21Z"
-                fill="currentColor"
-            />
-            <path d="M19 8L20.37 7.37L21 6L21.63 7.37L23 8L21.63 8.63L21 10L20.37 8.63L19 8Z" fill="currentColor" />
-            <path
-                d="M18.94 3.94L18 6L17.06 3.94L15 3L17.06 2.06L18 0L18.94 2.06L21 3L18.94 3.94Z"
                 fill="currentColor"
             />
         </LemonIconBase>
