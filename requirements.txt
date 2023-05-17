@@ -71,6 +71,7 @@ clickhouse-pool==0.5.3
     # via -r requirements.in
 cryptography==37.0.2
     # via
+    #   -r requirements.in
     #   kafka-helper
     #   pyopenssl
     #   social-auth-core

@@ -1,8 +1,11 @@
+import base64
 import dataclasses
 import datetime as dt
+from typing import Iterable
 from uuid import UUID
 
 from asgiref.sync import async_to_sync
+from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -114,6 +117,88 @@ class TemporalModel(UUIDModel):
         return async_to_sync(handle.terminate)(reason=reason)
 
 
+def get_fernet() -> Fernet:
+    padded_key = b"\0" * max(32 - len(settings.SECRET_KEY), 0) + settings.SECRET_KEY.encode()
+    encoded_key = base64.urlsafe_b64encode(padded_key[:32])
+
+    return Fernet(encoded_key)
+
+
+class EncryptedJSONField(models.JSONField):
+    """A JSONField that encrypts given keys on saving to database.
+
+    Args:
+        encrypted_keys: An iterable of keys to encrypt. If default (None), nothing is encrypted
+            and this field behaves like JSONField.
+    """
+
+    def __init__(self, encrypted_keys: Iterable[str] | None = None, *args, **kwargs):
+        self.encrypted_keys = encrypted_keys
+        super().__init__(*args, **kwargs)
+
+    def from_db_value(self, value, expression, connection):
+        """Method called when reading the value from the database.
+
+        Due to an outstanding bug in django-stubs, we require the type: ignore comment.
+        See: https://github.com/typeddjango/django-stubs/issues/934.
+        """
+        db_value = super().from_db_value(value, expression, connection)  # type: ignore
+        return self.decrypt_data(db_value)
+
+    def get_prep_value(self, value):
+        encrypted_value = self.encrypt_data(value)
+        return super().get_prep_value(encrypted_value)
+
+    def to_python(self, value):
+        python_value = super().to_python(value)
+        return self.decrypt_data(python_value)
+
+    def encrypt_data(self, data: dict | None):
+        """Encrypt data for database storage.
+
+        We attempt to prevent multiple encryptions by checking for token validity.
+        """
+        if not self.encrypted_keys or not data:
+            return data
+
+        fernet = get_fernet()
+
+        for key in self.encrypted_keys:
+            value = data.get(key, None)
+
+            if value is None:
+                continue
+
+            try:
+                fernet.extract_timestamp(value.encode())
+            except InvalidToken:
+                # This attempts to stop double encryptions due to multiple calls to .save().
+                # The token should always be invalid if we are encrypting a non-encrypted value.
+                pass
+            else:
+                continue
+
+            data[key] = fernet.encrypt(value.encode()).decode()
+
+        return data
+
+    def decrypt_data(self, data: dict | None):
+        """Decrypt data for usage."""
+        if not self.encrypted_keys or not data:
+            return data
+
+        fernet = get_fernet()
+
+        for key in self.encrypted_keys:
+            value = data.get(key, None)
+            if value is None:
+                continue
+
+            data[key] = fernet.decrypt(value.encode()).decode()
+
+        return data
+
+
 class BatchExportDestination(UUIDModel):
     """A model for the destination that a PostHog BatchExport will target.
 
@@ -150,7 +235,9 @@ class BatchExportDestination(UUIDModel):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     name: models.TextField = models.TextField()
     type: models.CharField = models.CharField(choices=Destination.choices, max_length=64)
-    config: models.JSONField = models.JSONField(default=dict, blank=True)
+    config: EncryptedJSONField = EncryptedJSONField(
+        default=dict, encrypted_keys=("aws_access_key_id", "aws_secret_access_key"), blank=True
+    )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     last_updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
@@ -272,6 +359,9 @@ class BatchExportSchedule(TemporalModel):
             end_at=self.end_at,
             jitter=self.jitter,
         )
+
+    def get_batch_window_sizes(self) -> list[dt.timedelta]:
+        return [interval["every"] for interval in self.intervals]
 
     def pause(self, note: str | None = None) -> "BatchExportSchedule":
         """Pause this BatchExportSchedule by calling Temporal.
@@ -507,6 +597,11 @@ class BatchExport(TemporalModel):
 
     objects: BatchExportManager = BatchExportManager()
 
+    class Table(models.TextChoices):
+        """Enumeration of tables that can be exported by PostHog BatchExports."""
+
+        EVENTS = "events"
+
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     destination: models.ForeignKey = models.ForeignKey("BatchExportDestination", on_delete=models.CASCADE)
     schedule: models.ForeignKey = models.ForeignKey("BatchExportSchedule", on_delete=models.CASCADE)
@@ -514,6 +609,7 @@ class BatchExport(TemporalModel):
     execution_timeout: models.DurationField = models.DurationField(default=None, null=True, blank=True)
     run_timeout: models.DurationField = models.DurationField(default=None, null=True, blank=True)
     task_timeout: models.DurationField = models.DurationField(default=None, null=True, blank=True)
+    table: models.CharField = models.CharField(default=Table.EVENTS, choices=Table.choices, max_length=256)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     last_updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
@@ -544,6 +640,12 @@ class BatchExport(TemporalModel):
             note=f"Schedule created for BatchExport {self.id} to Destination {self.destination.id} in Team {self.schedule.team.id}.",
             paused=self.schedule.paused,
         )
+        batch_window_sizes = self.schedule.get_batch_window_sizes()
+
+        if batch_window_sizes:
+            batch_window_size = batch_window_sizes[0]
+        else:
+            batch_window_size = None
 
         handle = self.create_schedule(
             id=str(self.schedule.id),
@@ -555,7 +657,9 @@ class BatchExport(TemporalModel):
                         # We could take the batch_export_id from the Workflow id
                         # But temporal appends a timestamp at the end we would have to parse out.
                         batch_export_id=str(self.id),
-                        **self.destination.config,
+                        destination_id=str(self.destination.id),
+                        table_name=self.table,
+                        batch_window_size=batch_window_size,
                     ),
                     id=str(self.id),
                     task_queue=settings.TEMPORAL_TASK_QUEUE,

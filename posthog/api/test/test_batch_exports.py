@@ -25,7 +25,6 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
                 "bucket_name": "my-production-s3-bucket",
                 "region": "us-east-1",
                 "key_template": "posthog-events/{table_name}.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
@@ -56,7 +55,6 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
                 "bucket_name": "my-production-s3-bucket",
                 "region": "us-east-1",
                 "key_template": "posthog-events/{table_name}.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
@@ -82,7 +80,6 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "key_template": "posthog-events/{table_name}.csv",
-            "batch_window_size": 3600,
         }
 
         for destination in data["results"]:
@@ -91,7 +88,7 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
             self.assertEqual(destination["type"], "S3")
             self.assertEqual(destination["config"], expected_config)
 
-    def test_create_batch_export_with_empty_schedule(self):
+    def test_create_batch_export_with_interval_schedule(self):
         """Test creating a BatchExport.
 
         When creating a BatchExport, we should create a corresponding Schedule in Temporal as described
@@ -105,12 +102,12 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
                 "bucket_name": "my-production-s3-bucket",
                 "region": "us-east-1",
                 "key_template": "posthog-events/{table_name}.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
         }
         schedule_data = {
+            "intervals": [{"every": {"seconds": 3600}}],
             "paused": False,
         }
         batch_export_data = {
@@ -127,19 +124,22 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "key_template": "posthog-events/{table_name}.csv",
-            "batch_window_size": 3600,
         }
         self.assertEqual(data["destination"]["name"], destination_data["name"])
         self.assertEqual(data["destination"]["type"], destination_data["type"])
         self.assertEqual(data["destination"]["config"], expected_config)
         self.assertEqual(data["schedule"]["cron_expressions"], [])
         self.assertEqual(data["schedule"]["calendars"], [])
-        self.assertEqual(data["schedule"]["intervals"], [])
+        self.assertEqual(data["schedule"]["intervals"], [{"every": {"seconds": 3600}}])
         self.assertEqual(data["schedule"]["skip"], [])
 
         schedule_desc = self.describe_schedule(data["schedule"]["id"])
         self.assertEqual(schedule_desc.id, data["schedule"]["id"])
         self.assertEqual(len(schedule_desc.schedule.spec.calendars), 0)
+        self.assertEqual(len(schedule_desc.schedule.spec.intervals), 1)
+
+        schedule_interval_spec = schedule_desc.schedule.spec.intervals[0]
+        self.assertEqual(schedule_interval_spec.every, dt.timedelta(seconds=3600))
 
     def test_create_batch_export_with_cron_schedule(self):
         """Test creating a BatchExport.
@@ -155,13 +155,13 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
                 "bucket_name": "my-production-s3-bucket",
                 "region": "us-east-1",
                 "key_template": "posthog-events/{table_name}.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
         }
         schedule_data = {
             "paused": True,
+            "intervals": [{"every": {"seconds": 3600}}],
             "cron_expressions": ["0 0 * * *"],
         }
         batch_export_data = {
@@ -178,14 +178,12 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "key_template": "posthog-events/{table_name}.csv",
-            "batch_window_size": 3600,
         }
         self.assertEqual(data["destination"]["name"], destination_data["name"])
         self.assertEqual(data["destination"]["type"], destination_data["type"])
         self.assertEqual(data["destination"]["config"], expected_config)
         self.assertEqual(data["schedule"]["cron_expressions"], schedule_data["cron_expressions"])
         self.assertEqual(data["schedule"]["calendars"], [])
-        self.assertEqual(data["schedule"]["intervals"], [])
         self.assertEqual(data["schedule"]["skip"], [])
 
         schedule_desc = self.describe_schedule(data["schedule"]["id"])
@@ -217,13 +215,13 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
                 "bucket_name": "my-production-s3-bucket",
                 "region": "us-east-1",
                 "key_template": "posthog-events/{table_name}.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
         }
         schedule_data = {
             "paused": True,
+            "intervals": [{"every": {"seconds": 3600}}],
             # At every 30-minute mark between the hours of 1 and 10.
             "calendars": [{"hour": [{"start": 1, "end": 10, "step": 0}], "minute": [{"start": 30}]}],
         }
@@ -241,14 +239,12 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "key_template": "posthog-events/{table_name}.csv",
-            "batch_window_size": 3600,
         }
         self.assertEqual(data["destination"]["name"], destination_data["name"])
         self.assertEqual(data["destination"]["type"], destination_data["type"])
         self.assertEqual(data["destination"]["config"], expected_config)
         self.assertEqual(data["schedule"]["cron_expressions"], [])
         self.assertEqual(data["schedule"]["calendars"], schedule_data["calendars"])
-        self.assertEqual(data["schedule"]["intervals"], [])
         self.assertEqual(data["schedule"]["skip"], [])
 
         schedule_desc = self.describe_schedule(data["schedule"]["id"])
@@ -274,14 +270,13 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
                 "bucket_name": "my-production-s3-bucket",
                 "region": "us-east-1",
                 "key_template": "posthog-events/{table_name}.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
         }
-        # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
         schedule_data = {
             "paused": False,
+            "intervals": [{"every": {"seconds": 3600}}],
         }
         batch_export_data = {
             "destination": destination_data,
@@ -329,13 +324,13 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
                 "bucket_name": "my-production-s3-bucket",
                 "region": "us-east-1",
                 "key_template": "posthog-events/{table_name}.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
         }
         schedule_data = {
             "paused": True,
+            "intervals": [{"every": {"seconds": 3600}}],
         }
         batch_export_data = {
             "destination": destination_data,
@@ -364,13 +359,13 @@ class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
                 "bucket_name": "my-production-s3-bucket",
                 "region": "us-east-1",
                 "key_template": "posthog-events/{table_name}.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
         }
         schedule_data = {
             "paused": True,
+            "intervals": [{"every": {"seconds": 3600}}],
         }
         batch_export_data = {
             "destination": destination_data,

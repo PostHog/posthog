@@ -1,11 +1,13 @@
 import csv
 import datetime as dt
 import io
+import json
 import time
 from uuid import uuid4
 
 from boto3 import resource
 from botocore.client import Config
+from django.db import connections
 from freezegun import freeze_time
 from temporalio.client import (
     ScheduleSpec,
@@ -21,6 +23,7 @@ from posthog.models import (
     BatchExportRun,
     BatchExportSchedule,
 )
+from posthog.models.batch_export.batch_export import get_fernet
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -33,6 +36,56 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     NonAtomicBaseTemporalTest,
 )
+
+
+class TestBatchExportDestination(NonAtomicBaseTemporalTest):
+    """Test operations on BatchExportDestination models."""
+
+    def test_encrypt_on_save(self):
+        """Test config encrypted_keys are encrypted on create/save."""
+        access_key_id = "my-very-valuable-access-key-id"
+        secret_access_key = "my-very-valuable-secret-access-key-id"
+        destination = BatchExportDestination.objects.create(
+            team=self.team,
+            name="test-s3-destination",
+            type="S3",
+            config={
+                "bucket_name": "test-bucket",
+                "region": "us-east-1",
+                "key_template": "events.csv",
+                "aws_access_key_id": access_key_id,
+                "aws_secret_access_key": secret_access_key,
+            },
+        )
+        self.assertNotEqual(destination.config["aws_access_key_id"], access_key_id)
+        self.assertNotEqual(destination.config["aws_secret_access_key"], secret_access_key)
+
+        destination.refresh_from_db()
+
+        self.assertEqual(destination.config["aws_access_key_id"], access_key_id)
+        self.assertEqual(destination.config["aws_secret_access_key"], secret_access_key)
+
+        destination.save()
+
+        self.assertNotEqual(destination.config["aws_access_key_id"], access_key_id)
+        self.assertNotEqual(destination.config["aws_secret_access_key"], secret_access_key)
+
+        conn = connections["default"]
+        with conn.cursor() as cursor:
+            # Let's check the actual database to ensure this is encrypted.
+            cursor.execute("SELECT config FROM posthog_batchexportdestination WHERE id = %s", [str(destination.id)])
+            config_row = cursor.fetchone()
+
+            assert config_row is not None
+
+            config = json.loads(config_row[0])
+
+        self.assertNotEqual(config["aws_access_key_id"], access_key_id)
+        self.assertNotEqual(config["aws_secret_access_key"], secret_access_key)
+
+        fernet = get_fernet()
+        self.assertEqual(fernet.decrypt(config["aws_access_key_id"].encode()), access_key_id.encode())
+        self.assertEqual(fernet.decrypt(config["aws_secret_access_key"].encode()), secret_access_key.encode())
 
 
 class TestBatchExportSchedule(BaseTemporalTest):
@@ -56,9 +109,46 @@ class TestBatchExportSchedule(BaseTemporalTest):
             spec = schedule.get_schedule_spec()
             self.assertEqual(spec, expected_spec)
 
+    def test_get_batch_window_sizes(self):
+        """Test getting the batch window sizes from a BatchExportSchedule."""
+        test_params = [
+            (
+                [{"every": {"hours": 1}, "offset": {"minutes": 10}}],
+                [{"hours": 1}],
+            ),
+            (
+                [
+                    {"every": {"hours": 1, "minutes": 5}, "offset": {"minutes": 10}},
+                    {"every": {"hours": 2, "days": 1}, "offset": {"minutes": 10}},
+                ],
+                [{"hours": 1, "minutes": 5}, {"hours": 2, "days": 1}],
+            ),
+            (
+                [
+                    {"every": {"days": 1}, "offset": {"minutes": 10}},
+                    {"every": {"days": 2}, "offset": {"minutes": 10}},
+                ],
+                [{"days": 1}, {"days": 2}],
+            ),
+            (
+                [
+                    {"every": {"days": 7}, "offset": {"minutes": 10}},
+                ],
+                [{"days": 7}],
+            ),
+        ]
+
+        for intervals, expected_batch_window_sizes in test_params:
+            schedule = BatchExportSchedule.objects.create(team=self.team, intervals=intervals)
+
+            batch_window_sizes = schedule.get_batch_window_sizes()
+            self.assertEqual(batch_window_sizes, expected_batch_window_sizes)
+
     def test_pause_and_unpause_schedule(self):
         """Test pausing and unpausing a Schedule."""
-        schedule = BatchExportSchedule.objects.create(team=self.team, paused=False)
+        schedule = BatchExportSchedule.objects.create(
+            team=self.team, intervals=[{"every": {"seconds": 3600}}], paused=False
+        )
         destination = BatchExportDestination.objects.create(
             team=self.team,
             name="test-s3-destination",
@@ -67,7 +157,6 @@ class TestBatchExportSchedule(BaseTemporalTest):
                 "bucket_name": "test-bucket",
                 "region": "us-east-1",
                 "key_template": "events.csv",
-                "batch_window_size": 3600,
             },
         )
 
@@ -102,7 +191,9 @@ class TestBatchExport(BaseTemporalTest):
 
     def test_create_batch_export_schedule(self):
         """Test creation of a BatchExport Temporal Schedule."""
-        schedule = BatchExportSchedule.objects.create(team=self.team, paused=True)
+        schedule = BatchExportSchedule.objects.create(
+            team=self.team, intervals=[{"every": {"seconds": 3600}}], paused=True
+        )
         destination = BatchExportDestination.objects.create(
             team=self.team,
             name="test-s3-destination",
@@ -111,7 +202,6 @@ class TestBatchExport(BaseTemporalTest):
                 "bucket_name": "test-bucket",
                 "region": "us-east-1",
                 "key_template": "exports/posthog-{{table_name}}/events.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
                 "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
             },
@@ -137,7 +227,9 @@ class TestBatchExport(BaseTemporalTest):
 
     def test_delete_batch_export_schedule(self):
         """Test deletion of a BatchExport Temporal Schedule."""
-        schedule = BatchExportSchedule.objects.create(team=self.team, paused=True)
+        schedule = BatchExportSchedule.objects.create(
+            team=self.team, intervals=[{"every": {"seconds": 3600}}], paused=True
+        )
         destination = BatchExportDestination.objects.create(
             team=self.team,
             name="test-s3-destination",
@@ -146,7 +238,6 @@ class TestBatchExport(BaseTemporalTest):
                 "bucket_name": "test-bucket",
                 "region": "us-east-1",
                 "key_template": "exports/posthog-{{table_name}}/events.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
                 "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
             },
@@ -235,7 +326,9 @@ class TestBatchExportExecution(NonAtomicBaseTemporalTest, ClickhouseTestMixin):
         max_datetime = dt.datetime.utcnow()
         test_events = self.create_test_events(max_datetime)
 
-        schedule = BatchExportSchedule.objects.create(team=self.team, paused=False)
+        schedule = BatchExportSchedule.objects.create(
+            team=self.team, intervals=[{"every": {"seconds": 3600}}], paused=False
+        )
         key_uuid = uuid4()
         destination = BatchExportDestination.objects.create(
             team=self.team,
@@ -246,7 +339,6 @@ class TestBatchExportExecution(NonAtomicBaseTemporalTest, ClickhouseTestMixin):
                 "region": "us-east-1",
                 # We use a UUID here to ensure uniqueness in case the export is run multiple times.
                 "key_template": f"{self.bucket_root}/{key_uuid}/posthog-{{table_name}}/events.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
                 "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
                 "data_interval_end": max_datetime.isoformat(),
@@ -314,7 +406,6 @@ class TestBatchExportExecution(NonAtomicBaseTemporalTest, ClickhouseTestMixin):
                 "region": "us-east-1",
                 # We use a UUID here to ensure uniqueness in case the export test is run multiple times.
                 "key_template": f"{self.bucket_root}/{key_uuid}/{{datetime}}/posthog-{{table_name}}/events.csv",
-                "batch_window_size": 3600,
                 "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
                 "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
             },

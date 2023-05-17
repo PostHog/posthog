@@ -2,11 +2,14 @@ import datetime as dt
 import json
 from dataclasses import dataclass
 from string import Template
+from typing import TypedDict
 
 from aiohttp import ClientSession
+from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models.batch_export import BatchExportDestination
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -47,20 +50,46 @@ TABLE_PARTITION_KEYS = {
 class S3InsertInputs:
     """Inputs for ClickHouse INSERT INTO S3 function."""
 
+    team_id: int
+    destination_id: str
+    table_name: str
+    data_interval_start: str
+    data_interval_end: str
+
+
+class AWSDestinationConfigDict(TypedDict, total=False):
+    """Configuration for a BatchExportDestination targetting any AWS destination.
+
+    This class is merely for documentation and type-checking: TypedDicts are just dicts at runtime.
+    """
+
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
+
+class S3DestinationConfigDict(AWSDestinationConfigDict):
+    """Configuration for a BatchExportDestination targetting S3.
+
+    This class is merely for documentation and type-checking: TypedDicts are just dicts at runtime.
+
+    Attributes:
+        bucket_name: The S3 bucket we are exporting to.
+        region: The AWS region where the bucket is located.
+        key_template: A template for the key/s to be created in S3.
+        batch_window_size: The size in seconds of the batch window.
+            For example, for one hour batches, this should be 3600.
+        file_format: The format of the file to be created in S3, supported by ClickHouse.
+            A list of all supported formats can be found in https://clickhouse.com/docs/en/interfaces/formats.
+    """
+
     bucket_name: str
     region: str
     key_template: str
-    team_id: int
-    data_interval_start: str
-    data_interval_end: str
-    file_format: str = "CSV"
-    table_name: str = "events"
-    partition_key: str | None = None
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    partition_key: str
+    file_format: str
 
 
-def build_s3_url(bucket: str, region: str, key_template: str, is_debug_or_test: bool, **template_vars):
+def build_s3_url(bucket: str, region: str, key_template: str, is_debug_or_test: bool, **template_vars) -> str:
     """Form a S3 URL given input parameters.
 
     ClickHouse requires an S3 URL with http scheme.
@@ -81,12 +110,12 @@ def build_s3_url(bucket: str, region: str, key_template: str, is_debug_or_test: 
     return f"{base_endpoint}/{bucket}/{key}"
 
 
-def prepare_template_vars(inputs: S3InsertInputs):
+def prepare_template_vars(inputs: S3InsertInputs, config: S3DestinationConfigDict) -> dict[str, str | int]:
     end_at = dt.datetime.fromisoformat(inputs.data_interval_end)
     return {
         "partition_id": "{_partition_id}",
         "table_name": inputs.table_name,
-        "file_format": inputs.file_format,
+        "file_format": config.get("file_format", ""),
         "datetime": inputs.data_interval_end,
         "year": end_at.year,
         "month": end_at.month,
@@ -97,6 +126,14 @@ def prepare_template_vars(inputs: S3InsertInputs):
     }
 
 
+async def get_destination_config(destination_id: str) -> S3DestinationConfigDict:
+    """Read a BatchExportDestination from the database and return its configuration."""
+    destination = await sync_to_async(BatchExportDestination.objects.get)(  # type: ignore
+        id=destination_id,
+    )
+    return destination.config
+
+
 @activity.defn
 async def insert_into_s3_activity(inputs: S3InsertInputs):
     """Activity that runs a INSERT INTO query in ClickHouse targetting an S3 table function."""
@@ -105,17 +142,23 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
+    destination_config = await get_destination_config(inputs.destination_id)
+
     if inputs.table_name not in TABLE_PARTITION_KEYS:
         raise ValueError(f"Unsupported table {inputs.table_name}")
 
-    if inputs.partition_key:
-        if inputs.partition_key not in TABLE_PARTITION_KEYS[inputs.table_name]:
-            raise ValueError(f"Unsupported partition_key {inputs.partition_key}")
-        partition_clause = f"PARTITION BY {inputs.partition_key}"
+    partition_key = destination_config.get("partition_key", None)
+    if partition_key:
+        if partition_key not in TABLE_PARTITION_KEYS[inputs.table_name]:
+            raise ValueError(f"Unsupported partition_key {destination_config['partition_key']}")
+        partition_clause = f"PARTITION BY {destination_config['partition_key']}"
     else:
         partition_clause = ""
 
-    if inputs.aws_access_key_id is not None and inputs.aws_secret_access_key is not None:
+    if (
+        destination_config.get("aws_access_key_id", None) is not None
+        and destination_config.get("aws_secret_access_key", None) is not None
+    ):
         auth = "{aws_access_key_id}, {aws_secret_access_key},"
     else:
         auth = ""
@@ -152,11 +195,11 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
-        template_vars = prepare_template_vars(inputs)
+        template_vars = prepare_template_vars(inputs, destination_config)
         s3_url = build_s3_url(
-            bucket=inputs.bucket_name,
-            region=inputs.region,
-            key_template=inputs.key_template,
+            bucket=destination_config["bucket_name"],
+            region=destination_config["region"],
+            key_template=destination_config["key_template"],
             is_debug_or_test=settings.TEST or settings.DEBUG,
             **template_vars,
         )
@@ -170,10 +213,10 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 table_name=inputs.table_name, fields="*", auth=auth, partition_clause=partition_clause
             ),
             params={
-                "aws_access_key_id": inputs.aws_access_key_id,
-                "aws_secret_access_key": inputs.aws_secret_access_key,
+                "aws_access_key_id": destination_config.get("aws_access_key_id", None),
+                "aws_secret_access_key": destination_config.get("aws_secret_access_key", None),
                 "path": s3_url,
-                "file_format": inputs.file_format,
+                "file_format": destination_config.get("file_format", "CSVWithNames"),
                 "team_id": inputs.team_id,
                 "data_interval_start": data_interval_start_ch,
                 "data_interval_end": data_interval_end_ch,
@@ -198,18 +241,13 @@ class S3BatchExportInputs:
             scheduled runs and for backfills.
     """
 
-    bucket_name: str
-    region: str
-    key_template: str
-    batch_window_size: int
     team_id: int
     batch_export_id: str
-    table_name: str = "events"
-    file_format: str = "CSVWithNames"
-    partition_key: str | None = None
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    destination_id: str
+    table_name: str
+    batch_window_size: dict[str, int] | None = None
     data_interval_end: str | None = None
+    data_interval_start: str | None = None
 
 
 @workflow.defn(name="s3-export")
@@ -254,15 +292,9 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
 
         insert_inputs = S3InsertInputs(
-            bucket_name=inputs.bucket_name,
-            region=inputs.region,
-            key_template=inputs.key_template,
-            partition_key=inputs.partition_key,
-            table_name=inputs.table_name,
             team_id=inputs.team_id,
-            file_format=inputs.file_format,
-            aws_access_key_id=inputs.aws_access_key_id,
-            aws_secret_access_key=inputs.aws_secret_access_key,
+            destination_id=inputs.destination_id,
+            table_name=inputs.table_name,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
         )
@@ -342,6 +374,12 @@ def get_data_interval_from_workflow_inputs(inputs: S3BatchExportInputs) -> tuple
     else:
         data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
 
-    data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
+    if inputs.batch_window_size:
+        data_interval_start = data_interval_end - dt.timedelta(**inputs.batch_window_size)
+    else:
+        if not inputs.data_interval_start:
+            raise ValueError("'data_interval_start' must be defined without 'batch_window_size'")
+
+        data_interval_start = dt.datetime.fromisoformat(inputs.data_interval_start)
 
     return (data_interval_start, data_interval_end)
