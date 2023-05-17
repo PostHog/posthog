@@ -29,7 +29,7 @@ export function NotebookListMini({
     const selectedTitle =
         selectedNotebookId === 'scratchpad'
             ? 'Scratchpad'
-            : notebooks.find((notebook) => notebook.id === selectedNotebookId)?.title
+            : notebooks.find((notebook) => notebook.id === selectedNotebookId)?.title || 'Untitled'
 
     const items: LemonMenuItems = [
         {

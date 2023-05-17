@@ -25,6 +25,7 @@ export const notebookLogic = kea<notebookLogicType>([
     key(({ id }) => id),
     connect({
         values: [notebooksListLogic, ['localNotebooks', 'scratchpadNotebook']],
+        actions: [notebooksListLogic, ['receiveNotebookUpdate']],
     }),
     actions({
         setEditorRef: (editor: Editor) => ({ editor }),
@@ -33,7 +34,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
         setReady: true,
         loadNotebook: true,
-        saveNotebookContent: (content: JSONContent) => ({ content }),
+        saveNotebook: (notebook: Partial<NotebookType>) => ({ notebook }),
     }),
     reducers({
         localContent: [
@@ -47,7 +48,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     }
                     return state
                 },
-                saveNotebookContentSuccess: (state, { notebook }) => {
+                saveNotebookSuccess: (state, { notebook }) => {
                     if (state === notebook?.content) {
                         return null
                     }
@@ -60,7 +61,7 @@ export const notebookLogic = kea<notebookLogicType>([
             { persist: true },
             {
                 loadNotebookSuccess: (_, { notebook }) => notebook.content,
-                saveNotebookContentSuccess: (_, { notebook }) => notebook?.content ?? null,
+                saveNotebookSuccess: (_, { notebook }) => notebook?.content ?? null,
             },
         ],
 
@@ -112,17 +113,15 @@ export const notebookLogic = kea<notebookLogicType>([
                     return response
                 },
 
-                saveNotebookContent: async ({ content }) => {
+                saveNotebook: async ({ notebook }) => {
                     if (!values.notebook) {
                         return
                     }
                     await delay(1000)
 
-                    console.log('saving notebook content!')
-
                     return {
                         ...values.notebook,
-                        content,
+                        ...notebook,
                     }
                 },
             },
@@ -134,6 +133,13 @@ export const notebookLogic = kea<notebookLogicType>([
             (notebook, localContent): JSONContent | undefined => {
                 // We use the local content is set otherwise the notebook content
                 return localContent || notebook?.content
+            },
+        ],
+        title: [
+            (s) => [s.notebook, s.content],
+            (notebook, content): string => {
+                const contentTitle = content?.content?.[0].content?.[0].text || 'Untitled'
+                return contentTitle || notebook?.title || 'Untitled'
             },
         ],
 
@@ -168,9 +174,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 .run()
         },
 
-        setLocalContent: async ({ jsonContent }, breakpoint) => {
+        setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
-            actions.saveNotebookContent(jsonContent)
+            actions.saveNotebook({
+                content: values.content,
+                title: values.title,
+            })
         },
 
         onEditorUpdate: () => {
@@ -183,6 +192,10 @@ export const notebookLogic = kea<notebookLogicType>([
             if (JSON.stringify(jsonContent) !== JSON.stringify(values.content)) {
                 actions.setLocalContent(jsonContent)
             }
+        },
+
+        saveNotebookSuccess: () => {
+            actions.receiveNotebookUpdate(values.notebook)
         },
     })),
 

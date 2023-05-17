@@ -29,6 +29,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
         createNotebook: (redirect = false) => ({ redirect }),
+        receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
     }),
 
     reducers({
@@ -45,7 +46,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
             { persist: true },
             {
                 createNotebookSuccess: (_, { notebooks }) => notebooks,
-                // deleteNotebook: (state, { id }) => state.filter((notebook) => notebook !== id),
+                receiveNotebookUpdateSuccess: (_, { notebooks }) => notebooks,
             },
         ],
     }),
@@ -54,7 +55,8 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
         notebooks: [
             [] as NotebookListItemType[],
             {
-                loadNotebooks: () => {
+                loadNotebooks: async () => {
+                    await delay(1000)
                     return values.localNotebooks
                 },
                 createNotebook: async ({ redirect }) => {
@@ -70,6 +72,10 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                     }
 
                     return [...values.localNotebooks, notebook]
+                },
+
+                receiveNotebookUpdate: ({ notebook }) => {
+                    return values.localNotebooks.map((n) => (n.id === notebook.id ? notebook : n))
                 },
             },
         ],
