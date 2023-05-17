@@ -18,7 +18,6 @@ ACTIVITIES: Sequence[Callable] = [
     drop_dictionary,
     insert_into_s3_activity,
     noop_activity,
-    prepare_dictionary,
     prepare_person_overrides,
     prepare_dictionary,
     select_persons_to_delete,
