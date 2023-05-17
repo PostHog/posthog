@@ -74,78 +74,6 @@ def test_build_s3_url(inputs, expected):
     assert result == expected
 
 
-@override_settings(TEST=False, DEBUG=False)
-@pytest.mark.asyncio
-async def test_insert_into_s3_activity(activity_environment):
-    """Test the insert_into_s3_activity part of the S3BatchExport workflow.
-
-    We mock calls to the ClickHouse client and assert the queries sent to it.
-    """
-    data_interval_start = "2023-04-20 14:00:00"
-    data_interval_end = "2023-04-20 15:00:00"
-    team_id = 2
-    file_format = "Parquet"
-
-    insert_inputs = S3InsertInputs(
-        bucket_name="my-test-bucket",
-        region="us-east-1",
-        key_template="posthog-{table_name}/{table_name}_{partition_id}.parquet",
-        team_id=team_id,
-        file_format=file_format,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-    )
-
-    expected_s3_url = "https://s3.us-east-1.amazonaws.com/my-test-bucket/posthog-events/events_{_partition_id}.parquet"
-
-    expected_fetch_row_query = """
-    SELECT count(*)
-    FROM events
-    WHERE
-        timestamp >= toDateTime({data_interval_start}, 'UTC')
-        AND timestamp < toDateTime({data_interval_end}, 'UTC')
-        AND team_id = {team_id}
-    """
-
-    # Excuse the whitespace magic. I have to make indentation match for the assert_awaited_once_with call to pass.
-    expected_execute_row_query = """
-    INSERT INTO FUNCTION s3({path},  {file_format})\n    \n    \n    SELECT *
-    FROM events
-    WHERE
-        timestamp >= toDateTime({data_interval_start}, 'UTC')
-        AND timestamp < toDateTime({data_interval_end}, 'UTC')
-        AND team_id = {team_id}
-    """
-    with (
-        mock.patch("aiochclient.ChClient.fetchrow") as fetch_row,
-        mock.patch("aiochclient.ChClient.execute") as execute,
-    ):
-        await activity_environment.run(insert_into_s3_activity, insert_inputs)
-
-        expected_data_interval_start = dt.datetime.fromisoformat(data_interval_start).strftime("%Y-%m-%d %H:%M:%S")
-        expected_data_interval_end = dt.datetime.fromisoformat(data_interval_end).strftime("%Y-%m-%d %H:%M:%S")
-        fetch_row.assert_awaited_once_with(
-            expected_fetch_row_query,
-            params={
-                "team_id": team_id,
-                "data_interval_start": expected_data_interval_start,
-                "data_interval_end": expected_data_interval_end,
-            },
-        )
-        execute.assert_awaited_once_with(
-            expected_execute_row_query,
-            params={
-                "aws_access_key_id": None,
-                "aws_secret_access_key": None,
-                "path": expected_s3_url,
-                "file_format": file_format,
-                "team_id": team_id,
-                "data_interval_start": expected_data_interval_start,
-                "data_interval_end": expected_data_interval_end,
-            },
-        )
-
-
 TEST_ROOT_BUCKET = "test-batch-exports"
 
 
@@ -181,7 +109,6 @@ def destination(team, s3_bucket):
             "bucket_name": s3_bucket.name,
             "region": "us-east-1",
             "key_template": f"{TEST_ROOT_BUCKET}/posthog-{{table_name}}/events.csv",
-            "batch_window_size": 3600,
             "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         },
@@ -191,6 +118,80 @@ def destination(team, s3_bucket):
     yield dest
 
     dest.delete()
+
+
+@override_settings(TEST=False, DEBUG=False)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_insert_into_s3_activity(s3_bucket, team, destination, activity_environment):
+    """Test the insert_into_s3_activity part of the S3BatchExport workflow.
+
+    We mock calls to the ClickHouse client and assert the queries sent to it.
+    """
+    data_interval_start = "2023-04-20 14:00:00"
+    data_interval_end = "2023-04-20 15:00:00"
+    team_id = team.id
+    file_format = "CSVWithNames"
+
+    insert_inputs = S3InsertInputs(
+        team_id=team_id,
+        destination_id=destination.id,
+        table_name="events",
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+    )
+
+    expected_s3_url = f"https://s3.us-east-1.amazonaws.com/posthog/test-batch-exports/posthog-events/events.csv"
+
+    expected_fetch_row_query = """
+    SELECT count(*)
+    FROM events
+    WHERE
+        timestamp >= toDateTime({data_interval_start}, 'UTC')
+        AND timestamp < toDateTime({data_interval_end}, 'UTC')
+        AND team_id = {team_id}
+    """
+
+    # Excuse the whitespace magic. I have to make indentation match for the assert_awaited_once_with call to pass.
+    expected_execute_row_query = """
+    INSERT INTO FUNCTION s3({path}, {aws_access_key_id}, {aws_secret_access_key}, {file_format})\n    \n    \n    SELECT *
+    FROM events
+    WHERE
+        timestamp >= toDateTime({data_interval_start}, 'UTC')
+        AND timestamp < toDateTime({data_interval_end}, 'UTC')
+        AND team_id = {team_id}
+    """
+
+    await sync_to_async(destination.refresh_from_db)()  # type: ignore
+
+    with (
+        mock.patch("aiochclient.ChClient.fetchrow") as fetch_row,
+        mock.patch("aiochclient.ChClient.execute") as execute,
+    ):
+        await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+        expected_data_interval_start = dt.datetime.fromisoformat(data_interval_start).strftime("%Y-%m-%d %H:%M:%S")
+        expected_data_interval_end = dt.datetime.fromisoformat(data_interval_end).strftime("%Y-%m-%d %H:%M:%S")
+        fetch_row.assert_awaited_once_with(
+            expected_fetch_row_query,
+            params={
+                "team_id": team_id,
+                "data_interval_start": expected_data_interval_start,
+                "data_interval_end": expected_data_interval_end,
+            },
+        )
+        execute.assert_awaited_once_with(
+            expected_execute_row_query,
+            params={
+                "aws_access_key_id": destination.config["aws_access_key_id"],
+                "aws_secret_access_key": destination.config["aws_secret_access_key"],
+                "path": expected_s3_url,
+                "file_format": file_format,
+                "team_id": team_id,
+                "data_interval_start": expected_data_interval_start,
+                "data_interval_end": expected_data_interval_end,
+            },
+        )
 
 
 @pytest.fixture
@@ -277,8 +278,10 @@ async def test_s3_export_workflow_with_minio_bucket(
     inputs = S3BatchExportInputs(
         team_id=batch_export.team.id,
         batch_export_id=str(batch_export.id),
+        destination_id=(batch_export.destination.id),
+        table_name="events",
+        batch_window_size={"seconds": 3600},
         data_interval_end=max_datetime.isoformat(),
-        **batch_export.destination.config,
     )
 
     async with Worker(
