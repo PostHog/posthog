@@ -727,7 +727,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             cache.openTime = performance.now()
 
-            // NOTE: RRweb can log _alot_ of warnings so we debounce the count otherwise we just end up making the performance worse
+            // NOTE: RRweb can log _alot_ of warnings, so we debounce the count otherwise we just end up making the performance worse
             let warningCount = 0
             cache.consoleWarnDebounceTimer = null
 

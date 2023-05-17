@@ -108,11 +108,6 @@ function RecordingAnnotation({
                     }}
                     onMouseEnter={() => setIsHovering(true)}
                     onMouseLeave={() => setIsHovering(false)}
-                    onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        setOpenModal(true)
-                    }}
                 >
                     {annotation.content}
                 </span>
