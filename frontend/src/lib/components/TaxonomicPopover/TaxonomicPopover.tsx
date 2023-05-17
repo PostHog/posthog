@@ -1,24 +1,18 @@
-import './TaxonomicPopover.scss'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { useEffect, useState } from 'react'
-import {
-    LemonButton,
-    LemonButtonProps,
-    LemonButtonWithDropdown,
-    LemonButtonWithDropdownProps,
-} from 'lib/lemon-ui/LemonButton'
-import { IconArrowDropDown, IconClose } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { IconClose } from 'lib/lemon-ui/icons'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
-    extends Omit<LemonButtonWithDropdownProps, 'dropdown' | 'value' | 'onChange' | 'placeholder'> {
+    extends Omit<LemonButtonProps, 'children' | 'onClick'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
 
     groupTypes?: TaxonomicFilterGroupType[]
     renderValue?: (value: ValueType) => JSX.Element | null
-    dataAttr?: string
     eventNames?: string[]
     placeholder?: React.ReactNode
     placeholderClass?: string
@@ -41,60 +35,12 @@ export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JS
     )
 }
 
-export function TaxonomicPopover({
+export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
     groupType,
     value,
     onChange,
     renderValue,
     groupTypes,
-    dataAttr,
-    eventNames = [],
-    placeholder = 'Please select',
-    fullWidth = true,
-    buttonProps,
-}: TaxonomicPopoverProps): JSX.Element {
-    const [visible, setVisible] = useState(false)
-
-    return (
-        <LemonButtonWithDropdown
-            data-attr={dataAttr}
-            status="stealth"
-            dropdown={{
-                onClickOutside: () => setVisible(false),
-                overlay: (
-                    <TaxonomicFilter
-                        groupType={groupType}
-                        value={value}
-                        onChange={({ type }, payload, item) => {
-                            onChange?.(payload, type, item)
-                            setVisible(false)
-                        }}
-                        taxonomicGroupTypes={groupTypes ?? [groupType]}
-                        eventNames={eventNames}
-                    />
-                ),
-                visible: visible,
-            }}
-            onClick={() => setVisible(!visible)}
-            fullWidth={fullWidth}
-            type={'secondary'}
-            {...buttonProps}
-        >
-            <span className="TaxonomicPopover__button__label truncate">
-                {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
-            </span>
-            <div className="grow" />
-        </LemonButtonWithDropdown>
-    )
-}
-
-export function LemonTaxonomicPopover<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
-    groupType,
-    value,
-    onChange,
-    renderValue,
-    groupTypes,
-    dataAttr,
     eventNames = [],
     placeholder = 'Please select',
     placeholderClass = 'text-muted',
@@ -107,6 +53,14 @@ export function LemonTaxonomicPopover<ValueType extends TaxonomicFilterValue = T
 
     const isClearButtonShown = allowClear && !!localValue
 
+    const internalButtonProps = buttonProps as LemonButtonProps
+    internalButtonProps.children = localValue ? (
+        <span>{renderValue?.(localValue) ?? localValue}</span>
+    ) : (
+        <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
+    )
+    internalButtonProps.onClick = () => setVisible(!visible)
+
     useEffect(() => {
         if (!buttonProps.loading) {
             setLocalValue(value || ('' as ValueType))
@@ -115,68 +69,45 @@ export function LemonTaxonomicPopover<ValueType extends TaxonomicFilterValue = T
 
     return (
         <div className="LemonButtonWithSideAction">
-            {/* TODO: This is nasty. We embed a button in the sideicon which should be a big no-no.
-            We should merge WithDropdown and WithSideaction as this is a common use case */}
-            <LemonButtonWithDropdown
-                className="TaxonomicPopover__button"
-                data-attr={dataAttr}
-                dropdown={{
-                    overlay: (
-                        <TaxonomicFilter
-                            groupType={groupType}
-                            value={value}
-                            onChange={({ type }, payload, item) => {
-                                onChange?.(payload as ValueType, type, item)
-                                setVisible(false)
-                            }}
-                            taxonomicGroupTypes={groupTypes ?? [groupType]}
-                            eventNames={eventNames}
-                            excludedProperties={excludedProperties}
-                        />
-                    ),
-                    sameWidth: false,
-                    actionable: true,
-                    visible,
-                    onClickOutside: () => {
-                        setVisible(false)
-                    },
-                }}
-                onClick={() => {
-                    setVisible(!visible)
-                }}
-                sideIcon={
-                    <div className="flex">
-                        {isClearButtonShown ? (
-                            <LemonButton
-                                className="side-buttons-row-button"
-                                type="tertiary"
-                                status="stealth"
-                                icon={<IconClose style={{ fontSize: 16 }} />}
-                                tooltip="Clear selection"
-                                noPadding
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    onChange?.('' as ValueType, groupType, null)
-                                    setLocalValue('' as ValueType)
-                                }}
-                            />
-                        ) : (
-                            <LemonButton
-                                className="side-buttons-row-button side-buttons-row-button-no-hover"
-                                type="tertiary"
-                                status="stealth"
-                                noPadding
-                                icon={<IconArrowDropDown />}
-                            />
-                        )}
-                    </div>
+            <LemonDropdown
+                overlay={
+                    <TaxonomicFilter
+                        groupType={groupType}
+                        value={value}
+                        onChange={({ type }, payload, item) => {
+                            onChange?.(payload as ValueType, type, item)
+                            setVisible(false)
+                        }}
+                        taxonomicGroupTypes={groupTypes ?? [groupType]}
+                        eventNames={eventNames}
+                        excludedProperties={excludedProperties}
+                    />
                 }
-                {...buttonProps}
+                sameWidth={false}
+                actionable
+                visible={visible}
+                onClickOutside={() => {
+                    setVisible(false)
+                }}
             >
-                {(localValue && (renderValue?.(localValue) ?? String(localValue))) || (
-                    <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
+                {isClearButtonShown ? (
+                    <LemonButtonWithSideAction
+                        sideAction={{
+                            icon: <IconClose />,
+                            tooltip: 'Clear selection',
+                            onClick: (e) => {
+                                e.stopPropagation()
+                                onChange?.('' as ValueType, groupType, null)
+                                setLocalValue('' as ValueType)
+                            },
+                            divider: false,
+                        }}
+                        {...internalButtonProps}
+                    />
+                ) : (
+                    <LemonButton {...internalButtonProps} />
                 )}
-            </LemonButtonWithDropdown>
+            </LemonDropdown>
         </div>
     )
 }

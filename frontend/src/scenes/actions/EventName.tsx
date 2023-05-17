@@ -1,5 +1,5 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { LemonTaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 interface LemonEventNamePropsWithoutAllEvents {
@@ -26,7 +26,7 @@ export function LemonEventName({
     allEventsOption,
 }: LemonEventNamePropsWithAllEvents | LemonEventNamePropsWithoutAllEvents): JSX.Element {
     return (
-        <LemonTaxonomicPopover
+        <TaxonomicPopover
             groupType={TaxonomicFilterGroupType.Events}
             onChange={onChange}
             disabled={disabled}
