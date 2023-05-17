@@ -29,8 +29,6 @@ class Annotation(models.Model):
     date_marker: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
 
-    # when scope is recording
-    # seconds into recording for the annotation
     recording_timestamp: models.FloatField = models.FloatField(null=True, blank=True)
     session_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
