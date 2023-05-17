@@ -2820,9 +2820,9 @@ export type PromptFlag = {
 }
 
 export type NotebookListItemType = {
-    id: string
+    // id: string
     short_id: string
-    title: string
+    title?: string
     created_at: string
     created_by: UserBasicType | null
     last_modified_at?: string

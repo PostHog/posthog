@@ -88,12 +88,11 @@ export const notebookLogic = kea<notebookLogicType>([
                     // TODO: Add a "revision" counter to handle updates for now
                     let found: NotebookListItemType | undefined
 
-                    await delay(1000)
-
                     if (props.id === 'scratchpad') {
                         found = values.scratchpadNotebook
                     } else {
-                        found = values.localNotebooks.find((x) => x.id === props.id || x.short_id === props.id)
+                        await delay(1000)
+                        found = values.localNotebooks.find((x) => x.short_id === props.id)
                     }
 
                     if (!found) {
@@ -194,8 +193,10 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
 
-        saveNotebookSuccess: () => {
-            actions.receiveNotebookUpdate(values.notebook)
+        saveNotebookSuccess: ({ notebook }) => {
+            if (notebook) {
+                actions.receiveNotebookUpdate(notebook)
+            }
         },
     })),
 

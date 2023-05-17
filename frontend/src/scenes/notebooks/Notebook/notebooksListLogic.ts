@@ -9,17 +9,14 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
-    id: 'scratchpad',
     short_id: 'scratchpad',
     title: 'Scratchpad',
     created_at: '',
     created_by: null,
 }
 
-const createLocalNotebook = (title: string): NotebookListItemType => ({
-    id: title,
-    short_id: title.toLowerCase().replace(/ /g, '-'),
-    title,
+const createLocalNotebook = (short_id: string): NotebookListItemType => ({
+    short_id,
     created_at: '',
     created_by: null,
 })
@@ -75,7 +72,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 },
 
                 receiveNotebookUpdate: ({ notebook }) => {
-                    return values.localNotebooks.map((n) => (n.id === notebook.id ? notebook : n))
+                    return values.localNotebooks.map((n) => (n.short_id === notebook.short_id ? notebook : n))
                 },
             },
         ],

@@ -58,7 +58,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                 <span className="flex items-center gap-1 text-primary-alt">
                                     <NotebookListMini
                                         selectedNotebookId={selectedNotebook}
-                                        onSelectNotebook={(notebook) => selectNotebook(notebook.id)}
+                                        onSelectNotebook={(notebook) => selectNotebook(notebook.short_id)}
                                         onNewNotebook={() => createNotebook()}
                                     />
                                 </span>

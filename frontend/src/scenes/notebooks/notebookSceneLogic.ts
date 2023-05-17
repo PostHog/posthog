@@ -47,17 +47,13 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     urlToAction(({ actions, values }) => ({
         '/notebooks/:notebookId(/:mode)': (
             { mode } // url params
-        ) =>
-            // { dashboard, ...searchParams }, // search params
-            // { filters: _filters, q }, // hash params
-            // { method, initial } // "location changed" event payload
-            {
-                const newMode = mode === 'edit' ? NotebookMode.Edit : NotebookMode.View
+        ) => {
+            const newMode = mode === 'edit' ? NotebookMode.Edit : NotebookMode.View
 
-                if (newMode !== values.mode) {
-                    actions.setNotebookMode(newMode)
-                }
-            },
+            if (newMode !== values.mode) {
+                actions.setNotebookMode(newMode)
+            }
+        },
     })),
     actionToUrl(({ values, props }) => {
         return {
@@ -66,25 +62,4 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
             },
         }
     }),
-    // beforeUnload(({ values }) => ({
-    //     enabled: () => {
-    //         const currentScene = sceneLogic.findMounted()?.values
-
-    //         // safeguard against running this check on other scenes
-    //         if (currentScene?.activeScene !== Scene.Insight) {
-    //             return false
-    //         }
-
-    //         return (
-    //             values.insightMode === ItemMode.Edit &&
-    //             (!!values.insightLogicRef?.logic.values.insightChanged ||
-    //                 !!values.insightDataLogicRef?.logic.values.queryChanged)
-    //         )
-    //     },
-    //     message: 'Leave insight? Changes you made will be discarded.',
-    //     onConfirm: () => {
-    //         values.insightLogicRef?.logic.actions.cancelChanges()
-    //         values.insightDataLogicRef?.logic.actions.cancelChanges()
-    //     },
-    // })),
 ])

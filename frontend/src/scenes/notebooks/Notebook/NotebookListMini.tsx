@@ -29,7 +29,7 @@ export function NotebookListMini({
     const selectedTitle =
         selectedNotebookId === 'scratchpad'
             ? 'Scratchpad'
-            : notebooks.find((notebook) => notebook.id === selectedNotebookId)?.title || 'Untitled'
+            : notebooks.find((notebook) => notebook.short_id === selectedNotebookId)?.title || 'Untitled'
 
     const items: LemonMenuItems = [
         {
@@ -43,7 +43,7 @@ export function NotebookListMini({
         {
             items: notebooks.length
                 ? notebooks.map((notebook) => ({
-                      label: notebook.title,
+                      label: notebook.title ?? notebook.short_id,
                       onClick: () => onSelectNotebook(notebook),
                   }))
                 : [

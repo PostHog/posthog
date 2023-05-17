@@ -19,6 +19,7 @@ import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import { sampleOne } from 'lib/utils'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { NotFound } from 'lib/components/NotFound'
 
 export type NotebookProps = {
     id: string | number
@@ -167,7 +168,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
                         <LemonSkeleton className="h-4" />
                     </div>
                 ) : !notebook ? (
-                    <p>Missing!</p>
+                    <NotFound object={'recording'} />
                 ) : !sourceMode ? (
                     <EditorContent editor={editor} className="flex flex-col flex-1 overflow-y-auto" />
                 ) : (
