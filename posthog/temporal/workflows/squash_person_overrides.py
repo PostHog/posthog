@@ -228,14 +228,8 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
 
     activity.logger.info("Preparing person_overrides table for squashing")
 
-    detach_query = "DETACH VIEW {database}.person_overrides_mv ON CLUSTER {cluster}".format(
-        database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER
-    )
-    optimize_query = (
-        "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL SETTINGS mutations_sync = 2".format(
-            database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER
-        )
-    )
+    detach_query = "DETACH VIEW {database}.person_overrides_mv ON CLUSTER {cluster}"
+    optimize_query = "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL SETTINGS mutations_sync = 2"
 
     if inputs.dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be detached or optimized.")
@@ -245,11 +239,11 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
 
     activity.logger.info("Detaching person_overrides_mv")
 
-    sync_execute(detach_query)
+    sync_execute(detach_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER))
 
     activity.logger.info("Optimizing person_overrides")
 
-    sync_execute(optimize_query)
+    sync_execute(optimize_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER))
 
 
 @activity.defn
@@ -259,16 +253,14 @@ async def re_attach_person_overrides(inputs: QueryInputs) -> None:
 
     activity.logger.info("Re-attaching person_overrides_mv")
 
-    attach_query = "ATTACH TABLE IF NOT EXISTS {database}.person_overrides_mv ON CLUSTER {cluster}".format(
-        database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER
-    )
+    attach_query = "ATTACH TABLE IF NOT EXISTS {database}.person_overrides_mv ON CLUSTER {cluster}"
 
     if inputs.dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be re-attached.")
         activity.logger.info("Would have run query: %s", attach_query)
         return
 
-    sync_execute(attach_query)
+    sync_execute(attach_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER))
 
 
 @activity.defn
@@ -410,11 +402,7 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
     """
     from django.conf import settings
 
-    query = SQUASH_EVENTS_QUERY.format(
-        database=settings.CLICKHOUSE_DATABASE,
-        dictionary_name=inputs.dictionary_name,
-        team_id_filter="AND team_id in %(team_ids)s" if inputs.team_ids else "",
-    )
+    query = SQUASH_EVENTS_QUERY
 
     latest_merged_at = inputs.latest_merged_at.timestamp() if inputs.latest_merged_at else inputs.latest_merged_at
 
@@ -432,10 +420,17 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
 
         if inputs.dry_run is True:
             activity.logger.info("This is a DRY RUN so nothing will be squashed.")
-            activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
+            activity.logger.info("Would have run query: %s", query)
             continue
 
-        sync_execute(query, parameters)
+        sync_execute(
+            query.format(
+                database=settings.CLICKHOUSE_DATABASE,
+                dictionary_name=inputs.dictionary_name,
+                team_id_filter="AND team_id in %(team_ids)s" if inputs.team_ids else "",
+            ),
+            parameters,
+        )
 
 
 @activity.defn
@@ -448,7 +443,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
     old_person_ids_to_delete = tuple(person.old_person_id for person in inputs.iter_person_overides_to_delete())
     activity.logger.debug("%s", old_person_ids_to_delete)
 
-    query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=settings.CLICKHOUSE_DATABASE)
+    query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY
     latest_merged_at = inputs.latest_merged_at.timestamp() if inputs.latest_merged_at else inputs.latest_merged_at
     parameters = {
         "old_person_ids": old_person_ids_to_delete,
@@ -460,10 +455,10 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
 
     if inputs.dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-        activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
+        activity.logger.info("Would have run query: %s", query)
         return
 
-    sync_execute(query, parameters)
+    sync_execute(query.format(database=settings.CLICKHOUSE_DATABASE), parameters)
 
 
 @activity.defn
@@ -524,9 +519,7 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
 
                 if inputs.dry_run is True:
                     activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-                    activity.logger.info(
-                        "Would have run query: %s with parameters %s", DELETE_FROM_PERSON_OVERRIDES, parameters
-                    )
+                    activity.logger.info("Would have run query: %s", DELETE_FROM_PERSON_OVERRIDES)
                     continue
 
                 cursor.execute(DELETE_FROM_PERSON_OVERRIDES, parameters)
