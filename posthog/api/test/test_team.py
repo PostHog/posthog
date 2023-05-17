@@ -44,7 +44,8 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
         self.assertEqual(response_data["has_group_types"], False)
         self.assertEqual(
-            response_data["person_on_events_querying_enabled"], get_instance_setting("PERSON_ON_EVENTS_ENABLED")
+            response_data["person_on_events_querying_enabled"],
+            get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"),
         )
         self.assertEqual(
             response_data["groups_on_events_querying_enabled"], get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
