@@ -21,10 +21,9 @@ import { Gauge } from 'prom-client'
 
 import { status } from '../../../../utils/status'
 
-export const gaugeOffsetCommitAttempted = new Gauge({
-    name: 'offset_manager_offset_commit_attempted',
-    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed. This may result in that offset being committed',
-    labelNames: ['committed'],
+export const gaugeOffsetCommitted = new Gauge({
+    name: 'offset_manager_offset_committed',
+    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed.',
 })
 
 export const gaugeOffsetRemovalImpossible = new Gauge({
@@ -152,7 +151,9 @@ export class OffsetManager {
             }`,
             logContext
         )
-        gaugeOffsetCommitAttempted.labels({ committed: offsetToCommit !== undefined ? 'true' : 'false' }).inc()
+        if (offsetToCommit !== undefined) {
+            gaugeOffsetCommitted.inc()
+        }
 
         return offsetToCommit
     }
