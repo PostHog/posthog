@@ -420,7 +420,7 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
 
         if inputs.dry_run is True:
             activity.logger.info("This is a DRY RUN so nothing will be squashed.")
-            activity.logger.info("Would have run query: %s", query)
+            activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
             continue
 
         sync_execute(
@@ -455,7 +455,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
 
     if inputs.dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-        activity.logger.info("Would have run query: %s", query)
+        activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
         return
 
     sync_execute(query.format(database=settings.CLICKHOUSE_DATABASE), parameters)
@@ -519,7 +519,9 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
 
                 if inputs.dry_run is True:
                     activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-                    activity.logger.info("Would have run query: %s", DELETE_FROM_PERSON_OVERRIDES)
+                    activity.logger.info(
+                        "Would have run query: %s with parameters %s", DELETE_FROM_PERSON_OVERRIDES, parameters
+                    )
                     continue
 
                 cursor.execute(DELETE_FROM_PERSON_OVERRIDES, parameters)
