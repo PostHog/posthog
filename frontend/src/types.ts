@@ -646,6 +646,7 @@ export enum SessionRecordingPlayerTab {
 }
 
 export enum SessionPlayerState {
+    READY = 'ready',
     BUFFER = 'buffer',
     PLAY = 'play',
     PAUSE = 'pause',
@@ -653,6 +654,8 @@ export enum SessionPlayerState {
     SKIP = 'skip',
     ERROR = 'error',
 }
+
+export type AutoplayDirection = 'newer' | 'older' | null
 
 /** Sync with plugin-server/src/types.ts */
 export type ActionStepProperties =
@@ -1444,8 +1447,8 @@ export enum AnnotationScope {
 export interface RawAnnotationType {
     id: number
     scope: AnnotationScope
-    content: string
-    date_marker: string
+    content: string | null
+    date_marker: string | null
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
@@ -1457,6 +1460,10 @@ export interface RawAnnotationType {
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+    date_marker: dayjs.Dayjs | null
+}
+
+export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
     date_marker: dayjs.Dayjs
 }
 

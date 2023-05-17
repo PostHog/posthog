@@ -186,7 +186,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["tiles"][0]["insight"]["result"][0]["count"], 0)
 
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
         with mute_selected_signals():

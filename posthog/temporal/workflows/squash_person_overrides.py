@@ -7,7 +7,6 @@ from typing import AsyncIterator, Iterable, NamedTuple
 from uuid import UUID
 
 import psycopg2
-from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -163,10 +162,61 @@ class SerializablePersonOverrideToDelete(NamedTuple):
 
 
 @dataclass
+class ClickHouseConnectionInputs:
+    """A dataclass of inputs required to connect to ClickHouse."""
+
+    host: str
+    password: str
+    database: str = "default"
+    username: str = "default"
+    port: int = 9000
+    cluster: str = ""
+
+    @classmethod
+    def from_posthog_settings(cls, settings) -> "ClickHouseConnectionInputs":
+        """Initialize from PostHog settings module."""
+        return cls(
+            host=settings.CLICKHOUSE_HOST,
+            password=settings.CLICKHOUSE_PASSWORD,
+            database=settings.CLICKHOUSE_DATABASE,
+            username=settings.CLICKHOUSE_USER,
+            cluster=settings.CLICKHOUSE_CLUSTER,
+        )
+
+
+@dataclass
+class PostgresConnectionInputs:
+    """A dataclass of inputs required to connect to Postgres."""
+
+    host: str
+    password: str
+    database: str = "posthog"
+    username: str = "posthog"
+    port: int = 5432
+
+    @classmethod
+    def from_posthog_settings(cls, settings) -> "PostgresConnectionInputs":
+        """Initialize from PostHog settings module."""
+        return cls(
+            host=settings.DATABASES["default"]["HOST"],
+            password=settings.DATABASES["default"]["PASSWORD"],
+            database=settings.DATABASES["default"]["NAME"],
+            username=settings.DATABASES["default"]["USER"],
+            port=int(settings.DATABASES["default"]["PORT"]),
+        )
+
+    @property
+    def database_url(self) -> str:
+        return f"postgres://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+
+
+@dataclass
 class QueryInputs:
     """Inputs for activities that run queries in the SquashPersonOverrides workflow.
 
     Attributes:
+        clickhouse: Inputs required to connect to ClickHouse.
+        postgres: Inputs required to connect to Postgres.
         partition_ids: When necessary, the partition ids this query should run on.
         person_overrides_to_delete: For delete queries, a list of PersonOverrideToDelete.
         database: The database where the query is supposed to run.
@@ -177,18 +227,16 @@ class QueryInputs:
             as the latest timestamp of a person merge.
     """
 
+    clickhouse: ClickHouseConnectionInputs
+    postgres: PostgresConnectionInputs
     partition_ids: list[str] = field(default_factory=list)
     team_ids: list[int] = field(default_factory=list)
     person_overrides_to_delete: list[SerializablePersonOverrideToDelete] = field(default_factory=list)
-    database: str = "default"
-    user: str = ""
-    password: str = ""
-    cluster_name: str = ""
     dictionary_name: str = "person_overrides_join_dict"
     dry_run: bool = True
     _latest_merged_at: str | datetime | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if isinstance(self._latest_merged_at, datetime):
             self.latest_merged_at = self._latest_merged_at
 
@@ -199,7 +247,7 @@ class QueryInputs:
         return self._latest_merged_at
 
     @latest_merged_at.setter
-    def latest_merged_at(self, v: datetime | str | None):
+    def latest_merged_at(self, v: datetime | str | None) -> None:
         if isinstance(v, datetime):
             self._latest_merged_at = v.isoformat()
         else:
@@ -227,14 +275,14 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
     The activity re_attach_person_overrides should always be executed after the squash is done to clean
     up what we do here.
     """
-    activity.logger.info("Detaching %s.person_overrides_mv", inputs.database)
+    activity.logger.info("Preparing %s.person_overrides table for squashing", inputs.clickhouse.database)
 
     detach_query = "DETACH VIEW {database}.person_overrides_mv ON CLUSTER {cluster}".format(
-        database=inputs.database, cluster=inputs.cluster_name
+        database=inputs.clickhouse.database, cluster=inputs.clickhouse.cluster
     )
     optimize_query = (
         "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL SETTINGS mutations_sync = 2".format(
-            database=inputs.database, cluster=inputs.cluster_name
+            database=inputs.clickhouse.database, cluster=inputs.clickhouse.cluster
         )
     )
 
@@ -244,9 +292,11 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
         activity.logger.info("Would have run query: %s", optimize_query)
         return
 
+    activity.logger.info("Detaching %s.person_overrides_mv", inputs.clickhouse.database)
+
     sync_execute(detach_query)
 
-    activity.logger.info("Optimizing %s.person_overrides", inputs.database)
+    activity.logger.info("Optimizing %s.person_overrides", inputs.clickhouse.database)
 
     sync_execute(optimize_query)
 
@@ -254,10 +304,10 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
 @activity.defn
 async def re_attach_person_overrides(inputs: QueryInputs) -> None:
     """Re-attach the person_overrides mat view after it was used in a squash."""
-    activity.logger.info("Re-attaching %s.person_overrides_mv", inputs.database)
+    activity.logger.info("Re-attaching %s.person_overrides_mv", inputs.clickhouse.database)
 
     attach_query = "ATTACH TABLE {database}.person_overrides_mv ON CLUSTER {cluster}".format(
-        database=inputs.database, cluster=inputs.cluster_name
+        database=inputs.clickhouse.database, cluster=inputs.clickhouse.cluster
     )
 
     if inputs.dry_run is True:
@@ -275,17 +325,17 @@ async def prepare_dictionary(inputs: QueryInputs) -> str:
     We also lock in the latest merged_at to ensure we do not process overrides that arrive after
     we have started the job.
     """
-    activity.logger.info("Preparing DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
-    latest_merged_at = sync_execute(SELECT_LATEST_MERGED_AT_QUERY.format(database=inputs.database))[0][0]
+    activity.logger.info("Preparing DICTIONARY %s.%s", inputs.clickhouse.database, inputs.dictionary_name)
+    latest_merged_at = sync_execute(SELECT_LATEST_MERGED_AT_QUERY.format(database=inputs.clickhouse.database))[0][0]
 
-    activity.logger.info("Creating DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
+    activity.logger.info("Creating DICTIONARY %s.%s", inputs.clickhouse.database, inputs.dictionary_name)
     sync_execute(
         CREATE_DICTIONARY_QUERY.format(
-            database=inputs.database,
+            database=inputs.clickhouse.database,
             dictionary_name=inputs.dictionary_name,
-            user=inputs.user,
-            password=inputs.password,
-            cluster_name=inputs.cluster_name,
+            user=inputs.clickhouse.username,
+            password=inputs.clickhouse.password,
+            cluster_name=inputs.clickhouse.cluster,
         )
     )
 
@@ -295,8 +345,10 @@ async def prepare_dictionary(inputs: QueryInputs) -> str:
 @activity.defn
 async def drop_dictionary(inputs: QueryInputs) -> None:
     """DROP the DICTIONARY used in the squash workflow."""
-    activity.logger.info("Dropping DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
-    sync_execute(DROP_DICTIONARY_QUERY.format(database=inputs.database, dictionary_name=inputs.dictionary_name))
+    activity.logger.info("Dropping DICTIONARY %s.%s", inputs.clickhouse.database, inputs.dictionary_name)
+    sync_execute(
+        DROP_DICTIONARY_QUERY.format(database=inputs.clickhouse.database, dictionary_name=inputs.dictionary_name)
+    )
 
 
 @activity.defn
@@ -317,7 +369,7 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePers
     """
     latest_merged_at = inputs.latest_merged_at.timestamp() if inputs.latest_merged_at else inputs.latest_merged_at
     to_delete_rows = sync_execute(
-        SELECT_PERSONS_TO_DELETE_QUERY.format(database=inputs.database),
+        SELECT_PERSONS_TO_DELETE_QUERY.format(database=inputs.clickhouse.database),
         # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
         # This would cause the latest merge event to be ignored.
         # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
@@ -340,7 +392,7 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePers
 
         try:
             absolute_oldest_event_at = sync_execute(
-                SELECT_CREATED_AT_FOR_PERSON_EVENT_QUERY.format(database=inputs.database),
+                SELECT_CREATED_AT_FOR_PERSON_EVENT_QUERY.format(database=inputs.clickhouse.database),
                 {
                     "team_id": person_to_delete.team_id,
                     "old_person_id": person_to_delete.old_person_id,
@@ -398,7 +450,7 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
     4. Clean up the DICTIONARY once done.
     """
     query = SQUASH_EVENTS_QUERY.format(
-        database=inputs.database,
+        database=inputs.clickhouse.database,
         dictionary_name=inputs.dictionary_name,
         team_id_filter="AND team_id in %(team_ids)s" if inputs.team_ids else "",
     )
@@ -433,7 +485,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
     old_person_ids_to_delete = tuple(person.old_person_id for person in inputs.iter_person_overides_to_delete())
     activity.logger.debug("%s", old_person_ids_to_delete)
 
-    query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=inputs.database)
+    query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=inputs.clickhouse.database)
     latest_merged_at = inputs.latest_merged_at.timestamp() if inputs.latest_merged_at else inputs.latest_merged_at
     parameters = {
         "old_person_ids": old_person_ids_to_delete,
@@ -460,9 +512,7 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
     """
     activity.logger.info("Deleting squashed persons from Postgres")
 
-    database_url = settings.DATABASE_URL
-
-    with psycopg2.connect(database_url) as connection:
+    with psycopg2.connect(inputs.postgres.database_url) as connection:
         with connection.cursor() as cursor:
             for person_override_to_delete in inputs.iter_person_overides_to_delete():
                 activity.logger.debug("%s", person_override_to_delete)
@@ -590,8 +640,6 @@ class SquashPersonOverridesInputs:
         dry_run: If True, queries that mutate or delete data will not execute and instead will be logged.
     """
 
-    clickhouse_database: str = "default"
-    postgres_database: str = "posthog"
     team_ids: list[int] = field(default_factory=list)
     partition_ids: list[str] | None = None
     dictionary_name: str = "person_overrides_join_dict"
@@ -708,16 +756,16 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SquashPersonOverridesInputs):
         """Workflow implementation to squash person overrides into events table."""
+        from django.conf import settings
+
         workflow.logger.info("Starting squash workflow")
         workflow.logger.debug("%s", json.dumps(asdict(inputs)))
 
         retry_policy = RetryPolicy(maximum_attempts=3)
         query_inputs = QueryInputs(
-            database=inputs.clickhouse_database,
+            clickhouse=ClickHouseConnectionInputs.from_posthog_settings(settings),
+            postgres=PostgresConnectionInputs.from_posthog_settings(settings),
             dictionary_name=inputs.dictionary_name,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            cluster_name=settings.CLICKHOUSE_CLUSTER,
             team_ids=inputs.team_ids,
             dry_run=inputs.dry_run,
         )
@@ -727,14 +775,12 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             query_inputs,
             retry_policy=retry_policy,
         ) as latest_merged_at:
+            query_inputs._latest_merged_at = latest_merged_at
+            query_inputs.partition_ids = list(inputs.iter_partition_ids())
+
             persons_to_delete = await workflow.execute_activity(
                 select_persons_to_delete,
-                QueryInputs(
-                    partition_ids=list(inputs.iter_partition_ids()),
-                    database=inputs.clickhouse_database,
-                    _latest_merged_at=latest_merged_at,
-                    dry_run=inputs.dry_run,
-                ),
+                query_inputs,
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=retry_policy,
             )
@@ -743,16 +789,11 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
                 workflow.logger.info("No overrides to delete were found, workflow done")
                 return
 
+            query_inputs.person_overrides_to_delete = persons_to_delete
+
             await workflow.execute_activity(
                 squash_events_partition,
-                QueryInputs(
-                    partition_ids=list(inputs.iter_partition_ids()),
-                    database=inputs.clickhouse_database,
-                    team_ids=inputs.team_ids,
-                    dictionary_name=inputs.dictionary_name,
-                    _latest_merged_at=latest_merged_at,
-                    dry_run=inputs.dry_run,
-                ),
+                query_inputs,
                 start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=retry_policy,
             )
@@ -761,23 +802,14 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
 
             await workflow.execute_activity(
                 delete_squashed_person_overrides_from_clickhouse,
-                QueryInputs(
-                    person_overrides_to_delete=persons_to_delete,
-                    database=inputs.clickhouse_database,
-                    _latest_merged_at=latest_merged_at,
-                    dry_run=inputs.dry_run,
-                ),
+                query_inputs,
                 start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=retry_policy,
             )
 
             await workflow.execute_activity(
                 delete_squashed_person_overrides_from_postgres,
-                QueryInputs(
-                    person_overrides_to_delete=persons_to_delete,
-                    database=inputs.postgres_database,
-                    dry_run=inputs.dry_run,
-                ),
+                query_inputs,
                 start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=retry_policy,
             )

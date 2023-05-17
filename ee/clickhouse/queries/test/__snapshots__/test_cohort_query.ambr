@@ -32,6 +32,11 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
@@ -99,6 +104,11 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))) person ON person.person_id = funnel_query.person_id
@@ -136,6 +146,11 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))))) person ON person.person_id = behavior_query.person_id
@@ -319,6 +334,11 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))))) person ON person.person_id = funnel_query.person_id
@@ -436,6 +456,11 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
@@ -452,6 +477,14 @@
   SELECT id
   FROM person
   WHERE team_id = 2
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))
+               OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))
+              OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))
+                  AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))
@@ -486,6 +519,12 @@
   SELECT id
   FROM person
   WHERE team_id = 2
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))
+              OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))
