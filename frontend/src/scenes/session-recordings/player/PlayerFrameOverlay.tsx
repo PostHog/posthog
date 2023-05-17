@@ -3,13 +3,16 @@ import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingType } from '~/types'
+import { RawAnnotationType, SessionPlayerState, SessionRecordingType } from '~/types'
 import { IconErrorOutline, IconPlay } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PlayerFrameOverlay.scss'
 import { PlayerUpNext } from './PlayerUpNext'
 import { useState } from 'react'
 import { sessionRecordingAnnotationLogic } from 'scenes/session-recordings/player/sessionRecordingAnnotationsLogic'
+import clsx from 'clsx'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export interface PlayerFrameOverlayProps extends SessionRecordingPlayerLogicProps {
     nextSessionRecording?: Partial<SessionRecordingType>
@@ -64,6 +67,60 @@ const PlayerFrameOverlayContent = ({
     return content ? <div className="PlayerFrameOverlay__content">{content}</div> : null
 }
 
+function RecordingAnnotation({
+    annotation,
+    durationMs,
+}: {
+    annotation: RawAnnotationType
+    durationMs: number
+}): JSX.Element | null {
+    const [isHovering, setIsHovering] = useState(false)
+
+    if (annotation.recording_timestamp === null || annotation.recording_timestamp === undefined) {
+        return null
+    }
+    const left = (annotation.recording_timestamp / durationMs) * 100
+    return (
+        <>
+            <Tooltip
+                title={
+                    <div className={'flex flex-row items-center space-x-1'}>
+                        <ProfilePicture
+                            name={annotation.created_by?.first_name}
+                            email={annotation.created_by?.email}
+                            size="md"
+                            showName
+                        />
+                        <span> reacted with {annotation.content}</span>
+                    </div>
+                }
+                placement="top"
+                delayMs={0}
+            >
+                <span
+                    className={clsx(
+                        'absolute RecordingAnnotation rounded p-1 cursor-pointer',
+                        isHovering && 'RecordingAnnotation__hover'
+                    )}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        left: `${left}%`,
+                    }}
+                    onMouseEnter={() => setIsHovering(true)}
+                    onMouseLeave={() => setIsHovering(false)}
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setOpenModal(true)
+                    }}
+                >
+                    {annotation.content}
+                </span>
+            </Tooltip>
+        </>
+    )
+}
+
 export function PlayerFrameOverlay(): JSX.Element {
     const { currentPlayerState, logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
@@ -82,29 +139,14 @@ export function PlayerFrameOverlay(): JSX.Element {
             onMouseOut={() => setInterrupted(false)}
         >
             <PlayerFrameOverlayContent currentPlayerState={currentPlayerState} />
-            <PlayerUpNext interrupted={interrupted} clearInterrupted={() => setInterrupted(false)} />
             {annotations ? (
                 <div className={'h-4 w-full absolute text-xl'} style={{ bottom: '8px' }}>
-                    {annotations.map((a, i) => {
-                        if (a.recording_timestamp === null || a.recording_timestamp === undefined) {
-                            return null
-                        }
-                        const left = (a.recording_timestamp / sessionPlayerData.durationMs) * 100
-                        return (
-                            // eslint-disable-next-line react/forbid-dom-props
-                            <span
-                                key={i}
-                                className={'absolute RecordingAnnotation rounded p-1'}
-                                style={{
-                                    left: `${left}%`,
-                                }}
-                            >
-                                {a.content}
-                            </span>
-                        )
-                    })}
+                    {annotations.map((a, i) => (
+                        <RecordingAnnotation annotation={a} durationMs={sessionPlayerData.durationMs} key={i} />
+                    ))}
                 </div>
             ) : null}
+            <PlayerUpNext interrupted={interrupted} clearInterrupted={() => setInterrupted(false)} />
         </div>
     )
 }

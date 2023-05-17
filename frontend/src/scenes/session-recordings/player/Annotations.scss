@@ -1,4 +1,9 @@
 .RecordingAnnotation {
     background-color: var(--light);
     padding: 1px;
+    z-index: 2; // so it's higher than PlayerFrameOverlay__content
+
+    &__hover {
+        background-color: var(--mid);
+    }
 }

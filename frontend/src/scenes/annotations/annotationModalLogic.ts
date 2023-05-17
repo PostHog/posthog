@@ -9,13 +9,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
-export const annotationScopeToName: Record<AnnotationScope, string> = {
+export const annotationScopeToName: Record<Exclude<AnnotationScope, AnnotationScope.Recording>, string> = {
     [AnnotationScope.Insight]: 'Insight',
     [AnnotationScope.Project]: 'Project',
     [AnnotationScope.Organization]: 'Organization',
 }
 
-export const annotationScopeToLevel: Record<AnnotationScope, number> = {
+export const annotationScopeToLevel: Record<Exclude<AnnotationScope, AnnotationScope.Recording>, number> = {
     [AnnotationScope.Insight]: 0,
     [AnnotationScope.Project]: 1,
     [AnnotationScope.Organization]: 2,
