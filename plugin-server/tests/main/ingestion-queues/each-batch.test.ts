@@ -219,13 +219,8 @@ describe('eachBatchX', () => {
 
             await eachBatchIngestion(batch, queue)
 
-            // Check the breakpoints in the batches matching repeating teamId:distinctId
-            expect(batch.resolveOffset).toBeCalledTimes(6)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(1)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(2)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(7)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(9)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(12)
+            // Offset is commited once per batch only
+            expect(batch.resolveOffset).toBeCalledTimes(1)
             expect(batch.resolveOffset).toHaveBeenCalledWith(13)
 
             expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith(
