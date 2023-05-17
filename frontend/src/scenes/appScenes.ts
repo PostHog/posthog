@@ -12,6 +12,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/events/EventDefinitionsTable'),
     [Scene.Events]: () => import('./events/Events'),
+    [Scene.Exports]: () => import('./exports/ExportsList'),
     [Scene.Actions]: () => import('./actions/ActionsTable'),
     [Scene.EventDefinitions]: () => import('./data-management/events/EventDefinitionsTable'),
     [Scene.EventDefinition]: () => import('./data-management/definition/DefinitionView'),

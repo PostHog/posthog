@@ -51,6 +51,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Live Events',
     },
+    [Scene.Exports]: {
+        projectBased: true,
+        name: 'Exports',
+    },
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data Management',
@@ -316,6 +320,7 @@ export const routes: Record<string, Scene> = {
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
+    [urls.exports()]: Scene.Exports,
     [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,
