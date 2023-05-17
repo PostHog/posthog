@@ -137,7 +137,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <Field
                             name="feature_flag_id"
                             label="Link feature flag (optional)"
-                            info={<>A feature flag will be generated from feature name by default</>}
+                            info={<>A feature flag will be generated from feature name if not provided</>}
                         >
                             {({ value, onChange }) => (
                                 <div>

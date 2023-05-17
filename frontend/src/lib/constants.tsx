@@ -142,6 +142,7 @@ export const FEATURE_FLAGS = {
     HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
+    EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
     ARUBUG: 'arubug', // owner: #team-arubug
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith
