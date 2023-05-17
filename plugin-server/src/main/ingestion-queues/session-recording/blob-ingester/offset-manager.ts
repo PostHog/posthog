@@ -60,8 +60,10 @@ export class OffsetManager {
             this.offsetsByPartitionTopic.set(key, [])
         }
 
-        // TODO: We should parseInt when we handle the message
-        this.offsetsByPartitionTopic.get(key)?.push(offset)
+        const current = this.offsetsByPartitionTopic.get(key) || []
+        current.push(offset)
+        current.sort((a, b) => a - b)
+        this.offsetsByPartitionTopic.set(key, current)
     }
 
     /**

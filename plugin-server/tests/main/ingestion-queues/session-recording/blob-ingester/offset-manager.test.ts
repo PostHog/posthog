@@ -18,16 +18,21 @@ describe('offset-manager', () => {
     it('collects new offsets', () => {
         offsetManager.addOffset(TOPIC, 1, 1)
         offsetManager.addOffset(TOPIC, 2, 1)
-        offsetManager.addOffset(TOPIC, 3, 4)
         offsetManager.addOffset(TOPIC, 1, 2)
+        offsetManager.addOffset(TOPIC, 3, 4)
         offsetManager.addOffset(TOPIC, 1, 5)
         offsetManager.addOffset(TOPIC, 3, 4)
+        // even if the offsets arrive out of order
+        offsetManager.addOffset(TOPIC, 3, 7)
+        offsetManager.addOffset(TOPIC, 3, 6)
+        offsetManager.addOffset(TOPIC, 3, 8)
+        offsetManager.addOffset(TOPIC, 3, 0)
 
         expect(offsetManager.offsetsByPartitionTopic).toEqual(
             new Map([
                 ['test-session-recordings-1', [1, 2, 5]],
                 ['test-session-recordings-2', [1]],
-                ['test-session-recordings-3', [4, 4]],
+                ['test-session-recordings-3', [0, 4, 4, 6, 7, 8]],
             ])
         )
     })
