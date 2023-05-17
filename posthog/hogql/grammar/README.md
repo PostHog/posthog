@@ -42,6 +42,7 @@ antlr -visitor -Dlanguage=Python3 HogQLParser.g4
 Original ClickHouse ANTLR grammar from: https://github.com/ClickHouse/ClickHouse/blob/master/utils/antlr/ClickHouseParser.g4
 
 Changes with ClickHouse's grammar:
-- removed all statements except for "select"
-- raises an error if you run some ClickHouse SQL query features that are not implemented yet (ever changing list, check the code)
-- supports placeholders like "team_id = {val1}"
+
+-   removed all statements except for "select"
+-   raises an error if you run some ClickHouse SQL query features that are not implemented yet (ever changing list, check the code)
+-   supports placeholders like "team_id = {val1}"
