@@ -32,6 +32,12 @@ export const gaugeIngestionLag = new Gauge({
     help: 'A gauge of the number of milliseconds behind now for the timestamp of the latest message',
 })
 
+export const gaugePartitionOffsets = new Gauge({
+    name: 'recording_blob_ingestion_partition_offsets',
+    help: 'A gauge of the first and last offset in each batch of messages for each partition',
+    labelNames: ['partition'],
+})
+
 export const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
     help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
@@ -233,6 +239,8 @@ export class SessionRecordingBlobIngester {
             if (!isSorted) {
                 status.error('⚠️', 'blob_ingestion_consumer - offsets not sorted', { partition, offsets })
             }
+            gaugePartitionOffsets.labels(partition).set(offsets[0])
+            gaugePartitionOffsets.labels(partition).set(offsets[offsets.length - 1])
         }
         gaugeIngestionLag.set(DateTime.now().toMillis() - highestTimestamp)
     }
