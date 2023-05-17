@@ -1275,7 +1275,15 @@ export class DB {
         })
 
         try {
-            await this.kafkaProducer.queueSingleJsonMessage(KAFKA_PLUGIN_LOG_ENTRIES, parsedEntry.id, parsedEntry)
+            await this.kafkaProducer.queueSingleJsonMessage(
+                KAFKA_PLUGIN_LOG_ENTRIES,
+                parsedEntry.id,
+                parsedEntry,
+                // For logs, we relax our durability requirements a little and
+                // do not wait for acks that Kafka has persisted the message to
+                // disk.
+                false
+            )
         } catch (e) {
             captureException(e)
             console.error('Failed to produce message', e, parsedEntry)

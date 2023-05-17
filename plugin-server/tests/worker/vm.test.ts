@@ -691,17 +691,22 @@ describe('vm tests', () => {
         await vm.methods.processEvent!(event)
 
         expect(queueSingleJsonMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith(KAFKA_PLUGIN_LOG_ENTRIES, expect.any(String), {
-            id: expect.any(String),
-            instance_id: hub.instanceId.toString(),
-            message: 'logged event',
-            plugin_config_id: pluginConfig39.id,
-            plugin_id: pluginConfig39.plugin_id,
-            source: PluginLogEntrySource.Console,
-            team_id: pluginConfig39.team_id,
-            timestamp: expect.any(String),
-            type: PluginLogEntryType.Log,
-        })
+        expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith(
+            KAFKA_PLUGIN_LOG_ENTRIES,
+            expect.any(String),
+            {
+                id: expect.any(String),
+                instance_id: hub.instanceId.toString(),
+                message: 'logged event',
+                plugin_config_id: pluginConfig39.id,
+                plugin_id: pluginConfig39.plugin_id,
+                source: PluginLogEntrySource.Console,
+                team_id: pluginConfig39.team_id,
+                timestamp: expect.any(String),
+                type: PluginLogEntryType.Log,
+            },
+            false
+        )
     })
 
     test('fetch', async () => {
