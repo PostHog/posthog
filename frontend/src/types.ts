@@ -2837,3 +2837,5 @@ export enum NotebookMode {
     View = 'view',
     Edit = 'edit',
 }
+
+export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'

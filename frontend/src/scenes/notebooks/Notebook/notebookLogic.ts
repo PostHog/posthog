@@ -5,7 +5,7 @@ import type { notebookLogicType } from './notebookLogicType'
 import { JSONContent } from '@tiptap/core'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic } from './notebooksListLogic'
-import { NotebookListItemType, NotebookType } from '~/types'
+import { NotebookListItemType, NotebookSyncStatus, NotebookType } from '~/types'
 import { delay } from 'lib/utils'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we jusz use Any
@@ -127,6 +127,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     selectors({
+        isLocalOnly: [() => [(_, props) => props], (props): boolean => props.id === 'scratchpad'],
         content: [
             (s) => [s.notebook, s.localContent],
             (notebook, localContent): JSONContent | undefined => {
@@ -143,8 +144,11 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         syncStatus: [
-            (s) => [s.notebook, s.notebookLoading, s.localContent],
-            (notebook, notebookLoading, localContent): 'synced' | 'saving' | 'unsaved' | undefined => {
+            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
+            (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus | undefined => {
+                if (isLocalOnly) {
+                    return 'local'
+                }
                 if (!notebook || !localContent) {
                     return 'synced'
                 }
@@ -175,10 +179,12 @@ export const notebookLogic = kea<notebookLogicType>([
 
         setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
-            actions.saveNotebook({
-                content: values.content,
-                title: values.title,
-            })
+            if (!values.isLocalOnly) {
+                actions.saveNotebook({
+                    content: values.content,
+                    title: values.title,
+                })
+            }
         },
 
         onEditorUpdate: () => {
