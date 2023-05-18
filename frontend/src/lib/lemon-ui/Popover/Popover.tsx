@@ -48,7 +48,10 @@ export interface PopoverProps {
     additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
     referenceRef?: UseFloatingReturn['refs']['reference']
     style?: React.CSSProperties
-    /** Whether the parent popover should be closed as well on click. Useful for menus. */
+    /**
+     * Whether the parent popover should be closed as well on click. Useful for menus.
+     *  @default false
+     */
     closeParentPopoverOnClickInside?: boolean
     getPopupContainer?: () => HTMLElement
     /** Whether to show an arrow pointing to a reference element */
@@ -194,7 +197,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
         onClickInside?.(e)
         // If we are not the top level popover, set a flag so that other popovers know that.
-        if (parentPopoverLevel > 0 && !closeParentPopoverOnClickInside) {
+        if (parentPopoverLevel > -1 && !closeParentPopoverOnClickInside) {
             nestedPopoverReceivedClick = true
             setTimeout(() => {
                 nestedPopoverReceivedClick = false
