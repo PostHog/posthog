@@ -58,7 +58,14 @@ export async function eachBatchParallelIngestion(payload: EachBatchPayload, queu
         await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
     }
 
-    await eachBatchParallel(payload, queue, eachMessage, groupByTeamDistinctId, 'ingestion')
+    await eachBatchParallel(
+        payload,
+        queue,
+        eachMessage,
+        groupByTeamDistinctId,
+        queue.pluginsServer.INGESTION_CONCURRENCY,
+        'ingestion'
+    )
 }
 
 export async function ingestEvent(

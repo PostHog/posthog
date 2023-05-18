@@ -89,6 +89,7 @@ export async function eachBatchParallel(
     queue: IngestionConsumer,
     eachMessage: (message: PipelineEvent, queue: IngestionConsumer) => Promise<void>,
     groupIntoBatches: (messages: KafkaMessage[]) => PipelineEvent[][],
+    concurrency: number,
     key: string
 ): Promise<void> {
     const batchStartTimer = new Date()
@@ -129,7 +130,6 @@ export async function eachBatchParallel(
             return Promise.resolve()
         }
 
-        const concurrency = queue.pluginsServer.WORKER_CONCURRENCY * queue.pluginsServer.TASKS_PER_WORKER
         await Promise.all([...Array(concurrency)].map(() => processMicroBatches(messageBatches)))
 
         // Commit offsets once at the end of the batch. We run the risk of duplicates
