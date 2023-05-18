@@ -38,22 +38,6 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
 }
 
 export async function eachBatchParallelIngestion(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
-    function groupByTeamDistinctId(kafkaMessages: KafkaMessage[]): PipelineEvent[][] {
-        const batches: Map<string, PipelineEvent[]> = new Map()
-        for (const message of kafkaMessages) {
-            const pluginEvent = formPipelineEvent(message)
-            const key = `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
-            const siblings = batches.get(key)
-            if (siblings) {
-                siblings.push(pluginEvent)
-            } else {
-                batches.set(key, [pluginEvent])
-            }
-        }
-
-        return Array.from(batches.values())
-    }
-
     async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<void> {
         await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
     }
@@ -90,6 +74,22 @@ export async function ingestEvent(
 
 let messageCounter = 0
 let messageLogDate = 0
+
+export function groupByTeamDistinctId(kafkaMessages: KafkaMessage[]): PipelineEvent[][] {
+    const batches: Map<string, PipelineEvent[]> = new Map()
+    for (const message of kafkaMessages) {
+        const pluginEvent = formPipelineEvent(message)
+        const key = `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
+        const siblings = batches.get(key)
+        if (siblings) {
+            siblings.push(pluginEvent)
+        } else {
+            batches.set(key, [pluginEvent])
+        }
+    }
+
+    return Array.from(batches.values())
+}
 
 function countAndLogEvents(): void {
     const now = new Date().valueOf()
