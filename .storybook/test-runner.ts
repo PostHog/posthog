@@ -142,18 +142,19 @@ async function expectStoryToMatchComponentSnapshot(
         rootEl.style.display = 'inline-block'
         // If needed, resize the root element so that all popovers are visible in the screenshot
         document.querySelectorAll('.Popover').forEach((popover) => {
+            const currentRootBoundingClientRect = rootEl.getBoundingClientRect()
             const popoverBoundingClientRect = popover.getBoundingClientRect()
-            if (popoverBoundingClientRect.right > rootEl.clientWidth) {
+            if (popoverBoundingClientRect.right > currentRootBoundingClientRect.right) {
                 rootEl.style.width = `${popoverBoundingClientRect.right}px`
             }
-            if (popoverBoundingClientRect.bottom > rootEl.clientHeight) {
+            if (popoverBoundingClientRect.bottom > currentRootBoundingClientRect.bottom) {
                 rootEl.style.height = `${popoverBoundingClientRect.bottom}px`
             }
-            if (popoverBoundingClientRect.top < 0) {
-                rootEl.style.height = `${rootEl.clientHeight - popoverBoundingClientRect.top}px`
+            if (popoverBoundingClientRect.top < currentRootBoundingClientRect.top) {
+                rootEl.style.height = `${-popoverBoundingClientRect.top + currentRootBoundingClientRect.bottom}px`
             }
-            if (popoverBoundingClientRect.left < 0) {
-                rootEl.style.width = `${rootEl.clientWidth - popoverBoundingClientRect.left}px`
+            if (popoverBoundingClientRect.left < currentRootBoundingClientRect.left) {
+                rootEl.style.width = `${-popoverBoundingClientRect.left + currentRootBoundingClientRect.right}px`
             }
         })
         // Make the body transparent to take the screenshot without background
