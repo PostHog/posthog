@@ -60,7 +60,7 @@ export interface PopoverProps {
 
 /** Context for the popover overlay: parent popover visibility and parent popover level. */
 export const PopoverOverlayContext = React.createContext<[boolean, number]>([true, -1])
-/** Context for the popover reference element (if rendered as a Popover child and not externally). */
+/** Context for the popover reference element (if it's rendered as a Popover child and not externally). */
 export const PopoverReferenceContext = React.createContext<[boolean, Placement] | null>(null)
 
 let nestedPopoverReceivedClick = false

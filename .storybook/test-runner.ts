@@ -138,9 +138,9 @@ async function expectStoryToMatchComponentSnapshot(
         if (!rootEl) {
             throw new Error('Could not find root element')
         }
-        // Don't grow the container element to limit the screenshot to the component's size
+        // Make the root element (which is the screenshot reference) hug the component
         rootEl.style.display = 'inline-block'
-        // If needed, resize the root element so that all popovers are visible in the screenshot
+        // If needed, expand the root element so that all popovers are visible in the screenshot
         document.querySelectorAll('.Popover').forEach((popover) => {
             const currentRootBoundingClientRect = rootEl.getBoundingClientRect()
             const popoverBoundingClientRect = popover.getBoundingClientRect()

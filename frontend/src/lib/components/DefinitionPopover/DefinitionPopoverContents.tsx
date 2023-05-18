@@ -235,11 +235,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <DefinitionPopover.Card
                         title="Sent as"
                         value={
-                            <>
-                                <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
-                                    {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
-                                </span>
-                            </>
+                            <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
+                                {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
+                            </span>
                         }
                     />
                 </DefinitionPopover.Grid>
