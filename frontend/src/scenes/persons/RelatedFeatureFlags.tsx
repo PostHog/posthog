@@ -27,7 +27,7 @@ const featureFlagMatchMapping = {
     [FeatureFlagMatchReason.NoConditionMatch]: "Doesn't match any conditions",
     [FeatureFlagMatchReason.OutOfRolloutBound]: 'Out of rollout bound',
     [FeatureFlagMatchReason.NoGroupType]: 'Missing group type',
-    [FeatureFlagMatchReason.SuperConditionMatch]: 'Matches super condition',
+    [FeatureFlagMatchReason.SuperConditionMatch]: 'Matches early access condition',
     [FeatureFlagMatchReason.Disabled]: 'Disabled',
 }
 
