@@ -8,13 +8,17 @@ import {
     prefix as KAFKA_PREFIX,
 } from '../../config/kafka-topics'
 import { Hub } from '../../types'
-import { isIngestionOverflowEnabled } from '../../utils/env-utils'
+import { isIngestionOverflowEnabled, isIngestionParallelBatchingEnabled } from '../../utils/env-utils'
 import { formPipelineEvent } from '../../utils/event'
 import { status } from '../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../../utils/token-bucket'
 import Piscina from '../../worker/piscina'
 import { eachBatch } from './batch-processing/each-batch'
-import { eachBatchIngestion, eachMessageIngestion } from './batch-processing/each-batch-ingestion'
+import {
+    eachBatchIngestion,
+    eachBatchParallelIngestion,
+    eachMessageIngestion,
+} from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
 
 export const ingestionPartitionKeyOverflowed = new Counter({
@@ -56,7 +60,12 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // independently. Since ingestionOverflow may be enabled in a separate
     // deployment, we require an env variable to be set to confirm this before
     // enabling re-production of events to the OVERFLOW topic.
-    const batchHandler = isIngestionOverflowEnabled() ? eachBatchIngestionWithOverflow : eachBatchIngestion
+    let batchHandler
+    if (isIngestionOverflowEnabled()) {
+        batchHandler = eachBatchIngestionWithOverflow
+    } else {
+        batchHandler = isIngestionParallelBatchingEnabled() ? eachBatchParallelIngestion : eachBatchIngestion
+    }
 
     const queue = new IngestionConsumer(
         hub,
