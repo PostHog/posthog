@@ -164,7 +164,39 @@ export class SessionManager {
 
         const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
         const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+        const tenHoursInMilliseconds = 10 * 60 * 60 * 1000
+        const isLaggingALot = bufferAge >= tenHoursInMilliseconds
         if (bufferAge >= tolerance) {
+            if (this.chunks.size > 0 && isLaggingALot) {
+                // there's a good chance that we're never going to get the rest of the chunks for this session,
+                // and it will block offset commits
+                // so, we're going to drop the chunks we have and hope for the best
+                for (const [key, value] of this.chunks) {
+                    value.forEach((x) => {
+                        // we want to make sure that the offsets for these messages we're ignoring
+                        // are cleared from the offsetManager so, we add then to the buffer we're about to flush
+                        // even though we're dropping the data
+                        this.buffer.offsets.push(x.metadata.offset)
+                    })
+
+                    captureException(
+                        new Error(`Dropping chunks for while lagging and flushing due to age. This is maybe fine.`),
+                        {
+                            tags: {
+                                sessionId: this.sessionId,
+                            },
+                            extra: {
+                                chunkData: value,
+                                bufferAge,
+                                partition: this.partition,
+                                key,
+                            },
+                        }
+                    )
+                }
+                this.chunks = new Map<string, IncomingRecordingMessage[]>()
+            }
+
             if (this.chunks.size === 0) {
                 // return the promise and let the caller decide whether to await
                 status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
@@ -321,14 +353,11 @@ export class SessionManager {
      */
     private async addToChunks(message: IncomingRecordingMessage): Promise<void> {
         // If it is a chunked message we add to the collected chunks
-        let chunks: IncomingRecordingMessage[] = []
 
         if (!this.chunks.has(message.chunk_id)) {
-            this.chunks.set(message.chunk_id, chunks)
-        } else {
-            chunks = this.chunks.get(message.chunk_id) || []
+            this.chunks.set(message.chunk_id, [])
         }
-
+        const chunks: IncomingRecordingMessage[] = this.chunks.get(message.chunk_id) || []
         chunks.push(message)
 
         if (chunks.length === message.chunk_count) {
