@@ -31,31 +31,16 @@ export const gaugeOffsetRemovalImpossible = new Gauge({
     help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed. That should always match an offset being managed',
 })
 
-interface OffsetSummary {
-    lowest: number | null
-    highest: number | null
-}
-
-interface OffsetSession {
+interface SessionOffset {
     session_id: string
     offset: number
 }
 
-const offsetSummary = (offsets: number[] | undefined): OffsetSummary => {
-    // assumes the offsets have been sorted already
-    return {
-        lowest: !!offsets?.length ? offsets[0] : null,
-        highest: !!offsets?.length ? offsets[offsets.length - 1] : null,
-    }
-}
-
 export class OffsetManager {
     // We have to track every message's offset so that we can commit them only after they've been written to S3
-    offsetsByPartitionTopic: Map<string, number[]> = new Map()
-
-    // if we aren't able to commit when removing offsets
-    // this lets us know which session_id is "blocking" the commit
-    lowestOffsetByPartitionTopic: Map<string, OffsetSession> = new Map()
+    // as we add them we keep track of the session id so that if an ingester gets blocked
+    // we can track that back to the session id for debugging
+    offsetsByPartitionTopic: Map<string, SessionOffset[]> = new Map()
 
     constructor(private consumer: KafkaConsumer) {}
 
@@ -64,17 +49,10 @@ export class OffsetManager {
 
         if (!this.offsetsByPartitionTopic.has(key)) {
             this.offsetsByPartitionTopic.set(key, [])
-            this.lowestOffsetByPartitionTopic.set(key, { session_id, offset })
         }
 
-        this.lowestOffsetByPartitionTopic.set(key, {
-            session_id,
-            offset: Math.min(this.lowestOffsetByPartitionTopic.get(key)?.offset || Infinity, offset),
-        })
-
         const current = this.offsetsByPartitionTopic.get(key) || []
-        current.push(offset)
-        current.sort((a, b) => a - b)
+        current.push({ session_id, offset })
         this.offsetsByPartitionTopic.set(key, current)
     }
 
@@ -119,10 +97,11 @@ export class OffsetManager {
             status.warn('💾', `offset_manager - no inflight offsets found to remove`, { partition })
             return
         }
+        inFlightOffsets.sort((a, b) => a.offset - b.offset)
 
         offsetsToRemove.forEach((offset) => {
             // Remove from the list. If it is the lowest value - set it
-            const offsetIndex = inFlightOffsets.indexOf(offset)
+            const offsetIndex = inFlightOffsets.findIndex((os) => os.offset === offset)
             if (offsetIndex >= 0) {
                 inFlightOffsets.splice(offsetIndex, 1)
             }
@@ -136,16 +115,12 @@ export class OffsetManager {
 
         this.offsetsByPartitionTopic.set(key, inFlightOffsets)
 
-        const inflightOffsetSummary = offsetSummary(inFlightOffsets)
-        const offsetsToRemoveSummary = offsetSummary(offsetsToRemove)
         const logContext = {
             offsetToCommit,
-            lowestInflightOffset: inflightOffsetSummary.lowest,
-            highestInflightOffset: inflightOffsetSummary.highest,
-            lowestOffsetToRemove: offsetsToRemoveSummary.lowest,
-            highestOffsetToRemove: offsetsToRemoveSummary.highest,
             partition,
-            blockingSession: this.lowestOffsetByPartitionTopic.get(key)?.session_id || 'unknown',
+            blockingSession: !!inFlightOffsets.length ? inFlightOffsets[0].session_id : null,
+            lowestInflightOffset: !!inFlightOffsets.length ? inFlightOffsets[0].offset : null,
+            lowestOffsetToRemove: offsetsToRemove[0],
         }
 
         if (offsetToCommit !== undefined) {
