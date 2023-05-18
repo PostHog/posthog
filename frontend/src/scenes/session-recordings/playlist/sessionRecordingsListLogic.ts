@@ -161,11 +161,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
-                        version: values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SUMMARY_LISTING]
-                            ? '3'
-                            : values.featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2]
-                            ? '2'
-                            : '1',
+                        version: values.listingVersion,
                     }
 
                     const params = toParams(paramsDict)
@@ -175,7 +171,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs)
+                    actions.reportRecordingsListFetched(loadTimeMs, values.listingVersion)
 
                     breakpoint()
                     return response
@@ -188,11 +184,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
-                        version: values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SUMMARY_LISTING]
-                            ? '3'
-                            : values.featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2]
-                            ? '2'
-                            : '1',
+                        version: values.listingVersion,
                     }
 
                     if (direction === 'older') {
@@ -211,7 +203,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs)
+                    actions.reportRecordingsListFetched(loadTimeMs, values.listingVersion)
 
                     breakpoint()
 
@@ -364,6 +356,16 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
     })),
     selectors({
+        listingVersion: [
+            (s) => [s.featureFlags],
+            (featureFlags): '1' | '2' | '3' => {
+                return featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SUMMARY_LISTING]
+                    ? '3'
+                    : featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2]
+                    ? '2'
+                    : '1'
+            },
+        ],
         activeSessionRecording: [
             (s) => [s.selectedRecordingId, s.sessionRecordings, (_, props) => props.autoPlay],
             (selectedRecordingId, sessionRecordings, autoPlay): Partial<SessionRecordingType> | undefined => {
