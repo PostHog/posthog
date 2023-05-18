@@ -310,6 +310,8 @@ export const createSessionReplayEvent = (
         status.warn('🙈', 'ignoring an empty session recording event', {
             session_id: properties['$session_id'],
             properties: properties,
+            chunk_count: properties['chunk_count'],
+            chunk_index: properties['chunk_index'],
         })
         // it is safe to throw here as it caught a level up so that we can see this happening in Sentry
         throw new Error('ignoring an empty session recording event')
