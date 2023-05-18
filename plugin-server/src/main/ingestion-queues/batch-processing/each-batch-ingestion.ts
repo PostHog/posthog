@@ -42,7 +42,7 @@ export async function eachBatchParallelIngestion(payload: EachBatchPayload, queu
         const batches: Map<string, PipelineEvent[]> = new Map()
         for (const message of kafkaMessages) {
             const pluginEvent = formPipelineEvent(message)
-            const key = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
+            const key = `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
             const siblings = batches.get(key)
             if (siblings) {
                 siblings.push(pluginEvent)
