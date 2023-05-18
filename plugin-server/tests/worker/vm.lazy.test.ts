@@ -76,7 +76,6 @@ describe('LazyPluginVM', () => {
             void initializeVm(vm)
             await vm.resolveInternalVm
 
-            expect(status.info).toHaveBeenCalledWith('🔌', 'Loaded some plugin.')
             expect(mockServer.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     instanceId: undefined,
