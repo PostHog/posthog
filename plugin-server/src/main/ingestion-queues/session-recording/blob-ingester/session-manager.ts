@@ -164,13 +164,21 @@ export class SessionManager {
 
         const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
         const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        const isLaggingALot = bufferAge >= tolerance * 100
+        const tenHoursInMilliseconds = 10 * 60 * 60 * 1000
+        const isLaggingALot = bufferAge >= tenHoursInMilliseconds
         if (bufferAge >= tolerance) {
             if (this.chunks.size > 0 && isLaggingALot) {
                 // there's a good chance that we're never going to get the rest of the chunks for this session,
                 // and it will block offset commits
                 // so, we're going to drop the chunks we have and hope for the best
                 for (const [key, value] of this.chunks) {
+                    value.forEach((x) => {
+                        // we want to make sure that the offsets for these messages we're ignoring
+                        // are cleared from the offsetManager so, we add then to the buffer we're about to flush
+                        // even though we're dropping the data
+                        this.buffer.offsets.push(x.metadata.offset)
+                    })
+
                     captureException(
                         new Error(`Dropping chunks for while lagging and flushing due to age. This is maybe fine.`),
                         {
@@ -348,7 +356,7 @@ export class SessionManager {
         let chunks: IncomingRecordingMessage[] = []
 
         if (!this.chunks.has(message.chunk_id)) {
-            this.chunks.set(message.chunk_id, chunks)
+            this.chunks.set(message.chunk_id, [])
         } else {
             chunks = this.chunks.get(message.chunk_id) || []
         }
