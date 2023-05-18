@@ -4,7 +4,7 @@ import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { IngestionConsumer } from '../kafka-queue'
-import { eachBatch } from './each-batch'
+import { eachBatch, eachBatchParallel } from './each-batch'
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
     const event = formPipelineEvent(message)
@@ -35,6 +35,30 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
     }
 
     await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
+}
+
+export async function eachBatchParallelIngestion(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
+    function groupByTeamDistinctId(kafkaMessages: KafkaMessage[]): PipelineEvent[][] {
+        const batches: Map<string, PipelineEvent[]> = new Map()
+        for (const message of kafkaMessages) {
+            const pluginEvent = formPipelineEvent(message)
+            const key = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
+            const siblings = batches.get(key)
+            if (siblings) {
+                siblings.push(pluginEvent)
+            } else {
+                batches.set(key, [pluginEvent])
+            }
+        }
+
+        return Array.from(batches.values())
+    }
+
+    async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<void> {
+        await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
+    }
+
+    await eachBatchParallel(payload, queue, eachMessage, groupByTeamDistinctId, 'ingestion')
 }
 
 export async function ingestEvent(
