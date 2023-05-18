@@ -296,15 +296,17 @@ export class SessionRecordingBlobIngester {
                     return
                 }
 
-                const currentPartitions = [...this.sessions.values()].map((session) => session.partition).sort()
+                const currentPartitions = Array.from(
+                    new Set([...this.sessions.values()].map((session) => session.partition))
+                ).sort()
 
                 const sessionsToDrop = [...this.sessions.entries()].filter(([_, sessionManager]) =>
                     revokedPartitions.includes(sessionManager.partition)
                 )
 
-                await this.destroySessions(sessionsToDrop).then(() => {
-                    this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
-                })
+                // any commit from this point is invalid, so we revoke immediately
+                this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
+                await this.destroySessions(sessionsToDrop)
 
                 status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
                     currentPartitions: currentPartitions,

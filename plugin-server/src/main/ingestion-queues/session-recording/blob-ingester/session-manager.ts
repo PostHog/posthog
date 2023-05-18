@@ -47,6 +47,7 @@ export class SessionManager {
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
     destroying = false
+    inprogressUpload: Upload | null = null
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -254,7 +255,7 @@ export class SessionManager {
             // TODO should only compress over some threshold? Depends how many uncompressed files we see below c200kb
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
 
-            const parallelUploads3 = new Upload({
+            this.inprogressUpload = new Upload({
                 client: this.s3Client,
                 params: {
                     Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
@@ -262,7 +263,9 @@ export class SessionManager {
                     Body: fileStream,
                 },
             })
-            await parallelUploads3.done()
+
+            await this.inprogressUpload.done()
+
             fileStream.close()
 
             counterS3FilesWritten.inc(1)
@@ -275,6 +278,10 @@ export class SessionManager {
                 flushedCount: this.flushBuffer.count,
             })
         } catch (error) {
+            if (error.name === 'AbortError' && this.destroying) {
+                // abort of inProgressUpload while destroying is expected
+                return
+            }
             // TODO: If we fail to write to S3 we should be do something about it
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
                 error,
@@ -285,6 +292,7 @@ export class SessionManager {
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
+            this.inprogressUpload = null
             await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
@@ -399,7 +407,9 @@ export class SessionManager {
 
     public async destroy(): Promise<void> {
         this.destroying = true
-        await this.waitForFlushToComplete()
+        if (this.inprogressUpload !== null) {
+            await this.inprogressUpload.abort()
+        }
 
         status.debug('␡', `blob_ingester_session_manager Destroying session manager`, { sessionId: this.sessionId })
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
