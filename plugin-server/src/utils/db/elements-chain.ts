@@ -37,7 +37,7 @@ export function elementsToString(elements: Element[]): string {
     return ret.join(';')
 }
 
-export function chainToElements(chain: string, options: { throwOnError?: boolean } = {}): Element[] {
+export function chainToElements(chain: string, teamId: number, options: { throwOnError?: boolean } = {}): Element[] {
     const elements: Element[] = []
 
     // Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
@@ -94,7 +94,7 @@ export function chainToElements(chain: string, options: { throwOnError?: boolean
                 elements.push(element)
             })
     } catch (error) {
-        Sentry.captureException(error, { extra: { chain } })
+        Sentry.captureException(error, { tags: { team_id: teamId }, extra: { chain } })
         if (options.throwOnError) {
             throw error
         }

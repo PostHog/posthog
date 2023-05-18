@@ -32,10 +32,23 @@ export function EarlyAccessFeatures(): JSX.Element {
                         </LemonTag>
                     </div>
                 }
-                caption="Release features in a controlled way. Track adoption in stages."
+                caption={
+                    <>
+                        Allow your users to enable or disable features that are in public beta. Check out our{' '}
+                        <Link
+                            data-attr="early-access-management-help"
+                            to="https://posthog.com/docs/feature-flags/early-access-feature-management?utm_medium=in-product&utm_campaign=learn-more"
+                            target="_blank"
+                        >
+                            {' '}
+                            documentation
+                        </Link>{' '}
+                        to learn more.
+                    </>
+                }
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
-                        New release
+                        New public beta
                     </LemonButton>
                 }
                 delimited

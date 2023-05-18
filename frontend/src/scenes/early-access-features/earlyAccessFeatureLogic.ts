@@ -95,7 +95,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             (s) => [s.earlyAccessFeature],
             (earlyAccessFeature: EarlyAccsesFeatureType): Breadcrumb[] => [
                 {
-                    name: 'Early Access Features',
+                    name: 'Early Access Management',
                     path: urls.earlyAccessFeatures(),
                 },
                 ...(earlyAccessFeature?.name ? [{ name: earlyAccessFeature.name }] : []),
@@ -124,7 +124,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
             try {
                 await api.earlyAccessFeatures.delete(earlyAccessFeatureId)
-                lemonToast.info('Early access feature deleted')
+                lemonToast.info(
+                    'Early access feature deleted. Remember to delete corresponding feature flag if necessary'
+                )
                 actions.loadEarlyAccessFeaturesSuccess(
                     values.earlyAccessFeatures.filter((feature) => feature.id !== earlyAccessFeatureId)
                 )

@@ -1,4 +1,5 @@
 import { captureException } from '@sentry/node'
+import { DateTime } from 'luxon'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -13,6 +14,7 @@ import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
+import { eventDroppedCounter } from '../metrics'
 import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { IncomingRecordingMessage } from './blob-ingester/types'
@@ -25,6 +27,10 @@ const flushIntervalTimeoutMs = 30000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
+export const gaugeIngestionLag = new Gauge({
+    name: 'recording_blob_ingestion_lag',
+    help: 'A gauge of the number of milliseconds behind now for the timestamp of the latest message',
+})
 export const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
     help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
@@ -104,7 +110,7 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        this.offsetManager?.addOffset(topic, partition, offset)
+        this.offsetManager?.addOffset(topic, partition, session_id, offset)
         await this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
@@ -165,6 +171,16 @@ export class SessionRecordingBlobIngester {
             return
         }
 
+        if (!team.session_recording_opt_in) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'disabled',
+                })
+                .inc()
+            return
+        }
+
         const $snapshot_data = event.properties?.$snapshot_data
 
         const recordingMessage: IncomingRecordingMessage = {
@@ -194,9 +210,17 @@ export class SessionRecordingBlobIngester {
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
+        let highestTimestamp = -Infinity
+
         for (const message of messages) {
+            if (!!message.timestamp && message.timestamp > highestTimestamp) {
+                highestTimestamp = message.timestamp
+            }
+
             await this.handleKafkaMessage(message)
         }
+
+        gaugeIngestionLag.set(DateTime.now().toMillis() - highestTimestamp)
     }
 
     public async start(): Promise<void> {
@@ -278,9 +302,9 @@ export class SessionRecordingBlobIngester {
                     revokedPartitions.includes(sessionManager.partition)
                 )
 
-                this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
-
-                await this.destroySessions(sessionsToDrop)
+                await this.destroySessions(sessionsToDrop).then(() => {
+                    this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
+                })
 
                 status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
                     currentPartitions: currentPartitions,
