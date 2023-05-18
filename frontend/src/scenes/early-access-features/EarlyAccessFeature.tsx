@@ -16,10 +16,10 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { PersonLogicProps, personsLogic } from 'scenes/persons/personsLogic'
+import { PersonsLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
-import { Col } from 'antd'
+import { Col, Popconfirm } from 'antd'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -32,7 +32,8 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote } = useActions(earlyAccessFeatureLogic)
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote, deleteEarlyAccessFeature } =
+        useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
@@ -41,9 +42,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
             <PageHeader
                 title={isNewEarlyAccessFeature ? 'New Feature Release' : earlyAccessFeature.name}
                 buttons={
-                    !earlyAccessFeatureLoading &&
-                    earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability ? (
-                        isNewEarlyAccessFeature || isEditingFeature ? (
+                    !earlyAccessFeatureLoading ? (
+                        earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability &&
+                        (isNewEarlyAccessFeature || isEditingFeature) ? (
                             <>
                                 <LemonButton
                                     type="secondary"
@@ -65,16 +66,38 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </>
                         ) : (
                             <>
-                                <LemonButton
-                                    type="secondary"
-                                    htmlType="submit"
-                                    onClick={() => {
-                                        editFeature(true)
+                                <Popconfirm
+                                    title={
+                                        <>
+                                            Permanently delete feature? <br />
+                                            <b>Doing so will remove any opt in conditions from the feature flag.</b>
+                                        </>
+                                    }
+                                    okText="Delete"
+                                    okType="danger"
+                                    placement="topLeft"
+                                    onConfirm={() => {
+                                        // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
+                                        deleteEarlyAccessFeature((earlyAccessFeature as EarlyAccsesFeatureType)?.id)
                                     }}
-                                    loading={false}
                                 >
-                                    Edit
-                                </LemonButton>
+                                    <LemonButton data-attr="delete-feature" status="danger" type="secondary">
+                                        Delete
+                                    </LemonButton>
+                                </Popconfirm>
+
+                                {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
+                                    <LemonButton
+                                        type="secondary"
+                                        htmlType="submit"
+                                        onClick={() => {
+                                            editFeature(true)
+                                        }}
+                                        loading={false}
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                )}
                             </>
                         )
                     ) : undefined
@@ -114,7 +137,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <Field
                             name="feature_flag_id"
                             label="Link feature flag (optional)"
-                            info={<>A feature flag will be generated from feature name by default</>}
+                            info={<>A feature flag will be generated from feature name if not provided</>}
                         >
                             {({ value, onChange }) => (
                                 <div>
@@ -213,7 +236,7 @@ export function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Elemen
         optionsFromProp: undefined,
         popoverEnabled: true,
         selectFirstItem: true,
-        taxonomicFilterLogicKey: 'universalSearch',
+        taxonomicFilterLogicKey: 'flag-selectorz',
     }
 
     return (
@@ -240,7 +263,7 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
     const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
 
     const key = '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
-    const personLogicProps: PersonLogicProps = {
+    const personsLogicProps: PersonsLogicProps = {
         cohort: undefined,
         syncWithUrl: false,
         fixedProperties: [
@@ -252,13 +275,12 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
             },
         ],
     }
-    const logic = personsLogic(personLogicProps)
+    const logic = personsLogic(personsLogicProps)
     const { persons } = useValues(logic)
-
     const { featureFlag } = useValues(featureFlagLogic({ id: earlyAccessFeature.feature_flag.id || 'link' }))
 
     return (
-        <BindLogic logic={personsLogic} props={personLogicProps}>
+        <BindLogic logic={personsLogic} props={personsLogicProps}>
             <h3 className="text-xl font-semibold">Opted-In Users</h3>
             <PersonsScene
                 showSearch={persons.results.length > 0}

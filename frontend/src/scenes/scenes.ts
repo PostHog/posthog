@@ -256,10 +256,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Feedback',
     },
-    [Scene.Issues]: {
-        projectBased: true,
-        name: 'Issues',
-    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
@@ -146,27 +146,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
-        loadEntireRecording: true,
+        loadRecording: (full: boolean = false) => ({ full }),
         loadRecordingMeta: true,
         addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
-        reportViewed: (loadedFromBlobStorage: boolean) => ({ loadedFromBlobStorage }),
+        reportViewed: true,
         reportUsageIfFullyLoaded: true,
     }),
     reducers(() => ({
+        fullLoad: [
+            false as boolean,
+            {
+                loadRecording: (_, { full }) => full,
+            },
+        ],
         filters: [
             {} as Partial<RecordingEventsFilters>,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
-            },
-        ],
-        sessionRecordingId: [
-            null as SessionRecordingId | null,
-            {
-                loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
             },
         ],
         chunkPaginationIndex: [
@@ -190,16 +190,28 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    listeners(({ values, props, actions, cache }) => ({
-        loadEntireRecording: () => {
-            actions.loadRecordingMeta()
-        },
-        loadRecordingMetaSuccess: () => {
+    listeners(({ values, actions, cache, props }) => ({
+        loadRecording: ({ full }) => {
+            // If we don't have metadata then we load that first, which will trigger this again
+            if (!values.sessionPlayerMetaData) {
+                actions.loadRecordingMeta()
+                return
+            }
+
+            if (!full) {
+                return
+            }
+
             if (!values.sessionPlayerSnapshotData?.snapshots) {
                 actions.loadRecordingSnapshots()
             }
             actions.loadEvents()
             actions.loadPerformanceEvents()
+        },
+        loadRecordingMetaSuccess: () => {
+            if (values.fullLoad) {
+                actions.loadRecording(true)
+            }
         },
         loadRecordingBlobSnapshotsSuccess: () => {
             if (values.sessionPlayerSnapshotData?.blob_keys?.length) {
@@ -217,14 +229,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             } else {
                 actions.reportUsageIfFullyLoaded()
             }
-            // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
-            if (values.chunkPaginationIndex === 1) {
+            if (values.chunkPaginationIndex === 1 || values.loadedFromBlobStorage) {
+                // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
+                // when loading from blob storage by the time this is hit the chunkPaginationIndex is already > 1
+                // when loading from the API the chunkPaginationIndex is 1 for the first success that reaches this point
                 cache.firstPaintDurationRow = {
                     size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
 
-                actions.reportViewed(values.loadedFromBlobStorage)
+                actions.reportViewed()
             }
 
             if (!values.sessionPlayerSnapshotData?.next) {
@@ -339,7 +353,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 cache.firstPaintDurationRow = null
             }
         },
-        reportViewed: async ({ loadedFromBlobStorage }, breakpoint) => {
+        reportViewed: async (_, breakpoint) => {
             const durations = generateRecordingReportDurations(cache, values)
 
             await breakpoint()
@@ -349,7 +363,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 durations,
                 SessionRecordingUsageType.VIEWED,
                 0,
-                loadedFromBlobStorage
+                values.loadedFromBlobStorage
             )
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportRecording(
@@ -357,7 +371,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 durations,
                 SessionRecordingUsageType.ANALYZED,
                 10,
-                loadedFromBlobStorage
+                values.loadedFromBlobStorage
             )
         },
     })),
@@ -687,10 +701,5 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return Object.keys(snapshotsByWindowId)
             },
         ],
-    }),
-    afterMount(({ props, actions }) => {
-        if (props.sessionRecordingId) {
-            actions.loadEntireRecording()
-        }
     }),
 ])

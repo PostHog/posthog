@@ -54,18 +54,6 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
             notebookLogic({ id: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
 
             actions.setNotebookSideBarShown(true)
-
-            // if (!values.editor) {
-            //     return
-            // }
-            // values.editor
-            //     .chain()
-            //     .focus()
-            //     .insertContent({
-            //         type,
-            //         attrs: props,
-            //     })
-            //     .run()
         },
     })),
 

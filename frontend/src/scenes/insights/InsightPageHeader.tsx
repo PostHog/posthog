@@ -302,7 +302,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
                                 <AddToNotebook
                                     node={NotebookNodeType.Insight}
-                                    properties={{ shortId: insight.short_id }}
+                                    properties={{ id: insight.short_id }}
                                     type="secondary"
                                 />
                             )}

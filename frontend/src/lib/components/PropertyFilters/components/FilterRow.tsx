@@ -71,6 +71,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 onClick={() => onRemove(index)}
                                 size="small"
                                 className="ml-2"
+                                noPadding
                             />
                         )}
                     </>
