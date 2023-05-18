@@ -27,6 +27,7 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
                     <LemonButton
                         icon={<IconClose />}
                         size="small"
+                        noPadding
                         status="stealth"
                         onClick={onClose}
                         aria-label="close"
