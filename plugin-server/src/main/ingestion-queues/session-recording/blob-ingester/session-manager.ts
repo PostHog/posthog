@@ -390,6 +390,7 @@ export class SessionManager {
         this.destroying = true
         if (this.inprogressUpload !== null) {
             await this.inprogressUpload.abort()
+            this.inprogressUpload = null
         }
 
         status.debug('␡', `blob_ingester_session_manager Destroying session manager`, { sessionId: this.sessionId })
