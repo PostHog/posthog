@@ -252,7 +252,6 @@ export class SessionManager {
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
             const dataKey = `${baseKey}/data/${this.flushBuffer.oldestKafkaTimestamp}` // TODO: Change to be based on events times
 
-            // TODO should only compress over some threshold? Depends how many uncompressed files we see below c200kb
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
 
             this.inprogressUpload = new Upload({
