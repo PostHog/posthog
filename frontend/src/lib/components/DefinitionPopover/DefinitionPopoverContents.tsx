@@ -22,6 +22,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { TitleWithIcon } from '../TitleWithIcon'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { hide } from '@floating-ui/react'
 
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
     <TitleWithIcon
@@ -469,6 +470,7 @@ export function ControlledDefinitionPopover({
             }
             placement="right"
             fallbackPlacements={['left']}
+            middleware={[hide()]} // Hide the definition popover when the reference is off-screen
         />
     )
 }

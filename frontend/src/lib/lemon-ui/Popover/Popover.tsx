@@ -15,7 +15,6 @@ import {
     FloatingPortal,
     UseFloatingReturn,
     useMergeRefs,
-    hide,
 } from '@floating-ui/react'
 import { CSSTransition } from 'react-transition-group'
 import { useEventListener } from 'lib/hooks/useEventListener'
@@ -131,10 +130,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 },
             }),
             arrow({ element: arrowRef, padding: 8 }),
-            // If this is a popover within a popover, hide it when the reference element is off-screen.
-            // Does not apply to top-level popovers, as those are well-behaved in terms of scrolling, while positioning
-            // of child popovers gets wonky when the parent popover is off-screen.
-            ...(parentPopoverLevel > -1 ? [hide()] : []),
             ...(middleware ?? []),
         ],
     })
