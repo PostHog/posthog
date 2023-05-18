@@ -21,7 +21,7 @@ import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definit
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { pluralize } from 'lib/utils'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useRef } from 'react'
+import { useState } from 'react'
 
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     return (
@@ -169,7 +169,7 @@ export function InfiniteList(): JSX.Element {
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
 
-    const highlightedItemRef = useRef<HTMLDivElement>(null)
+    const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalListCount === 0 && !isLoading
@@ -191,7 +191,7 @@ export function InfiniteList(): JSX.Element {
             // if the popover is not enabled then don't leave the row selected when the mouse leaves it
             onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
             style: style,
-            ref: isHighlighted ? highlightedItemRef : null,
+            ref: isHighlighted ? (element) => setHighlightedItemElement(element) : null,
         }
 
         return item && group ? (
@@ -282,7 +282,7 @@ export function InfiniteList(): JSX.Element {
                         visible={selectedItemInView}
                         item={selectedItem}
                         group={group}
-                        highlightedItemElement={highlightedItemRef.current}
+                        highlightedItemElement={highlightedItemElement}
                     />
                 </BindLogic>
             ) : null}

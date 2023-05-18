@@ -35,7 +35,9 @@ export function useEventListener(
             // Make sure element supports addEventListener
             if (!element?.addEventListener) {
                 console.warn(
-                    `Could not start listening to ${eventName} on ${(element as Element)?.localName ?? 'window'}!`
+                    `Could not start listening to ${eventName} on ${
+                        !element ? element : (element as Element)?.localName ?? 'window'
+                    }!`
                 )
                 return
             }

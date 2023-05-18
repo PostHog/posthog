@@ -90,11 +90,14 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     },
     contentRef
 ): JSX.Element {
-    const [parentPopoverVisibility, parentPopoverLevel] = useContext(PopoverOverlayContext)
+    const [parentPopoverVisible, parentPopoverLevel] = useContext(PopoverOverlayContext)
     const currentPopoverLevel = parentPopoverLevel + 1
 
-    if (!parentPopoverVisibility) {
-        visible = false // Hide all popovers of a hierarchy in sync
+    if (!parentPopoverVisible) {
+        // If parentPopoverVisible is false, this means the parent will be unmounted imminently (per CSSTransition),
+        // and then THIS child popover wil also be unmounted. Here we propagate this transition from the parent,
+        // so that all of the unmounting seems smooth and not abrupt (which is how it'd look for this child otherwise)
+        visible = false
     }
 
     const arrowRef = useRef<HTMLDivElement>(null)
@@ -125,7 +128,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 },
             }),
             arrow({ element: arrowRef, padding: 8 }),
-            hide(), // Hide the overlay when the reference element is off-screen
+            // If this is a popover within a popover, hide it when the reference element is off-screen.
+            // Does not apply to top-level popovers, as those are well-behaved in terms of scrolling, while positioning
+            // of child popovers gets wonky when the parent popover is off-screen.
+            ...(parentPopoverLevel > -1 ? [hide()] : []),
             ...(middleware ?? []),
         ],
     })

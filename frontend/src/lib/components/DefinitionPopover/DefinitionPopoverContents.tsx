@@ -449,6 +449,7 @@ export function ControlledDefinitionPopover({
         <Popover
             visible={visible}
             referenceElement={highlightedItemElement}
+            className="click-outside-block hotkey-block"
             overlay={
                 <DefinitionPopover.Wrapper>
                     <DefinitionPopover.Header
