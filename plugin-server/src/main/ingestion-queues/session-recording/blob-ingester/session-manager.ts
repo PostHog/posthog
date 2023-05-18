@@ -353,14 +353,11 @@ export class SessionManager {
      */
     private async addToChunks(message: IncomingRecordingMessage): Promise<void> {
         // If it is a chunked message we add to the collected chunks
-        let chunks: IncomingRecordingMessage[] = []
 
         if (!this.chunks.has(message.chunk_id)) {
             this.chunks.set(message.chunk_id, [])
-        } else {
-            chunks = this.chunks.get(message.chunk_id) || []
         }
-
+        const chunks: IncomingRecordingMessage[] = this.chunks.get(message.chunk_id) || []
         chunks.push(message)
 
         if (chunks.length === message.chunk_count) {
