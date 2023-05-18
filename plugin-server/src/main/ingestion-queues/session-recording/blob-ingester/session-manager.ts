@@ -164,7 +164,31 @@ export class SessionManager {
 
         const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
         const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+        const isLaggingALot = bufferAge >= tolerance * 100
         if (bufferAge >= tolerance) {
+            if (this.chunks.size > 0 && isLaggingALot) {
+                // there's a good chance that we're never going to get the rest of the chunks for this session,
+                // and it will block offset commits
+                // so, we're going to drop the chunks we have and hope for the best
+                for (const [key, value] of this.chunks) {
+                    captureException(
+                        new Error(`Dropping chunks for while lagging and flushing due to age. This is maybe fine.`),
+                        {
+                            tags: {
+                                sessionId: this.sessionId,
+                            },
+                            extra: {
+                                chunkData: value,
+                                bufferAge,
+                                partition: this.partition,
+                                key,
+                            },
+                        }
+                    )
+                }
+                this.chunks = new Map<string, IncomingRecordingMessage[]>()
+            }
+
             if (this.chunks.size === 0) {
                 // return the promise and let the caller decide whether to await
                 status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
