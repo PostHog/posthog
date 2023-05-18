@@ -306,6 +306,15 @@ export const createSessionReplayEvent = (
         })
         .sort()
 
+    const chunkIndex = properties['$snapshot_data']?.chunk_index
+
+    // only the first chunk has the eventsSummary
+    // we can ignore subsequent chunks for calculating a replay event
+    if (chunkIndex > 0) {
+        return null
+    }
+
+    // but every event where chunk index = 0 must have an eventsSummary
     if (eventsSummaries.length === 0 || timestamps.length === 0) {
         status.warn('🙈', 'ignoring an empty session recording event', {
             session_id: properties['$session_id'],
