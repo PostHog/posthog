@@ -36,6 +36,11 @@ interface OffsetSummary {
     highest: number | null
 }
 
+interface OffsetSession {
+    session_id: string
+    offset: number
+}
+
 const offsetSummary = (offsets: number[] | undefined): OffsetSummary => {
     // assumes the offsets have been sorted already
     return {
@@ -48,14 +53,24 @@ export class OffsetManager {
     // We have to track every message's offset so that we can commit them only after they've been written to S3
     offsetsByPartitionTopic: Map<string, number[]> = new Map()
 
+    // if we aren't able to commit when removing offsets
+    // this lets us know which session_id is "blocking" the commit
+    lowestOffsetByPartitionTopic: Map<string, OffsetSession> = new Map()
+
     constructor(private consumer: KafkaConsumer) {}
 
-    public addOffset(topic: string, partition: number, offset: number): void {
+    public addOffset(topic: string, partition: number, session_id: string, offset: number): void {
         const key = `${topic}-${partition}`
 
         if (!this.offsetsByPartitionTopic.has(key)) {
             this.offsetsByPartitionTopic.set(key, [])
+            this.lowestOffsetByPartitionTopic.set(key, { session_id, offset })
         }
+
+        this.lowestOffsetByPartitionTopic.set(key, {
+            session_id,
+            offset: Math.min(this.lowestOffsetByPartitionTopic.get(key)?.offset || Infinity, offset),
+        })
 
         const current = this.offsetsByPartitionTopic.get(key) || []
         current.push(offset)
@@ -130,6 +145,7 @@ export class OffsetManager {
             lowestOffsetToRemove: offsetsToRemoveSummary.lowest,
             highestOffsetToRemove: offsetsToRemoveSummary.highest,
             partition,
+            blockingSession: this.lowestOffsetByPartitionTopic.get(key)?.session_id || 'unknown',
         }
 
         if (offsetToCommit !== undefined) {

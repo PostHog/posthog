@@ -16,17 +16,17 @@ describe('offset-manager', () => {
     })
 
     it('collects new offsets', () => {
-        offsetManager.addOffset(TOPIC, 1, 1)
-        offsetManager.addOffset(TOPIC, 2, 1)
-        offsetManager.addOffset(TOPIC, 1, 2)
-        offsetManager.addOffset(TOPIC, 3, 4)
-        offsetManager.addOffset(TOPIC, 1, 5)
-        offsetManager.addOffset(TOPIC, 3, 4)
+        offsetManager.addOffset(TOPIC, 1, 'session_id', 1)
+        offsetManager.addOffset(TOPIC, 2, 'session_id', 1)
+        offsetManager.addOffset(TOPIC, 1, 'session_id', 2)
+        offsetManager.addOffset(TOPIC, 3, 'session_id', 4)
+        offsetManager.addOffset(TOPIC, 1, 'session_id', 5)
+        offsetManager.addOffset(TOPIC, 3, 'session_id', 4)
         // even if the offsets arrive out of order
-        offsetManager.addOffset(TOPIC, 3, 7)
-        offsetManager.addOffset(TOPIC, 3, 6)
-        offsetManager.addOffset(TOPIC, 3, 8)
-        offsetManager.addOffset(TOPIC, 3, 0)
+        offsetManager.addOffset(TOPIC, 3, 'session_id', 7)
+        offsetManager.addOffset(TOPIC, 3, 'session_id', 6)
+        offsetManager.addOffset(TOPIC, 3, 'session_id', 8)
+        offsetManager.addOffset(TOPIC, 3, 'session_id', 0)
 
         expect(offsetManager.offsetsByPartitionTopic).toEqual(
             new Map([
@@ -38,12 +38,12 @@ describe('offset-manager', () => {
     })
 
     it('removes offsets', () => {
-        offsetManager.addOffset(TOPIC, 1, 1)
-        offsetManager.addOffset(TOPIC, 2, 1)
-        offsetManager.addOffset(TOPIC, 3, 4)
-        offsetManager.addOffset(TOPIC, 1, 2)
-        offsetManager.addOffset(TOPIC, 1, 5)
-        offsetManager.addOffset(TOPIC, 3, 4)
+        offsetManager.addOffset(TOPIC, 1, 'session_id', 1)
+        offsetManager.addOffset(TOPIC, 2, 'session_id', 1)
+        offsetManager.addOffset(TOPIC, 3, 'session_id', 4)
+        offsetManager.addOffset(TOPIC, 1, 'session_id', 2)
+        offsetManager.addOffset(TOPIC, 1, 'session_id', 5)
+        offsetManager.addOffset(TOPIC, 3, 'session_id', 4)
 
         offsetManager.removeOffsets(TOPIC, 1, [1, 2])
 
@@ -62,7 +62,7 @@ describe('offset-manager', () => {
         [[1, 2, 3, 9], 3],
     ])('commits the appropriate offset ', (removals: number[], expectation: number | null | undefined) => {
         ;[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((offset) => {
-            offsetManager.addOffset(TOPIC, 1, offset)
+            offsetManager.addOffset(TOPIC, 1, 'session_id', offset)
         })
 
         const result = offsetManager.removeOffsets(TOPIC, 1, removals)
@@ -82,12 +82,12 @@ describe('offset-manager', () => {
 
     it('does not commits revoked partition offsets ', () => {
         ;[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((offset) => {
-            offsetManager.addOffset(TOPIC, 1, offset)
+            offsetManager.addOffset(TOPIC, 1, 'session_id', offset)
         })
 
-        offsetManager.addOffset(TOPIC, 1, 1)
-        offsetManager.addOffset(TOPIC, 2, 2)
-        offsetManager.addOffset(TOPIC, 3, 3)
+        offsetManager.addOffset(TOPIC, 1, 'session_id', 1)
+        offsetManager.addOffset(TOPIC, 2, 'session_id', 2)
+        offsetManager.addOffset(TOPIC, 3, 'session_id', 3)
 
         offsetManager.revokePartitions(TOPIC, [1])
 
