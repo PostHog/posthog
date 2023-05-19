@@ -29,7 +29,7 @@ class Person(models.Model):
         return [
             id[0]
             for id in PersonDistinctId.objects.filter(person=self, team_id=self.team_id)
-            .order_by("id")
+            .order_by("created_at")
             .values_list("distinct_id")
         ]
 
