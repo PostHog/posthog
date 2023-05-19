@@ -18,6 +18,7 @@ import { convertToPersistedMessage } from './utils'
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
     help: 'A single file flushed to S3',
+    labelNames: ['flushReason'],
 })
 
 export const counterS3WriteErrored = new Counter({
@@ -36,10 +37,10 @@ const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 // The buffer is a list of messages grouped
 type SessionBuffer = {
     id: string
+    oldestKafkaTimestamp: number | null
+    newestKafkaTimestamp: number | null
     count: number
     size: number
-    oldestKafkaTimestamp: number
-    newestKafkaTimestamp: number
     file: string
     offsets: number[]
 }
@@ -49,8 +50,8 @@ export class SessionManager {
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
     destroying = false
-    inprogressUpload: Upload | null = null
     realtime = false
+    inProgressUpload: Upload | null = null
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -110,8 +111,17 @@ export class SessionManager {
             })
             return
         }
-        this.buffer.oldestKafkaTimestamp = Math.min(this.buffer.oldestKafkaTimestamp, message.metadata.timestamp)
-        this.buffer.newestKafkaTimestamp = Math.max(this.buffer.newestKafkaTimestamp, message.metadata.timestamp)
+
+        this.buffer.oldestKafkaTimestamp = Math.min(
+            this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
+            message.metadata.timestamp
+        )
+
+        this.buffer.newestKafkaTimestamp = Math.max(
+            this.buffer.newestKafkaTimestamp ?? message.metadata.timestamp,
+            message.metadata.timestamp
+        )
+
         // TODO: Check that the offset is higher than the lastProcessed
         // If not - ignore it
         // If it is - update lastProcessed and process it
@@ -150,7 +160,7 @@ export class SessionManager {
                     gzipSizeKb,
                     sessionId: this.sessionId,
                 })
-                return this.flush()
+                return this.flush('buffer_size')
             } else {
                 status.warn(
                     '🚽',
@@ -166,7 +176,7 @@ export class SessionManager {
         }
     }
 
-    public async flushIfSessionBufferIsOld(): Promise<void> {
+    public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy`, {
                 sessionId: this.sessionId,
@@ -175,12 +185,28 @@ export class SessionManager {
             return
         }
 
-        const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
-        const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        const tenHoursInMilliseconds = 10 * 60 * 60 * 1000
-        const isLaggingALot = bufferAge >= tenHoursInMilliseconds
-        if (bufferAge >= tolerance) {
-            if (this.chunks.size > 0 && isLaggingALot) {
+        if (this.buffer.oldestKafkaTimestamp === null) {
+            // We have no messages yet, so we can't flush
+            if (this.buffer.count > 0) {
+                throw new Error('Session buffer has messages but oldest timestamp is null. A paradox!')
+            }
+            return
+        }
+
+        const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
+
+        if (bufferAge >= flushThresholdMillis) {
+            const logContext = {
+                bufferAge,
+                sessionId: this.sessionId,
+                partition: this.partition,
+                chunkSize: this.chunks.size,
+                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+                referenceTime: referenceNow,
+                flushThresholdMillis,
+            }
+
+            if (this.chunks.size > 0) {
                 // there's a good chance that we're never going to get the rest of the chunks for this session,
                 // and it will block offset commits
                 // so, we're going to drop the chunks we have and hope for the best
@@ -200,9 +226,8 @@ export class SessionManager {
                             },
                             extra: {
                                 chunkData: value,
-                                bufferAge,
-                                partition: this.partition,
                                 key,
+                                ...logContext,
                             },
                         }
                     )
@@ -213,22 +238,15 @@ export class SessionManager {
             if (this.chunks.size === 0) {
                 // return the promise and let the caller decide whether to await
                 status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
-                    bufferAge,
-                    tolerance,
-                    sessionId: this.sessionId,
-                    partition: this.partition,
+                    ...logContext,
                 })
-                return this.flush()
+                return this.flush('buffer_age')
             } else {
                 status.warn(
                     '🚽',
                     `blob_ingester_session_manager would flush buffer due to age, but chunks are still pending`,
                     {
-                        bufferAge,
-                        tolerance,
-                        sessionId: this.sessionId,
-                        partition: this.partition,
-                        chunks: this.chunks.size,
+                        ...logContext,
                     }
                 )
             }
@@ -239,11 +257,12 @@ export class SessionManager {
      * Flushing takes the current buffered file and moves it to the flush buffer
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
-    public async flush(): Promise<void> {
+    public async flush(reason: 'buffer_size' | 'buffer_age'): Promise<void> {
         if (this.flushBuffer) {
             status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing", {
                 sessionId: this.sessionId,
                 partition: this.partition,
+                reason,
             })
             return
         }
@@ -252,6 +271,7 @@ export class SessionManager {
             status.warn('⚠️', `blob_ingester_session_manager flush somehow called after destroy`, {
                 sessionId: this.sessionId,
                 partition: this.partition,
+                reason,
             })
             return
         }
@@ -266,7 +286,7 @@ export class SessionManager {
 
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
 
-            this.inprogressUpload = new Upload({
+            this.inProgressUpload = new Upload({
                 client: this.s3Client,
                 params: {
                     Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
@@ -275,11 +295,11 @@ export class SessionManager {
                 },
             })
 
-            await this.inprogressUpload.done()
+            await this.inProgressUpload.done()
 
             fileStream.close()
 
-            counterS3FilesWritten.inc(1)
+            counterS3FilesWritten.labels(reason).inc(1)
             gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
             status.info('🚽', `blob_ingester_session_manager - flushed buffer to S3`, {
                 sessionId: this.sessionId,
@@ -287,6 +307,7 @@ export class SessionManager {
                 flushedSize: this.flushBuffer.size,
                 flushedAge: this.flushBuffer.oldestKafkaTimestamp,
                 flushedCount: this.flushBuffer.count,
+                reason,
             })
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
@@ -299,15 +320,22 @@ export class SessionManager {
                 sessionId: this.sessionId,
                 partition: this.partition,
                 team: this.teamId,
+                reason,
             })
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
-            this.inprogressUpload = null
+            this.inProgressUpload = null
             await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
-            void this.realtimeManager.clearMessages(this.teamId, this.sessionId, this.flushBuffer.newestKafkaTimestamp)
+            if (this.flushBuffer.newestKafkaTimestamp !== null) {
+                void this.realtimeManager.clearMessages(
+                    this.teamId,
+                    this.sessionId,
+                    this.flushBuffer.newestKafkaTimestamp
+                )
+            }
 
             this.flushBuffer = undefined
 
@@ -323,7 +351,8 @@ export class SessionManager {
                 id,
                 count: 0,
                 size: 0,
-                oldestKafkaTimestamp: Date.now(),
+                oldestKafkaTimestamp: null,
+                newestKafkaTimestamp: null,
                 file: path.join(
                     bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
                     `${this.teamId}.${this.sessionId}.${id}.jsonl`
@@ -416,13 +445,9 @@ export class SessionManager {
         this.realtime = true
 
         try {
+            const timestamp = this.buffer.oldestKafkaTimestamp ?? 0
             const existingContent = await readFile(this.buffer.file, 'utf-8')
-            await this.realtimeManager.addMessagesFromBuffer(
-                this.teamId,
-                this.sessionId,
-                existingContent,
-                this.buffer.oldestKafkaTimestamp
-            )
+            await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.sessionId, existingContent, timestamp)
             status.info('⚡️', 'blob_ingester_session_manager loaded existing snapshot buffer into realtime', {
                 sessionId: this.sessionId,
                 teamId: this.teamId,
@@ -438,9 +463,9 @@ export class SessionManager {
 
     public async destroy(): Promise<void> {
         this.destroying = true
-        if (this.inprogressUpload !== null) {
-            await this.inprogressUpload.abort()
-            this.inprogressUpload = null
+        if (this.inProgressUpload !== null) {
+            await this.inProgressUpload.abort()
+            this.inProgressUpload = null
         }
 
         status.debug('␡', `blob_ingester_session_manager Destroying session manager`, { sessionId: this.sessionId })

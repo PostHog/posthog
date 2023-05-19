@@ -18,6 +18,7 @@ import {
     eachBatchIngestion,
     eachBatchParallelIngestion,
     eachMessageIngestion,
+    IngestionOverflowMode,
 } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
 
@@ -61,10 +62,15 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // deployment, we require an env variable to be set to confirm this before
     // enabling re-production of events to the OVERFLOW topic.
     let batchHandler
-    if (isIngestionOverflowEnabled()) {
-        batchHandler = eachBatchIngestionWithOverflow
+    if (isIngestionParallelBatchingEnabled()) {
+        const overflowMode = isIngestionOverflowEnabled()
+            ? IngestionOverflowMode.Reroute
+            : IngestionOverflowMode.Disabled
+        batchHandler = async (payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> => {
+            await eachBatchParallelIngestion(payload, queue, overflowMode)
+        }
     } else {
-        batchHandler = isIngestionParallelBatchingEnabled() ? eachBatchParallelIngestion : eachBatchIngestion
+        batchHandler = isIngestionOverflowEnabled() ? eachBatchIngestionWithOverflow : eachBatchIngestion
     }
 
     const queue = new IngestionConsumer(
