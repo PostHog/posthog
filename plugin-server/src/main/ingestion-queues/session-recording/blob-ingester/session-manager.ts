@@ -246,6 +246,7 @@ export class SessionManager {
             status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing", {
                 sessionId: this.sessionId,
                 partition: this.partition,
+                reason,
             })
             return
         }
@@ -254,6 +255,7 @@ export class SessionManager {
             status.warn('⚠️', `blob_ingester_session_manager flush somehow called after destroy`, {
                 sessionId: this.sessionId,
                 partition: this.partition,
+                reason,
             })
             return
         }
@@ -289,6 +291,7 @@ export class SessionManager {
                 flushedSize: this.flushBuffer.size,
                 flushedAge: this.flushBuffer.oldestKafkaTimestamp,
                 flushedCount: this.flushBuffer.count,
+                reason,
             })
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
@@ -301,6 +304,7 @@ export class SessionManager {
                 sessionId: this.sessionId,
                 partition: this.partition,
                 team: this.teamId,
+                reason,
             })
             captureException(error)
             counterS3WriteErrored.inc()
