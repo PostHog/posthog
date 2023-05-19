@@ -1,12 +1,21 @@
 import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
+import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
+import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
 import { eachBatch } from './each-batch'
+
+export enum IngestionOverflowMode {
+    Disabled,
+    Reroute,
+    Consume,
+}
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
     const event = formPipelineEvent(message)
@@ -41,7 +50,8 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
 
 export async function eachBatchParallelIngestion(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
-    queue: IngestionConsumer
+    queue: IngestionConsumer,
+    overflowMode: IngestionOverflowMode
 ): Promise<void> {
     async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<void> {
         await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
@@ -59,7 +69,7 @@ export async function eachBatchParallelIngestion(
          * We're sorting with biggest last and pop()ing. Ideally, we'd use a priority queue by length
          * and a separate array for single messages, but let's look at profiles before optimizing.
          */
-        const messageBatches = groupByTeamDistinctId(batch.messages)
+        const [messageBatches, toOverflow] = splitIngestionBatch(batch.messages, overflowMode)
         messageBatches.sort((a, b) => a.length - b.length)
 
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, {
@@ -87,9 +97,13 @@ export async function eachBatchParallelIngestion(
             return Promise.resolve()
         }
 
-        await Promise.all(
-            [...Array(queue.pluginsServer.INGESTION_CONCURRENCY)].map(() => processMicroBatches(messageBatches))
+        const tasks = [...Array(queue.pluginsServer.INGESTION_CONCURRENCY)].map(() =>
+            processMicroBatches(messageBatches)
         )
+        if (toOverflow.length > 0) {
+            tasks.push(emitToOverflow(queue, toOverflow))
+        }
+        await Promise.all(tasks)
 
         // Commit offsets once at the end of the batch. We run the risk of duplicates
         // if the pod is prematurely killed in the middle of a batch, but this allows
@@ -150,20 +164,62 @@ export async function ingestEvent(
 let messageCounter = 0
 let messageLogDate = 0
 
-export function groupByTeamDistinctId(kafkaMessages: KafkaMessage[]): PipelineEvent[][] {
+function computeKey(pluginEvent: PipelineEvent): string {
+    return `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
+}
+
+async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: KafkaMessage[]) {
+    await Promise.all(
+        kafkaMessages.map((message) =>
+            queue.pluginsServer.kafkaProducer.queueMessage(
+                {
+                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+                    messages: [message],
+                },
+                true
+            )
+        )
+    )
+}
+
+export function splitIngestionBatch(
+    kafkaMessages: KafkaMessage[],
+    overflowMode: IngestionOverflowMode
+): [PipelineEvent[][], KafkaMessage[]] {
+    /**
+     * Prepares micro-batches for use by eachBatchParallelIngestion:
+     *   - events are parsed and grouped by token & distinct_id for sequential processing
+     *   - if overflowMode=Reroute, messages to send to overflow are in the second array
+     */
     const batches: Map<string, PipelineEvent[]> = new Map()
+    const toOverflow: KafkaMessage[] = []
     for (const message of kafkaMessages) {
+        if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
+            // Overflow detected by capture, reroute to overflow topic
+            toOverflow.push(message)
+            continue
+        }
         const pluginEvent = formPipelineEvent(message)
-        const key = `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
-        const siblings = batches.get(key)
+        const eventKey = computeKey(pluginEvent)
+        if (overflowMode === IngestionOverflowMode.Reroute && !ConfiguredLimiter.consume(eventKey, 1)) {
+            // Local overflow detection triggering, reroute to overflow topic too
+            message.key = null
+            ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
+            if (LoggingLimiter.consume(eventKey, 1)) {
+                status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
+            }
+            toOverflow.push(message)
+            continue
+        }
+        const siblings = batches.get(eventKey)
         if (siblings) {
             siblings.push(pluginEvent)
         } else {
-            batches.set(key, [pluginEvent])
+            batches.set(eventKey, [pluginEvent])
         }
     }
 
-    return Array.from(batches.values())
+    return [Array.from(batches.values()), toOverflow]
 }
 
 function countAndLogEvents(): void {

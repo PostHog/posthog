@@ -4,7 +4,7 @@ import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch
 import {
     eachBatchIngestion,
     eachBatchParallelIngestion,
-    groupByTeamDistinctId,
+    splitIngestionBatch,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
 import {
     ClickHouseTimestamp,
@@ -283,7 +283,7 @@ describe('eachBatchX', () => {
                 { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
             ])
             const stats = new Map()
-            for (const group of groupByTeamDistinctId(batch.batch.messages)) {
+            for (const group of splitIngestionBatch(batch.batch.messages)) {
                 const key = `${group[0].team_id}:${group[0].token}:${group[0].distinct_id}`
                 for (const event of group) {
                     expect(`${event.team_id}:${event.token}:${event.distinct_id}`).toEqual(key)
