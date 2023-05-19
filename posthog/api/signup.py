@@ -29,12 +29,16 @@ from posthog.utils import get_can_create_org
 logger = structlog.get_logger(__name__)
 
 
-def verify_email_or_login(request: HttpRequest, user: User) -> None:
+def verify_email_or_login(request: HttpRequest, user: User, is_social_signup: Optional[bool] = False) -> None:
     require_verification_feature = (
-        posthoganalytics.get_feature_flag(
-            "require-email-verification", str(user.distinct_id), person_properties={"email": user.email}
+        False
+        if is_social_signup is True
+        else (
+            posthoganalytics.get_feature_flag(
+                "require-email-verification", str(user.distinct_id), person_properties={"email": user.email}
+            )
+            == "test"
         )
-        == "test"
     )
     if is_email_available() and require_verification_feature:
         EmailVerifier.create_token_and_send_email_verification(user)
@@ -124,7 +128,7 @@ class SignupSerializer(serializers.Serializer):
             referral_source=referral_source,
         )
 
-        verify_email_or_login(self.context["request"], user)
+        verify_email_or_login(self.context["request"], user, self.is_social_signup)
 
         return user
 
