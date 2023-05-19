@@ -121,8 +121,6 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
 
         check_can_edit_sharing_configuration(self, request, instance)
 
-        print(instance, context.get("recording"))
-
         if context.get("recording"):
             recording = cast(SessionRecording, context.get("recording"))
             # Special case where we need to save the instance for recordings so that the actual record gets created
