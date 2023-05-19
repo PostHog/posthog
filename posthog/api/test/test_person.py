@@ -306,7 +306,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.client.post("/api/person/%s/split/" % person1.pk, {"main_distinct_id": "1"})
 
-        people = Person.objects.all().order_by("created_at")
+        people = Person.objects.all().order_by("-id")
         self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
         self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
@@ -351,7 +351,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.post("/api/person/%s/split/" % person1.pk)
-        people = Person.objects.all().order_by("created_at")
+        people = Person.objects.all().order_by("-id")
         self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
         self.assertEqual(people[0].properties, {})
@@ -529,7 +529,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post("/api/person/%s/split/" % person.uuid).json()
         self.assertTrue(response["success"])
 
-        people = Person.objects.all().order_by("created_at")
+        people = Person.objects.all().order_by("-id")
         clickhouse_people = sync_execute(
             "SELECT id FROM person FINAL WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
         )
