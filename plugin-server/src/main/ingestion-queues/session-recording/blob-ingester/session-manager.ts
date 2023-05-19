@@ -428,7 +428,7 @@ export class SessionManager {
         if (pendingChunks && pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
-            await this.processChunksToBuffer(pendingChunks.chunks)
+            await this.processChunksToBuffer(pendingChunks.completedChunks)
             this.chunks.delete(message.chunk_id)
         }
     }
