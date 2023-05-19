@@ -29,6 +29,8 @@ from posthog.queries.session_recordings.session_recording_list_from_replay_summa
 )
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.redis import get_client
+from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
 from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
 
@@ -167,10 +169,31 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             response["Content-Disposition"] = "inline"
             return response
 
-    # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
+        """
+        Snapshots can be loaded from multiple places:
+        1. From S3 if the session is older than our ingestion limit. This will be multiple files that can be streamed to the client
+        2. From Redis if the session is newer than our ingestion limit.
+        3. From Clickhouse whilst we are migrating to the new ingestion method
+        """
+
         recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+
+        def respond(res: Any):
+            # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
+            # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
+            try:
+                JSONRenderer().render(data=res)
+            except Exception:
+                capture_exception(
+                    Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": res}
+                )
+                return JsonResponse(res)
+
+            return Response(res)
+
+        # TODO: Determine if we should try Redis or not based on the recording start time and the S3 responses
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
@@ -187,6 +210,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                         "next": None,
                     }
                 )
+
+            # TODO: Temporarily we are just "falling back" to redis, when we should actually be includig it in the response somehow
+            # TODO: Call redis to try and load the snapshots via pubsub mechanism
+
+            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id)
+            if snapshots:
+                res = {"next": next_url, "snapshots": snapshots}
+
+            return respond(res)
 
         # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
         filter = Filter(request=request)
@@ -212,17 +244,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         res = {"next": next_url, "snapshot_data_by_window_id": recording.snapshot_data_by_window_id}
 
-        # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
-        # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
-        try:
-            JSONRenderer().render(data=res)
-        except Exception:
-            capture_exception(
-                Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": res}
-            )
-            return JsonResponse(res)
-
-        return Response(res)
+        return respond(res)
 
     # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)
