@@ -5,7 +5,8 @@ import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-to
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
-import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
+import { ConfiguredLimiter, LoggingLimiter, WarningLimiter } from '../../../utils/token-bucket'
+import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
@@ -87,6 +88,17 @@ export async function eachBatchParallelIngestion(
                     op: 'messageBatch',
                     data: { batchLength: currentBatch.length },
                 })
+
+                if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
+                    const team_id = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0])
+                    const distinct_id = currentBatch[0].distinct_id
+                    if (team_id && WarningLimiter.consume(`${team_id}:${distinct_id}`, 1)) {
+                        captureIngestionWarning(queue.pluginsServer.db, team_id, 'ingestion_capacity_overflow', {
+                            overflowDistinctId: distinct_id,
+                        })
+                    }
+                }
+
                 for (const message of currentBatch) {
                     await Promise.all([eachMessage(message, queue), heartbeat()])
                 }
