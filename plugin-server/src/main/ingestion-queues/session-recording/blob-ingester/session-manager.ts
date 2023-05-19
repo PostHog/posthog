@@ -172,7 +172,7 @@ export class SessionManager {
         if (this.buffer.oldestKafkaTimestamp === null) {
             // We have no messages yet, so we can't flush
             if (this.buffer.count > 0) {
-                throw new Error('Session buffer has messages but oldest/newest timestamps are null')
+                throw new Error('Session buffer has messages but oldest timestamp is null. A paradox!')
             }
             return
         }
