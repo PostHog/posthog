@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
-import React, { useContext, useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import {
     FunnelInvalidExclusionState,

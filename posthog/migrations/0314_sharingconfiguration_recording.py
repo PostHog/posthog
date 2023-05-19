@@ -7,13 +7,20 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0313_early_access_feature'),
+        ("posthog", "0313_early_access_feature"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='sharingconfiguration',
-            name='recording',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='sharing_configurations', to='posthog.sessionrecording', to_field='session_id'),
+            model_name="sharingconfiguration",
+            name="recording",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="sharing_configurations",
+                to="posthog.sessionrecording",
+                to_field="session_id",
+            ),
         ),
     ]
