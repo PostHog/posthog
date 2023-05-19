@@ -31,6 +31,21 @@ export const gaugeS3FilesBytesWritten = new Gauge({
     labelNames: ['team'],
 })
 
+export const gaugePendingChunksCompleted = new Gauge({
+    name: 'recording_pending_chunks_completed',
+    help: `Chunks can be duplicated or arrive as expected.
+        When flushing we need to check whether we have all chunks or should drop them.
+        This metric indicates a set of pending chunks were complete and could be added to the buffer`,
+})
+
+export const gaugePendingChunksDropped = new Gauge({
+    name: 'recording_pending_chunks_dropped',
+    help: `Chunks can be duplicated or arrive as expected.
+        When flushing we need to check whether we have all chunks or should drop them.
+        This metric indicates a set of pending chunks were incomplete for too long,
+        were blocking ingestion, and were dropped`,
+})
+
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
 // The buffer is a list of messages grouped
@@ -43,8 +58,43 @@ type SessionBuffer = {
     offsets: number[]
 }
 
+class PendingChunks {
+    chunks: IncomingRecordingMessage[] = []
+    readonly expectedSize: number
+
+    constructor(message: IncomingRecordingMessage) {
+        this.expectedSize = message.chunk_count
+    }
+
+    get count() {
+        return this.chunks.length
+    }
+
+    get isComplete() {
+        const fullSet = this.chunks.slice(0, this.expectedSize)
+        const expectedChunkIndexes = Array.from(Array(this.expectedSize).keys())
+        const chunkIndexes = fullSet.map((x) => x.chunk_index)
+        return expectedChunkIndexes.every((x, i) => chunkIndexes[i] === x)
+    }
+
+    isIdle(referenceNow: number, idleThreshold: number) {
+        const lastChunk = this.chunks[this.chunks.length - 1]
+        return lastChunk.metadata.timestamp < referenceNow - idleThreshold
+    }
+
+    add(message: IncomingRecordingMessage) {
+        this.chunks.push(message)
+        this.chunks.sort((a, b) => {
+            if (a.chunk_index === b.chunk_index) {
+                return a.metadata.timestamp - b.metadata.timestamp
+            }
+            return a.chunk_index - b.chunk_index
+        })
+    }
+}
+
 export class SessionManager {
-    chunks: Map<string, IncomingRecordingMessage[]> = new Map()
+    chunks: Map<string, PendingChunks> = new Map()
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
     destroying = false
@@ -218,78 +268,43 @@ export class SessionManager {
     }
 
     async handlePendingChunks(
-        chunks: Map<string, IncomingRecordingMessage[]>,
+        chunks: Map<string, PendingChunks>,
         referenceNow: number,
         flushThresholdMillis: number,
         logContext: Record<string, any>
-    ): Promise<Map<string, IncomingRecordingMessage[]>> {
-        const updatedChunks = new Map<string, IncomingRecordingMessage[]>()
+    ): Promise<Map<string, PendingChunks>> {
+        const updatedChunks = new Map<string, PendingChunks>()
 
-        const dropOrWaitForMoreChunks = (key: string, value: IncomingRecordingMessage[]) => {
-            // older than the threshold? we're never going to see more so drop them
-            // otherwise do nothing and hope for the best
-            const chunkAge = referenceNow - value[value.length - 1].metadata.timestamp
-            if (chunkAge <= flushThresholdMillis) {
-                updatedChunks.set(key, value)
-            } else {
-                // dropping these chunks, don't lose their offsets
-                value.forEach((x) => {
-                    // we want to make sure that the offsets for these messages we're ignoring
-                    // are cleared from the offsetManager so, we add then to the buffer
-                    // even though we're dropping the data
-                    this.buffer.offsets.push(x.metadata.offset)
-                })
-
-                captureException(
-                    new Error(`Dropping chunks for while lagging and flushing due to age. This is maybe fine.`),
-                    {
-                        tags: {
-                            sessionId: this.sessionId,
-                        },
-                        extra: {
-                            chunkData: value,
-                            key,
-                            ...logContext,
-                        },
-                    }
-                )
-            }
-        }
-
-        // so, we're going to drop the chunks we have and hope for the best
-        for (const [key, value] of chunks) {
-            if (!value || value.length === 0) {
-                // invalid entry, we can ignore it
-                continue
-            }
-
-            const expectedChunksCount = value[0].chunk_count
-            const currentChunksCount = value.length
-
-            if (currentChunksCount >= expectedChunksCount) {
-                const sortedChunks = value.sort((a, b) => {
-                    if (a.chunk_index === b.chunk_index) {
-                        return a.metadata.timestamp - b.metadata.timestamp
-                    }
-                    return a.chunk_index - b.chunk_index
-                })
-
-                const fullSet = sortedChunks.slice(0, expectedChunksCount)
-                const expectedChunkIndexes = Array.from(Array(expectedChunksCount).keys())
+        for (const [key, pendingChunks] of chunks) {
+            if (pendingChunks.isComplete) {
                 try {
-                    const chunkIndexes = fullSet.map((x) => x.chunk_index)
-                    if (expectedChunkIndexes.every((x, i) => chunkIndexes[i] === x)) {
-                        await this.processChunksToBuffer(fullSet)
-                        continue
-                    }
+                    await this.processChunksToBuffer(pendingChunks.chunks)
+                    gaugePendingChunksCompleted.inc()
+                    continue
                 } catch (e) {
                     // how do we track this is happening?
                     // we couldn't process these chunks, but maybe we should wait?
                 }
             }
 
-            // if there are fewer chunks than expected, or we failed to process the chunks we have then
-            dropOrWaitForMoreChunks(key, value)
+            if (pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
+                // dropping these chunks, don't lose their offsets
+                pendingChunks.chunks.forEach((x) => {
+                    // we want to make sure that the offsets for these messages we're ignoring
+                    // are cleared from the offsetManager so, we add then to the buffer
+                    // even though we're dropping the data
+                    this.buffer.offsets.push(x.metadata.offset)
+                })
+                gaugePendingChunksDropped.inc()
+                status.warn('🚽', `blob_ingester_session_manager dropping pending chunks due to age`, {
+                    ...logContext,
+                    referenceNow,
+                    flushThresholdMillis,
+                    chunkId: key,
+                })
+            } else {
+                updatedChunks.set(key, pendingChunks)
+            }
         }
 
         return updatedChunks
@@ -438,16 +453,16 @@ export class SessionManager {
         // If it is a chunked message we add to the collected chunks
 
         if (!this.chunks.has(message.chunk_id)) {
-            this.chunks.set(message.chunk_id, [])
+            this.chunks.set(message.chunk_id, new PendingChunks(message))
+        } else {
+            this.chunks.get(message.chunk_id)?.add(message)
         }
-        const chunks: IncomingRecordingMessage[] = this.chunks.get(message.chunk_id) || []
-        chunks.push(message)
+        const pendingChunks = this.chunks.get(message.chunk_id)
 
-        if (chunks.length === message.chunk_count) {
+        if (pendingChunks && pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
-            await this.processChunksToBuffer(chunks)
-
+            await this.processChunksToBuffer(pendingChunks.chunks)
             this.chunks.delete(message.chunk_id)
         }
     }
