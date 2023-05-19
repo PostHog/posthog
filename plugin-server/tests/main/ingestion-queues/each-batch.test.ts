@@ -4,6 +4,7 @@ import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch
 import {
     eachBatchIngestion,
     eachBatchParallelIngestion,
+    IngestionOverflowMode,
     splitIngestionBatch,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
 import {
@@ -248,7 +249,7 @@ describe('eachBatchX', () => {
     describe('eachBatchParallelIngestion', () => {
         it('calls runEventPipeline', async () => {
             const batch = createBatch(captureEndpointEvent)
-            await eachBatchParallelIngestion(batch, queue)
+            await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
 
             expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({
                 distinct_id: 'id',
@@ -283,7 +284,7 @@ describe('eachBatchX', () => {
                 { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
             ])
             const stats = new Map()
-            for (const group of splitIngestionBatch(batch.batch.messages)) {
+            for (const group of splitIngestionBatch(batch.batch.messages, IngestionOverflowMode.Disabled).toProcess) {
                 const key = `${group[0].team_id}:${group[0].token}:${group[0].distinct_id}`
                 for (const event of group) {
                     expect(`${event.team_id}:${event.token}:${event.distinct_id}`).toEqual(key)
@@ -322,7 +323,7 @@ describe('eachBatchX', () => {
                 { ...captureEndpointEvent, offset: 14, team_id: 5 }, // repeat
             ])
 
-            await eachBatchParallelIngestion(batch, queue)
+            await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
             expect(batch.resolveOffset).toBeCalledTimes(1)
             expect(batch.resolveOffset).toHaveBeenCalledWith(14)
             expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(14)

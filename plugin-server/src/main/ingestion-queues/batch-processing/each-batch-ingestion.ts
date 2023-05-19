@@ -18,6 +18,11 @@ export enum IngestionOverflowMode {
     Consume,
 }
 
+type IngestionSplitBatch = {
+    toProcess: PipelineEvent[][]
+    toOverflow: KafkaMessage[]
+}
+
 export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
     const event = formPipelineEvent(message)
     await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
@@ -70,13 +75,13 @@ export async function eachBatchParallelIngestion(
          * We're sorting with biggest last and pop()ing. Ideally, we'd use a priority queue by length
          * and a separate array for single messages, but let's look at profiles before optimizing.
          */
-        const [messageBatches, toOverflow] = splitIngestionBatch(batch.messages, overflowMode)
-        messageBatches.sort((a, b) => a.length - b.length)
+        const splitBatch = splitIngestionBatch(batch.messages, overflowMode)
+        splitBatch.toProcess.sort((a, b) => a.length - b.length)
 
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, {
             key: metricKey,
         })
-        queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', messageBatches.length, {
+        queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', splitBatch.toProcess.length, {
             key: metricKey,
         })
 
@@ -90,10 +95,10 @@ export async function eachBatchParallelIngestion(
                 })
 
                 if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
-                    const team_id = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0])
+                    const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0])
                     const distinct_id = currentBatch[0].distinct_id
-                    if (team_id && WarningLimiter.consume(`${team_id}:${distinct_id}`, 1)) {
-                        captureIngestionWarning(queue.pluginsServer.db, team_id, 'ingestion_capacity_overflow', {
+                    if (team && WarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
+                        captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
                             overflowDistinctId: distinct_id,
                         })
                     }
@@ -110,10 +115,10 @@ export async function eachBatchParallelIngestion(
         }
 
         const tasks = [...Array(queue.pluginsServer.INGESTION_CONCURRENCY)].map(() =>
-            processMicroBatches(messageBatches)
+            processMicroBatches(splitBatch.toProcess)
         )
-        if (toOverflow.length > 0) {
-            tasks.push(emitToOverflow(queue, toOverflow))
+        if (splitBatch.toOverflow.length > 0) {
+            tasks.push(emitToOverflow(queue, splitBatch.toOverflow))
         }
         await Promise.all(tasks)
 
@@ -197,18 +202,21 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: KafkaMess
 export function splitIngestionBatch(
     kafkaMessages: KafkaMessage[],
     overflowMode: IngestionOverflowMode
-): [PipelineEvent[][], KafkaMessage[]] {
+): IngestionSplitBatch {
     /**
      * Prepares micro-batches for use by eachBatchParallelIngestion:
      *   - events are parsed and grouped by token & distinct_id for sequential processing
      *   - if overflowMode=Reroute, messages to send to overflow are in the second array
      */
+    const output: IngestionSplitBatch = {
+        toProcess: [],
+        toOverflow: [],
+    }
     const batches: Map<string, PipelineEvent[]> = new Map()
-    const toOverflow: KafkaMessage[] = []
     for (const message of kafkaMessages) {
         if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
             // Overflow detected by capture, reroute to overflow topic
-            toOverflow.push(message)
+            output.toOverflow.push(message)
             continue
         }
         const pluginEvent = formPipelineEvent(message)
@@ -220,7 +228,7 @@ export function splitIngestionBatch(
             if (LoggingLimiter.consume(eventKey, 1)) {
                 status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
             }
-            toOverflow.push(message)
+            output.toOverflow.push(message)
             continue
         }
         const siblings = batches.get(eventKey)
@@ -230,8 +238,8 @@ export function splitIngestionBatch(
             batches.set(eventKey, [pluginEvent])
         }
     }
-
-    return [Array.from(batches.values()), toOverflow]
+    output.toProcess = Array.from(batches.values())
+    return output
 }
 
 function countAndLogEvents(): void {
