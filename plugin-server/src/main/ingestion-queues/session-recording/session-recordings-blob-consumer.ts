@@ -385,8 +385,8 @@ export class SessionRecordingBlobIngester {
         // for every ten minutes of lag add the same amount again
         const tenMinutesInMillis = 10 * 60 * 1000
         const age = serverNow - kafkaNow
-        const steps = Math.max(1, Math.ceil(age / tenMinutesInMillis))
-        return configuredAgeToleranceMillis * steps
+        const steps = Math.min(5, Math.ceil(age / tenMinutesInMillis))
+        return steps ? configuredAgeToleranceMillis * steps : configuredAgeToleranceMillis
     }
 
     public async stop(): Promise<void> {

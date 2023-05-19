@@ -68,7 +68,7 @@ describe('ingester', () => {
         [0, 10 * 60 * 1000 + 1, 1000, 2000], // over ten minutes, use configuration * 2
         [0, 10 * 60 * 1000 * 2 + 1, 1000, 3000], // over twenty minutes, use configuration * 3
         [10 * 60 * 1000 * 3, 10 * 60 * 1000 * 7 + 1, 1000, 5000], // etc
-        [10 * 60 * 1000 * 3, 10 * 60 * 1000 * 10 + 1, 1000, 8000], // etc
+        [10 * 60 * 1000 * 3, 10 * 60 * 1000 * 10 + 1, 1000, 5000], // but no more than five times
     ])(
         'uses expected flush threshold for different things',
         (kafkaNow: number, serverNow: number, configuredTolerance: number, expectedThreshold: number) => {
