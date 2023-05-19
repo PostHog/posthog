@@ -1,4 +1,5 @@
 import datetime
+from typing import cast
 from urllib.parse import quote
 import uuid
 from unittest.mock import ANY, Mock, patch
@@ -753,8 +754,9 @@ class TestUserAPI(APIBaseTest):
 
         def assert_allowed_url(url):
             response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(url)}")
+            location = cast(str | None, response.headers.get("location")) or ""
             self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-            self.assertIn(f"{url}#__posthog=", response.headers.get("location"))
+            self.assertTrue(f"{url}#__posthog=" in location)
 
         def assert_forbidden_url(url):
             response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(url)}")
