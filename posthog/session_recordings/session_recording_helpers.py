@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, DefaultDict, Dict, Generator, List, Optional
 
 from dateutil.parser import parse, ParserError
+from prometheus_client import Histogram
+from prometheus_client.utils import INF
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
@@ -26,6 +28,12 @@ FULL_SNAPSHOT = 2
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
 
 # event.type
+
+recordingsChunksLength = Histogram(
+    "session_recordings_chunks_length",
+    "We chunk session recordings to fit them into kafka, how often do we chunk and by how much?",
+    buckets=(0, 1, 2, 5, 7, 10, 15, 20, 50, 100, 500, INF),
+)
 
 
 class RRWEB_MAP_EVENT_TYPE:
@@ -117,6 +125,7 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
 
     id = str(utils.UUIDT())
     chunks = chunk_string(compressed_data, chunk_size)
+    recordingsChunksLength.observe(len(chunks))
 
     for index, chunk in enumerate(chunks):
         yield {

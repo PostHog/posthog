@@ -286,6 +286,8 @@ const eachMessage =
                             tags: {
                                 team: team.id,
                                 session_id: clickHouseRecord.session_id,
+                                chunk_index: event.properties?.['$snapshot_data']?.chunk_index || 'unknown',
+                                chunk_count: event.properties?.['$snapshot_data']?.chunk_count || 'unknown',
                             },
                         })
                     }

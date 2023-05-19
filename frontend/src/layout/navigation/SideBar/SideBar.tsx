@@ -6,7 +6,6 @@ import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/Project
 import {
     IconApps,
     IconBarChart,
-    IconBugShield,
     IconCoffee,
     IconCohort,
     IconComment,
@@ -163,11 +162,7 @@ function Pages(): JSX.Element {
                             onClick: hideSideBarMobile,
                         }}
                     />
-                    <PageButton
-                        icon={<IconRecording />}
-                        identifier={Scene.SessionRecordings}
-                        to={urls.sessionRecordings()}
-                    />
+                    <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
                     {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                         <PageButton
                             icon={<IconCoffee />}
@@ -231,9 +226,6 @@ function Pages(): JSX.Element {
                     ) : null}
                     {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
-                    )}
-                    {featureFlags[FEATURE_FLAGS.ARUBUG] && (
-                        <PageButton icon={<IconBugShield />} identifier={Scene.Issues} to={urls.issues()} />
                     )}
                     <div className="SideBar__heading">Configuration</div>
 

@@ -49,12 +49,13 @@ export function CopyToClipboardInline({
             onClick={!selectable ? copy : undefined}
             {...props}
         >
-            <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
+            <span className={iconPosition === 'start' ? 'grow-1' : undefined}>{children}</span>
             <LemonButton
                 size="small"
                 icon={<IconCopy style={{ ...iconStyle }} />}
                 noPadding
-                className="copy-icon"
+                className="ml-1"
+                data-attr="copy-icon"
                 onClick={!selectable ? undefined : copy}
             />
         </span>

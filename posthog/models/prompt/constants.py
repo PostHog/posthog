@@ -11,7 +11,7 @@ prompts_config = [
                 "reference": "save-recordings-playlist-button",
             }
         ],
-        "rule": {"path": {"must_match": ["/recordings/recent"]}},
+        "rule": {"path": {"must_match": ["/replay/recent"]}},
         "type": "one-off",
     },
 ]
