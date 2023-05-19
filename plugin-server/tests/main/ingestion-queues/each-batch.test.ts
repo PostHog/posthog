@@ -262,7 +262,7 @@ describe('eachBatchX', () => {
                 uuid: 'uuid1',
             })
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_ingestion',
+                'kafka_queue.each_batch_parallel_ingestion',
                 expect.any(Date)
             )
         })
