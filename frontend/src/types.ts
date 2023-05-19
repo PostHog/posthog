@@ -1804,7 +1804,7 @@ export interface TrendResult {
     label: string
     labels: string[]
     breakdown_value?: string | number
-    aggregated_value?: number
+    aggregated_value: number
     status?: string
     compare_label?: CompareLabelType
     compare?: boolean

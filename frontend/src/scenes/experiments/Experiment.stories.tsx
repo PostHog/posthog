@@ -301,6 +301,7 @@ const MOCK_TREND_EXPERIMENT_RESULTS: TrendsExperimentResults = {
                     math_property: undefined,
                     math_group_type_index: undefined,
                 },
+                aggregated_value: 0,
                 label: '$pageview - test',
                 count: 26,
                 data: [2.5416666666666, 4.5416666666665, 3.5416666665, 1.666666666665, 8.366666665],
@@ -371,6 +372,7 @@ const MOCK_TREND_EXPERIMENT_RESULTS: TrendsExperimentResults = {
                     math_group_type_index: null,
                     properties: undefined,
                 },
+                aggregated_value: 0,
                 label: '$pageview - control',
                 count: 11.421053, // eslint-disable-line no-loss-of-precision
                 data: [
