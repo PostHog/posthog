@@ -160,7 +160,7 @@ export class SessionManager {
         }
     }
 
-    public async flushIfSessionBufferIsOld(referenceNow: number, isLagging: boolean): Promise<void> {
+    public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
         /**
          * This needs to check several things
          * 1) if we are not lagging and the time between "now" and the oldest message is greater than threshold we should flush
@@ -188,36 +188,21 @@ export class SessionManager {
         }
 
         const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
-        const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
 
-        const bufferIsOldAndLagging = isLagging && bufferAge >= tolerance
-        const bufferIsOldAndNotLagging = !isLagging && bufferAge >= tolerance
+        const bufferIsOld = bufferAge >= flushThresholdMillis
 
-        if (bufferIsOldAndLagging) {
-            // don't immediately flush when lagging, but skip the check for a while
-            // this is to avoid flushing sessions too frequently while recovering from lag
-            this.buffer.skippedChecksDueToLag += 1
-        }
-
-        const bufferIsIdleWhileLagging = isLagging && this.buffer.skippedChecksDueToLag >= 8
-
-        if (bufferIsOldAndNotLagging || bufferIsIdleWhileLagging) {
-            this.buffer.skippedChecksDueToLag = 0
-
+        if (bufferIsOld) {
             const logContext = {
                 bufferAge,
-                tolerance,
                 sessionId: this.sessionId,
                 partition: this.partition,
                 chunkSize: this.chunks.size,
                 oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
                 referenceTime: referenceNow,
-                isLagging,
-                bufferIsIdleWhileLagging,
-                bufferIsOldAndLagging,
+                flushThresholdMillis,
             }
 
-            if (this.chunks.size > 0 && isLagging) {
+            if (this.chunks.size > 0) {
                 // there's a good chance that we're never going to get the rest of the chunks for this session,
                 // and it will block offset commits
                 // so, we're going to drop the chunks we have and hope for the best

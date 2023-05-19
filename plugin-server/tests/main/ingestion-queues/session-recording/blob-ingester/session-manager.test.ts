@@ -1,4 +1,4 @@
-import { writeFileSync } from 'fs'
+import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 
@@ -98,12 +98,20 @@ describe('session-manager', () => {
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
         })
-        event.metadata.timestamp = DateTime.now().minus({ minutes: 9 }).toMillis()
+
+        const flushThreshold = 2500 // any value here...
+        const now = DateTime.now()
+        event.metadata.timestamp = now
+            .minus({
+                milliseconds: flushThreshold - 10, // less than the threshold
+            })
+            .toMillis()
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), false)
+        await sessionManager.flushIfSessionBufferIsOld(now.toMillis(), flushThreshold)
 
-        expect(sessionManager.buffer.count).toEqual(1)
+        // as a proxy for flush having been called or not
+        expect(createReadStream).not.toHaveBeenCalled()
     })
 
     it('does flush if it has not received a message recently', async () => {
@@ -111,15 +119,18 @@ describe('session-manager', () => {
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
         })
-        event.metadata.timestamp = DateTime.now().minus({ minutes: 11 }).toMillis()
+
+        const flushThreshold = 2500 // any value here...
+        event.metadata.timestamp = DateTime.now().minus({ milliseconds: flushThreshold }).toMillis()
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), false)
+        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), flushThreshold)
 
-        expect(sessionManager.buffer.count).toEqual(0)
+        // as a proxy for flush having been called or not
+        expect(createReadStream).toHaveBeenCalled()
     })
 
-    it('does not flush a short session when lagging and first check', async () => {
+    it('does not flush a short session even when lagging if within threshold', async () => {
         const payload = JSON.stringify([{ simple: 'data' }])
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
@@ -128,41 +139,15 @@ describe('session-manager', () => {
         // a timestamp that means the message is older than threshold and all-things-being-equal should flush
         // uses timestamps offset from now to show this logic still works even if the consumer is running behind
         const aDayInMilliseconds = 24 * 60 * 60 * 1000
-        event.metadata.timestamp = DateTime.now()
-            .minus({ milliseconds: aDayInMilliseconds * 2 })
-            .toMillis()
+        const now = DateTime.now()
+        event.metadata.timestamp = now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis()
 
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionBufferIsOld(
-            DateTime.now().minus({ milliseconds: aDayInMilliseconds }).toMillis(),
-            true
-        )
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
 
-        expect(sessionManager.buffer.count).toEqual(1)
-    })
-
-    it('does flush a short session when lagging and several checks have passed', async () => {
-        const payload = JSON.stringify([{ simple: 'data' }])
-        const event = createIncomingRecordingMessage({
-            data: compressToString(payload),
-        })
-
-        // a timestamp that means the message is older than threshold and all-things-being-equal should flush
-        event.metadata.timestamp = DateTime.now()
-            .minus({ seconds: defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 5 })
-            .toMillis()
-
-        await sessionManager.add(event)
-
-        // does not flush first 7 times
-        for (let i = 0; i < 7; i++) {
-            await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), true)
-            expect(sessionManager.buffer.count).toEqual(1)
-        }
-        // assuming 30 seconds per age check then will flush on the fourth check
-        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), true)
-        expect(sessionManager.buffer.count).toEqual(0)
+        // as a proxy for flush having been called or not
+        expect(createReadStream).not.toHaveBeenCalled()
     })
 
     it('flushes messages', async () => {

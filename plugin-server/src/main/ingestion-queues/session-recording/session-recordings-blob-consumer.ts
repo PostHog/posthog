@@ -352,13 +352,17 @@ export class SessionRecordingBlobIngester {
             this.sessions.forEach((sessionManager) => {
                 sessionManangerBufferSizes += sessionManager.buffer.size
 
-                const lagTolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000 * 4
+                const flushTolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
                 // in practice, we will always have a values for latestKaftaMessageTimestamp,
                 // but in case we get here before the first message, we use now
                 const referenceNow = this.latestKafkaMessageTimestamp || DateTime.now().toMillis()
-                const isLagging = DateTime.now().toMillis() - referenceNow > lagTolerance
+                const thirtyMinutesInMilliseconds = 30 * 60 * 1000
+                const flushThresholdMillis =
+                    DateTime.now().toMillis() - referenceNow > thirtyMinutesInMilliseconds
+                        ? flushTolerance * 3
+                        : flushTolerance
 
-                void sessionManager.flushIfSessionBufferIsOld(referenceNow, isLagging).catch((err) => {
+                void sessionManager.flushIfSessionBufferIsOld(referenceNow, flushThresholdMillis).catch((err) => {
                     status.error(
                         '🚽',
                         'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
