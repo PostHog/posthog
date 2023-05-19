@@ -355,7 +355,8 @@ export class SessionRecordingBlobIngester {
             const flushThresholdMillis = this.flushThreshold(
                 kafkaNow,
                 DateTime.now().toMillis(),
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000,
+                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER
             )
 
             this.sessions.forEach((sessionManager) => {
@@ -380,12 +381,17 @@ export class SessionRecordingBlobIngester {
         }, flushIntervalTimeoutMs)
     }
 
-    flushThreshold(kafkaNow: number, serverNow: number, configuredAgeToleranceMillis: number): number {
+    flushThreshold(
+        kafkaNow: number,
+        serverNow: number,
+        configuredAgeToleranceMillis: number,
+        maxBufferAgeMultiplier = 5
+    ): number {
         // return at least config milliseconds
         // for every ten minutes of lag add the same amount again
         const tenMinutesInMillis = 10 * 60 * 1000
         const age = serverNow - kafkaNow
-        const steps = Math.min(5, Math.ceil(age / tenMinutesInMillis))
+        const steps = Math.min(maxBufferAgeMultiplier, Math.ceil(age / tenMinutesInMillis))
         return steps ? configuredAgeToleranceMillis * steps : configuredAgeToleranceMillis
     }
 
