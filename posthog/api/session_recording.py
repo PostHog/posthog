@@ -23,7 +23,6 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
-from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     SharingTokenPermission,
