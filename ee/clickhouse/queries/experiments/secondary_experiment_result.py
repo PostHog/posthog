@@ -89,12 +89,15 @@ class ClickhouseSecondaryExperimentResult:
         return variants
 
     def get_trend_count_data_for_variants(self, insight_results) -> Dict[str, float]:
-        # this assumes the Trend insight is Cumulative
+        # this assumes the Trend insight is Cumulative, unless using count per user
         variants = {}
 
         for result in insight_results:
             count = result["count"]
             breakdown_value = result["breakdown_value"]
+
+            if uses_count_per_user_aggregation(self.query_filter):
+                count = result["count"] / len(result.get("data", [0]))
 
             if breakdown_value in self.variants:
                 variants[breakdown_value] = count
