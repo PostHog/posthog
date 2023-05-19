@@ -387,7 +387,7 @@ function isPropertyValueMath(math: string | undefined): math is PropertyMathType
     return !!math && math in PROPERTY_MATH_DEFINITIONS
 }
 
-export function isCountPerActorMath(math: string | undefined): math is CountPerActorMathType {
+function isCountPerActorMath(math: string | undefined): math is CountPerActorMathType {
     return !!math && math in COUNT_PER_ACTOR_MATH_DEFINITIONS
 }
 
