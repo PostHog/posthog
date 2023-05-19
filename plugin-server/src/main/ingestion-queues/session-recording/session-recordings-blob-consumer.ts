@@ -77,7 +77,7 @@ export class SessionRecordingBlobIngester {
         this.enabledTeams =
             enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
 
-        this.realtimeManager = new RealtimeManager(this.redisPool)
+        this.realtimeManager = new RealtimeManager(this.redisPool, this.serverConfig)
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
@@ -241,6 +241,8 @@ export class SessionRecordingBlobIngester {
             captureException(e)
             throw e
         }
+
+        this.realtimeManager.subscribe()
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
         this.producer = await createKafkaProducer(connectionConfig)

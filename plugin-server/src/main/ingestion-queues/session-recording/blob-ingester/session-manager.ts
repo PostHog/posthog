@@ -2,7 +2,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
-import { appendFile, unlink } from 'fs/promises'
+import { appendFile, readFile, unlink } from 'fs/promises'
 import path from 'path'
 import { Counter, Gauge } from 'prom-client'
 import * as zlib from 'zlib'
@@ -49,6 +49,7 @@ export class SessionManager {
     flushBuffer?: SessionBuffer
     destroying = false
     inprogressUpload: Upload | null = null
+    realtime = false
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -64,6 +65,10 @@ export class SessionManager {
 
         // NOTE: a new SessionManager indicates that either everything has been flushed or a rebalance occured so we should clear the existing redis messages
         void this.realtimeManager.clearAllMessages(this.teamId, this.sessionId)
+
+        this.realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
+            void this.startRealtime()
+        })
 
         // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
@@ -351,7 +356,9 @@ export class SessionManager {
             this.buffer.offsets.push(message.metadata.offset)
 
             // We don't care about the response here as it is an optimistic call
-            void this.realtimeManager.addMessage(message)
+            if (this.realtime) {
+                void this.realtimeManager.addMessage(message)
+            }
 
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (error) {
@@ -396,6 +403,38 @@ export class SessionManager {
 
             this.chunks.delete(message.chunk_id)
         }
+    }
+
+    private async startRealtime() {
+        if (this.realtime) {
+            return
+        }
+
+        status.info('⚡️', `blob_ingester_session_manager Real-time mode started `, { sessionId: this.sessionId })
+
+        this.realtime = true
+
+        try {
+            const existingContent = await readFile(this.buffer.file, 'utf-8')
+            await this.realtimeManager.addMessagesFromBuffer(
+                this.teamId,
+                this.sessionId,
+                existingContent,
+                this.buffer.oldestKafkaTimestamp
+            )
+            status.info('⚡️', 'blob_ingester_session_manager loaded existing snapshot buffer into realtime', {
+                sessionId: this.sessionId,
+                teamId: this.teamId,
+            })
+        } catch (e) {
+            status.error('🧨', 'blob_ingester_session_manager failed loading existing snapshot buffer', {
+                sessionId: this.sessionId,
+                teamId: this.teamId,
+            })
+            captureException(e)
+        }
+
+        // TODO: Load existing buffer into memory and write to redis...
     }
 
     public async destroy(): Promise<void> {
