@@ -106,7 +106,7 @@ class SessionRecordingPropertiesSerializer(serializers.Serializer):
         }
 
 
-class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = StructuredViewSetMixin.authentication_classes + [SharingAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -126,15 +126,10 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return SessionRecordingSerializer
 
     def get_object(self):
-        if hasattr(self.request, "sharing_configuration"):
-            obj = cast(SharingConfiguration, self.request.sharing_configuration).recording
-        else:
-            team = self.team
-            session_id = self.kwargs["pk"]
-            obj = SessionRecording.get_or_build(session_id=session_id, team=team)
-
+        team = self.team
+        session_id = self.kwargs["pk"]
+        obj = SessionRecording.get_or_build(session_id=session_id, team=team)
         self.check_object_permissions(self.request, obj)
-
         return obj
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -173,11 +168,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(recording)
 
-        # serializer = SessionRecordingSerializer(recording, context=self.get_serializer_context())
-
         return Response(serializer.data)
 
-    def delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
 
         if recording.deleted:
@@ -186,7 +179,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         recording.deleted = True
         recording.save()
 
-        return Response({"success": True})
+        return Response({"success": True}, status=204)
 
     @action(methods=["GET"], detail=True)
     def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:

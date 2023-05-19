@@ -629,11 +629,41 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_delete_session_recording(self):
         self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-
-        assert response_data["success"]
-
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         # Trying to delete same recording again returns 404
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_via_sharing_token(self):
+        session_id = str(uuid.uuid4())
+        with freeze_time("2023-01-01T12:00:00Z"):
+            self.create_snapshot("user", session_id, now() - relativedelta(days=1), team_id=self.team.pk)
+
+        token = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/sharing", {"enabled": True}
+        ).json()["access_token"]
+
+        self.client.logout()
+
+        # Unallowed routes
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/2?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json() == {
+            "id": session_id,
+            "recording_duration": 0,
+            "start_time": "2022-12-31T12:00:00Z",
+            "end_time": "2022-12-31T12:00:00Z",
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
