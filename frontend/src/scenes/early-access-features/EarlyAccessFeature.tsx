@@ -5,7 +5,7 @@ import { Field, PureField } from 'lib/forms/Field'
 import { SceneExport } from 'scenes/sceneTypes'
 import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { Form } from 'kea-forms'
-import { EarlyAccessFeatureStage, EarlyAccsesFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
+import { EarlyAccessFeatureStage, EarlyAccessFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import { PersonsScene } from 'scenes/persons/Persons'
 import { IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
@@ -78,7 +78,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     placement="topLeft"
                                     onConfirm={() => {
                                         // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
-                                        deleteEarlyAccessFeature((earlyAccessFeature as EarlyAccsesFeatureType)?.id)
+                                        deleteEarlyAccessFeature((earlyAccessFeature as EarlyAccessFeatureType)?.id)
                                     }}
                                 >
                                     <LemonButton data-attr="delete-feature" status="danger" type="secondary">
@@ -255,7 +255,7 @@ function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Element {
 }
 
 interface PersonListProps {
-    earlyAccessFeature: EarlyAccsesFeatureType
+    earlyAccessFeature: EarlyAccessFeatureType
 }
 
 function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
