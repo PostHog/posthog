@@ -198,7 +198,7 @@ def _get_distinct_ids_with_version(person: Person) -> Dict[str, int]:
     return {
         distinct_id: int(version or 0)
         for distinct_id, version in PersonDistinctId.objects.filter(person=person, team_id=person.team_id)
-        .order_by("created_at")
+        .order_by("id")
         .values_list("distinct_id", "version")
     }
 
