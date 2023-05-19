@@ -62,6 +62,9 @@ export class SessionManager {
     ) {
         this.buffer = this.createBuffer()
 
+        // NOTE: a new SessionManager indicates that either everything has been flushed or a rebalance occured so we should clear the existing redis messages
+        void this.realtimeManager.clearAllMessages(this.teamId, this.sessionId)
+
         // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
@@ -297,6 +300,9 @@ export class SessionManager {
             await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
+            // TODO: Fix this - it should be latestKafkaTimestamp, not oldest
+            void this.realtimeManager.clearMessages(this.teamId, this.sessionId, this.flushBuffer.oldestKafkaTimestamp)
+
             this.flushBuffer = undefined
 
             // TODO: Sync the last processed offset to redis
