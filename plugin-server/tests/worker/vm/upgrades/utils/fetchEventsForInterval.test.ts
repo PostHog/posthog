@@ -52,8 +52,9 @@ describe('fetchEventsForInterval()', () => {
     }
 
     it('fetches events and parses them', async () => {
+        // To avoid parallel person processing which we don't handle we're doing one first alone
+        await ingestEvent('2021-06-01T00:00:00.000Z') // too old
         await Promise.all([
-            ingestEvent('2021-06-01T00:00:00.000Z'), // too old
             ingestEvent('2021-09-01T00:00:00.000Z'), // too new
 
             ingestEvent('2021-08-01T00:01:00.000Z'),

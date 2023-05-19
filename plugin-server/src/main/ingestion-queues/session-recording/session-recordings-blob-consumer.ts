@@ -1,4 +1,5 @@
 import { captureException } from '@sentry/node'
+import { DateTime } from 'luxon'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -26,6 +27,10 @@ const flushIntervalTimeoutMs = 30000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
+export const gaugeIngestionLag = new Gauge({
+    name: 'recording_blob_ingestion_lag',
+    help: 'A gauge of the number of milliseconds behind now for the timestamp of the latest message',
+})
 export const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
     help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
@@ -105,7 +110,7 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        this.offsetManager?.addOffset(topic, partition, offset)
+        this.offsetManager?.addOffset(topic, partition, session_id, offset)
         await this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
@@ -205,9 +210,17 @@ export class SessionRecordingBlobIngester {
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
+        let highestTimestamp = -Infinity
+
         for (const message of messages) {
+            if (!!message.timestamp && message.timestamp > highestTimestamp) {
+                highestTimestamp = message.timestamp
+            }
+
             await this.handleKafkaMessage(message)
         }
+
+        gaugeIngestionLag.set(DateTime.now().toMillis() - highestTimestamp)
     }
 
     public async start(): Promise<void> {
@@ -283,14 +296,16 @@ export class SessionRecordingBlobIngester {
                     return
                 }
 
-                const currentPartitions = [...this.sessions.values()].map((session) => session.partition).sort()
+                const currentPartitions = Array.from(
+                    new Set([...this.sessions.values()].map((session) => session.partition))
+                ).sort()
 
                 const sessionsToDrop = [...this.sessions.entries()].filter(([_, sessionManager]) =>
                     revokedPartitions.includes(sessionManager.partition)
                 )
 
+                // any commit from this point is invalid, so we revoke immediately
                 this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
-
                 await this.destroySessions(sessionsToDrop)
 
                 status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {

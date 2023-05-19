@@ -22,7 +22,7 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: 'Early Access Features',
+                    name: 'Early Access Management',
                     path: urls.earlyAccessFeatures(),
                 },
             ],

@@ -416,6 +416,24 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             )
         self.assertTrue(matched_person)
 
+    def test_person_cohort_properties_with_zero_value(self):
+        person1_distinct_id = "person1"
+        person1 = Person.objects.create(
+            team=self.team, distinct_ids=[person1_distinct_id], properties={"$some_prop": 0}
+        )
+        cohort1 = Cohort.objects.create(team=self.team, groups=[{"properties": {"$some_prop": 0}}], name="cohort1")
+        cohort1.people.add(person1)
+
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
+
+        with self.assertNumQueries(2):
+            matched_person = (
+                Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
+                .filter(properties_to_Q(filter.property_groups.flat))
+                .exists()
+            )
+        self.assertTrue(matched_person)
+
     def test_person_cohort_properties_with_negation(self):
         person1_distinct_id = "example_id"
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$some_prop": "matches"})

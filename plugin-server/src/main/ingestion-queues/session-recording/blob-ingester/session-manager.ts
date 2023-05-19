@@ -5,7 +5,7 @@ import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
-import { Counter } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
@@ -23,6 +23,12 @@ export const counterS3FilesWritten = new Counter({
 export const counterS3WriteErrored = new Counter({
     name: 'recording_s3_write_errored',
     help: 'Indicates that we failed to flush to S3 without recovering',
+})
+
+export const gaugeS3FilesBytesWritten = new Gauge({
+    name: 'recording_s3_bytes_written',
+    help: 'Number of bytes flushed to S3, not strictly accurate as we gzip while uploading',
+    labelNames: ['team'],
 })
 
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
@@ -44,6 +50,7 @@ export class SessionManager {
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
     destroying = false
+    inprogressUpload: Upload | null = null
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -91,6 +98,7 @@ export class SessionManager {
             status.warn('⚠️', `blob_ingester_session_manager add called after destroy`, {
                 message,
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             return
         }
@@ -124,6 +132,7 @@ export class SessionManager {
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush on buffer size called after destroy`, {
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             return
         }
@@ -132,14 +141,28 @@ export class SessionManager {
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
+        // even if the buffer is over-size we can't flush if we have unfinished chunks
         if (gzippedCapacity > 1) {
-            // return the promise and let the caller decide whether to await
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
-                gzippedCapacity,
-                gzipSizeKb,
-                sessionId: this.sessionId,
-            })
-            return this.flush()
+            if (this.chunks.size === 0) {
+                // return the promise and let the caller decide whether to await
+                status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
+                    gzippedCapacity,
+                    gzipSizeKb,
+                    sessionId: this.sessionId,
+                })
+                return this.flush()
+            } else {
+                status.warn(
+                    '🚽',
+                    `blob_ingester_session_manager would flush buffer due to size, but chunks are still pending`,
+                    {
+                        gzippedCapacity,
+                        sessionId: this.sessionId,
+                        partition: this.partition,
+                        chunks: this.chunks.size,
+                    }
+                )
+            }
         }
     }
 
@@ -148,16 +171,16 @@ export class SessionManager {
          * This needs to check several things
          * 1) if we are not lagging and the time between "now" and the oldest message is greater than threshold we should flush
          *          this check makes sure we flush sessions about ten minutes after they start no matter what
-         * 2) if we are lagging and the time between the oldest and newest timestamp is greater than threshold then we should flush
-         *          this check stops us flushing every message in a session if we are lagging
-         * 3) if we are lagging and the flush as been skipped for more than 2 minutes then we should flush
-         *          this check stops us from never flushing sessions that are shorter than threshold in length when we are lagging
+         * 2) if we are lagging and the flush as been skipped for more than X minutes then we should flush
+         *          this check stops us from never flushing sessions that
+         *          are shorter and smaller than threshold when we are lagging
          *
          *  Lagging is defined as the time between the newest timestamp and the "now" being greater than twice the threshold
          * */
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy`, {
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             return
         }
@@ -172,34 +195,80 @@ export class SessionManager {
         const now = DateTime.now().toMillis()
         const bufferAge = now - this.buffer.oldestKafkaTimestamp
         const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        const isLagging = now - this.buffer.newestKafkaTimestamp > tolerance * 2
+        const isLagging = now - this.buffer.newestKafkaTimestamp > tolerance * 4
 
+        const bufferIsOldAndLagging = isLagging && bufferAge >= tolerance
         const bufferIsOldAndNotLagging = !isLagging && bufferAge >= tolerance
 
-        if (!bufferIsOldAndNotLagging) {
+        if (bufferIsOldAndLagging) {
+            // don't immediately flush when lagging, but skip the check for a while
+            // this is to avoid flushing sessions too frequently while recovering from lag
             this.buffer.skippedChecksDueToLag += 1
         }
 
-        const bufferIsOldWhileLagging =
-            isLagging && this.buffer.newestKafkaTimestamp - this.buffer.oldestKafkaTimestamp >= tolerance
+        const bufferIsIdleWhileLagging = isLagging && this.buffer.skippedChecksDueToLag >= 8
 
-        const bufferIsIdleWhileLagging = isLagging && this.buffer.skippedChecksDueToLag >= 4
-
-        if (bufferIsOldWhileLagging || bufferIsIdleWhileLagging || bufferIsOldAndNotLagging) {
+        if (bufferIsOldAndNotLagging || bufferIsIdleWhileLagging) {
             this.buffer.skippedChecksDueToLag = 0
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+
+            const logContext = {
                 bufferAge,
                 tolerance,
                 sessionId: this.sessionId,
+                partition: this.partition,
+                chunkSize: this.chunks.size,
                 oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
                 newestKafkaTimestamp: this.buffer.newestKafkaTimestamp,
                 referenceTime: now,
                 isLagging,
-                bufferIsOldWhileLagging,
                 bufferIsIdleWhileLagging,
-                bufferIsOldAndNotLagging,
-            })
-            return this.flush()
+                bufferIsOldAndLagging,
+            }
+
+            if (this.chunks.size > 0 && isLagging) {
+                // there's a good chance that we're never going to get the rest of the chunks for this session,
+                // and it will block offset commits
+                // so, we're going to drop the chunks we have and hope for the best
+                for (const [key, value] of this.chunks) {
+                    value.forEach((x) => {
+                        // we want to make sure that the offsets for these messages we're ignoring
+                        // are cleared from the offsetManager so, we add then to the buffer we're about to flush
+                        // even though we're dropping the data
+                        this.buffer.offsets.push(x.metadata.offset)
+                    })
+
+                    captureException(
+                        new Error(`Dropping chunks for while lagging and flushing due to age. This is maybe fine.`),
+                        {
+                            tags: {
+                                sessionId: this.sessionId,
+                            },
+                            extra: {
+                                chunkData: value,
+                                key,
+                                ...logContext,
+                            },
+                        }
+                    )
+                }
+                this.chunks = new Map<string, IncomingRecordingMessage[]>()
+            }
+
+            if (this.chunks.size === 0) {
+                // return the promise and let the caller decide whether to await
+                status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+                    ...logContext,
+                })
+                return this.flush()
+            } else {
+                status.warn(
+                    '🚽',
+                    `blob_ingester_session_manager would flush buffer due to age, but chunks are still pending`,
+                    {
+                        ...logContext,
+                    }
+                )
+            }
         }
     }
 
@@ -211,6 +280,7 @@ export class SessionManager {
         if (this.flushBuffer) {
             status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing", {
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             return
         }
@@ -218,6 +288,7 @@ export class SessionManager {
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush somehow called after destroy`, {
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             return
         }
@@ -230,10 +301,9 @@ export class SessionManager {
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
             const dataKey = `${baseKey}/data/${this.flushBuffer.oldestKafkaTimestamp}` // TODO: Change to be based on events times
 
-            // TODO should only compress over some threshold? Depends how many uncompressed files we see below c200kb
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
 
-            const parallelUploads3 = new Upload({
+            this.inprogressUpload = new Upload({
                 client: this.s3Client,
                 params: {
                     Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
@@ -241,25 +311,36 @@ export class SessionManager {
                     Body: fileStream,
                 },
             })
-            await parallelUploads3.done()
+
+            await this.inprogressUpload.done()
+
             fileStream.close()
 
             counterS3FilesWritten.inc(1)
+            gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
             status.info('🚽', `blob_ingester_session_manager - flushed buffer to S3`, {
                 sessionId: this.sessionId,
+                partition: this.partition,
                 flushedSize: this.flushBuffer.size,
                 flushedAge: this.flushBuffer.oldestKafkaTimestamp,
                 flushedCount: this.flushBuffer.count,
             })
         } catch (error) {
+            if (error.name === 'AbortError' && this.destroying) {
+                // abort of inProgressUpload while destroying is expected
+                return
+            }
             // TODO: If we fail to write to S3 we should be do something about it
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
                 error,
                 sessionId: this.sessionId,
+                partition: this.partition,
+                team: this.teamId,
             })
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
+            this.inprogressUpload = null
             await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
@@ -295,6 +376,7 @@ export class SessionManager {
             status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', {
                 error,
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
@@ -315,6 +397,7 @@ export class SessionManager {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', {
                 error,
                 sessionId: this.sessionId,
+                partition: this.partition,
             })
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
@@ -328,14 +411,11 @@ export class SessionManager {
      */
     private async addToChunks(message: IncomingRecordingMessage): Promise<void> {
         // If it is a chunked message we add to the collected chunks
-        let chunks: IncomingRecordingMessage[] = []
 
         if (!this.chunks.has(message.chunk_id)) {
-            this.chunks.set(message.chunk_id, chunks)
-        } else {
-            chunks = this.chunks.get(message.chunk_id) || []
+            this.chunks.set(message.chunk_id, [])
         }
-
+        const chunks: IncomingRecordingMessage[] = this.chunks.get(message.chunk_id) || []
         chunks.push(message)
 
         if (chunks.length === message.chunk_count) {
@@ -357,27 +437,12 @@ export class SessionManager {
         }
     }
 
-    private waitForFlushToComplete(checkInterval = 100): Promise<void> {
-        return new Promise((resolve) => {
-            // Check if the variable is already undefined
-            if (typeof this.flushBuffer === 'undefined') {
-                resolve()
-                return
-            }
-
-            // If the variable is not undefined, set an interval to check its value
-            const intervalId = setInterval(() => {
-                if (typeof this.flushBuffer === 'undefined') {
-                    clearInterval(intervalId)
-                    resolve()
-                }
-            }, checkInterval)
-        })
-    }
-
     public async destroy(): Promise<void> {
         this.destroying = true
-        await this.waitForFlushToComplete()
+        if (this.inprogressUpload !== null) {
+            await this.inprogressUpload.abort()
+            this.inprogressUpload = null
+        }
 
         status.debug('␡', `blob_ingester_session_manager Destroying session manager`, { sessionId: this.sessionId })
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
@@ -387,6 +452,7 @@ export class SessionManager {
                     status.error('🧨', 'blob_ingester_session_manager failed deleting session recording buffer', {
                         error,
                         sessionId: this.sessionId,
+                        partition: this.partition,
                     })
                     captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
                     throw error

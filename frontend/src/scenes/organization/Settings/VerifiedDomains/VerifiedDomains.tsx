@@ -249,7 +249,6 @@ function VerifiedDomainsTable(): JSX.Element {
                                 </LemonButton>
                             </>
                         }
-                        style={{ display: 'inline-block' }}
                     />
                 ) : (
                     <LemonButton type="primary" onClick={() => setVerifyModal(id)}>
