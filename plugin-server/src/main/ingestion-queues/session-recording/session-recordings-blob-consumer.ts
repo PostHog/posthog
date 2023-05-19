@@ -64,6 +64,7 @@ export class SessionRecordingBlobIngester {
     lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
     enabledTeams: number[] | null
+    latestKafkaMessageTimestamp: number | null = null
 
     constructor(
         private teamManager: TeamManager,
@@ -131,6 +132,9 @@ export class SessionRecordingBlobIngester {
             // Typing says this can happen but in practice it shouldn't
             return statusWarn('message value or timestamp is empty')
         }
+
+        // track the latest message timestamp seen so we can use it to calculate a reference "now"
+        this.latestKafkaMessageTimestamp = message.timestamp
 
         let messagePayload: RawEventMessage
         let event: PipelineEvent
@@ -348,7 +352,17 @@ export class SessionRecordingBlobIngester {
             this.sessions.forEach((sessionManager) => {
                 sessionManangerBufferSizes += sessionManager.buffer.size
 
-                void sessionManager.flushIfSessionBufferIsOld().catch((err) => {
+                const flushTolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+                // in practice, we will always have a values for latestKaftaMessageTimestamp,
+                // but in case we get here before the first message, we use now
+                const referenceNow = this.latestKafkaMessageTimestamp || DateTime.now().toMillis()
+                const thirtyMinutesInMilliseconds = 30 * 60 * 1000
+                const flushThresholdMillis =
+                    DateTime.now().toMillis() - referenceNow > thirtyMinutesInMilliseconds
+                        ? flushTolerance * 3
+                        : flushTolerance
+
+                void sessionManager.flushIfSessionBufferIsOld(referenceNow, flushThresholdMillis).catch((err) => {
                     status.error(
                         '🚽',
                         'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,

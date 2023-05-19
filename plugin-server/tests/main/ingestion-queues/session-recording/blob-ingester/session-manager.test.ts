@@ -1,10 +1,27 @@
-import { DateTime } from 'luxon'
-import fs from 'node:fs'
+import { createReadStream, writeFileSync } from 'fs'
+import { appendFile, unlink } from 'fs/promises'
+import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
 import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
+
+jest.mock('fs', () => {
+    return {
+        ...jest.requireActual('fs'),
+        writeFileSync: jest.fn(),
+        createReadStream: jest.fn(),
+    }
+})
+
+jest.mock('fs/promises', () => {
+    return {
+        ...jest.requireActual('fs/promises'),
+        unlink: jest.fn().mockResolvedValue(undefined),
+        appendFile: jest.fn().mockResolvedValue(undefined),
+    }
+})
 
 describe('session-manager', () => {
     let sessionManager: SessionManager
@@ -14,8 +31,16 @@ describe('session-manager', () => {
     }
 
     beforeEach(() => {
+        // it's always May 25
+        Settings.now = () => new Date(2018, 4, 25).valueOf()
+
         sessionManager = new SessionManager(defaultConfig, mockS3Client, 1, 'session_id_1', 1, 'topic', mockFinish)
         mockFinish.mockClear()
+    })
+
+    afterEach(() => {
+        // it's no longer always May 25
+        Settings.now = () => new Date().valueOf()
     })
 
     it('adds a message', async () => {
@@ -23,7 +48,8 @@ describe('session-manager', () => {
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
         })
-        const messageTimestamp = Date.now() - 10000
+
+        const messageTimestamp = DateTime.now().toMillis() - 10000
         event.metadata.timestamp = messageTimestamp
         await sessionManager.add(event)
 
@@ -35,8 +61,34 @@ describe('session-manager', () => {
             size: 61, // The size of the event payload - this may change when test data changes
             offsets: [1],
         })
-        const fileContents = JSON.parse(fs.readFileSync(sessionManager.buffer.file, 'utf-8'))
-        expect(fileContents.data).toEqual(payload)
+
+        // the buffer file was created
+        expect(writeFileSync).toHaveBeenCalledWith(sessionManager.buffer.file, '', 'utf-8')
+    })
+
+    it('tracks buffer age span', async () => {
+        const firstMessageTimestamp = DateTime.now().toMillis() - 10000
+        const secondMessageTimestamp = DateTime.now().toMillis() - 5000
+
+        const payload = JSON.stringify([{ simple: 'data' }])
+        const event = createIncomingRecordingMessage({
+            data: compressToString(payload),
+        })
+
+        event.metadata.timestamp = firstMessageTimestamp
+        await sessionManager.add(event)
+
+        event.metadata.timestamp = secondMessageTimestamp
+        await sessionManager.add(event)
+
+        expect(sessionManager.buffer).toEqual({
+            count: 2,
+            oldestKafkaTimestamp: firstMessageTimestamp,
+            file: expect.any(String),
+            id: expect.any(String),
+            size: 61 * 2, // The size of the event payload - this may change when test data changes
+            offsets: [1, 1],
+        })
     })
 
     it('does not flush if it has received a message recently', async () => {
@@ -44,25 +96,56 @@ describe('session-manager', () => {
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
         })
-        event.metadata.timestamp = DateTime.local().minus({ minutes: 9 }).toMillis()
+
+        const flushThreshold = 2500 // any value here...
+        const now = DateTime.now()
+        event.metadata.timestamp = now
+            .minus({
+                milliseconds: flushThreshold - 10, // less than the threshold
+            })
+            .toMillis()
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionBufferIsOld()
+        await sessionManager.flushIfSessionBufferIsOld(now.toMillis(), flushThreshold)
 
-        expect(sessionManager.buffer.count).toEqual(1)
+        // as a proxy for flush having been called or not
+        expect(createReadStream).not.toHaveBeenCalled()
     })
 
-    it('does not flush if it has not received a message recently', async () => {
+    it('does flush if it has not received a message recently', async () => {
         const payload = JSON.stringify([{ simple: 'data' }])
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
         })
-        event.metadata.timestamp = DateTime.local().minus({ minutes: 11 }).toMillis()
+
+        const flushThreshold = 2500 // any value here...
+        event.metadata.timestamp = DateTime.now().minus({ milliseconds: flushThreshold }).toMillis()
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionBufferIsOld()
+        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), flushThreshold)
 
-        expect(sessionManager.buffer.count).toEqual(0)
+        // as a proxy for flush having been called or not
+        expect(createReadStream).toHaveBeenCalled()
+    })
+
+    it('does not flush a short session even when lagging if within threshold', async () => {
+        const payload = JSON.stringify([{ simple: 'data' }])
+        const event = createIncomingRecordingMessage({
+            data: compressToString(payload),
+        })
+
+        // a timestamp that means the message is older than threshold and all-things-being-equal should flush
+        // uses timestamps offset from now to show this logic still works even if the consumer is running behind
+        const aDayInMilliseconds = 24 * 60 * 60 * 1000
+        const now = DateTime.now()
+        event.metadata.timestamp = now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis()
+
+        await sessionManager.add(event)
+
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
+
+        // as a proxy for flush having been called or not
+        expect(createReadStream).not.toHaveBeenCalled()
     })
 
     it('flushes messages', async () => {
@@ -70,9 +153,9 @@ describe('session-manager', () => {
         await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
         const file = sessionManager.buffer.file
-        expect(fs.existsSync(file)).toEqual(true)
+        expect(unlink).not.toHaveBeenCalled()
 
-        const afterResumeFlushPromise = sessionManager.flush()
+        const afterResumeFlushPromise = sessionManager.flush('buffer_size')
 
         expect(sessionManager.buffer.count).toEqual(0)
         expect(sessionManager.flushBuffer?.count).toEqual(1)
@@ -81,25 +164,36 @@ describe('session-manager', () => {
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(mockFinish).toBeCalledTimes(1)
-        expect(fs.existsSync(file)).toEqual(false)
+        expect(unlink).toHaveBeenCalledWith(file)
     })
 
     it('flushes messages and whilst collecting new ones', async () => {
         const event = createIncomingRecordingMessage()
-        const event2 = createIncomingRecordingMessage()
+        const event2 = createIncomingRecordingMessage({
+            data: compressToString(JSON.stringify([{ second: 'event' }])),
+        })
         await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
 
-        const flushPromise = sessionManager.flush()
+        const firstBufferFile = sessionManager.buffer.file
+
+        const flushPromise = sessionManager.flush('buffer_size')
         await sessionManager.add(event2)
 
-        expect(sessionManager.buffer.count).toEqual(1)
-        expect(sessionManager.flushBuffer?.count).toEqual(1)
+        // that the second event is in a new buffer file
+        // that the original buffer file is deleted
+        expect(sessionManager.buffer.file).toBeDefined()
+        expect(sessionManager.buffer.file).not.toEqual(firstBufferFile)
 
         await flushPromise
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(sessionManager.buffer.count).toEqual(1)
+        expect(appendFile).toHaveBeenCalledWith(
+            sessionManager.buffer.file,
+            '{"window_id":"window_id_1","data":"[{\\"second\\":\\"event\\"}]"}\n',
+            'utf-8'
+        )
     })
 
     it('chunks incoming messages', async () => {
@@ -125,7 +219,13 @@ describe('session-manager', () => {
         expect(sessionManager.buffer.count).toEqual(1)
         expect(sessionManager.chunks.size).toEqual(0)
 
-        const fileContents = JSON.parse(fs.readFileSync(sessionManager.buffer.file, 'utf-8'))
-        expect(fileContents.data).toEqual('[{"simple":"data"}]')
+        // the file was created
+        expect(writeFileSync).toHaveBeenCalledWith(sessionManager.buffer.file, '', 'utf-8')
+        // the data was written
+        expect(appendFile).toHaveBeenCalledWith(
+            sessionManager.buffer.file,
+            '{"window_id":"window_id_1","data":"[{\\"simple\\":\\"data\\"}]"}\n',
+            'utf-8'
+        )
     })
 })
