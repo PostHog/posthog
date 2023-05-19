@@ -127,13 +127,13 @@ describe('session-manager', () => {
 
         // a timestamp older than threshold times 2 === lagging
         event.metadata.timestamp = DateTime.now()
-            .minus({ seconds: defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 3 })
+            .minus({ seconds: defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 5 })
             .toMillis()
 
         await sessionManager.add(event)
 
-        // does not flush first 3 times
-        for (let i = 0; i < 3; i++) {
+        // does not flush first 7 times
+        for (let i = 0; i < 7; i++) {
             await sessionManager.flushIfSessionBufferIsOld()
             expect(sessionManager.buffer.count).toEqual(1)
         }
