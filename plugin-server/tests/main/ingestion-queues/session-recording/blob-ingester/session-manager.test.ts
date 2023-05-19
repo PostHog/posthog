@@ -1,10 +1,15 @@
+import fs from 'fs'
 import { DateTime, Settings } from 'luxon'
-import fs from 'node:fs'
 
 import { defaultConfig } from '../../../../../src/config/config'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
 import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
+
+jest.mock('fs', () => ({
+    ...jest.requireActual('fs'),
+    writeFileSync: jest.fn(),
+}))
 
 describe('session-manager', () => {
     let sessionManager: SessionManager
