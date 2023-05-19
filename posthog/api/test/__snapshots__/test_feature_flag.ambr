@@ -408,11 +408,7 @@
          "posthog_featureflaghashkeyoverride"."hash_key",
          "posthog_featureflaghashkeyoverride"."person_id"
   FROM "posthog_featureflaghashkeyoverride"
-  WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (1,
-                                                              2,
-                                                              3,
-                                                              4,
-                                                              5 /* ... */)
+  WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (-60)
          AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
   '
 ---
