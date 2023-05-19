@@ -6,7 +6,6 @@ import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/Project
 import {
     IconApps,
     IconBarChart,
-    IconBugShield,
     IconCoffee,
     IconCohort,
     IconComment,
@@ -164,7 +163,23 @@ function Pages(): JSX.Element {
                         }}
                     />
                     <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
+                    {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
+                        <PageButton
+                            icon={<IconCoffee />}
+                            identifier={Scene.WebPerformance}
+                            to={urls.webPerformance()}
+                        />
+                    )}
+
+                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
+                        <div className="SideBar__heading">Feature Management</div>
+                    )}
+
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
+                    {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
+                        !preflight?.instance_preferences?.disable_paid_fs) && (
+                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
+                    )}
                     {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
                         <PageButton
                             icon={<IconRocketLaunch />}
@@ -173,17 +188,7 @@ function Pages(): JSX.Element {
                             to={urls.earlyAccessFeatures()}
                         />
                     )}
-                    {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
-                        !preflight?.instance_preferences?.disable_paid_fs) && (
-                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
-                    )}
-                    {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
-                        <PageButton
-                            icon={<IconCoffee />}
-                            identifier={Scene.WebPerformance}
-                            to={urls.webPerformance()}
-                        />
-                    )}
+
                     <div className="SideBar__heading">Data</div>
 
                     <PageButton
@@ -221,9 +226,6 @@ function Pages(): JSX.Element {
                     ) : null}
                     {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
-                    )}
-                    {featureFlags[FEATURE_FLAGS.ARUBUG] && (
-                        <PageButton icon={<IconBugShield />} identifier={Scene.Issues} to={urls.issues()} />
                     )}
                     <div className="SideBar__heading">Configuration</div>
 

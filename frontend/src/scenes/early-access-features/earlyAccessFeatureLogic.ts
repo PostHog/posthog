@@ -28,14 +28,15 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     props({} as FeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
-        actions: [earlyAccessFeaturesLogic, ['loadEarlyAccessFeatures']],
+        values: [teamLogic, ['currentTeamId'], earlyAccessFeaturesLogic, ['earlyAccessFeatures']],
+        actions: [earlyAccessFeaturesLogic, ['loadEarlyAccessFeatures', 'loadEarlyAccessFeaturesSuccess']],
     })),
     actions({
         toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
         promote: true,
+        deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccsesFeatureType['id']) => ({ earlyAccessFeatureId }),
     }),
     loaders(({ props }) => ({
         earlyAccessFeature: {
@@ -94,7 +95,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             (s) => [s.earlyAccessFeature],
             (earlyAccessFeature: EarlyAccsesFeatureType): Breadcrumb[] => [
                 {
-                    name: 'Early Access Features',
+                    name: 'Early Access Management',
                     path: urls.earlyAccessFeatures(),
                 },
                 ...(earlyAccessFeature?.name ? [{ name: earlyAccessFeature.name }] : []),
@@ -119,6 +120,20 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             actions.loadEarlyAccessFeatures()
             earlyAccessFeature.id && router.actions.replace(urls.earlyAccessFeature(earlyAccessFeature.id))
             actions.editFeature(false)
+        },
+        deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
+            try {
+                await api.earlyAccessFeatures.delete(earlyAccessFeatureId)
+                lemonToast.info(
+                    'Early access feature deleted. Remember to delete corresponding feature flag if necessary'
+                )
+                actions.loadEarlyAccessFeaturesSuccess(
+                    values.earlyAccessFeatures.filter((feature) => feature.id !== earlyAccessFeatureId)
+                )
+                router.actions.push(urls.earlyAccessFeatures())
+            } catch (e) {
+                lemonToast.error(`Error deleting Early Access Feature: ${e}`)
+            }
         },
     })),
     urlToAction(({ actions, props }) => ({

@@ -655,6 +655,8 @@ export enum SessionPlayerState {
     ERROR = 'error',
 }
 
+export type AutoplayDirection = 'newer' | 'older' | null
+
 /** Sync with plugin-server/src/types.ts */
 export type ActionStepProperties =
     | EventPropertyFilter

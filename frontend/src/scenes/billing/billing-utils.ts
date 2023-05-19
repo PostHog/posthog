@@ -122,7 +122,9 @@ export const getUpgradeAllProductsLink = (
     url += `${product.type}:${upgradeToPlanKey},`
     if (product.addons?.length) {
         for (const addon of product.addons) {
-            url += `${addon.type}:${addon.plans[0].plan_key},`
+            if (addon.plans?.[0]?.plan_key) {
+                url += `${addon.type}:${addon.plans[0].plan_key},`
+            }
         }
     }
     // remove the trailing comma that will be at the end of the url

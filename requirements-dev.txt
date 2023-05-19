@@ -152,6 +152,8 @@ packaging==23.1
     #   datamodel-code-generator
     #   prance
     #   pytest
+parameterized==0.9.0
+    # via -r requirements-dev.in
 pathable==0.4.3
     # via jsonschema-spec
 pathspec==0.9.0

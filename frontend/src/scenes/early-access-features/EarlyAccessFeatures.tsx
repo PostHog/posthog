@@ -24,11 +24,31 @@ export function EarlyAccessFeatures(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Early Access Management"
-                caption="Release features in a controlled way. Track adoption in stages."
+                title={
+                    <div className="flex items-center gap-2">
+                        Early Access Management
+                        <LemonTag type="warning" className="uppercase">
+                            Beta
+                        </LemonTag>
+                    </div>
+                }
+                caption={
+                    <>
+                        Allow your users to enable or disable features that are in public beta. Check out our{' '}
+                        <Link
+                            data-attr="early-access-management-help"
+                            to="https://posthog.com/docs/feature-flags/early-access-feature-management?utm_medium=in-product&utm_campaign=learn-more"
+                            target="_blank"
+                        >
+                            {' '}
+                            documentation
+                        </Link>{' '}
+                        to learn more.
+                    </>
+                }
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
-                        New release
+                        New public beta
                     </LemonButton>
                 }
                 delimited

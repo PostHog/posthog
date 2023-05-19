@@ -52,7 +52,6 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
-import { CommunicationResponse } from 'scenes/events/CommunicationDetailsLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -168,10 +167,6 @@ class ApiRequest {
 
     public projectsDetail(id: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.projects().addPathComponent(id)
-    }
-
-    public personCommunications(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('person_communications')
     }
 
     // # Insights
@@ -1110,6 +1105,9 @@ const api = {
         async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccsesFeatureType> {
             return await new ApiRequest().earlyAccessFeatures().create({ data })
         },
+        async delete(featureId: EarlyAccsesFeatureType['id']): Promise<void> {
+            await new ApiRequest().earlyAccessFeature(featureId).delete()
+        },
         async update(
             featureId: EarlyAccsesFeatureType['id'],
             data: Pick<EarlyAccsesFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
@@ -1192,12 +1190,6 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
-        },
-    },
-
-    personCommunications: {
-        async list(params: any, teamId: TeamType['id'] = getCurrentTeamId()): Promise<CommunicationResponse> {
-            return new ApiRequest().personCommunications(teamId).withQueryString(toParams(params)).get()
         },
     },
 
