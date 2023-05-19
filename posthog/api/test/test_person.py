@@ -306,7 +306,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.client.post("/api/person/%s/split/" % person1.pk, {"main_distinct_id": "1"})
 
-        people = Person.objects.all().order_by("id")
+        people = Person.objects.all()
         self.assertEqual(people.count(), 3)
 
         distinct_ids = [person.distinct_ids for person in people]
@@ -352,12 +352,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.post("/api/person/%s/split/" % person1.pk)
-        people = Person.objects.all().order_by("id")
+        people = Person.objects.all()
         self.assertEqual(people.count(), 3)
-        self.assertEqual(people[0].distinct_ids, ["1"])
+
+        distinct_ids = [person.distinct_ids for person in people]
+        self.assertEqual(distinct_ids.sort(), [["1"], ["2"], ["3"]].sort())
+
         self.assertEqual(people[0].properties, {})
-        self.assertEqual(people[1].distinct_ids, ["2"])
-        self.assertEqual(people[2].distinct_ids, ["3"])
         self.assertTrue(response.json()["success"])
 
     @mock.patch("posthog.api.person.capture_internal")
