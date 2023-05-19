@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]
@@ -235,25 +236,24 @@ class PremiumFeaturePermission(BasePermission):
 
 class SharingTokenPermission(BasePermission):
     """
-    Requires the user to have proper permission for the feature.
-    `premium_feature` must be defined as a view attribute.
-    Permission class requires a user in context, should generally be used in conjunction with IsAuthenticated.
+    Validates an authenticated SharingToken against the current request.
     """
 
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        sharing_config = cast(SharingConfiguration, request.sharing_configuration)
+        return sharing_config.can_access_object(object)
+
     def has_permission(self, request: Request, view: APIView) -> bool:
+        assert hasattr(
+            view, "sharing_enabled_actions"
+        ), "this permission class requires the `sharing_enabled_actions` attribute to be set in the view."
 
-        raise Exception("OSOSO")
-        print(request)
+        # For now we assume we are only supporting get requests
+        if request.method != "GET" or view.action not in view.sharing_enabled_actions:
+            return False
+
+        if hasattr(request, "sharing_configuration"):
+            sharing_config = cast(SharingConfiguration, request.sharing_configuration)
+            return sharing_config.enabled or False
+
         return False
-
-        # assert hasattr(
-        #     view, "premium_feature"
-        # ), "this permission class requires the `premium_feature` attribute to be set in the view."
-
-        # if not request.user or not request.user.organization:  # type: ignore
-        #     return True
-
-        # if view.premium_feature not in request.user.organization.available_features:  # type: ignore
-        #     raise EnterpriseFeatureException()
-
-        # return True

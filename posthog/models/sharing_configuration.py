@@ -29,6 +29,16 @@ class SharingConfiguration(models.Model):
         max_length=400, null=True, blank=True, default=get_default_access_token, unique=True
     )
 
+    def can_access_object(self, obj: models.Model):
+        if obj.team_id != self.team_id:
+            return False
+
+        for comparison in [self.insight, self.dashboard, self.recording]:
+            if comparison and comparison == obj:
+                return True
+
+        return False
+
     def get_connected_insight_ids(self) -> List[int]:
         if self.insight:
             if self.insight.deleted:
