@@ -39,6 +39,7 @@ type SessionBuffer = {
     count: number
     size: number
     oldestKafkaTimestamp: number
+    newestKafkaTimestamp: number
     file: string
     offsets: number[]
 }
@@ -110,6 +111,7 @@ export class SessionManager {
             return
         }
         this.buffer.oldestKafkaTimestamp = Math.min(this.buffer.oldestKafkaTimestamp, message.metadata.timestamp)
+        this.buffer.newestKafkaTimestamp = Math.max(this.buffer.newestKafkaTimestamp, message.metadata.timestamp)
         // TODO: Check that the offset is higher than the lastProcessed
         // If not - ignore it
         // If it is - update lastProcessed and process it
@@ -305,8 +307,7 @@ export class SessionManager {
             await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
-            // TODO: Fix this - it should be latestKafkaTimestamp, not oldest
-            void this.realtimeManager.clearMessages(this.teamId, this.sessionId, this.flushBuffer.oldestKafkaTimestamp)
+            void this.realtimeManager.clearMessages(this.teamId, this.sessionId, this.flushBuffer.newestKafkaTimestamp)
 
             this.flushBuffer = undefined
 
@@ -355,8 +356,8 @@ export class SessionManager {
             this.buffer.size += Buffer.byteLength(content)
             this.buffer.offsets.push(message.metadata.offset)
 
-            // We don't care about the response here as it is an optimistic call
             if (this.realtime) {
+                // We don't care about the response here as it is an optimistic call
                 void this.realtimeManager.addMessage(message)
             }
 
