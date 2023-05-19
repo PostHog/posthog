@@ -30,7 +30,7 @@ def _get_events_for_action(action: Action) -> List[MockEvent]:
         AND events.team_id = %(team_id)s
         ORDER BY events.timestamp DESC
     """
-    events = sync_execute(query, {"team_id": action.team_id, **params, **hogql_context.values})
+    events = sync_execute(query, {"team_id": action.team_id, **params, **hogql_context.values}, team_id=action.team_id)
     return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
 
 
@@ -73,7 +73,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         query, params = filter_event(step1)
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
-        result = sync_execute(full_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
 
         self.assertEqual(len(result), 1)
         self.assertCountEqual(
@@ -113,7 +113,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         query, params = filter_event(step1)
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
-        result = sync_execute(full_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
 
         self.assertEqual(len(result), 2)
         self.assertCountEqual(
@@ -149,7 +149,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         query, params = filter_event(step1)
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
-        result = sync_execute(full_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
         self.assertEqual(len(result), 2)
 
     def test_filter_event_regex_url(self):
@@ -182,7 +182,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         query, params = filter_event(step1)
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
-        result = sync_execute(full_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
         self.assertEqual(len(result), 2)
 
     def test_double(self):

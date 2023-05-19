@@ -202,3 +202,4 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
             return process_query(team, query_json["source"])
 
         raise ValidationError(f"Unsupported query kind: {query_kind}")
+

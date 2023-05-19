@@ -114,6 +114,7 @@ def query_events_list(
             },
             query_type="events_list",
             workload=workload,
+            team_id=team.pk,
         )
     else:
         return insight_query_with_columns(
@@ -127,4 +128,5 @@ def query_events_list(
             },
             query_type="events_list",
             workload=workload,
+            team_id=team.pk,
         )

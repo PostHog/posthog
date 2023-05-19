@@ -1,4 +1,5 @@
 import os
+import json
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -139,6 +140,11 @@ CLICKHOUSE_STABLE_HOST = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
+
+try:
+    CLICKHOUSE_PER_TEAM_SETTINGS = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
+except Exception:
+    CLICKHOUSE_PER_TEAM_SETTINGS = {}
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
