@@ -56,7 +56,6 @@ describe('session-manager', () => {
         expect(sessionManager.buffer).toEqual({
             count: 1,
             oldestKafkaTimestamp: messageTimestamp,
-            newestKafkaTimestamp: messageTimestamp,
             file: expect.any(String),
             id: expect.any(String),
             size: 61, // The size of the event payload - this may change when test data changes
@@ -86,7 +85,6 @@ describe('session-manager', () => {
         expect(sessionManager.buffer).toEqual({
             count: 2,
             oldestKafkaTimestamp: firstMessageTimestamp,
-            newestKafkaTimestamp: secondMessageTimestamp,
             file: expect.any(String),
             id: expect.any(String),
             size: 61 * 2, // The size of the event payload - this may change when test data changes

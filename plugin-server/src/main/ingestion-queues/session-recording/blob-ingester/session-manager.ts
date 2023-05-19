@@ -36,7 +36,6 @@ const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 type SessionBuffer = {
     id: string
     oldestKafkaTimestamp: number | null
-    newestKafkaTimestamp: number | null
     skippedChecksDueToLag: number
     count: number
     size: number
@@ -104,10 +103,6 @@ export class SessionManager {
 
         this.buffer.oldestKafkaTimestamp = Math.min(
             this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
-            message.metadata.timestamp
-        )
-        this.buffer.newestKafkaTimestamp = Math.max(
-            this.buffer.newestKafkaTimestamp ?? message.metadata.timestamp,
             message.metadata.timestamp
         )
 
@@ -184,7 +179,7 @@ export class SessionManager {
             return
         }
 
-        if (this.buffer.oldestKafkaTimestamp === null || this.buffer.newestKafkaTimestamp === null) {
+        if (this.buffer.oldestKafkaTimestamp === null) {
             // We have no messages yet, so we can't flush
             if (this.buffer.count > 0) {
                 throw new Error('Session buffer has messages but oldest/newest timestamps are null')
@@ -216,7 +211,6 @@ export class SessionManager {
                 partition: this.partition,
                 chunkSize: this.chunks.size,
                 oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
-                newestKafkaTimestamp: this.buffer.newestKafkaTimestamp,
                 referenceTime: referenceNow,
                 isLagging,
                 bufferIsIdleWhileLagging,
@@ -357,7 +351,6 @@ export class SessionManager {
                 count: 0,
                 size: 0,
                 oldestKafkaTimestamp: null,
-                newestKafkaTimestamp: null,
                 file: path.join(
                     bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
                     `${this.teamId}.${this.sessionId}.${id}.jsonl`
