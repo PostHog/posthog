@@ -90,11 +90,7 @@ export class EventPipelineRunner {
         if (processedEvent == null) {
             return this.registerLastStep('pluginsProcessEventStep', event.team_id, [event])
         }
-        const [normalizedEvent, person] = await this.runStep(
-            processPersonsStep,
-            [this, processedEvent],
-            event.team_id
-        )
+        const [normalizedEvent, person] = await this.runStep(processPersonsStep, [this, processedEvent], event.team_id)
 
         const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent], event.team_id)
 
