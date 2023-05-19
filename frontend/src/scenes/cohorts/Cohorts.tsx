@@ -96,7 +96,7 @@ export function Cohorts(): JSX.Element {
                                 <LemonButton
                                     status="stealth"
                                     to={
-                                        combineUrl(urls.sessionRecordings(), {
+                                        combineUrl(urls.replay(), {
                                             filters: {
                                                 properties: [
                                                     {

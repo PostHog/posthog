@@ -447,7 +447,7 @@ export enum SavedInsightsTabs {
     History = 'history',
 }
 
-export enum SessionRecordingsTabs {
+export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
     FilePlayback = 'file-playback',
@@ -2029,7 +2029,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: string[] | null
-    features: EarlyAccsesFeatureType[] | null
+    features: EarlyAccessFeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -2056,7 +2056,7 @@ export enum EarlyAccessFeatureStage {
     GeneralAvailability = 'general-availability',
 }
 
-export interface EarlyAccsesFeatureType {
+export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
     feature_flag: FeatureFlagBasicType
@@ -2068,7 +2068,7 @@ export interface EarlyAccsesFeatureType {
     created_at: string
 }
 
-export interface NewEarlyAccessFeatureType extends Omit<EarlyAccsesFeatureType, 'id' | 'created_at' | 'feature_flag'> {
+export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
     feature_flag_id: number | undefined
 }
 

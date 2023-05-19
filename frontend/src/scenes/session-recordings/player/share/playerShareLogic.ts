@@ -44,7 +44,7 @@ export const playerShareLogic = kea<playerShareLogicType>([
         url: [
             (s) => [s.queryParams],
             (queryParams) => {
-                return combineUrl(`${window.location.origin}${urls.sessionRecording(props.id)}`, queryParams).url
+                return combineUrl(`${window.location.origin}${urls.replaySingle(props.id)}`, queryParams).url
             },
         ],
     })),
