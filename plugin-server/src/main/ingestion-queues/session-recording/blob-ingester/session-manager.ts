@@ -434,8 +434,6 @@ export class SessionManager {
             })
             captureException(e)
         }
-
-        // TODO: Load existing buffer into memory and write to redis...
     }
 
     public async destroy(): Promise<void> {
