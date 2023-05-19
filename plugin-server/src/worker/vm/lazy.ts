@@ -157,7 +157,7 @@ export class LazyPluginVM {
                         await this._setupPlugin(vm.vm)
                         this.ready = true
                     }
-                    status.info('🔌', `Loaded ${logInfo}.`)
+                    status.debug('🔌', `Loaded ${logInfo}.`)
                     await this.createLogEntry(
                         `Plugin loaded (instance ID ${this.hub.instanceId}).`,
                         PluginLogEntryType.Debug

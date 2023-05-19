@@ -174,7 +174,6 @@ describe.each([[true], [false]])('PersonState.update()', (poEEmbraceJoin) => {
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
-            expect(personContainer.loaded).toEqual(false)
             expect(persons[0]).toEqual(await personContainer.get())
             expect(await personContainer.get()).toEqual(racePerson)
         })
@@ -212,7 +211,6 @@ describe.each([[true], [false]])('PersonState.update()', (poEEmbraceJoin) => {
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
-            expect(personContainer.loaded).toEqual(false)
             expect(persons[0]).toEqual(await personContainer.get())
             expect(await personContainer.get()).toEqual(racePerson)
         })

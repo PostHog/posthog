@@ -58,6 +58,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         WORKER_CONCURRENCY: 1,
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
+        INGESTION_CONCURRENCY: 10,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
@@ -120,8 +121,6 @@ export function getDefaultConfig(): PluginsServerConfig {
             ? 1024 // NOTE: ~1MB in dev or test, so that even with gzipped content we still flush pretty frequently
             : 1024 * 50, // ~50MB after compression in prod
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
-
-        SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS: '', // TODO: Change this to 'all' when we release it fully
     }
 }
 
