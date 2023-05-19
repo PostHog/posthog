@@ -3,10 +3,8 @@ import { appendFile, unlink } from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
-import {
-    PendingChunks,
-    SessionManager,
-} from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
+import { PendingChunks } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/pending-chunks'
+import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
 import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
@@ -382,8 +380,7 @@ describe('session-manager', () => {
         ) => {
             const pendingChunks = new Map<string, PendingChunks>()
             Object.entries(chunks).forEach(([key, value]) => {
-                const pc = new PendingChunks(value)
-                pendingChunks.set(key, pc)
+                pendingChunks.set(key, new PendingChunks(value))
             })
 
             const actualChunks = await sessionManager.handlePendingChunks(pendingChunks, referenceNow, 1000, {})
