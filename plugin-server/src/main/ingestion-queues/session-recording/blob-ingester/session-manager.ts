@@ -191,32 +191,12 @@ export class SessionManager {
             }
 
             if (this.chunks.size > 0) {
-                // there's a good chance that we're never going to get the rest of the chunks for this session,
-                // and it will block offset commits
-                // so, we're going to drop the chunks we have and hope for the best
-                for (const [key, value] of this.chunks) {
-                    value.forEach((x) => {
-                        // we want to make sure that the offsets for these messages we're ignoring
-                        // are cleared from the offsetManager so, we add then to the buffer we're about to flush
-                        // even though we're dropping the data
-                        this.buffer.offsets.push(x.metadata.offset)
-                    })
-
-                    captureException(
-                        new Error(`Dropping chunks for while lagging and flushing due to age. This is maybe fine.`),
-                        {
-                            tags: {
-                                sessionId: this.sessionId,
-                            },
-                            extra: {
-                                chunkData: value,
-                                key,
-                                ...logContext,
-                            },
-                        }
-                    )
-                }
-                this.chunks = new Map<string, IncomingRecordingMessage[]>()
+                this.chunks = await this.handlePendingChunks(
+                    this.chunks,
+                    referenceNow,
+                    flushThresholdMillis,
+                    logContext
+                )
             }
 
             if (this.chunks.size === 0) {
@@ -235,6 +215,84 @@ export class SessionManager {
                 )
             }
         }
+    }
+
+    async handlePendingChunks(
+        chunks: Map<string, IncomingRecordingMessage[]>,
+        referenceNow: number,
+        flushThresholdMillis: number,
+        logContext: Record<string, any>
+    ): Promise<Map<string, IncomingRecordingMessage[]>> {
+        const updatedChunks = new Map<string, IncomingRecordingMessage[]>()
+
+        const dropOrWaitForMoreChunks = (key: string, value: IncomingRecordingMessage[]) => {
+            // older than the threshold? we're never going to see more so drop them
+            // otherwise do nothing and hope for the best
+            const chunkAge = referenceNow - value[value.length - 1].metadata.timestamp
+            if (chunkAge <= flushThresholdMillis) {
+                updatedChunks.set(key, value)
+            } else {
+                // dropping these chunks, don't lose their offsets
+                value.forEach((x) => {
+                    // we want to make sure that the offsets for these messages we're ignoring
+                    // are cleared from the offsetManager so, we add then to the buffer
+                    // even though we're dropping the data
+                    this.buffer.offsets.push(x.metadata.offset)
+                })
+
+                captureException(
+                    new Error(`Dropping chunks for while lagging and flushing due to age. This is maybe fine.`),
+                    {
+                        tags: {
+                            sessionId: this.sessionId,
+                        },
+                        extra: {
+                            chunkData: value,
+                            key,
+                            ...logContext,
+                        },
+                    }
+                )
+            }
+        }
+
+        // so, we're going to drop the chunks we have and hope for the best
+        for (const [key, value] of chunks) {
+            if (!value || value.length === 0) {
+                // invalid entry, we can ignore it
+                continue
+            }
+
+            const expectedChunksCount = value[0].chunk_count
+            const currentChunksCount = value.length
+
+            if (currentChunksCount >= expectedChunksCount) {
+                const sortedChunks = value.sort((a, b) => {
+                    if (a.chunk_index === b.chunk_index) {
+                        return a.metadata.timestamp - b.metadata.timestamp
+                    }
+                    return a.chunk_index - b.chunk_index
+                })
+
+                const fullSet = sortedChunks.slice(0, expectedChunksCount)
+                const expectedChunkIndexes = Array.from(Array(expectedChunksCount).keys())
+                try {
+                    const chunkIndexes = fullSet.map((x) => x.chunk_index)
+                    if (expectedChunkIndexes.every((x, i) => chunkIndexes[i] === x)) {
+                        await this.processChunksToBuffer(fullSet)
+                        continue
+                    }
+                } catch (e) {
+                    // how do we track this is happening?
+                    // we couldn't process these chunks, but maybe we should wait?
+                }
+            }
+
+            // if there are fewer chunks than expected, or we failed to process the chunks we have then
+            dropOrWaitForMoreChunks(key, value)
+        }
+
+        return updatedChunks
     }
 
     /**
@@ -388,20 +446,28 @@ export class SessionManager {
         if (chunks.length === message.chunk_count) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
-            chunks.forEach((x) => {
-                this.buffer.offsets.push(x.metadata.offset)
-            })
-
-            await this.addToBuffer({
-                ...message,
-                data: chunks
-                    .sort((a, b) => a.chunk_index - b.chunk_index)
-                    .map((c) => c.data)
-                    .join(''),
-            })
+            await this.processChunksToBuffer(chunks)
 
             this.chunks.delete(message.chunk_id)
         }
+    }
+
+    private async processChunksToBuffer(chunks: IncomingRecordingMessage[]) {
+        await this.addToBuffer({
+            ...chunks[chunks.length - 1],
+            data: chunks
+                .sort((a, b) => a.chunk_index - b.chunk_index)
+                .map((c) => c.data)
+                .join(''),
+        })
+        // push all but the last offset into the buffer
+        // the final offset was copied into the data passed to `addToBuffer`
+        for (let i = 0; i < chunks.length - 1; i++) {
+            const x = chunks[i]
+            this.buffer.offsets.push(x.metadata.offset)
+        }
+        // chunk processing can leave the offsets out of order
+        this.buffer.offsets.sort((a, b) => a - b)
     }
 
     public async destroy(): Promise<void> {
