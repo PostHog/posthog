@@ -138,11 +138,7 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE "posthog_persondistinctid"."person_id" IN (-410) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.15
@@ -391,11 +387,8 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE "posthog_persondistinctid"."person_id" IN (-410,
+                                                   -411) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.24
@@ -628,11 +621,9 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE "posthog_persondistinctid"."person_id" IN (-410,
+                                                   -411,
+                                                   -412) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.4
