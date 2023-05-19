@@ -17,6 +17,7 @@ import { convertToPersistedMessage } from './utils'
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
     help: 'A single file flushed to S3',
+    labelNames: ['flushReason'],
 })
 
 export const counterS3WriteErrored = new Counter({
@@ -144,7 +145,7 @@ export class SessionManager {
                     gzipSizeKb,
                     sessionId: this.sessionId,
                 })
-                return this.flush()
+                return this.flush('buffer_size')
             } else {
                 status.warn(
                     '🚽',
@@ -236,7 +237,7 @@ export class SessionManager {
                 status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                     ...logContext,
                 })
-                return this.flush()
+                return this.flush('buffer_age')
             } else {
                 status.warn(
                     '🚽',
@@ -253,7 +254,7 @@ export class SessionManager {
      * Flushing takes the current buffered file and moves it to the flush buffer
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
-    public async flush(): Promise<void> {
+    public async flush(reason: 'buffer_size' | 'buffer_age'): Promise<void> {
         if (this.flushBuffer) {
             status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing", {
                 sessionId: this.sessionId,
@@ -293,7 +294,7 @@ export class SessionManager {
 
             fileStream.close()
 
-            counterS3FilesWritten.inc(1)
+            counterS3FilesWritten.labels(reason).inc(1)
             gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
             status.info('🚽', `blob_ingester_session_manager - flushed buffer to S3`, {
                 sessionId: this.sessionId,

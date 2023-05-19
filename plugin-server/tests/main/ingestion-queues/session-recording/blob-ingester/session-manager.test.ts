@@ -157,7 +157,7 @@ describe('session-manager', () => {
         const file = sessionManager.buffer.file
         expect(unlink).not.toHaveBeenCalled()
 
-        const afterResumeFlushPromise = sessionManager.flush()
+        const afterResumeFlushPromise = sessionManager.flush('buffer_size')
 
         expect(sessionManager.buffer.count).toEqual(0)
         expect(sessionManager.flushBuffer?.count).toEqual(1)
@@ -179,7 +179,7 @@ describe('session-manager', () => {
 
         const firstBufferFile = sessionManager.buffer.file
 
-        const flushPromise = sessionManager.flush()
+        const flushPromise = sessionManager.flush('buffer_size')
         await sessionManager.add(event2)
 
         // that the second event is in a new buffer file
