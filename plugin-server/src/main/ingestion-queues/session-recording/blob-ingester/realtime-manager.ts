@@ -4,6 +4,7 @@ import { RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { IncomingRecordingMessage } from './types'
+import { convertToPersistedMessage } from './utils'
 
 /**
  * RealtimeManager
@@ -41,7 +42,7 @@ export class RealtimeManager {
                 return client.zadd(
                     this.getSnapshotsKey(message.team_id, message.session_id),
                     message.metadata.timestamp,
-                    JSON.stringify(message)
+                    JSON.stringify(convertToPersistedMessage(message))
                 )
             })
             status.info('📡', 'RealtimeManager added recording message to redis')

@@ -23,7 +23,7 @@ export function decompressFromString(input: string, doubleDecode = false): strin
                 finalUncompressed,
             })
         }
-        return finalUncompressed
+        return JSON.parse(finalUncompressed)
     } catch (e: any) {
         if (e.code === 'Z_DATA_ERROR' && e.errno === -3 && !doubleDecode) {
             // some received data (particularly chunks) are double encoded

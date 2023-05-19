@@ -10,7 +10,8 @@ def get_key(team_id: str, suffix: str) -> str:
 # TODO: Type this better
 def get_realtime_snapshots(team_id: str, session_id: str) -> Optional[List[Dict]]:
     redis = get_client()
-    snapshots = redis.zrange(get_key(team_id, f"session-{session_id}"), 0, -1, withscores=True)
+    key = get_key(team_id, session_id)
+    snapshots = redis.zrange(key, 0, -1, withscores=True)
 
     if snapshots:
         return [json.loads(s[0]) for s in snapshots]

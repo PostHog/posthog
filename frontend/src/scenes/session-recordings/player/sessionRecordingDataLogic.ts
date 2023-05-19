@@ -116,7 +116,20 @@ async function makeSnapshotsAPICall({
     // NOTE: This might seem backwards as we translate the snapshotsByWindowId to an array and then derive it again later but
     // this is for future support of the API that will return them as a simple array
 
-    if (!response.blob_keys) {
+    if (response.blob_keys) {
+        return {
+            snapshots: [],
+            blob_keys: response.blob_keys,
+        }
+    } else if (response.snapshots) {
+        return {
+            snapshots: prepareRecordingSnapshots(
+                response.snapshots,
+                nextUrl ? currentSnapshotData?.snapshots ?? [] : []
+            ),
+            next: response.next,
+        }
+    } else {
         const snapshots = convertSnapshotsResponse(
             response.snapshot_data_by_window_id,
             nextUrl ? currentSnapshotData?.snapshots ?? [] : []
@@ -124,11 +137,6 @@ async function makeSnapshotsAPICall({
         return {
             snapshots,
             next: response.next,
-        }
-    } else {
-        return {
-            snapshots: [],
-            blob_keys: response.blob_keys,
         }
     }
 }
@@ -434,7 +442,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const jsonLines = strFromU8(decompressSync(contentBuffer)).trim().split('\n')
                     const snapshots: RecordingSnapshot[] = jsonLines.flatMap((l) => {
                         const snapshotLine = JSON.parse(l)
-                        const snapshotData = JSON.parse(snapshotLine['data'])
+                        const snapshotData =
+                            typeof snapshotLine['data'] === 'string'
+                                ? JSON.parse(snapshotLine['data'])
+                                : snapshotLine['data']
 
                         return snapshotData.map((d: any) => ({
                             windowId: snapshotLine['window_id'],
