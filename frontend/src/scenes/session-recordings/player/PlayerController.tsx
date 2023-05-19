@@ -13,7 +13,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonCheckbox } from '@posthog/lemon-ui'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -22,8 +21,8 @@ export function PlayerController(): JSX.Element {
     const { togglePlayPause, exportRecordingToFile, openExplorer, setIsFullScreen } =
         useActions(sessionRecordingPlayerLogic)
 
-    const { speed, skipInactivitySetting, autoplayEnabled } = useValues(playerSettingsLogic)
-    const { setSpeed, setSkipInactivitySetting, setAutoplayEnabled } = useActions(playerSettingsLogic)
+    const { speed, skipInactivitySetting } = useValues(playerSettingsLogic)
+    const { setSpeed, setSkipInactivitySetting } = useActions(playerSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -110,17 +109,6 @@ export function PlayerController(): JSX.Element {
                         <More
                             overlay={
                                 <>
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => setAutoplayEnabled(!autoplayEnabled)}
-                                        fullWidth
-                                        sideIcon={
-                                            <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
-                                        }
-                                    >
-                                        Autoplay enabled
-                                    </LemonButton>
-
                                     <LemonButton
                                         status="stealth"
                                         onClick={() => exportRecordingToFile()}

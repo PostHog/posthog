@@ -1,5 +1,5 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import { SessionRecordingPlayerTab } from '~/types'
+import { AutoplayDirection, SessionRecordingPlayerTab } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -167,7 +167,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
-        setAutoplayEnabled: (enabled: boolean) => ({ enabled }),
+        toggleAutoplayDirection: true,
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
@@ -195,11 +195,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
             },
         ],
-        autoplayEnabled: [
-            true,
+        autoplayDirection: [
+            'older' as AutoplayDirection,
             { persist: true },
             {
-                setAutoplayEnabled: (_, { enabled }) => enabled,
+                toggleAutoplayDirection: (state) => {
+                    return !state ? 'older' : state === 'older' ? 'newer' : null
+                },
             },
         ],
 

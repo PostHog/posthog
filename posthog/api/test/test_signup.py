@@ -31,7 +31,6 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture):
-
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
 
@@ -696,7 +695,6 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):
-
         for invalid_invite in [uuid.uuid4(), "abc", "1234"]:
             response = self.client.get(f"/api/signup/{invalid_invite}/")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -757,7 +755,13 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True}
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Alice",
+                "password": "test_password",
+                "email_opt_in": True,
+                "role_at_organization": "Engineering",
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
@@ -791,6 +795,7 @@ class TestInviteSignupAPI(APIBaseTest):
         mock_capture.assert_called_once()
         self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
         self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        self.assertEqual("Engineering", mock_capture.call_args[1]["properties"]["role_at_organization"])
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], False)

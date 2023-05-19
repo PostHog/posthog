@@ -34,7 +34,6 @@ from . import (
     team,
     uploaded_media,
     user,
-    person_communication,
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
@@ -250,11 +249,4 @@ project_session_recordings_router.register(
     sharing.SharingConfigurationViewSet,
     "project_recording_sharing",
     ["team_id", "recording_id"],
-)
-
-projects_router.register(
-    r"person_communications",
-    person_communication.PersonCommunicationViewSet,
-    "project_person_communications",
-    ["team_id"],
 )

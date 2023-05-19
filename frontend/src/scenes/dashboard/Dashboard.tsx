@@ -144,6 +144,7 @@ function DashboardScene(): JSX.Element {
                                         ...groupsTaxonomicTypes,
                                         TaxonomicFilterGroupType.Cohorts,
                                         TaxonomicFilterGroupType.Elements,
+                                        TaxonomicFilterGroupType.HogQLExpression,
                                     ]}
                                 />
                             </div>

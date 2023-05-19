@@ -9,8 +9,8 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconChevronRight, IconPause, IconPlay } from 'lib/lemon-ui/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
@@ -20,6 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
@@ -51,6 +52,8 @@ export function RecordingsLists({
         pinnedRecordingsResponseLoading,
     } = useValues(logic)
     const { setSelectedRecordingId, loadNext, loadPrev, setFilters, maybeLoadSessionRecordings } = useActions(logic)
+    const { autoplayDirection } = useValues(playerSettingsLogic)
+    const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const infiniteScrollerEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
 
@@ -131,25 +134,58 @@ export function RecordingsLists({
                     listKey="other"
                     title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                     titleRight={
-                        infiniteScrollerEnabled ? (
-                            sessionRecordings.length ? (
-                                <Tooltip
-                                    placement="bottom"
-                                    title={
-                                        <>
-                                            Showing {sessionRecordings.length} results.
-                                            <br />
-                                            Scrolling to the bottom or the top of the list will load older or newer
-                                            recordings respectively.
-                                        </>
-                                    }
-                                >
-                                    <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
-                                </Tooltip>
-                            ) : null
-                        ) : (
-                            paginationControls
-                        )
+                        <>
+                            {infiniteScrollerEnabled ? (
+                                sessionRecordings.length ? (
+                                    <Tooltip
+                                        placement="bottom"
+                                        title={
+                                            <>
+                                                Showing {sessionRecordings.length} results.
+                                                <br />
+                                                Scrolling to the bottom or the top of the list will load older or newer
+                                                recordings respectively.
+                                            </>
+                                        }
+                                    >
+                                        <span>
+                                            <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                        </span>
+                                    </Tooltip>
+                                ) : null
+                            ) : (
+                                paginationControls
+                            )}
+
+                            <Tooltip
+                                title={
+                                    <div className="text-center">
+                                        Autoplay next recording
+                                        <br />({!autoplayDirection ? 'disabled' : autoplayDirection})
+                                    </div>
+                                }
+                                placement="bottom"
+                            >
+                                <span>
+                                    <LemonSwitch
+                                        checked={!!autoplayDirection}
+                                        onChange={toggleAutoplayDirection}
+                                        handleContent={
+                                            <span
+                                                className={clsx(
+                                                    'transition-all flex items-center',
+                                                    !autoplayDirection && 'text-border text-sm',
+                                                    !!autoplayDirection && 'text-primary-highlight text-xs pl-px',
+                                                    autoplayDirection === 'newer' && 'rotate-180'
+                                                )}
+                                            >
+                                                {autoplayDirection ? <IconPlay /> : <IconPause />}
+                                            </span>
+                                        }
+                                    />
+                                </span>
+                            </Tooltip>
+                        </>
                     }
                     onRecordingClick={onRecordingClick}
                     onPropertyClick={onPropertyClick}

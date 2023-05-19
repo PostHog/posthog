@@ -80,7 +80,7 @@
         "safe-stable-stringify": "^2.4.0",
         "snowflake-sdk": "^1.6.10",
         "uuid": "^8.3.2",
-        "vm2": "3.9.17"
+        "vm2": "3.9.18"
     },
     "devDependencies": {
         "0x": "^5.5.0",
