@@ -174,7 +174,10 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
-                    <PageButton icon={<IconFeedback />} identifier={Scene.Feedback} to={urls.allFeedback()} />
+
+                    {featureFlags[FEATURE_FLAGS.FEEDBACK_V1] && (
+                        <PageButton icon={<IconFeedback />} identifier={Scene.Feedback} to={urls.allFeedback()} />
+                    )}
 
                     {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
                         <div className="SideBar__heading">Feature Management</div>
