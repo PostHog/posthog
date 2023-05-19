@@ -109,7 +109,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_filter_person_email(self):
-
         _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
@@ -131,7 +130,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_filter_person_prop(self):
-
         _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
@@ -199,7 +197,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 0)
 
     def test_cant_see_another_organization_pii_with_filters(self):
-
         # Completely different organization
         another_org: Organization = Organization.objects.create()
         another_team: Team = Team.objects.create(organization=another_org)
@@ -309,7 +306,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.client.post("/api/person/%s/split/" % person1.pk, {"main_distinct_id": "1"})
 
-        people = Person.objects.all().order_by("id")
+        people = Person.objects.all().order_by("-id")
         self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
         self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
