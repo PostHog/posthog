@@ -15,7 +15,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
-import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 
 function SessionPropertyMeta(props: {
     fullScreen: boolean
@@ -91,6 +93,52 @@ export function PlayerMeta(): JSX.Element {
     })
 
     const isSmallPlayer = size === 'compact'
+
+    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+    const whitelabel = getCurrentExporterData()?.whitelabel ?? false
+
+    const resolutionView = sessionPlayerMetaDataLoading ? (
+        <LemonSkeleton className="w-1/3" />
+    ) : resolution ? (
+        <Tooltip
+            placement="bottom"
+            title={
+                <>
+                    The resolution of the page as it was captured was{' '}
+                    <b>
+                        {resolution.width} x {resolution.height}
+                    </b>
+                    <br />
+                    You are viewing the replay at <b>{percentage(scale, 1, true)}</b> of the original size
+                </>
+            }
+        >
+            <span className="text-muted-alt text-xs">
+                {resolution && (
+                    <>
+                        {resolution.width} x {resolution.height} {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
+                    </>
+                )}
+            </span>
+        </Tooltip>
+    ) : null
+
+    if (mode === SessionRecordingPlayerMode.Sharing) {
+        return (
+            <div className="PlayerMeta">
+                <div className="flex justify-between items-center m-2">
+                    {!whitelabel ? (
+                        <Tooltip title="Powered by PostHog" placement="right">
+                            <Link to={'https://posthog.com'} className="flex items-center" target="blank">
+                                <FriendlyLogo />
+                            </Link>
+                        </Tooltip>
+                    ) : null}
+                    {resolutionView}
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div
@@ -202,32 +250,7 @@ export function PlayerMeta(): JSX.Element {
                     </>
                 ) : null}
                 <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
-                {sessionPlayerMetaDataLoading ? (
-                    <LemonSkeleton className="w-1/3" />
-                ) : resolution ? (
-                    <Tooltip
-                        placement="bottom"
-                        title={
-                            <>
-                                The resolution of the page as it was captured was{' '}
-                                <b>
-                                    {resolution.width} x {resolution.height}
-                                </b>
-                                <br />
-                                You are viewing the replay at <b>{percentage(scale, 1, true)}</b> of the original size
-                            </>
-                        }
-                    >
-                        <span className="text-muted-alt text-xs">
-                            {resolution && (
-                                <>
-                                    {resolution.width} x {resolution.height}{' '}
-                                    {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
-                                </>
-                            )}
-                        </span>
-                    </Tooltip>
-                ) : null}
+                {resolutionView}
             </div>
         </div>
     )

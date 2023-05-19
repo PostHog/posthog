@@ -12,8 +12,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -50,7 +48,6 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const whitelabel = getCurrentExporterData()?.whitelabel ?? false
 
     return (
         <div className="flex flex-row gap-1 items-center justify-end">
@@ -84,8 +81,6 @@ export function PlayerMetaLinks(): JSX.Element {
                     )}
                 </>
             ) : null}
-
-            {mode === SessionRecordingPlayerMode.Sharing && !whitelabel ? <FriendlyLogo /> : null}
         </div>
     )
 }
