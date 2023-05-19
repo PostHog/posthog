@@ -3,18 +3,22 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
     AvailableFeature,
     BreakdownAttributionType,
+    ChartDisplayType,
     Experiment,
     FunnelConversionWindowTimeUnit,
     FunnelExperimentResults,
     FunnelsFilterType,
     FunnelVizType,
     InsightType,
+    PropertyFilterType,
+    PropertyOperator,
     SignificanceCode,
+    TrendsExperimentResults,
 } from '~/types'
 import { useAvailableFeatures } from '~/mocks/features'
 
@@ -80,6 +84,58 @@ const MOCK_FUNNEL_EXPERIMENT: Experiment = {
     },
     created_at: '2022-12-10T07:06:27.027740Z',
     updated_at: '2023-02-09T19:13:57.137954Z',
+}
+
+const MOCK_TREND_EXPERIMENT: Experiment = {
+    id: 2,
+    name: 'aloha',
+    start_date: '2023-02-11T10:37:17.634000Z',
+    end_date: null,
+    feature_flag_key: 'aloha',
+    feature_flag: 30,
+    parameters: {
+        feature_flag_variants: [
+            {
+                key: 'control',
+                rollout_percentage: 50,
+            },
+            {
+                key: 'test',
+                rollout_percentage: 50,
+            },
+        ],
+        recommended_sample_size: 0,
+        recommended_running_time: 28.3,
+    },
+    secondary_metrics: [],
+    filters: {
+        events: [
+            {
+                id: '$pageview',
+                math: 'avg_count_per_actor',
+                name: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+        ],
+        actions: [],
+        date_to: '2023-05-19T23:59',
+        insight: InsightType.TRENDS,
+        interval: 'day',
+        date_from: '2023-05-05T11:36',
+        filter_test_accounts: false,
+    },
+    archived: false,
+    created_by: {
+        id: 1,
+        uuid: '01881f35-b41a-0000-1d94-331938392cac',
+        distinct_id: 'Xr1OY26ZsDh9ZbvA212ggq4l0Hf0dmEUjT33zvRPKrX',
+        first_name: 'SS',
+        email: 'test@posthog.com',
+        is_email_verified: false,
+    },
+    created_at: '2022-03-15T21:31:00.192917Z',
+    updated_at: '2022-03-15T21:31:00.192917Z',
 }
 
 const MOCK_EXPERIMENT_RESULTS: FunnelExperimentResults = {
@@ -230,6 +286,210 @@ const MOCK_EXPERIMENT_RESULTS: FunnelExperimentResults = {
     },
 }
 
+const MOCK_TREND_EXPERIMENT_RESULTS: TrendsExperimentResults = {
+    result: {
+        fakeInsightId: '1234',
+        insight: [
+            {
+                action: {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    custom_name: null,
+                    math: 'avg_count_per_actor',
+                    math_property: undefined,
+                    math_group_type_index: undefined,
+                },
+                label: '$pageview - test',
+                count: 26,
+                data: [2.5416666666666, 4.5416666666665, 3.5416666665, 1.666666666665, 8.366666665],
+                labels: ['11-Feb-2023', '12-Feb-2023', '13-Feb-2023', '14-Feb-2023', '15-Feb-2023'],
+                days: ['2023-02-11', '2023-02-12', '2023-02-13', '2023-02-14', '2023-02-15'],
+                breakdown_value: 'test',
+                persons_urls: [
+                    {
+                        url: 'api/projects/1/persons/trends/?breakdown=%24feature%2Faloha&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2023-05-19T00%3A00%3A00%2B00%3A00&explicit_date=true&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22avg_count_per_actor%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24feature%2Faloha%22%2C+%22operator%22%3A+%22exact%22%2C+%22type%22%3A+%22event%22%2C+%22value%22%3A+%5B%22control%22%2C+%22test%22%5D%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=avg_count_per_actor&date_to=2023-05-19T00%3A00%3A00%2B00%3A00&breakdown_value=control&cache_invalidation_key=iaDd6ork',
+                    },
+                    {
+                        url: 'api/projects/1/persons/trends/?breakdown=%24feature%2Faloha&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2023-05-19T00%3A00%3A00%2B00%3A00&explicit_date=true&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22avg_count_per_actor%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24feature%2Faloha%22%2C+%22operator%22%3A+%22exact%22%2C+%22type%22%3A+%22event%22%2C+%22value%22%3A+%5B%22control%22%2C+%22test%22%5D%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=avg_count_per_actor&date_to=2023-05-19T00%3A00%3A00%2B00%3A00&breakdown_value=control&cache_invalidation_key=iaDd6ork',
+                    },
+                    {
+                        url: 'api/projects/1/persons/trends/?breakdown=%24feature%2Faloha&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2023-05-19T00%3A00%3A00%2B00%3A00&explicit_date=true&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22avg_count_per_actor%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24feature%2Faloha%22%2C+%22operator%22%3A+%22exact%22%2C+%22type%22%3A+%22event%22%2C+%22value%22%3A+%5B%22control%22%2C+%22test%22%5D%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=avg_count_per_actor&date_to=2023-05-19T00%3A00%3A00%2B00%3A00&breakdown_value=control&cache_invalidation_key=iaDd6ork',
+                    },
+                    {
+                        url: 'api/projects/1/persons/trends/?breakdown=%24feature%2Faloha&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2023-05-19T00%3A00%3A00%2B00%3A00&explicit_date=true&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22avg_count_per_actor%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24feature%2Faloha%22%2C+%22operator%22%3A+%22exact%22%2C+%22type%22%3A+%22event%22%2C+%22value%22%3A+%5B%22control%22%2C+%22test%22%5D%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=avg_count_per_actor&date_to=2023-05-19T00%3A00%3A00%2B00%3A00&breakdown_value=control&cache_invalidation_key=iaDd6ork',
+                    },
+                    {
+                        url: 'api/projects/1/persons/trends/?breakdown=%24feature%2Faloha&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2023-05-19T00%3A00%3A00%2B00%3A00&explicit_date=true&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22avg_count_per_actor%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24feature%2Faloha%22%2C+%22operator%22%3A+%22exact%22%2C+%22type%22%3A+%22event%22%2C+%22value%22%3A+%5B%22control%22%2C+%22test%22%5D%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=avg_count_per_actor&date_to=2023-05-19T00%3A00%3A00%2B00%3A00&breakdown_value=control&cache_invalidation_key=iaDd6ork',
+                    },
+                ],
+                filter: {
+                    breakdown: '$feature/aloha',
+                    breakdown_normalize_url: false,
+                    breakdown_type: 'event',
+                    date_from: '2023-02-11T10:37:17.634000Z',
+                    date_to: '2023-02-16T10:37:17.634000Z',
+                    explicit_date: 'true',
+                    display: ChartDisplayType.ActionsLineGraph,
+                    events: [
+                        {
+                            id: '$pageview',
+                            type: 'events',
+                            order: 0,
+                            name: '$pageview',
+                            custom_name: null,
+                            math: 'avg_count_per_actor',
+                            math_property: null,
+                            math_group_type_index: null,
+                            properties: {},
+                        },
+                    ],
+                    insight: InsightType.TRENDS,
+                    interval: 'day',
+                    properties: [
+                        {
+                            key: '$feature/aloha',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                            value: ['control', 'test'],
+                        },
+                    ],
+                    sampling_factor: undefined,
+                    smoothing_intervals: 1,
+                },
+            },
+            {
+                action: {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    custom_name: null,
+                    math: 'avg_count_per_actor',
+                    math_property: undefined,
+                    math_group_type_index: null,
+                    properties: undefined,
+                },
+                label: '$pageview - control',
+                count: 11.421053, // eslint-disable-line no-loss-of-precision
+                data: [
+                    2.4210526315789473, 1.4210526315789473, 3.4210526315789473, 0.4210526315789473, 3.4210526315789473,
+                ],
+                labels: ['11-Feb-2023', '12-Feb-2023', '13-Feb-2023', '14-Feb-2023', '15-Feb-2023'],
+                days: ['2023-02-11', '2023-02-12', '2023-02-13', '2023-02-14', '2023-02-15'],
+                breakdown_value: 'control',
+                persons_urls: [
+                    {
+                        url: 'api/projects/1/persons/trends/?breakdown=%24feature%2Faloha&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2023-05-19T00%3A00%3A00%2B00%3A00&explicit_date=true&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22avg_count_per_actor%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24feature%2Faloha%22%2C+%22operator%22%3A+%22exact%22%2C+%22type%22%3A+%22event%22%2C+%22value%22%3A+%5B%22control%22%2C+%22test%22%5D%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=avg_count_per_actor&date_to=2023-05-19T00%3A00%3A00%2B00%3A00&breakdown_value=control&cache_invalidation_key=iaDd6ork',
+                    },
+                    {
+                        url: 'api/projects/1/persons/trends/?breakdown=%24feature%2Faloha&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2023-05-19T00%3A00%3A00%2B00%3A00&explicit_date=true&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22avg_count_per_actor%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24feature%2Faloha%22%2C+%22operator%22%3A+%22exact%22%2C+%22type%22%3A+%22event%22%2C+%22value%22%3A+%5B%22control%22%2C+%22test%22%5D%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=avg_count_per_actor&date_to=2023-05-19T00%3A00%3A00%2B00%3A00&breakdown_value=control&cache_invalidation_key=iaDd6ork',
+                    },
+                    {
+                        url: 'api/projects/1/persons/trends/?breakdown=%24feature%2Faloha&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2023-05-19T00%3A00%3A00%2B00%3A00&explicit_date=true&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22avg_count_per_actor%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24feature%2Faloha%22%2C+%22operator%22%3A+%22exact%22%2C+%22type%22%3A+%22event%22%2C+%22value%22%3A+%5B%22control%22%2C+%22test%22%5D%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=avg_count_per_actor&date_to=2023-05-19T00%3A00%3A00%2B00%3A00&breakdown_value=control&cache_invalidation_key=iaDd6ork',
+                    },
+                    {
+                        url: 'api/projects/1/persons/trends/?breakdown=%24feature%2Faloha&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2023-05-19T00%3A00%3A00%2B00%3A00&explicit_date=true&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22avg_count_per_actor%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24feature%2Faloha%22%2C+%22operator%22%3A+%22exact%22%2C+%22type%22%3A+%22event%22%2C+%22value%22%3A+%5B%22control%22%2C+%22test%22%5D%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=avg_count_per_actor&date_to=2023-05-19T00%3A00%3A00%2B00%3A00&breakdown_value=control&cache_invalidation_key=iaDd6ork',
+                    },
+                    {
+                        url: 'api/projects/1/persons/trends/?breakdown=%24feature%2Faloha&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2023-05-19T00%3A00%3A00%2B00%3A00&explicit_date=true&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22avg_count_per_actor%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&properties=%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24feature%2Faloha%22%2C+%22operator%22%3A+%22exact%22%2C+%22type%22%3A+%22event%22%2C+%22value%22%3A+%5B%22control%22%2C+%22test%22%5D%7D%5D%7D&sampling_factor=&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=avg_count_per_actor&date_to=2023-05-19T00%3A00%3A00%2B00%3A00&breakdown_value=control&cache_invalidation_key=iaDd6ork',
+                    },
+                ],
+                filter: {
+                    breakdown: '$feature/aloha',
+                    breakdown_normalize_url: false,
+                    breakdown_type: 'event',
+                    date_from: '2023-02-11T10:37:17.634000Z',
+                    explicit_date: 'true',
+                    display: ChartDisplayType.ActionsLineGraph,
+                    events: [
+                        {
+                            id: '$pageview',
+                            type: 'events',
+                            order: 0,
+                            name: '$pageview',
+                            custom_name: null,
+                            math: 'avg_count_per_actor',
+                            math_property: null,
+                            math_group_type_index: null,
+                            properties: {},
+                        },
+                    ],
+                    insight: InsightType.TRENDS,
+                    interval: 'day',
+                    properties: [
+                        {
+                            key: '$feature/aloha',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                            value: ['control', 'test'],
+                        },
+                    ],
+                    sampling_factor: undefined,
+                    smoothing_intervals: 1,
+                },
+            },
+        ],
+        probability: {
+            control: 0.407580005,
+            test: 0.59242,
+        },
+        significant: false,
+        filters: {
+            breakdown: '$feature/aloha',
+            breakdown_normalize_url: false,
+            breakdown_type: 'event',
+            date_from: '2023-02-11T10:37:17.634000Z',
+            explicit_date: 'true',
+            display: ChartDisplayType.ActionsLineGraph,
+            events: [
+                {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    custom_name: null,
+                    math: 'avg_count_per_actor',
+                    math_property: null,
+                    math_group_type_index: null,
+                    properties: {},
+                },
+            ],
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            properties: [
+                {
+                    key: '$feature/aloha',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                    value: ['control', 'test'],
+                },
+            ],
+            sampling_factor: undefined,
+            smoothing_intervals: 1,
+        },
+        significance_code: SignificanceCode.NotEnoughExposure,
+        p_value: 1,
+        variants: [
+            {
+                key: 'control',
+                count: 46,
+                exposure: 1,
+                absolute_exposure: 19,
+            },
+            {
+                key: 'test',
+                count: 61,
+                exposure: 1.263157894736842,
+                absolute_exposure: 24,
+            },
+        ],
+    },
+    last_refresh: '2023-02-11T10:37:17.634000Z',
+    is_cached: true,
+}
+
 export default {
     title: 'Scenes-App/Experiments',
     parameters: {
@@ -265,6 +525,21 @@ export function CompleteFunnelExperiment(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.experiment(MOCK_FUNNEL_EXPERIMENT.id))
     }, [])
+    return <App />
+}
+
+export function RunningTrendExperiment(): JSX.Element {
+    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
+    useEffect(() => {
+        router.actions.push(urls.experiment(MOCK_TREND_EXPERIMENT.id))
+    }, [])
+    useStorybookMocks({
+        get: {
+            '/api/projects/:team_id/experiments/': toPaginatedResponse([MOCK_FUNNEL_EXPERIMENT, MOCK_TREND_EXPERIMENT]),
+            '/api/projects/:team_id/experiments/:experiment_id/': MOCK_TREND_EXPERIMENT,
+            '/api/projects/:team_id/experiments/:experiment_id/results/': MOCK_TREND_EXPERIMENT_RESULTS,
+        },
+    })
     return <App />
 }
 

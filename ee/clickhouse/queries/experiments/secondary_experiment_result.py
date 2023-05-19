@@ -3,6 +3,7 @@ from typing import Dict, Optional
 
 import pytz
 from rest_framework.exceptions import ValidationError
+from ee.clickhouse.queries.experiments.trend_experiment_result import uses_count_per_user_aggregation
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_CUMULATIVE
 from posthog.models.feature_flag import FeatureFlag
@@ -55,7 +56,7 @@ class ClickhouseSecondaryExperimentResult:
         )
 
         self.team = team
-        if query_filter.insight == INSIGHT_TRENDS:
+        if query_filter.insight == INSIGHT_TRENDS and not uses_count_per_user_aggregation(query_filter):
             query_filter = query_filter.shallow_clone({"display": TRENDS_CUMULATIVE})
 
         self.query_filter = query_filter
