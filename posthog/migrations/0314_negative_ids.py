@@ -13,5 +13,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(NEGATIVE_SEQUENCE_PERSON_DISTINCTID_SQL, NEGATIVE_SEQUENCE_PERSON_SQL),
+        migrations.RunSQL(NEGATIVE_SEQUENCE_PERSON_DISTINCTID_SQL),
+        migrations.RunSQL(NEGATIVE_SEQUENCE_PERSON_SQL),
     ]
