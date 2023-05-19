@@ -109,6 +109,9 @@
 }
 
 .SideBar__content {
+    position: relative;
+    display: flex;
+    flex-grow: 1;
     overflow: auto;
     width: 100%;
 }
