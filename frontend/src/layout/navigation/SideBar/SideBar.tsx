@@ -162,11 +162,7 @@ function Pages(): JSX.Element {
                             onClick: hideSideBarMobile,
                         }}
                     />
-                    <PageButton
-                        icon={<IconRecording />}
-                        identifier={Scene.SessionRecordings}
-                        to={urls.sessionRecordings()}
-                    />
+                    <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
                     {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                         <PageButton
                             icon={<IconCoffee />}
