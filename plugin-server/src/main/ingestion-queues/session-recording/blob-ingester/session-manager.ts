@@ -161,16 +161,6 @@ export class SessionManager {
     }
 
     public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
-        /**
-         * This needs to check several things
-         * 1) if we are not lagging and the time between "now" and the oldest message is greater than threshold we should flush
-         *          this check makes sure we flush sessions about ten minutes after they start no matter what
-         * 2) if we are lagging and the flush as been skipped for more than X minutes then we should flush
-         *          this check stops us from never flushing sessions that
-         *          are shorter and smaller than threshold when we are lagging
-         *
-         *  Lagging is defined as the time between the newest timestamp and the "now" being greater than twice the threshold
-         * */
         if (this.destroying) {
             status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy`, {
                 sessionId: this.sessionId,
@@ -189,9 +179,7 @@ export class SessionManager {
 
         const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
 
-        const bufferIsOld = bufferAge >= flushThresholdMillis
-
-        if (bufferIsOld) {
+        if (bufferAge >= flushThresholdMillis) {
             const logContext = {
                 bufferAge,
                 sessionId: this.sessionId,
