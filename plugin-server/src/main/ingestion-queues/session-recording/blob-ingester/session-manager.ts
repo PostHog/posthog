@@ -58,12 +58,17 @@ type SessionBuffer = {
     offsets: number[]
 }
 
-class PendingChunks {
-    chunks: IncomingRecordingMessage[] = []
+export class PendingChunks {
+    readonly chunks: IncomingRecordingMessage[]
     readonly expectedSize: number
 
-    constructor(message: IncomingRecordingMessage) {
-        this.expectedSize = message.chunk_count
+    constructor(messages: IncomingRecordingMessage[]) {
+        if (messages.length === 0) {
+            throw new Error('Cannot create PendingChunks with no messages')
+        }
+        this.chunks = messages
+        this.expectedSize = messages[0].chunk_count
+        this.onAddMessage()
     }
 
     get count() {
@@ -77,6 +82,13 @@ class PendingChunks {
         return expectedChunkIndexes.every((x, i) => chunkIndexes[i] === x)
     }
 
+    get completedChunks() {
+        if (!this.isComplete) {
+            throw new Error('Cannot get completed chunks from incomplete set')
+        }
+        return this.chunks.slice(0, this.expectedSize)
+    }
+
     isIdle(referenceNow: number, idleThreshold: number) {
         const lastChunk = this.chunks[this.chunks.length - 1]
         return lastChunk.metadata.timestamp < referenceNow - idleThreshold
@@ -84,6 +96,10 @@ class PendingChunks {
 
     add(message: IncomingRecordingMessage) {
         this.chunks.push(message)
+        this.onAddMessage()
+    }
+
+    private onAddMessage() {
         this.chunks.sort((a, b) => {
             if (a.chunk_index === b.chunk_index) {
                 return a.metadata.timestamp - b.metadata.timestamp
@@ -278,7 +294,7 @@ export class SessionManager {
         for (const [key, pendingChunks] of chunks) {
             if (pendingChunks.isComplete) {
                 try {
-                    await this.processChunksToBuffer(pendingChunks.chunks)
+                    await this.processChunksToBuffer(pendingChunks.completedChunks)
                     gaugePendingChunksCompleted.inc()
                     continue
                 } catch (e) {
@@ -453,7 +469,7 @@ export class SessionManager {
         // If it is a chunked message we add to the collected chunks
 
         if (!this.chunks.has(message.chunk_id)) {
-            this.chunks.set(message.chunk_id, new PendingChunks(message))
+            this.chunks.set(message.chunk_id, new PendingChunks([message]))
         } else {
             this.chunks.get(message.chunk_id)?.add(message)
         }

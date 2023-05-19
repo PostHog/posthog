@@ -3,7 +3,10 @@ import { appendFile, unlink } from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
-import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
+import {
+    PendingChunks,
+    SessionManager,
+} from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
 import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
@@ -235,124 +238,108 @@ describe('session-manager', () => {
             // incomplete and below threshold
             // we keep it in the chunks buffer
             2000,
-            new Map([
-                ['1', [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage]],
-            ]),
-            new Map([
-                ['1', [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage]],
-            ]),
+            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage] },
+            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage] },
             [],
         ],
         [
             // incomplete and over the threshold
             // drop the chunks copying the offsets into the buffer
             2500,
-            new Map([
-                [
-                    '1',
-                    [
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            metadata: { timestamp: 1000, offset: 245 },
-                        } as IncomingRecordingMessage,
-                    ],
+            {
+                '1': [
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 245 },
+                    } as IncomingRecordingMessage,
                 ],
-            ]),
-            new Map(),
+            },
+            {},
             [245],
         ],
         [
             // over-complete and over the threshold
             // process the chunks
             2500,
-            new Map([
-                [
-                    '1',
-                    [
-                        {
-                            chunk_count: 2,
-                            chunk_index: 0,
-                            data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-                            metadata: { timestamp: 997, offset: 244 },
-                        } as IncomingRecordingMessage,
-                        //receives chunk two three times 😱
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                            metadata: { timestamp: 998, offset: 245 },
-                        } as IncomingRecordingMessage,
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            metadata: { timestamp: 999, offset: 246 },
-                        } as IncomingRecordingMessage,
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            metadata: { timestamp: 1000, offset: 247 },
-                        } as IncomingRecordingMessage,
-                    ],
+            {
+                '1': [
+                    {
+                        chunk_count: 2,
+                        chunk_index: 0,
+                        data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                        metadata: { timestamp: 997, offset: 123 },
+                    } as IncomingRecordingMessage,
+                    //receives chunk two three times 😱
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                        metadata: { timestamp: 998, offset: 124 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 999, offset: 125 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 126 },
+                    } as IncomingRecordingMessage,
                 ],
-            ]),
-            new Map(),
-            [244, 245],
+            },
+            {},
+            [123, 124],
         ],
         [
             // over-complete and under the threshold
             // but not all chunks are present, even though there are duplicates,
             // do not process the chunks, do not drop the chunks
             1000,
-            new Map([
-                [
-                    '1',
-                    [
-                        //receives chunk two three times 😱
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                            metadata: { timestamp: 998, offset: 245 },
-                        } as IncomingRecordingMessage,
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            metadata: { timestamp: 999, offset: 246 },
-                        } as IncomingRecordingMessage,
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            metadata: { timestamp: 1000, offset: 247 },
-                        } as IncomingRecordingMessage,
-                    ],
+            {
+                '1': [
+                    //receives chunk two three times 😱
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                        metadata: { timestamp: 998, offset: 245 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 999, offset: 246 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 247 },
+                    } as IncomingRecordingMessage,
                 ],
-            ]),
-            new Map([
-                [
-                    '1',
-                    [
-                        //receives chunk two three times 😱
-                        // drops one of the duplicates in the processing
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                            metadata: { timestamp: 998, offset: 245 },
-                        } as IncomingRecordingMessage,
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            metadata: { timestamp: 999, offset: 246 },
-                        } as IncomingRecordingMessage,
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            metadata: { timestamp: 1000, offset: 247 },
-                        } as IncomingRecordingMessage,
-                    ],
+            },
+            {
+                '1': [
+                    //receives chunk two three times 😱
+                    // drops one of the duplicates in the processing
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                        metadata: { timestamp: 998, offset: 245 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 999, offset: 246 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 247 },
+                    } as IncomingRecordingMessage,
                 ],
-            ]),
+            },
             [],
         ],
         [
@@ -360,44 +347,50 @@ describe('session-manager', () => {
             // but not all chunks are present, even though there are duplicates,
             // do not process the chunks, and do drop the chunks
             4000,
-            new Map([
-                [
-                    '1',
-                    [
-                        //receives chunk two three times 😱
-                        // worse, the chunk is decompressible even though it is not complete
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                            metadata: { timestamp: 998, offset: 245 },
-                        } as IncomingRecordingMessage,
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            metadata: { timestamp: 999, offset: 246 },
-                        } as IncomingRecordingMessage,
-                        {
-                            chunk_count: 2,
-                            chunk_index: 1,
-                            metadata: { timestamp: 1000, offset: 247 },
-                        } as IncomingRecordingMessage,
-                    ],
+            {
+                1: [
+                    //receives chunk two three times 😱
+                    // worse, the chunk is decompressible even though it is not complete
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                        metadata: { timestamp: 998, offset: 245 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 999, offset: 246 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 247 },
+                    } as IncomingRecordingMessage,
                 ],
-            ]),
-            new Map(),
+            },
+            {},
             [245, 246, 247],
         ],
     ])(
         'correctly handles pending chunks',
         async (
             referenceNow: number,
-            chunks: Map<string, IncomingRecordingMessage[]>,
-            expectedChunks: Map<string, IncomingRecordingMessage[]>,
+            chunks: Record<string, IncomingRecordingMessage[]>,
+            expectedChunks: Record<string, IncomingRecordingMessage[]>,
             expectedBufferOffsets: number[]
         ) => {
-            const actualChunks = await sessionManager.handlePendingChunks(chunks, referenceNow, 1000, {})
-            expect(actualChunks).toEqual(expectedChunks)
+            const pendingChunks = new Map<string, PendingChunks>()
+            Object.entries(chunks).forEach(([key, value]) => {
+                const pc = new PendingChunks(value)
+                pendingChunks.set(key, pc)
+            })
+
+            const actualChunks = await sessionManager.handlePendingChunks(pendingChunks, referenceNow, 1000, {})
+            expect(actualChunks.size).toEqual(Object.keys(expectedChunks).length)
+            Object.entries(expectedChunks).forEach(([key, value]) => {
+                expect(actualChunks.get(key)?.chunks).toEqual(value)
+            })
             expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
         }
     )
