@@ -100,6 +100,7 @@ export function Experiment(): JSX.Element {
     const { insightProps } = useValues(
         insightLogic({
             dashboardItemId: experimentInsightId,
+            disableDataExploration: true,
         })
     )
     const {
