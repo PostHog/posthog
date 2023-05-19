@@ -603,6 +603,21 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
+export type EncodedRecordingSnapshot = {
+    windowId: string
+    data: eventWithTime[] | string
+}
+
+export interface SessionRecordingSnapshotResponse {
+    next?: string
+    // When loaded from real-time
+    snapshots?: EncodedRecordingSnapshot[]
+    // When loaded from S3
+    blob_keys?: string[]
+    // When loaded from Clickhouse (legacy)
+    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
+}
+
 export interface SessionRecordingMeta {
     pinnedCount: number
     segments: RecordingSegment[]

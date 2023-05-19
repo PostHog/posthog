@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
     AvailableFeature,
+    EncodedRecordingSnapshot,
     PerformanceEvent,
     RecordingEventsFilters,
     RecordingEventType,
@@ -13,6 +14,7 @@ import {
     SessionPlayerData,
     SessionPlayerSnapshotData,
     SessionRecordingId,
+    SessionRecordingSnapshotResponse,
     SessionRecordingType,
     SessionRecordingUsageType,
 } from '~/types'
@@ -31,6 +33,23 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
+
+const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): RecordingSnapshot[] => {
+    const snapshots: RecordingSnapshot[] = items.flatMap((l) => {
+        const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
+        const snapshotData =
+            typeof snapshotLine['data'] === 'string'
+                ? (JSON.parse(snapshotLine['data']) as eventWithTime[])
+                : snapshotLine['data']
+
+        return snapshotData.map((d: any) => ({
+            windowId: snapshotLine['window_id'],
+            ...d,
+        }))
+    })
+
+    return snapshots
+}
 
 export const prepareRecordingSnapshots = (
     newSnapshots?: RecordingSnapshot[],
@@ -110,7 +129,7 @@ async function makeSnapshotsAPICall({
     })
     const apiUrl =
         nextUrl || `api/projects/${currentTeamId}/session_recordings/${sessionRecordingId}/snapshots?${params}`
-    const response = await api.get(apiUrl)
+    const response: SessionRecordingSnapshotResponse = await api.get(apiUrl)
     breakpoint()
 
     // NOTE: This might seem backwards as we translate the snapshotsByWindowId to an array and then derive it again later but
@@ -124,12 +143,12 @@ async function makeSnapshotsAPICall({
     } else if (response.snapshots) {
         return {
             snapshots: prepareRecordingSnapshots(
-                response.snapshots,
+                parseEncodedSnapshots(response.snapshots),
                 nextUrl ? currentSnapshotData?.snapshots ?? [] : []
             ),
             next: response.next,
         }
-    } else {
+    } else if (response.snapshot_data_by_window_id) {
         const snapshots = convertSnapshotsResponse(
             response.snapshot_data_by_window_id,
             nextUrl ? currentSnapshotData?.snapshots ?? [] : []
@@ -138,6 +157,8 @@ async function makeSnapshotsAPICall({
             snapshots,
             next: response.next,
         }
+    } else {
+        throw new Error('Invalid response from snapshots API')
     }
 }
 
@@ -440,18 +461,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const contentBuffer = new Uint8Array(await response.arrayBuffer())
                     const jsonLines = strFromU8(decompressSync(contentBuffer)).trim().split('\n')
-                    const snapshots: RecordingSnapshot[] = jsonLines.flatMap((l) => {
-                        const snapshotLine = JSON.parse(l)
-                        const snapshotData =
-                            typeof snapshotLine['data'] === 'string'
-                                ? JSON.parse(snapshotLine['data'])
-                                : snapshotLine['data']
-
-                        return snapshotData.map((d: any) => ({
-                            windowId: snapshotLine['window_id'],
-                            ...d,
-                        }))
-                    })
+                    const snapshots = parseEncodedSnapshots(jsonLines)
 
                     return {
                         blob_keys: snapshotDataClone.blob_keys,
