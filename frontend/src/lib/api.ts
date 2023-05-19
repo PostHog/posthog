@@ -37,7 +37,7 @@ import {
     RecentPerformancePageView,
     DashboardTemplateType,
     DashboardTemplateEditorType,
-    EarlyAccsesFeatureType,
+    EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
@@ -391,7 +391,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('early_access_feature')
     }
 
-    public earlyAccessFeature(id: EarlyAccsesFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
+    public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
     }
 
@@ -1099,25 +1099,25 @@ const api = {
     },
 
     earlyAccessFeatures: {
-        async get(featureId: EarlyAccsesFeatureType['id']): Promise<EarlyAccsesFeatureType> {
+        async get(featureId: EarlyAccessFeatureType['id']): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeature(featureId).get()
         },
-        async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccsesFeatureType> {
+        async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeatures().create({ data })
         },
-        async delete(featureId: EarlyAccsesFeatureType['id']): Promise<void> {
+        async delete(featureId: EarlyAccessFeatureType['id']): Promise<void> {
             await new ApiRequest().earlyAccessFeature(featureId).delete()
         },
         async update(
-            featureId: EarlyAccsesFeatureType['id'],
-            data: Pick<EarlyAccsesFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
-        ): Promise<EarlyAccsesFeatureType> {
+            featureId: EarlyAccessFeatureType['id'],
+            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+        ): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<EarlyAccsesFeatureType>> {
+        async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
         },
-        async promote(featureId: EarlyAccsesFeatureType['id']): Promise<PaginatedResponse<EarlyAccsesFeatureType>> {
+        async promote(featureId: EarlyAccessFeatureType['id']): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
         },
     },
