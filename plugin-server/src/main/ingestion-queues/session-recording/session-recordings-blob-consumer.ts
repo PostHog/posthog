@@ -9,13 +9,14 @@ import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
-import { PipelineEvent, PluginsServerConfig, RawEventMessage, Team } from '../../../types'
+import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, Team } from '../../../types'
 import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { eventDroppedCounter } from '../metrics'
 import { OffsetManager } from './blob-ingester/offset-manager'
+import { RealtimeManager } from './blob-ingester/realtime-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { IncomingRecordingMessage } from './blob-ingester/types'
 
@@ -59,6 +60,7 @@ export const gaugeBytesBuffered = new Gauge({
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
     offsetManager?: OffsetManager
+    realtimeManager: RealtimeManager
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
     lastHeartbeat: number = Date.now()
@@ -68,11 +70,14 @@ export class SessionRecordingBlobIngester {
     constructor(
         private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
-        private objectStorage: ObjectStorage
+        private objectStorage: ObjectStorage,
+        private redisPool: RedisPool
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
             enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
+
+        this.realtimeManager = new RealtimeManager(this.redisPool)
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
@@ -87,6 +92,7 @@ export class SessionRecordingBlobIngester {
             const sessionManager = new SessionManager(
                 this.serverConfig,
                 this.objectStorage.s3,
+                this.realtimeManager,
                 team_id,
                 session_id,
                 partition,
@@ -384,6 +390,9 @@ export class SessionRecordingBlobIngester {
         await this.destroySessions([...this.sessions.entries()])
 
         this.sessions = new Map()
+
+        await this.redisPool.drain()
+        await this.redisPool.clear()
     }
 
     async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {

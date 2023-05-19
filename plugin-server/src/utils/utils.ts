@@ -12,10 +12,12 @@ import {
     Plugin,
     PluginConfigId,
     PluginsServerConfig,
+    RedisPool,
     TimestampFormat,
 } from '../types'
 import { Hub } from './../types'
 import { status } from './status'
+import { createPool } from 'generic-pool'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
@@ -368,6 +370,22 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
         })
     await redis.info()
     return redis
+}
+
+export function createRedisPool(serverConfig: PluginsServerConfig): RedisPool {
+    return createPool<Redis.Redis>(
+        {
+            create: () => createRedis(serverConfig),
+            destroy: async (client) => {
+                await client.quit()
+            },
+        },
+        {
+            min: serverConfig.REDIS_POOL_MIN_SIZE,
+            max: serverConfig.REDIS_POOL_MAX_SIZE,
+            autostart: true,
+        }
+    )
 }
 
 export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {

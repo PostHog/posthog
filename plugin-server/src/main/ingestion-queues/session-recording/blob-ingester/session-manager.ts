@@ -11,6 +11,7 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
+import { RealtimeManager } from './realtime-manager'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
@@ -52,6 +53,7 @@ export class SessionManager {
     constructor(
         public readonly serverConfig: PluginsServerConfig,
         public readonly s3Client: ObjectStorage['s3'],
+        public readonly realtimeManager: RealtimeManager,
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
@@ -341,6 +343,10 @@ export class SessionManager {
             this.buffer.count += 1
             this.buffer.size += Buffer.byteLength(content)
             this.buffer.offsets.push(message.metadata.offset)
+
+            // We don't care about the response here as it is an optimistic call
+            void this.realtimeManager.addMessage(message)
+
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (error) {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', {

@@ -180,18 +180,18 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
 
-        def respond(res: Any):
+        def respond(data):
             # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
             # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
             try:
-                JSONRenderer().render(data=res)
+                JSONRenderer().render(data=data)
             except Exception:
                 capture_exception(
-                    Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": res}
+                    Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": data}
                 )
-                return JsonResponse(res)
+                return JsonResponse(data)
 
-            return Response(res)
+            return Response(data)
 
         # TODO: Determine if we should try Redis or not based on the recording start time and the S3 responses
 
@@ -216,9 +216,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
             snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id)
             if snapshots:
-                res = {"next": next_url, "snapshots": snapshots}
-
-            return respond(res)
+                return respond({"snapshots": snapshots})
 
         # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
         filter = Filter(request=request)
