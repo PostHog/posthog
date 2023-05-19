@@ -29,9 +29,7 @@ export class RealtimeManager extends EventEmitter {
     constructor(private redisPool: RedisPool, private serverConfig: PluginsServerConfig) {
         super()
         // TODO:
-        // 1. Start up subscription to key for handling realtime updates
-        // 2. Shut down listener on stop
-        // 3. Add way to clean up old sessions
+        // 1. Shut down listener on stop
     }
 
     private emitSubscriptionEvent(teamId: number, sessionId: string): void {
