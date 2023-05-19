@@ -3,7 +3,6 @@ import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
-import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter, Gauge } from 'prom-client'
 import * as zlib from 'zlib'
@@ -166,7 +165,7 @@ export class SessionManager {
         }
     }
 
-    public async flushIfSessionBufferIsOld(): Promise<void> {
+    public async flushIfSessionBufferIsOld(referenceNow: number, isLagging: boolean): Promise<void> {
         /**
          * This needs to check several things
          * 1) if we are not lagging and the time between "now" and the oldest message is greater than threshold we should flush
@@ -192,10 +191,9 @@ export class SessionManager {
             }
             return
         }
-        const now = DateTime.now().toMillis()
-        const bufferAge = now - this.buffer.oldestKafkaTimestamp
+
+        const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
         const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        const isLagging = now - this.buffer.newestKafkaTimestamp > tolerance * 4
 
         const bufferIsOldAndLagging = isLagging && bufferAge >= tolerance
         const bufferIsOldAndNotLagging = !isLagging && bufferAge >= tolerance
@@ -219,7 +217,7 @@ export class SessionManager {
                 chunkSize: this.chunks.size,
                 oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
                 newestKafkaTimestamp: this.buffer.newestKafkaTimestamp,
-                referenceTime: now,
+                referenceTime: referenceNow,
                 isLagging,
                 bufferIsIdleWhileLagging,
                 bufferIsOldAndLagging,

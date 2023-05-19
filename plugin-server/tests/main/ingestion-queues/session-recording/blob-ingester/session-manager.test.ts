@@ -103,7 +103,7 @@ describe('session-manager', () => {
         event.metadata.timestamp = DateTime.now().minus({ minutes: 9 }).toMillis()
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionBufferIsOld()
+        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), false)
 
         expect(sessionManager.buffer.count).toEqual(1)
     })
@@ -116,7 +116,7 @@ describe('session-manager', () => {
         event.metadata.timestamp = DateTime.now().minus({ minutes: 11 }).toMillis()
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionBufferIsOld()
+        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), false)
 
         expect(sessionManager.buffer.count).toEqual(0)
     })
@@ -127,12 +127,12 @@ describe('session-manager', () => {
             data: compressToString(payload),
         })
 
-        // a timestamp older than threshold times 2 === lagging
+        // a timestamp that means the message is older than threshold and all-things-being-equal should flush
         event.metadata.timestamp = DateTime.now().minus({ days: 1 }).toMillis()
 
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionBufferIsOld()
+        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), true)
 
         expect(sessionManager.buffer.count).toEqual(1)
     })
@@ -143,7 +143,7 @@ describe('session-manager', () => {
             data: compressToString(payload),
         })
 
-        // a timestamp older than threshold times 2 === lagging
+        // a timestamp that means the message is older than threshold and all-things-being-equal should flush
         event.metadata.timestamp = DateTime.now()
             .minus({ seconds: defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 5 })
             .toMillis()
@@ -152,11 +152,11 @@ describe('session-manager', () => {
 
         // does not flush first 7 times
         for (let i = 0; i < 7; i++) {
-            await sessionManager.flushIfSessionBufferIsOld()
+            await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), true)
             expect(sessionManager.buffer.count).toEqual(1)
         }
         // assuming 30 seconds per age check then will flush on the fourth check
-        await sessionManager.flushIfSessionBufferIsOld()
+        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), true)
         expect(sessionManager.buffer.count).toEqual(0)
     })
 
