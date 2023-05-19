@@ -24,7 +24,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             {...props}
             className={NotebookNodeType.Recording}
             title="Recording"
-            href={urls.sessionRecording(recordingLogicProps.sessionRecordingId)}
+            href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
             heightEstimate={HEIGHT}
         >
             <div style={{ height: HEIGHT }}>
@@ -67,7 +67,7 @@ export const NotebookNodeRecording = Node.create({
     addPasteRules() {
         return [
             nodePasteRule({
-                find: createUrlRegex(urls.sessionRecording('') + '(.+)'),
+                find: createUrlRegex(urls.replaySingle('') + '(.+)'),
                 type: this.type,
                 getAttributes: (match) => {
                     return { id: match[1] }

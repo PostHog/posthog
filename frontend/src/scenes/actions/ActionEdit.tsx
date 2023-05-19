@@ -145,7 +145,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 <LemonButton
                                     type="secondary"
                                     to={
-                                        combineUrl(urls.sessionRecordings(), {
+                                        combineUrl(urls.replay(), {
                                             filters: {
                                                 actions: [
                                                     {
