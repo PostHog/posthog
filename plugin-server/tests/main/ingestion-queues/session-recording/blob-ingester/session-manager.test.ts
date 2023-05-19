@@ -60,7 +60,6 @@ describe('session-manager', () => {
             id: expect.any(String),
             size: 61, // The size of the event payload - this may change when test data changes
             offsets: [1],
-            skippedChecksDueToLag: 0,
         })
 
         // the buffer file was created
@@ -89,7 +88,6 @@ describe('session-manager', () => {
             id: expect.any(String),
             size: 61 * 2, // The size of the event payload - this may change when test data changes
             offsets: [1, 1],
-            skippedChecksDueToLag: 0,
         })
     })
 

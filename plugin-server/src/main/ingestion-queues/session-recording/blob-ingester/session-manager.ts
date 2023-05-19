@@ -37,7 +37,6 @@ const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 type SessionBuffer = {
     id: string
     oldestKafkaTimestamp: number | null
-    skippedChecksDueToLag: number
     count: number
     size: number
     file: string
@@ -49,7 +48,7 @@ export class SessionManager {
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
     destroying = false
-    inprogressUpload: Upload | null = null
+    inProgressUpload: Upload | null = null
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -281,7 +280,7 @@ export class SessionManager {
 
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
 
-            this.inprogressUpload = new Upload({
+            this.inProgressUpload = new Upload({
                 client: this.s3Client,
                 params: {
                     Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
@@ -290,7 +289,7 @@ export class SessionManager {
                 },
             })
 
-            await this.inprogressUpload.done()
+            await this.inProgressUpload.done()
 
             fileStream.close()
 
@@ -318,7 +317,7 @@ export class SessionManager {
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
-            this.inprogressUpload = null
+            this.inProgressUpload = null
             await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
@@ -342,7 +341,6 @@ export class SessionManager {
                     `${this.teamId}.${this.sessionId}.${id}.jsonl`
                 ),
                 offsets: [],
-                skippedChecksDueToLag: 0,
             }
 
             // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
@@ -416,9 +414,9 @@ export class SessionManager {
 
     public async destroy(): Promise<void> {
         this.destroying = true
-        if (this.inprogressUpload !== null) {
-            await this.inprogressUpload.abort()
-            this.inprogressUpload = null
+        if (this.inProgressUpload !== null) {
+            await this.inProgressUpload.abort()
+            this.inProgressUpload = null
         }
 
         status.debug('␡', `blob_ingester_session_manager Destroying session manager`, { sessionId: this.sessionId })
