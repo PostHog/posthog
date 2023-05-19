@@ -1,3 +1,4 @@
+import logging
 from time import sleep
 from typing import Any
 from uuid import uuid4
@@ -39,6 +40,7 @@ Also note that minor inconsitencies can occur from distinct IDs and properties c
 
 
 logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 backfill_query_id = str(uuid4())
 

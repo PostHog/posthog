@@ -1,4 +1,5 @@
 import json
+import logging
 from uuid import UUID
 
 import structlog
@@ -12,6 +13,7 @@ from posthog.models.person.person import Person
 from posthog.models.person.util import _delete_ch_distinct_id, create_person, create_person_distinct_id
 
 logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class Command(BaseCommand):
