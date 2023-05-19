@@ -1,4 +1,5 @@
-import fs from 'fs'
+import { writeFileSync } from 'fs'
+import { appendFile, unlink } from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
@@ -6,10 +7,21 @@ import { SessionManager } from '../../../../../src/main/ingestion-queues/session
 import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
 
-jest.mock('fs', () => ({
-    ...jest.requireActual('fs'),
-    writeFileSync: jest.fn(),
-}))
+jest.mock('fs', () => {
+    return {
+        ...jest.requireActual('fs'),
+        writeFileSync: jest.fn(),
+        createReadStream: jest.fn(),
+    }
+})
+
+jest.mock('fs/promises', () => {
+    return {
+        ...jest.requireActual('fs/promises'),
+        unlink: jest.fn().mockResolvedValue(undefined),
+        appendFile: jest.fn().mockResolvedValue(undefined),
+    }
+})
 
 describe('session-manager', () => {
     let sessionManager: SessionManager
@@ -51,8 +63,9 @@ describe('session-manager', () => {
             offsets: [1],
             skippedChecksDueToLag: 0,
         })
-        const fileContents = JSON.parse(fs.readFileSync(sessionManager.buffer.file, 'utf-8'))
-        expect(fileContents.data).toEqual(payload)
+
+        // the buffer file was created
+        expect(writeFileSync).toHaveBeenCalledWith(sessionManager.buffer.file, '', 'utf-8')
     })
 
     it('tracks buffer age span', async () => {
@@ -152,7 +165,7 @@ describe('session-manager', () => {
         await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
         const file = sessionManager.buffer.file
-        expect(fs.existsSync(file)).toEqual(true)
+        expect(unlink).not.toHaveBeenCalled()
 
         const afterResumeFlushPromise = sessionManager.flush()
 
@@ -163,25 +176,36 @@ describe('session-manager', () => {
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(mockFinish).toBeCalledTimes(1)
-        expect(fs.existsSync(file)).toEqual(false)
+        expect(unlink).toHaveBeenCalledWith(file)
     })
 
     it('flushes messages and whilst collecting new ones', async () => {
         const event = createIncomingRecordingMessage()
-        const event2 = createIncomingRecordingMessage()
+        const event2 = createIncomingRecordingMessage({
+            data: compressToString(JSON.stringify([{ second: 'event' }])),
+        })
         await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
+
+        const firstBufferFile = sessionManager.buffer.file
 
         const flushPromise = sessionManager.flush()
         await sessionManager.add(event2)
 
-        expect(sessionManager.buffer.count).toEqual(1)
-        expect(sessionManager.flushBuffer?.count).toEqual(1)
+        // that the second event is in a new buffer file
+        // that the original buffer file is deleted
+        expect(sessionManager.buffer.file).toBeDefined()
+        expect(sessionManager.buffer.file).not.toEqual(firstBufferFile)
 
         await flushPromise
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(sessionManager.buffer.count).toEqual(1)
+        expect(appendFile).toHaveBeenCalledWith(
+            sessionManager.buffer.file,
+            '{"window_id":"window_id_1","data":"[{\\"second\\":\\"event\\"}]"}\n',
+            'utf-8'
+        )
     })
 
     it('chunks incoming messages', async () => {
@@ -207,7 +231,13 @@ describe('session-manager', () => {
         expect(sessionManager.buffer.count).toEqual(1)
         expect(sessionManager.chunks.size).toEqual(0)
 
-        const fileContents = JSON.parse(fs.readFileSync(sessionManager.buffer.file, 'utf-8'))
-        expect(fileContents.data).toEqual('[{"simple":"data"}]')
+        // the file was created
+        expect(writeFileSync).toHaveBeenCalledWith(sessionManager.buffer.file, '', 'utf-8')
+        // the data was written
+        expect(appendFile).toHaveBeenCalledWith(
+            sessionManager.buffer.file,
+            '{"window_id":"window_id_1","data":"[{\\"simple\\":\\"data\\"}]"}\n',
+            'utf-8'
+        )
     })
 })
