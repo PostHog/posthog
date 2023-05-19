@@ -128,11 +128,18 @@ describe('session-manager', () => {
         })
 
         // a timestamp that means the message is older than threshold and all-things-being-equal should flush
-        event.metadata.timestamp = DateTime.now().minus({ days: 1 }).toMillis()
+        // uses timestamps offset from now to show this logic still works even if the consumer is running behind
+        const aDayInMilliseconds = 24 * 60 * 60 * 1000
+        event.metadata.timestamp = DateTime.now()
+            .minus({ milliseconds: aDayInMilliseconds * 2 })
+            .toMillis()
 
         await sessionManager.add(event)
 
-        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), true)
+        await sessionManager.flushIfSessionBufferIsOld(
+            DateTime.now().minus({ milliseconds: aDayInMilliseconds }).toMillis(),
+            true
+        )
 
         expect(sessionManager.buffer.count).toEqual(1)
     })
