@@ -1,10 +1,7 @@
 import os
-import structlog
 
 from posthog.settings.utils import get_from_env, get_list
 from posthog.utils import str_to_bool
-
-logger = structlog.get_logger(__name__)
 
 INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_IDS", ""))
 
@@ -41,3 +38,6 @@ if REPLAY_EVENTS_NEW_CONSUMER_RATIO > 1 or REPLAY_EVENTS_NEW_CONSUMER_RATIO < 0:
 
 REPLAY_RETENTION_DAYS_MIN = 30
 REPLAY_RETENTION_DAYS_MAX = 90
+
+# Used to capture test cases for new capture, meant to be used locally only
+DUMP_CAPTURE_TO_FILE = os.getenv("DUMP_CAPTURE_TO_FILE", "")

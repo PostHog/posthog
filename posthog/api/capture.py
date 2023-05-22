@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import re
@@ -294,6 +295,18 @@ def get_event(request):
 
     now = timezone.now()
 
+    # Optionally dump requests and Kafka messages to collect test cases
+    if settings.DUMP_CAPTURE_TO_FILE:
+        request_dump = {
+            "full_path": request.get_full_path(),
+            "content-encoding": request.headers.get("content-encoding", ""),
+            "body": base64.b64encode(request.body).decode(encoding="ascii"),
+            "now": now.isoformat(),
+            "output": [],
+        }
+    else:
+        request_dump = None
+
     data, error_response = get_data(request)
 
     if error_response:
@@ -400,12 +413,13 @@ def get_event(request):
             )
 
     futures: List[FutureRecordMetadata] = []
-
     with start_span(op="kafka.produce") as span:
         span.set_tag("event.count", len(processed_events))
         for event, event_uuid, distinct_id in processed_events:
             try:
-                futures.append(capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid, token))
+                futures.append(
+                    capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid, token, request_dump)
+                )
             except Exception as exc:
                 capture_exception(exc, {"data": data})
                 statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
@@ -420,6 +434,14 @@ def get_event(request):
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     ),
                 )
+
+    if settings.DUMP_CAPTURE_TO_FILE:
+        try:
+            with open(settings.DUMP_CAPTURE_TO_FILE, "a") as dump_file:
+                json.dump(request_dump, dump_file, separators=(",", ":"))
+                dump_file.write("\n")
+        except Exception as exc:
+            logger.error("dump_capture_failure", exc_info=exc)
 
     with start_span(op="kafka.wait"):
         span.set_tag("future.count", len(futures))
@@ -519,7 +541,9 @@ def parse_event(event):
     return event
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=None, token=None):
+def capture_internal(
+    event, distinct_id, ip, site_url, now, sent_at, event_uuid=None, token=None, request_dump: Optional[Dict] = None
+):
     if event_uuid is None:
         event_uuid = UUIDT()
 
@@ -533,6 +557,9 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
         event_uuid=event_uuid,
         token=token,
     )
+
+    if request_dump:
+        request_dump["output"].append(parsed_event)
 
     # We aim to always partition by {team_id}:{distinct_id} but allow
     # overriding this to deal with hot partitions in specific cases.
