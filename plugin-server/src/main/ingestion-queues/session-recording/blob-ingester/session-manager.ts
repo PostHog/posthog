@@ -426,6 +426,13 @@ export class SessionManager {
     }
 
     private async processChunksToBuffer(chunks: IncomingRecordingMessage[]) {
+        // push all but the last offset into the buffer
+        // the final offset was copied into the data passed to `addToBuffer`
+        for (let i = 0; i < chunks.length - 1; i++) {
+            const x = chunks[i]
+            this.buffer.offsets.push(x.metadata.offset)
+        }
+
         await this.addToBuffer({
             ...chunks[chunks.length - 1],
             data: chunks
@@ -433,12 +440,7 @@ export class SessionManager {
                 .map((c) => c.data)
                 .join(''),
         })
-        // push all but the last offset into the buffer
-        // the final offset was copied into the data passed to `addToBuffer`
-        for (let i = 0; i < chunks.length - 1; i++) {
-            const x = chunks[i]
-            this.buffer.offsets.push(x.metadata.offset)
-        }
+
         // chunk processing can leave the offsets out of order
         this.buffer.offsets.sort((a, b) => a - b)
     }
