@@ -108,7 +108,7 @@ export class SessionRecordingBlobIngester {
             )
 
             this.sessions.set(key, sessionManager)
-            status.info('📦', 'Blob ingestion consumer started session manager', {
+            status.debug('📦', 'Blob ingestion consumer started session manager', {
                 key,
                 partition,
                 topic,
@@ -288,9 +288,6 @@ export class SessionRecordingBlobIngester {
                     return
                 }
 
-                status.info('⚖️', 'blob_ingester_consumer - assigned partitions', {
-                    assignedPartitions: assignedPartitions,
-                })
                 gaugePartitionsAssigned.set(assignedPartitions.length)
                 return
             }
@@ -306,10 +303,6 @@ export class SessionRecordingBlobIngester {
                     return
                 }
 
-                const currentPartitions = Array.from(
-                    new Set([...this.sessions.values()].map((session) => session.partition))
-                ).sort()
-
                 const sessionsToDrop = [...this.sessions.entries()].filter(([_, sessionManager]) =>
                     revokedPartitions.includes(sessionManager.partition)
                 )
@@ -318,11 +311,6 @@ export class SessionRecordingBlobIngester {
                 this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
                 await this.destroySessions(sessionsToDrop)
 
-                status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
-                    currentPartitions: currentPartitions,
-                    revokedPartitions: revokedPartitions,
-                    droppedSessions: sessionsToDrop.map(([_, sessionManager]) => sessionManager.sessionId),
-                })
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
                 gaugePartitionsRevoked.set(revokedPartitions.length)
                 return
