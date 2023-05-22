@@ -16,7 +16,7 @@ export class PendingChunks {
     get isComplete() {
         const fullSet = this.chunks.slice(0, this.expectedSize)
         const expectedChunkIndexes = Array.from(Array(this.expectedSize).keys())
-        return expectedChunkIndexes.every((x, i) => fullSet[i].chunk_index === x)
+        return expectedChunkIndexes.every((x, i) => i < fullSet.length && fullSet[i].chunk_index === x)
     }
 
     get completedChunks() {
