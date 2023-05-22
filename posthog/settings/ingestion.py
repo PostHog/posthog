@@ -26,3 +26,6 @@ PARTITION_KEY_BUCKET_CAPACITY = get_from_env("PARTITION_KEY_BUCKET_CAPACITY", ty
 PARTITION_KEY_BUCKET_REPLENTISH_RATE = get_from_env(
     "PARTITION_KEY_BUCKET_REPLENTISH_RATE", type_cast=float, default=1.0
 )
+
+# Used to capture test cases for new capture, meant to be used locally only
+DUMP_CAPTURE_TO_FILE = os.getenv("DUMP_CAPTURE_TO_FILE", "")
