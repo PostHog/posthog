@@ -268,9 +268,10 @@ export class SessionManager {
                     flushThresholdMillis,
                     chunkId: key,
                 })
-            } else {
-                updatedChunks.set(key, pendingChunks)
+                continue
             }
+            
+            updatedChunks.set(key, pendingChunks)
         }
 
         return updatedChunks
