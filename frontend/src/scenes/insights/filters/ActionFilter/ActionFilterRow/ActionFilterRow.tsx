@@ -189,7 +189,7 @@ export function ActionFilterRow({
                 })
             }}
             renderValue={() => (
-                <span className="text-overflow" style={{ maxWidth: '100%' }}>
+                <span className="text-overflow max-w-full">
                     <EntityFilterInfo filter={filter} />
                 </span>
             )}
@@ -306,7 +306,7 @@ export function ActionFilterRow({
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
-                                                dataAttr="math-property-select"
+                                                data-attr="math-property-select"
                                                 renderValue={(currentValue) => (
                                                     <Tooltip
                                                         title={
