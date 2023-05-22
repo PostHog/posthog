@@ -2,11 +2,12 @@ import { BreakdownFilter } from '~/queries/schema'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { IndexedTrendResult } from 'scenes/trends/types'
+import { formatBreakdownType } from 'scenes/insights/utils'
 
-type BreakdownColumnTitleProps = { breakdown: BreakdownFilter['breakdown'] }
+type BreakdownColumnTitleProps = { breakdownFilter: BreakdownFilter }
 
-export function BreakdownColumnTitle({ breakdown }: BreakdownColumnTitleProps): JSX.Element {
-    return <PropertyKeyInfo disableIcon disablePopover value={breakdown?.toString() || 'Breakdown Value'} />
+export function BreakdownColumnTitle({ breakdownFilter }: BreakdownColumnTitleProps): JSX.Element {
+    return <PropertyKeyInfo disableIcon disablePopover value={formatBreakdownType(breakdownFilter)} />
 }
 
 type BreakdownColumnItemProps = {

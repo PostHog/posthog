@@ -22,7 +22,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightLogic } from './insightLogic'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { ReactNode } from 'react'
-import { ActionsNode, EventsNode } from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 import { urls } from 'scenes/urls'
 import { examples } from '~/queries/examples'
@@ -239,6 +239,14 @@ export function formatBreakdownLabel(
         return breakdown_value.join('::')
     } else {
         return ''
+    }
+}
+
+export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
+    if (breakdownFilter.breakdown_type === 'cohort') {
+        return 'Cohort'
+    } else {
+        return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
     }
 }
 
