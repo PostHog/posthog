@@ -61,6 +61,11 @@ export const gaugePendingChunksBlocking = new Gauge({
 
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
+interface EventsRange {
+    firstTimestamp: number
+    lastTimestamp: number
+}
+
 // The buffer is a list of messages grouped
 type SessionBuffer = {
     id: string
@@ -69,6 +74,7 @@ type SessionBuffer = {
     size: number
     file: string
     offsets: number[]
+    eventsRange: EventsRange | null
 }
 
 export class SessionManager {
@@ -295,13 +301,35 @@ export class SessionManager {
             return
         }
 
+        if (this.buffer.count === 0) {
+            status.warn('⚠️', `blob_ingester_session_manager flush called but buffer is empty`, {
+                sessionId: this.sessionId,
+                partition: this.partition,
+                reason,
+            })
+            return
+        }
+
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
 
+        const eventsRange = this.flushBuffer.eventsRange
+        if (!eventsRange) {
+            status.warn('⚠️', `blob_ingester_session_manager flush called but eventsRange is null`, {
+                sessionId: this.sessionId,
+                partition: this.partition,
+                reason,
+            })
+            return
+        }
+
+        const { firstTimestamp, lastTimestamp } = eventsRange
+
         try {
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
-            const dataKey = `${baseKey}/data/${this.flushBuffer.oldestKafkaTimestamp}` // TODO: Change to be based on events times
+            const timeRange = `${firstTimestamp}-${lastTimestamp}`
+            const dataKey = `${baseKey}/data/${timeRange}`
 
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
 
@@ -369,6 +397,7 @@ export class SessionManager {
                     `${this.teamId}.${this.sessionId}.${id}.jsonl`
                 ),
                 offsets: [],
+                eventsRange: null,
             }
 
             // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
@@ -391,10 +420,23 @@ export class SessionManager {
      */
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
         try {
-            const content = JSON.stringify(convertToPersistedMessage(message)) + '\n'
+            const messageData = convertToPersistedMessage(message)
+            this.buffer.eventsRange = {
+                firstTimestamp: Math.min(
+                    message.events_summary[0].timestamp,
+                    this.buffer.eventsRange?.firstTimestamp ?? Infinity
+                ),
+                lastTimestamp: Math.max(
+                    message.events_summary[message.events_summary.length - 1].timestamp,
+                    this.buffer.eventsRange?.lastTimestamp ?? 0
+                ),
+            }
+
+            const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
             this.buffer.size += Buffer.byteLength(content)
             this.buffer.offsets.push(message.metadata.offset)
+
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (error) {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', {
