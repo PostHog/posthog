@@ -133,7 +133,7 @@ async function expectStoryToMatchSceneSnapshot(
     const dimensions = await page.locator('.main-app-content').boundingBox()
     // Ensure the page size is bigger than the component otherwise it can get clipped
     await page.setViewportSize({
-        height: Math.max(DEFAULT_PAGE_DIMENSIONS.width, Math.round(dimensions?.height || 0)),
+        height: Math.max(DEFAULT_PAGE_DIMENSIONS.height, Math.round(dimensions?.height || 0)),
         width: DEFAULT_PAGE_DIMENSIONS.width,
     })
     await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
