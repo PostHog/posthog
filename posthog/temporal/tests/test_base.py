@@ -7,7 +7,6 @@ from posthog.models import (
     BatchExport,
     BatchExportDestination,
     BatchExportRun,
-    BatchExportSchedule,
     Organization,
     Team,
 )
@@ -67,9 +66,8 @@ def destination(team):
 @pytest.fixture
 def batch_export(destination, team):
     """A test BatchExport."""
-    schedule = BatchExportSchedule.objects.create(team=team, paused=True)
     batch_export = BatchExport.objects.create(
-        team=team, destination=destination, schedule=schedule, create_temporal_schedule=False
+        team=team, destination=destination, interval="hour", create_temporal_schedule=False
     )
 
     batch_export.save()

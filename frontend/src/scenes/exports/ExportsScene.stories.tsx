@@ -4,7 +4,83 @@ import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { mswDecorator } from '~/mocks/browser'
 import { urls } from 'scenes/urls'
-import { BatchExportsResponse } from './ExportsList'
+import { BatchExport, BatchExportData, BatchExportsResponse } from './api'
+
+const createExportServiceHandlers = () => {
+    const exports: { [id: number]: BatchExport } = {
+        1: {
+            id: 'asdf',
+            team_id: 1,
+            destination: {
+                type: 'S3',
+                name: 'S3',
+                config: {
+                    bucket_name: 'my-bucket',
+                    region: 'us-east-1',
+                    key_template: 'my-prefix',
+                    aws_access_key_id: 'my-access-key-id',
+                    aws_secret_access_key: '',
+                },
+            },
+            schedule: {
+                type: 'INTERVAL',
+                interval: 'hour',
+            },
+            status: 'RUNNING',
+            created_at: '2021-09-01T00:00:00.000000Z',
+            last_updated_at: '2021-09-01T00:00:00.000000Z',
+        },
+    }
+
+    return {
+        get: {
+            '/api/projects/:team_id/batch_exports/': (req, res, ctx) => {
+                return res(
+                    ctx.delay(1000),
+                    ctx.json({
+                        results: Object.values(exports),
+                    } as BatchExportsResponse)
+                )
+            },
+            '/api/projects/:team_id/batch_exports/:export_id': (req, res, ctx) => {
+                const id = req.params.export_id as string
+                return res(ctx.delay(1000), ctx.json(exports[id]))
+            },
+            '/api/projects/:team_id/batch_exports/:export_id/runs': (req, res, ctx) => {
+                const id = req.params.export_id as string
+                return res(
+                    ctx.delay(1000),
+                    ctx.json({
+                        results: [
+                            {
+                                export_id: id,
+                                run_id: 1,
+                                status: 'RUNNING',
+                                created_at: '2021-09-01T00:00:00.000000Z',
+                                last_updated_at: '2021-09-01T00:00:00.000000Z',
+                            },
+                        ],
+                    })
+                )
+            },
+        },
+        post: {
+            '/api/projects/:team_id/batch_exports/': (req, res, ctx) => {
+                const body = req.body as BatchExportData
+                const id = Object.keys(exports).length + 1
+                exports[id] = {
+                    ...body,
+                    id: id,
+                    team_id: 1,
+                    status: 'RUNNING',
+                    created_at: new Date().toISOString(),
+                    last_updated_at: new Date().toISOString(),
+                }
+                return res(ctx.delay(1000), ctx.json(exports[id]))
+            },
+        },
+    }
+}
 
 export default {
     title: 'Scenes-App/Exports',
@@ -16,47 +92,19 @@ export default {
         },
         viewMode: 'story',
     },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/exports/': (req, res, ctx) => {
-                    return res(
-                        ctx.delay(1000),
-                        ctx.json({
-                            exports: [
-                                {
-                                    export_id: 1,
-                                    team_id: Number.parseInt(req.params.team_id[0]),
-                                    name: 'My export to S3',
-                                    destination: {
-                                        type: 'S3',
-                                        config: {
-                                            bucket: 'my-bucket',
-                                            prefix: 'my-prefix',
-                                            aws_access_key_id: 'my-access-key-id',
-                                            aws_secret_access_key: '',
-                                        },
-                                    },
-                                    schedule: {
-                                        type: 'INTERVAL',
-                                        interval: 'HOURLY',
-                                    },
-                                    status: 'RUNNING',
-                                    created_at: '2021-09-01T00:00:00.000000Z',
-                                    last_updated_at: '2021-09-01T00:00:00.000000Z',
-                                },
-                            ],
-                        } as BatchExportsResponse)
-                    )
-                },
-            },
-        }),
-    ],
+    decorators: [mswDecorator(createExportServiceHandlers())],
 } as Meta
 
 export const Exports: Story = () => {
     useEffect(() => {
         router.actions.push(urls.exports())
+    })
+    return <App />
+}
+
+export const CreateExport: Story = () => {
+    useEffect(() => {
+        router.actions.push(urls.createExport('S3'))
     })
     return <App />
 }

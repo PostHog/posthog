@@ -3,10 +3,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from asgiref.sync import sync_to_async
+from posthog.batch_exports.service import update_batch_export_run_status, create_batch_export_run
 from temporalio import activity
-
-from posthog.models.batch_export import BatchExportRun
 
 
 class PostHogWorkflow(ABC):
@@ -69,7 +67,7 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
-    run = await sync_to_async(BatchExportRun.objects.create)(  # type: ignore
+    run = create_batch_export_run(  # type: ignore
         team_id=inputs.team_id,
         workflow_id=activity.info().workflow_id,
         run_id=activity.info().workflow_run_id,
@@ -94,5 +92,4 @@ class UpdateBatchExportRunStatusInputs:
 @activity.defn
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    update_run_status = sync_to_async(BatchExportRun.objects.update_status)
-    await update_run_status(id=UUID(inputs.id), status=inputs.status)  # type: ignore
+    await update_batch_export_run_status(id=UUID(inputs.id), status=inputs.status)  # type: ignore

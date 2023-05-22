@@ -57,7 +57,6 @@ class TestUserAPI(APIBaseTest):
     # RETRIEVING USER
 
     def test_retrieve_current_user(self):
-
         response = self.client.get("/api/users/@me/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -522,7 +521,6 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     def test_user_can_update_password(self, mock_capture, mock_identify):
-
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
 
@@ -606,7 +604,6 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     def test_cant_update_to_insecure_password(self, mock_capture, mock_identify):
-
         response = self.client.patch("/api/users/@me/", {"current_password": self.CONFIG_PASSWORD, "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -681,7 +678,6 @@ class TestUserAPI(APIBaseTest):
         self.assertFalse(self.user.check_password("hijacked"))
 
     def test_user_cannot_update_password_with_incorrect_current_password_and_ratelimit_to_prevent_attacks(self):
-
         for _ in range(7):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
@@ -692,7 +688,6 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
 
     def test_no_ratelimit_for_get_requests_for_users(self):
-
         for _ in range(6):
             response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -777,7 +772,6 @@ class TestStaffUserAPI(APIBaseTest):
         cls.user.save()
 
     def test_can_list_staff_users(self):
-
         response = self.client.get("/api/users/?is_staff=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()

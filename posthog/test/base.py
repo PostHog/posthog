@@ -33,8 +33,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_cloud_cache
+from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models import (
-    BatchExportSchedule,
     Dashboard,
     DashboardTile,
     Insight,
@@ -72,8 +72,6 @@ from posthog.models.session_replay_event.sql import (
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.settings.utils import get_from_env, str_to_bool
-from posthog.temporal.client import sync_connect
-from posthog.temporal.workflows import ACTIVITIES, WORKFLOWS
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
@@ -872,150 +870,3 @@ def create_person_id_override_by_distinct_id(
         VALUES ({team_id}, '{person_id_from}', '{person_id_to}', {version})
     """
     )
-
-
-class ThreadedWorker(Worker):
-    """A Temporal Worker that can run in a separate thread.
-
-    Inteded to be used in sync tests that require a Temporal Worker.
-    """
-
-    @contextmanager
-    def run_in_thread(self):
-        """Run a Temporal Worker in a thread.
-
-        Don't use this outside of tests. Once PostHog is fully async we can get rid of this.
-        """
-        loop = asyncio.new_event_loop()
-        t = threading.Thread(target=self.run, daemon=True, args=(loop,))
-        t.start()
-
-        try:
-            while not self.is_running:
-                time.sleep(0.1)
-            yield
-        finally:
-            self._shutdown_event.set()
-
-    def run(self, loop):
-        """Setup an event loop to run the Worker.
-
-        Using async_to_sync(Worker.run) causes a deadlock.
-        """
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(super().run())
-        finally:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.close()
-
-
-class TemporalTestMixin:
-    """Base test class for tests that interact with Temporal."""
-
-    _temporal: Client | None = None
-
-    @property
-    def temporal(self) -> Client:
-        """Provide a Temporal Client."""
-        if self._temporal is None:
-            self._temporal = sync_connect()
-        return self._temporal
-
-    async def get_search_attributes(self, client, request):
-        """Wrapper for workflow_service.get_search_attributes.
-
-        This function is async but async_to_sync fails to recognize it as such and fails on a type check.
-        So, we wrap it in our own async function to pass that to async_to_sync.
-        """
-        return await client.workflow_service.get_search_attributes(request)
-
-    async def add_search_attributes(self, client, request):
-        """Wrapper for workflow_service.add_search_attributes.
-
-        This function is async but async_to_sync fails to recognize it as such and fails on a type check.
-        So, we wrap it in our own async function to pass that to async_to_sync.
-        """
-        return await client.operator_service.add_search_attributes(request)
-
-    def ensure_search_attributes(self):
-        """Ensure custom search attributes are present adding them if not."""
-        resp = async_to_sync(self.get_search_attributes)(self.temporal, GetSearchAttributesRequest())
-        custom_search_attributes = {
-            "DestinationId": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-            "DestinationType": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-            "TeamId": IndexedValueType.INDEXED_VALUE_TYPE_INT,
-            "TeamName": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-            "BatchExportId": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-        }
-        are_present = all(k in resp.keys.keys() for k in custom_search_attributes.keys())
-
-        if are_present:
-            return
-
-        request = AddSearchAttributesRequest(search_attributes=custom_search_attributes)
-        async_to_sync(self.add_search_attributes)(self.temporal, request)
-        resp = async_to_sync(self.get_search_attributes)(self.temporal, GetSearchAttributesRequest())
-        custom_search_attributes = {
-            "DestinationId": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-            "DestinationType": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-            "TeamId": IndexedValueType.INDEXED_VALUE_TYPE_INT,
-            "TeamName": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-            "BatchExportId": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-        }
-
-        are_present = all(k in resp.keys.keys() for k in custom_search_attributes.keys())
-
-        assert are_present is True
-
-    def cleanup_temporal_schedules(self):
-        """Clean up any Temporal Schedules created during the test."""
-        for schedule in BatchExportSchedule.objects.all():
-            handle = self.temporal.get_schedule_handle(str(schedule.id))
-            try:
-                async_to_sync(handle.delete)()
-            except RPCError:
-                # Assume this is fine as we are tearing down, but don't fail silently.
-                logging.warn("Schedule %s has already been deleted, ignoring.", schedule.id)
-                continue
-
-    def describe_schedule(self, schedule_id: str):
-        """Return the description of a Temporal Schedule with the given id."""
-        handle = self.temporal.get_schedule_handle(schedule_id)
-        temporal_schedule = async_to_sync(handle.describe)()
-        return temporal_schedule
-
-    def describe_workflow(self, workflow_id: str):
-        """Return the description of a Temporal Workflow with the given id."""
-        handle = self.temporal.get_workflow_handle(workflow_id)
-        temporal_workflow = async_to_sync(handle.describe)()
-        return temporal_workflow
-
-    @contextmanager
-    def start_test_worker(self):
-        with ThreadedWorker(
-            client=self.temporal,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=WORKFLOWS,
-            activities=ACTIVITIES,
-            workflow_runner=UnsandboxedWorkflowRunner(),
-            graceful_shutdown_timeout=dt.timedelta(seconds=5),
-        ).run_in_thread():
-            self.ensure_search_attributes()
-            yield
-
-
-class NonAtomicBaseTemporalTest(NonAtomicBaseTest, TemporalTestMixin):
-    """Subclass of NonAtomicBaseTest with Temporal support."""
-
-    def tearDown(self):
-        self.cleanup_temporal_schedules()
-        super().tearDown()
-
-
-class BaseTemporalTest(BaseTest, TemporalTestMixin):
-    """Subclass of BaseTest with Temporal support."""
-
-    def tearDown(self):
-        self.cleanup_temporal_schedules()
-        super().tearDown()

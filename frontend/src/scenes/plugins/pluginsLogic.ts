@@ -585,8 +585,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (searchTerm, uninstalledPlugins) =>
                 searchTerm
                     ? uninstalledPlugins.filter((plugin) =>
-                          plugin.name.toLowerCase().includes(searchTerm.toLowerCase())
-                      )
+                        plugin.name.toLowerCase().includes(searchTerm.toLowerCase())
+                    )
                     : uninstalledPlugins,
         ],
         filteredDisabledPlugins: [
@@ -608,8 +608,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (searchTerm, pluginsNeedingUpdates) =>
                 searchTerm
                     ? pluginsNeedingUpdates.filter((plugin) =>
-                          plugin.name.toLowerCase().includes(searchTerm.toLowerCase())
-                      )
+                        plugin.name.toLowerCase().includes(searchTerm.toLowerCase())
+                    )
                     : pluginsNeedingUpdates,
         ],
         sortableEnabledPlugins: [
@@ -760,10 +760,10 @@ export const pluginsLogic = kea<pluginsLogicType>([
             return values.showingLogsPluginId
                 ? urls.projectAppLogs(values.showingLogsPluginId)
                 : values.editingPluginId
-                ? values.editingSource
-                    ? urls.projectAppSource(values.editingPluginId)
-                    : urls.projectApp(values.editingPluginId)
-                : urls.projectApps()
+                    ? values.editingSource
+                        ? urls.projectAppSource(values.editingPluginId)
+                        : urls.projectApp(values.editingPluginId)
+                    : urls.projectApps()
         }
         return {
             setPluginTab: () => {

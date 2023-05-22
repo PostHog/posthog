@@ -15,7 +15,6 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonTag } from '@posthog/lemon-ui'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { IntegrationsTab } from './tabs/installed/IntegrationsTab'
 
 export const scene: SceneExport = {
     component: Plugins,
@@ -28,7 +27,7 @@ const BetaTag = (): JSX.Element => (
     </LemonTag>
 )
 
-export function Plugins(): JSX.Element | null {
+export function Apps(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
@@ -69,7 +68,6 @@ export function Plugins(): JSX.Element | null {
                 activeKey={pluginTab}
                 onChange={(newKey) => setPluginTab(newKey)}
                 tabs={[
-                    { key: PluginTab.Integrations, label: 'Integrations', content: <IntegrationsTab /> },
                     { key: PluginTab.Installed, label: 'Installed', content: <InstalledTab /> },
                     canGloballyManagePlugins(user.organization) && {
                         key: PluginTab.Repository,

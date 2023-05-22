@@ -16,7 +16,6 @@ from posthog.test.base import APIBaseTest
 
 class TestTeamAPI(APIBaseTest):
     def test_list_projects(self):
-
         response = self.client.get("/api/projects/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -33,7 +32,6 @@ class TestTeamAPI(APIBaseTest):
         self.assertNotIn("event_properties_numerical", response_data["results"][0])
 
     def test_retrieve_project(self):
-
         response = self.client.get("/api/projects/@current/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -105,7 +103,6 @@ class TestTeamAPI(APIBaseTest):
         )
 
     def test_update_project_timezone(self):
-
         response = self.client.patch("/api/projects/@current/", {"timezone": "Europe/Istanbul"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -117,7 +114,6 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(self.team.timezone, "Europe/Istanbul")
 
     def test_update_test_filter_default_checked(self):
-
         response = self.client.patch("/api/projects/@current/", {"test_account_filters_default_checked": "true"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

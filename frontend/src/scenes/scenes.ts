@@ -55,6 +55,17 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Exports',
     },
+<<<<<<< Updated upstream
+=======
+    [Scene.CreateExport]: {
+        projectBased: true,
+        name: 'Create Export',
+    },
+    [Scene.ViewExport]: {
+        projectBased: true,
+        name: 'View Export',
+    },
+>>>>>>> Stashed changes
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data Management',
@@ -321,6 +332,8 @@ export const routes: Record<string, Scene> = {
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.exports()]: Scene.Exports,
+    [urls.createExport(':type')]: Scene.CreateExport,
+    [urls.viewExport(':id')]: Scene.ViewExport,
     [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,

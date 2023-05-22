@@ -8,7 +8,7 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 
 export default {
-    title: 'Scenes-App/Plugins',
+    title: 'Scenes-App/Apps',
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },

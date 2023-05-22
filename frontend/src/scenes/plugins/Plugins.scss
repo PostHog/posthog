@@ -92,3 +92,29 @@
     color: #9a9a9a;
     cursor: default;
 }
+
+.available-integrations {
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        grid-gap: 20px;
+    }
+
+    .grid-cols-6 {
+        grid-template-columns: repeat(6, 1fr);
+    }
+
+    .option {
+        border: 1px solid #efefef;
+        padding: 10px;
+
+        img {
+            max-height: 100px;
+            max-width: 100%;
+            // align center
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+    }
+}

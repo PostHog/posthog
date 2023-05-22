@@ -45,6 +45,8 @@ export const urls = {
     database: (): string => '/data-management/database',
     events: (): string => '/events',
     exports: (): string => '/exports',
+    createExport: (type: string): string => `/exports/new/${type}`,
+    viewExport: (id: string | number): string => `/exports/${id}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {

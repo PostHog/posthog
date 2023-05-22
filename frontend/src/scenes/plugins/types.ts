@@ -36,6 +36,7 @@ export enum PluginInstallationType {
 }
 
 export enum PluginTab {
+    Integrations = 'integrations',
     Installed = 'installed',
     Repository = 'repository',
     Advanced = 'advanced',

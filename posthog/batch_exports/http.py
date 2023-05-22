@@ -10,14 +10,21 @@ from posthog.models import (
     BatchExport,
     BatchExportDestination,
     BatchExportRun,
-    BatchExportSchedule,
     Team,
     User,
+)
+from posthog.batch_exports.service import (
+    backfill_export,
+    create_batch_export,
+    delete_schedule,
+    pause_batch_export,
+    unpause_batch_export,
 )
 from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
+from posthog.temporal.client import sync_connect
 
 
 class BatchExportRunSerializer(serializers.ModelSerializer):
@@ -29,29 +36,12 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
         read_only_fields = ["batch_export"]
 
 
-class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = BatchExportRun.objects.all()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    serializer_class = BatchExportRunSerializer
-
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
-
-        return self.queryset.filter(team_id=self.request.user.current_team.id)
-
-
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
     class Meta:
         model = BatchExportDestination
-        exclude = ["team"]
-        read_only_fields = [
-            "id",
-            "created_at",
-            "last_updated_at",
-        ]
+        fields = ["type", "config"]
 
     def create(self, validated_data: dict) -> BatchExportDestination:
         """Create a BatchExportDestination."""
@@ -67,67 +57,25 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         return data
 
 
-class BatchExportDestinationViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = BatchExportDestination.objects.all()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    serializer_class = BatchExportDestinationSerializer
-
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
-
-        return self.queryset.filter(team_id=self.request.user.current_team.id)
-
-
-class BatchExportScheduleSerializer(serializers.ModelSerializer):
-    """Serializer for an BatchExportSchedule model."""
-
-    class Meta:
-        model = BatchExportSchedule
-        exclude = ["team"]
-        read_only_fields = [
-            "id",
-            "created_at",
-            "last_updated_at",
-            "paused_at",
-            "unpaused_at",
-            "start_at",
-            "end_at",
-        ]
-
-    def create(self, validated_data: dict):
-        """Create an BatchExportSchedule model."""
-        team = Team.objects.get(id=self.context["team_id"])
-
-        export_schedule = BatchExportSchedule.objects.create(
-            team=team,
-            **validated_data,
-        )
-
-        return export_schedule
-
-
 class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
     destination = BatchExportDestinationSerializer()
-    schedule = BatchExportScheduleSerializer()
-    runs = serializers.SerializerMethodField()
 
     class Meta:
         model = BatchExport
         fields = [
             "id",
+            "name",
             "destination",
-            "schedule",
-            "runs",
+            "interval",
+            "paused",
             "created_at",
             "last_updated_at",
         ]
         read_only_fields = [
             "id",
-            "schedule",
-            "runs",
+            "paused",
             "created_at",
             "last_updated_at",
         ]
@@ -135,18 +83,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
-        schedule_data = validated_data.pop("schedule")
         team = Team.objects.get(id=self.context["team_id"])
+        interval = validated_data.pop("interval")
+        name = validated_data.pop("name")
 
         destination = BatchExportDestination.objects.create(team=team, **destination_data)
-        schedule = BatchExportSchedule.objects.create(team=team, **schedule_data)
 
-        batch_export = BatchExport.objects.create(team=team, schedule=schedule, destination=destination)
+        batch_export = BatchExport.objects.create(team=team, name=name, interval=interval, destination=destination)
+        create_batch_export(batch_export)
         return batch_export
-
-    def get_runs(self, batch_export):
-        serializer = BatchExportRunSerializer(BatchExportRun.objects.filter(batch_export=batch_export), many=True)
-        return serializer.data
 
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -158,9 +103,7 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
             raise NotAuthenticated()
 
-        return self.queryset.filter(team_id=self.request.user.current_team.id).prefetch_related(
-            "destination", "schedule"
-        )
+        return self.queryset.filter(team_id=self.team_id).exclude(deleted=True).prefetch_related("destination")
 
     @action(methods=["POST"], detail=True)
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -175,12 +118,12 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         end_at = dt.datetime.fromisoformat(end_at_input) if end_at_input is not None else None
 
         batch_export = self.get_object()
-        batch_export.backfill(start_at, end_at)
+        run = backfill_export(batch_export.pk, start_at, end_at)
 
-        serializer = self.get_serializer(batch_export)
+        serializer = BatchExportRunSerializer(run)
         return response.Response(serializer.data)
 
-    @action(methods=["PATCH"], detail=True)
+    @action(methods=["POST"], detail=True)
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
         if not isinstance(request.user, User) or request.user.current_team is None:
@@ -191,15 +134,15 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         note = f"Unpause requested by user {user_id} from team {team_id}"
 
         batch_export = self.get_object()
+        temporal = sync_connect()
         try:
-            batch_export.pause(note=note)
+            pause_batch_export(temporal, str(batch_export.id), note=note)
         except ValueError:
             raise ValidationError("Cannot pause a BatchExport that is already paused")
 
-        serializer = self.get_serializer(batch_export)
-        return response.Response(serializer.data)
+        return response.Response({"paused": True})
 
-    @action(methods=["PATCH"], detail=True)
+    @action(methods=["POST"], detail=True)
     def unpause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Unpause a BatchExport."""
         if not isinstance(request.user, User) or request.user.current_team is None:
@@ -210,15 +153,34 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         note = f"Unpause requested by user {user_id} from team {team_id}"
 
         batch_export = self.get_object()
+        temporal = sync_connect()
         try:
-            batch_export.schedule.unpause(note=note)
+            unpause_batch_export(temporal, str(batch_export.id), note=note)
         except ValueError:
-            raise ValidationError("Cannot unpause a BatchExport that is not paused")
+            raise ValidationError("Cannot pause a BatchExport that is already paused")
 
-        serializer = self.get_serializer(batch_export)
+        return response.Response({"paused": True})
+
+    @action(methods=["GET"], detail=True)
+    def runs(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Get all BatchExportRuns for a BatchExport."""
+        if not isinstance(request.user, User) or request.user.current_team is None:
+            raise NotAuthenticated()
+
+        batch_export = self.get_object()
+        runs = BatchExportRun.objects.filter(batch_export=batch_export).order_by("-created_at")
+
+        page = self.paginate_queryset(runs)
+        if page is not None:
+            serializer = BatchExportRunSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = BatchExportRunSerializer(runs, many=True)
         return response.Response(serializer.data)
 
     def perform_destroy(self, instance: BatchExport):
         """Perform a BatchExport destroy by clearing Temporal and Django state."""
-        instance.delete_batch_export_schedule()
-        instance.delete()
+        instance.deleted = True
+        temporal = sync_connect()
+        delete_schedule(temporal, str(instance.pk))
+        instance.save()
