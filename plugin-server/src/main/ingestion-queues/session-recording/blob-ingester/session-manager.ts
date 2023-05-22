@@ -52,6 +52,7 @@ export class SessionManager {
     destroying = false
     realtime = false
     inProgressUpload: Upload | null = null
+    unsubscribe: () => void
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -68,7 +69,7 @@ export class SessionManager {
         // NOTE: a new SessionManager indicates that either everything has been flushed or a rebalance occured so we should clear the existing redis messages
         void this.realtimeManager.clearAllMessages(this.teamId, this.sessionId)
 
-        this.realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
+        this.unsubscribe = this.realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
             void this.startRealtime()
         })
 
@@ -326,6 +327,9 @@ export class SessionManager {
             counterS3WriteErrored.inc()
         } finally {
             this.inProgressUpload = null
+            // We turn off real time as the file will now be in S3
+            this.realtime = false
+
             await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
 
             const offsets = this.flushBuffer.offsets
@@ -462,6 +466,7 @@ export class SessionManager {
     }
 
     public async destroy(): Promise<void> {
+        this.unsubscribe()
         this.destroying = true
         if (this.inProgressUpload !== null) {
             await this.inProgressUpload.abort()

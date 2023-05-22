@@ -1,13 +1,13 @@
+import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
 
 import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
-import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
-import { convertToPersistedMessage } from './utils'
 import { createRedis } from '../../../../utils/utils'
-import { captureException } from '@sentry/node'
+import { IncomingRecordingMessage } from './types'
+import { convertToPersistedMessage } from './utils'
 
 const SESSION_TTL_SECONDS = 60 * 60 // 1 hour
 
@@ -28,16 +28,18 @@ export class RealtimeManager extends EventEmitter {
 
     constructor(private redisPool: RedisPool, private serverConfig: PluginsServerConfig) {
         super()
-        // TODO:
-        // 1. Shut down listener on stop
     }
 
     private emitSubscriptionEvent(teamId: number, sessionId: string): void {
         this.emit(`subscription::${teamId}::${sessionId}`)
     }
 
-    public onSubscriptionEvent(teamId: number, sessionId: string, cb: () => void) {
-        return this.on(`subscription::${teamId}::${sessionId}`, cb)
+    public onSubscriptionEvent(teamId: number, sessionId: string, cb: () => void): () => void {
+        this.on(`subscription::${teamId}::${sessionId}`, cb)
+
+        return () => {
+            this.off(`subscription::${teamId}::${sessionId}`, cb)
+        }
     }
 
     public async subscribe(): Promise<void> {

@@ -56,6 +56,10 @@ export const gaugeBytesBuffered = new Gauge({
     name: 'recording_blob_ingestion_bytes_buffered',
     help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
 })
+export const guageRealtimeSessions = new Gauge({
+    name: 'recording_realtime_sessions',
+    help: 'Number of real time sessions being handled by this blob ingestion consumer',
+})
 
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
@@ -246,7 +250,7 @@ export class SessionRecordingBlobIngester {
             throw e
         }
 
-        this.realtimeManager.subscribe()
+        await this.realtimeManager.subscribe()
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
         this.producer = await createKafkaProducer(connectionConfig)
@@ -385,6 +389,12 @@ export class SessionRecordingBlobIngester {
             })
 
             gaugeSessionsHandled.set(this.sessions.size)
+            guageRealtimeSessions.set(
+                Array.from(this.sessions.values()).reduce(
+                    (acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0),
+                    0
+                )
+            )
             gaugeBytesBuffered.set(sessionManangerBufferSizes)
         }, flushIntervalTimeoutMs)
     }
