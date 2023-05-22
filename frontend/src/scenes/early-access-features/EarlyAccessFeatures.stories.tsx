@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
-import { EarlyAccsesFeatureType } from '~/types'
+import { EarlyAccessFeatureType } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 const EARLY_ACCESS_FEATURE_RESULT = [
@@ -127,7 +127,7 @@ export default {
                     previous: null,
                 },
                 '/api/projects/:team_id/early-access-feature/:flagId/':
-                    EARLY_ACCESS_FEATURE_RESULT[0] as EarlyAccsesFeatureType,
+                    EARLY_ACCESS_FEATURE_RESULT[0] as EarlyAccessFeatureType,
             },
         }),
     ],

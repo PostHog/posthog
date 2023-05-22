@@ -677,9 +677,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 listLogic.actions.loadAllRecordings()
                 // Reset selected recording to first one in the list
                 listLogic.actions.setSelectedRecordingId(null)
-            } else if (router.values.location.pathname.includes('/recordings')) {
-                // On a page that displays a single recording `recordings/:id` that doesn't contain a list
-                router.actions.push(urls.sessionRecordings())
+            } else if (router.values.location.pathname.includes('/replay')) {
+                // On a page that displays a single recording `replay/:id` that doesn't contain a list
+                router.actions.push(urls.replay())
             } else {
                 // No-op a modal session recording. Delete icon is hidden in modal contexts since modals should be read only views.
             }

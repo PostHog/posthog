@@ -1325,39 +1325,39 @@ sessionReplayEventTestCases.forEach(({ snapshotData, expected }) => {
 })
 
 test(`snapshot event with no event summary is ignored`, () => {
-    const data = createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', '', {
-        $session_id: 'abcf-efg',
-        $snapshot_data: {},
-    } as any as Properties)
-
-    expect(data).toEqual(null)
+    expect(() => {
+        createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', '', {
+            $session_id: 'abcf-efg',
+            $snapshot_data: {},
+        } as any as Properties)
+    }).toThrowError()
 })
 
 test(`snapshot event with no event summary timestamps is ignored`, () => {
-    const data = createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', '', {
-        $session_id: 'abcf-efg',
-        $snapshot_data: {
-            events_summary: [
-                {
-                    type: 5,
-                    data: {
-                        payload: {
-                            // doesn't match because href is nested in payload
-                            href: 'http://127.0.0.1:8000/home',
+    expect(() => {
+        createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', '', {
+            $session_id: 'abcf-efg',
+            $snapshot_data: {
+                events_summary: [
+                    {
+                        type: 5,
+                        data: {
+                            payload: {
+                                // doesn't match because href is nested in payload
+                                href: 'http://127.0.0.1:8000/home',
+                            },
                         },
                     },
-                },
-                {
-                    type: 4,
-                    data: {
-                        href: 'http://127.0.0.1:8000/second/url',
+                    {
+                        type: 4,
+                        data: {
+                            href: 'http://127.0.0.1:8000/second/url',
+                        },
                     },
-                },
-            ],
-        },
-    } as any as Properties)
-
-    expect(data).toEqual(null)
+                ],
+            },
+        } as any as Properties)
+    }).toThrowError()
 })
 
 test('performance event stored as performance_event', () => {

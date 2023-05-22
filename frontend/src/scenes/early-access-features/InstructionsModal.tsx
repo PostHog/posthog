@@ -51,7 +51,7 @@ export function InstructionsModal({ onClose, visible, featureFlag }: Instruction
 
                             <b>Retrieve Previews</b>
                             <div>
-                                <RetrievePreviewsInstructions featureFlag={featureFlag} />
+                                <RetrievePreviewsInstructions />
                             </div>
                         </div>
                     ),
@@ -74,7 +74,7 @@ export function InstructionsModal({ onClose, visible, featureFlag }: Instruction
 
             <b>Retrieve Previews</b>
             <div>
-                <RetrievePreviewsInstructions featureFlag={featureFlag} />
+                <RetrievePreviewsInstructions />
             </div>
         </div>
     )
@@ -97,7 +97,7 @@ export function InstructionsModal({ onClose, visible, featureFlag }: Instruction
 function FeatureEnrollInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
-            {`posthog.updateFeaturePreviewEnrollment("${featureFlag.key}", true)
+            {`posthog.updateEarlyAccessFeatureEnrollment("${featureFlag.key}", true)
 `}
         </CodeSnippet>
     )
@@ -106,20 +106,18 @@ function FeatureEnrollInstructions({ featureFlag }: { featureFlag: FeatureFlagTy
 function FeatureUnenrollInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
-            {`posthog.updateFeaturePreviewEnrollment("${featureFlag.key}", false)
+            {`posthog.updateEarlyAccessFeatureEnrollment("${featureFlag.key}", false)
 `}
         </CodeSnippet>
     )
 }
 
-function RetrievePreviewsInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+function RetrievePreviewsInstructions(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
-            {`posthog.getFeaturePreviews()
-// Example response:
-// {
-//     flagKey: '${featureFlag.key}',
-// }
+            {`posthog.getEarlyAccessFeatures((previewItemData) => {
+    // do something with early access feature
+})
 `}
         </CodeSnippet>
     )

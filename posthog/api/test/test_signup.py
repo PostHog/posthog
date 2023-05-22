@@ -31,7 +31,6 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture):
-
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
 
@@ -696,7 +695,6 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):
-
         for invalid_invite in [uuid.uuid4(), "abc", "1234"]:
             response = self.client.get(f"/api/signup/{invalid_invite}/")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -757,7 +755,13 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True}
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Alice",
+                "password": "test_password",
+                "email_opt_in": True,
+                "role_at_organization": "Engineering",
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
@@ -791,6 +795,7 @@ class TestInviteSignupAPI(APIBaseTest):
         mock_capture.assert_called_once()
         self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
         self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        self.assertEqual("Engineering", mock_capture.call_args[1]["properties"]["role_at_organization"])
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], False)
@@ -1149,6 +1154,40 @@ class TestInviteSignupAPI(APIBaseTest):
             User.objects.filter(email="test_api_social_invite_sign_up@posthog.com", first_name="Max").count(), 1
         )
         self.assertEqual(Organization.objects.filter(name="Org test_api_social_invite_sign_up").count(), 1)
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthoganalytics.get_feature_flag", return_value="test")
+    def test_api_social_invite_sign_up_if_email_verification_on(self, ff_mock, email_mock, email_available_mock):
+        """Test to make sure that social signups skip email verification if the verification feature flag is on."""
+        Organization.objects.all().delete()  # Can only create organizations in fresh instances
+        # Simulate SSO process started
+        session = self.client.session
+        session.update(
+            {"backend": "google-oauth2", "email": "test_api_social_invite_sign_up_with_verification@posthog.com"}
+        )
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup",
+            {"organization_name": "Org test_api_social_invite_sign_up_with_verification", "first_name": "Max"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(response.json(), {"continue_url": "/complete/google-oauth2/"})
+
+        # Check the organization and user were created
+        self.assertEqual(
+            User.objects.filter(
+                email="test_api_social_invite_sign_up_with_verification@posthog.com", first_name="Max"
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            Organization.objects.filter(name="Org test_api_social_invite_sign_up_with_verification").count(), 1
+        )
+        me_response = self.client.get("/api/users/@me/")
+        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
 
     def test_cannot_use_social_invite_sign_up_if_social_session_is_not_active(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances

@@ -22,6 +22,7 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
+    override_settings,
 )
 
 
@@ -155,6 +156,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_clickhouse_queries
     def test_filter_person_list(self):
         person1: Person = _create_person(
@@ -607,6 +609,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response.content.splitlines()), 2)
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_pagination_limit(self):
         created_ids = []
 

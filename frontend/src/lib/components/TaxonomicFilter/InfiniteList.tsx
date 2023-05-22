@@ -12,36 +12,16 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import ReactDOM from 'react-dom'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { ControlledDefinitionPopoverContents } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { pluralize } from 'lib/utils'
-import { flip, offset, shift, size, useFloating } from '@floating-ui/react'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-
-enum ListTooltip {
-    None = 0,
-    Left = 1,
-    Right = 2,
-}
-
-export function tooltipDesiredState(element?: Element | null): ListTooltip {
-    let desiredState: ListTooltip = ListTooltip.None
-    const rect = element?.getBoundingClientRect()
-    if (rect) {
-        if (window.innerWidth - rect.right > 300) {
-            desiredState = ListTooltip.Right
-        } else if (rect.left > 300) {
-            desiredState = ListTooltip.Left
-        }
-    }
-    return desiredState
-}
+import { useState } from 'react'
 
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     return (
@@ -189,29 +169,10 @@ export function InfiniteList(): JSX.Element {
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
 
+    const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
+
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalListCount === 0 && !isLoading
-
-    const floatingReturn = useFloating<HTMLElement>({
-        placement: 'right',
-        strategy: 'fixed',
-        middleware: [
-            offset(4),
-            shift({ padding: 5 }),
-            flip({ fallbackPlacements: ['left'] }),
-            size({
-                padding: 5,
-                apply({ availableWidth, elements: { floating } }) {
-                    Object.assign(floating.style, { visibility: availableWidth > 330 ? 'visible' : 'hidden' })
-                },
-            }),
-        ],
-    })
-
-    const {
-        reference: setReferenceRef,
-        refs: { reference: referenceRef },
-    } = floatingReturn
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const item = results[rowIndex]
@@ -230,7 +191,7 @@ export function InfiniteList(): JSX.Element {
             // if the popover is not enabled then don't leave the row selected when the mouse leaves it
             onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
             style: style,
-            ref: isHighlighted ? setReferenceRef : null,
+            ref: isHighlighted ? (element) => setHighlightedItemElement(element) : null,
         }
 
         return item && group ? (
@@ -307,29 +268,24 @@ export function InfiniteList(): JSX.Element {
                 </AutoSizer>
             )}
             {isActiveTab &&
-            selectedItemInView &&
             selectedItemHasPopover(selectedItem, listGroupType, group) &&
-            tooltipDesiredState(referenceRef.current as HTMLElement | null) !== ListTooltip.None &&
-            showPopover
-                ? ReactDOM.createPortal(
-                      selectedItem && group ? (
-                          <BindLogic
-                              logic={definitionPopoverLogic}
-                              props={{
-                                  type: listGroupType,
-                                  updateRemoteItem,
-                              }}
-                          >
-                              <ControlledDefinitionPopoverContents
-                                  item={selectedItem}
-                                  group={group}
-                                  floatingReturn={floatingReturn}
-                              />
-                          </BindLogic>
-                      ) : null,
-                      document.body
-                  )
-                : null}
+            showPopover &&
+            selectedItem ? (
+                <BindLogic
+                    logic={definitionPopoverLogic}
+                    props={{
+                        type: listGroupType,
+                        updateRemoteItem,
+                    }}
+                >
+                    <ControlledDefinitionPopover
+                        visible={selectedItemInView}
+                        item={selectedItem}
+                        group={group}
+                        highlightedItemElement={highlightedItemElement}
+                    />
+                </BindLogic>
+            ) : null}
         </div>
     )
 }
