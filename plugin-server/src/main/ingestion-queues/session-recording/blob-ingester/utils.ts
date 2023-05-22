@@ -23,7 +23,7 @@ export function decompressFromString(input: string, doubleDecode = false): strin
                 finalUncompressed,
             })
         }
-        return JSON.parse(finalUncompressed)
+        return finalUncompressed
     } catch (e: any) {
         if (e.code === 'Z_DATA_ERROR' && e.errno === -3 && !doubleDecode) {
             // some received data (particularly chunks) are double encoded
@@ -41,6 +41,6 @@ export function decompressFromString(input: string, doubleDecode = false): strin
 export const convertToPersistedMessage = (message: IncomingRecordingMessage): PersistedRecordingMessage => {
     return {
         window_id: message.window_id,
-        data: decompressFromString(message.data),
+        data: JSON.parse(decompressFromString(message.data)),
     }
 }
