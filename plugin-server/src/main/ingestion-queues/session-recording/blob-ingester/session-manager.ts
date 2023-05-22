@@ -95,7 +95,7 @@ export class SessionManager {
     private async deleteFile(file: string, context: string) {
         try {
             await unlink(file)
-            status.info('🗑️', `blob_ingester_session_manager deleted file ${context}`, { file, context })
+            status.debug('🗑️', `blob_ingester_session_manager deleted file ${context}`, { file, context })
         } catch (err) {
             if (err && err.code === 'ENOENT') {
                 status.warn(
@@ -121,7 +121,7 @@ export class SessionManager {
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager add called after destroy`, {
+            status.debug('⚠️', `blob_ingester_session_manager add called after destroy`, {
                 message,
                 sessionId: this.sessionId,
                 partition: this.partition,
