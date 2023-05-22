@@ -93,7 +93,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Replay]: {
         projectBased: true,
-        name: 'Replay',
+        name: 'Session Replay',
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
