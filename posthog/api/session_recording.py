@@ -231,6 +231,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         session_ids = [
             recording_id for recording_id in json.loads(self.request.GET.get("session_ids", "[]")) if recording_id
         ]
+        for session_id in session_ids:
+            if not isinstance(session_id, str):
+                raise exceptions.ValidationError(f"Invalid session_id: {session_id} - not a string")
         session_recordings_properties = SessionRecordingProperties(
             team=self.team, filter=filter, session_ids=session_ids
         ).run()
