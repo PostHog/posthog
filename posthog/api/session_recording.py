@@ -96,6 +96,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
 
+    def get_object(self) -> SessionRecording:
+        recording = SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
         use_v2_list = request.GET.get("version") == "2"
@@ -107,10 +113,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
-
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
+        recording = self.get_object()
 
         # Optimisation step if passed to speed up retrieval of CH data
         if not recording.start_time:
@@ -134,23 +137,61 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return Response(serializer.data)
 
     def delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
-
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
-
+        recording = self.get_object()
         recording.deleted = True
         recording.save()
 
         return Response({"success": True})
 
+    def _snapshots_v2(self, request: request.Request, **kwargs):
+        """
+        This will eventually replaced the snapshots endpoint below.
+        This path only supports loading from S3 or Redis based on query params
+        """
+        recording = self.get_object()
+        source = request.GET.get("source")
+
+        def respond(data):
+            # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
+            # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
+            try:
+                JSONRenderer().render(data=data)
+            except Exception:
+                capture_exception(
+                    Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": data}
+                )
+                return JsonResponse(data)
+
+            return Response(data)
+
+        if not source:
+            # TODO
+            return respond({"playlist": ["wat"]})
+
+        if source == "realtime":
+            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id) or []
+            return respond({"snapshots": snapshots})
+
+        if source == "blob":
+            blob_key = request.GET.get("blob_key")
+            if not blob_key:
+                raise exceptions.ValidationError("Must provide a snapshot file blob key")
+
+            # very short-lived pre-signed URL
+            file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
+            url = object_storage.get_presigned_url(file_key, expiration=60)
+            if not url:
+                raise exceptions.NotFound("Snapshot file not found")
+
+            with requests.get(url=url, stream=True) as r:
+                r.raise_for_status()
+                response = HttpResponse(content=r.raw, content_type="application/json")
+                response["Content-Disposition"] = "inline"
+                return response
+
     @action(methods=["GET"], detail=True)
     def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
-
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
-
+        self.get_object()  # 404 check
         blob_key = request.GET.get("blob_key")
 
         if not blob_key:
@@ -177,7 +218,10 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         3. From Clickhouse whilst we are migrating to the new ingestion method
         """
 
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+        if request.GET.get("version") == "2":
+            return self._snapshots_v2(request, **kwargs)
+
+        recording = self.get_object()
 
         def respond(data):
             # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
