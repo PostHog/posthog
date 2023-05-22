@@ -33,7 +33,7 @@ export const gaugeS3FilesBytesWritten = new Gauge({
 
 export const gaugeS3LinesWritten = new Gauge({
     name: 'recording_s3_lines_written',
-    help: 'Number of lines flushed to S3, which will let us see the huyman size of blobs - a good way to see how effective bundling is',
+    help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
 })
 
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
