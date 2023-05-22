@@ -340,39 +340,45 @@ export class SessionRecordingBlobIngester {
         })
 
         // We trigger the flushes from this level to reduce the number of running timers
-        this.flushInterval = setInterval(() => {
-            let sessionManangerBufferSizes = 0
+        // the first flush is after a delay to give the consumer time to start
+        this.flushInterval = setTimeout(this.checkEachSession, flushIntervalTimeoutMs * 5)
+    }
 
-            // in practice, we will always have a values for latestKaftaMessageTimestamp,
-            // but in case we get here before the first message, we use now
-            const kafkaNow = this.latestKafkaMessageTimestamp || DateTime.now().toMillis()
-            const flushThresholdMillis = this.flushThreshold(
-                kafkaNow,
-                DateTime.now().toMillis(),
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000,
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER
-            )
+    private checkEachSession() {
+        let sessionManangerBufferSizes = 0
 
-            this.sessions.forEach((sessionManager) => {
-                sessionManangerBufferSizes += sessionManager.buffer.size
+        // in practice, we will always have a values for latestKaftaMessageTimestamp,
+        // but in case we get here before the first message, we use now
+        const kafkaNow = this.latestKafkaMessageTimestamp || DateTime.now().toMillis()
+        const flushThresholdMillis = this.flushThreshold(
+            kafkaNow,
+            DateTime.now().toMillis(),
+            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000,
+            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER
+        )
 
-                void sessionManager.flushIfSessionBufferIsOld(kafkaNow, flushThresholdMillis).catch((err) => {
-                    status.error(
-                        '🚽',
-                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
-                        {
-                            err,
-                            session_id: sessionManager.sessionId,
-                        }
-                    )
-                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
-                    throw err
-                })
+        this.sessions.forEach((sessionManager) => {
+            sessionManangerBufferSizes += sessionManager.buffer.size
+
+            void sessionManager.flushIfSessionBufferIsOld(kafkaNow, flushThresholdMillis).catch((err) => {
+                status.error(
+                    '🚽',
+                    'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
+                    {
+                        err,
+                        session_id: sessionManager.sessionId,
+                    }
+                )
+                captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                throw err
             })
+        })
 
-            gaugeSessionsHandled.set(this.sessions.size)
-            gaugeBytesBuffered.set(sessionManangerBufferSizes)
-        }, flushIntervalTimeoutMs)
+        gaugeSessionsHandled.set(this.sessions.size)
+        gaugeBytesBuffered.set(sessionManangerBufferSizes)
+
+        // Here we schedule the next process
+        this.flushInterval = setTimeout(this.checkEachSession, flushIntervalTimeoutMs)
     }
 
     flushThreshold(
