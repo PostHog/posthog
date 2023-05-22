@@ -380,7 +380,9 @@ describe('session-manager', () => {
         ) => {
             const pendingChunks = new Map<string, PendingChunks>()
             Object.entries(chunks).forEach(([key, value]) => {
-                pendingChunks.set(key, new PendingChunks(value))
+                const pc = new PendingChunks(value[0])
+                ;(value as IncomingRecordingMessage[]).slice(1).forEach((chunk) => pc.add(chunk))
+                pendingChunks.set(key, pc)
             })
 
             const actualChunks = await sessionManager.handlePendingChunks(pendingChunks, referenceNow, 1000, {})

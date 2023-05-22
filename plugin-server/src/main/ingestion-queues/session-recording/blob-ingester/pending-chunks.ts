@@ -4,13 +4,9 @@ export class PendingChunks {
     readonly chunks: IncomingRecordingMessage[]
     readonly expectedSize: number
 
-    constructor(messages: IncomingRecordingMessage[]) {
-        if (messages.length === 0) {
-            throw new Error('Cannot create PendingChunks with no messages')
-        }
-        this.chunks = messages
-        this.expectedSize = messages[0].chunk_count
-        this.onAddMessage()
+    constructor(message: IncomingRecordingMessage) {
+        this.chunks = [message]
+        this.expectedSize = message.chunk_count
     }
 
     get count() {
@@ -38,10 +34,6 @@ export class PendingChunks {
 
     add(message: IncomingRecordingMessage) {
         this.chunks.push(message)
-        this.onAddMessage()
-    }
-
-    private onAddMessage() {
         this.chunks.sort((a, b) => {
             if (a.chunk_index === b.chunk_index) {
                 return a.metadata.timestamp - b.metadata.timestamp
