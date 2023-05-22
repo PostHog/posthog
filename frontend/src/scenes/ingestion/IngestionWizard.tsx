@@ -57,7 +57,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
     const { isSmallScreen } = useValues(ingestionLogic)
 
     return (
-        <div className="flex h-screen flex-col">
+        <div className="flex flex-col h-screen overflow-hidden">
             <div className="IngestionTopbar">
                 <FriendlyLogo style={{ fontSize: '1.125rem' }} />
                 <div className="flex">
