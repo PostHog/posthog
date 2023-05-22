@@ -271,13 +271,35 @@ export class SessionManager {
             return
         }
 
+        if (this.buffer.count === 0) {
+            status.warn('⚠️', `blob_ingester_session_manager flush called but buffer is empty`, {
+                sessionId: this.sessionId,
+                partition: this.partition,
+                reason,
+            })
+            return
+        }
+
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
 
+        const eventsRange = this.flushBuffer.eventsRange
+        if (!eventsRange) {
+            status.warn('⚠️', `blob_ingester_session_manager flush called but eventsRange is null`, {
+                sessionId: this.sessionId,
+                partition: this.partition,
+                reason,
+            })
+            return
+        }
+
+        const firstTimestamp = eventsRange.firstTimestamp
+        const lastTimestamp = eventsRange.lastTimestamp
+
         try {
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
-            const timeRange = `${this.flushBuffer.eventsRange?.firstTimestamp}-${this.flushBuffer.eventsRange?.lastTimestamp}`
+            const timeRange = `${firstTimestamp}-${lastTimestamp}`
             const dataKey = `${baseKey}/data/${timeRange}`
 
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
