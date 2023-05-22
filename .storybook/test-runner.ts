@@ -7,6 +7,8 @@ import { StoryContext } from '@storybook/react'
 
 type SupportedBrowserName = 'chromium' | 'firefox' | 'webkit'
 
+const STANDARD_PAGE_WIDTH = 1032
+
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/react' {
     interface Parameters {
@@ -125,6 +127,8 @@ async function expectStoryToMatchSceneSnapshot(
     context: TestContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    const dimensions = await page.locator('.main-app-content').boundingBox()
+    await page.setViewportSize({ height: Math.round(dimensions?.height || 1000), width: STANDARD_PAGE_WIDTH })
     await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
 }
 
