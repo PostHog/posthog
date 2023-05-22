@@ -33,9 +33,8 @@ function getSentryLinks(user: UserType | null): string {
         return ''
     }
     const cloud = window.location.origin == 'https://eu.posthog.com' ? 'EU' : 'US'
-    const link = `http://go/sentry${cloud}/${user.email}`
-    const pluginServer = `http://go/pluginServerSentry${cloud}/${user.team?.id}`
-    return `[Sentry](${link}) | [Plugin Server Sentry](${pluginServer})`
+    const link = `http://go/sentry${cloud}/${user.team?.id}`
+    return `[Sentry](${link})`
 }
 
 export const TARGET_AREA_TO_NAME = {
