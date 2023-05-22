@@ -8,7 +8,6 @@ import {
 import { eventWithTime } from '@rrweb/types'
 import { PersonType } from '~/types'
 import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
-import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
 
 export const playerMetaLogic = kea<playerMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),
@@ -20,20 +19,18 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment'],
-            sessionRecordingsListPropertiesLogic,
-            ['recordingPropertiesById'],
         ],
         actions: [sessionRecordingDataLogic(props), ['loadRecordingMetaSuccess']],
     })),
     selectors(() => ({
         sessionPerson: [
-            (s) => [s.sessionPlayerData],
+            (selectors) => [selectors.sessionPlayerData],
             (playerData): PersonType | null => {
                 return playerData?.person ?? null
             },
         ],
         resolution: [
-            (s) => [s.sessionPlayerData, s.currentTimestamp, s.currentSegment],
+            (selectors) => [selectors.sessionPlayerData, selectors.currentTimestamp, selectors.currentSegment],
             (sessionPlayerData, currentTimestamp, currentSegment): { width: number; height: number } | null => {
                 // Find snapshot to pull resolution from
                 if (!currentTimestamp) {
@@ -64,19 +61,19 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         startTime: [
-            (s) => [s.sessionPlayerData],
+            (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
                 return sessionPlayerData.start ?? null
             },
         ],
         currentWindowIndex: [
-            (s) => [s.windowIds, s.currentSegment],
+            (selectors) => [selectors.windowIds, selectors.currentSegment],
             (windowIds, currentSegment) => {
                 return windowIds.findIndex((windowId) => windowId === currentSegment?.windowId ?? -1)
             },
         ],
         lastPageviewEvent: [
-            (s) => [s.sessionEventsData, s.currentPlayerTime],
+            (selectors) => [selectors.sessionEventsData, selectors.currentPlayerTime],
             (sessionEventsData, currentPlayerTime) => {
                 const playerTimeClosestSecond = ceilMsToClosestSecond(currentPlayerTime ?? 0)
 
@@ -94,12 +91,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         return event
                     }
                 }
-            },
-        ],
-        sessionProperties: [
-            (s) => [s.sessionPlayerData, s.recordingPropertiesById, (_, props) => props],
-            (sessionPlayerData, recordingPropertiesById, props) => {
-                return recordingPropertiesById[props.sessionRecordingId] ?? sessionPlayerData.person?.properties
             },
         ],
     })),

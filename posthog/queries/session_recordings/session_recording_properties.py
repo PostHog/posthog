@@ -43,7 +43,7 @@ class SessionRecordingProperties(EventQuery):
          FROM events
          PREWHERE
              team_id = %(team_id)s
-             AND event IN ['$pageview', '$autocapture']
+             AND event IN ['$pageview']
              {session_ids_clause}
              {events_timestamp_clause}
              GROUP BY session_id

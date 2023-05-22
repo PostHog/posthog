@@ -80,10 +80,12 @@ export function PlayerMeta(): JSX.Element {
         currentWindowIndex,
         startTime,
         sessionPlayerMetaDataLoading,
-        sessionProperties,
     } = useValues(playerMetaLogic(logicProps))
 
     const { isFullScreen } = useValues(playerSettingsLogic)
+    // NOTE: The optimised event listing broke this as we don't have all the properties we need
+    // const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
+    const iconProperties = sessionPerson?.properties
 
     const { ref, size } = useResizeBreakpoints({
         0: 'compact',
@@ -142,10 +144,10 @@ export function PlayerMeta(): JSX.Element {
                     <div className="text-muted">
                         {sessionPlayerMetaDataLoading ? (
                             <LemonSkeleton className="w-1/4 my-1" />
-                        ) : sessionProperties ? (
+                        ) : iconProperties ? (
                             <SessionPropertyMeta
                                 fullScreen={isFullScreen}
-                                iconProperties={sessionProperties}
+                                iconProperties={iconProperties}
                                 predicate={(x) => !!x}
                             />
                         ) : null}
