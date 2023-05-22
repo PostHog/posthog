@@ -51,9 +51,7 @@ def test_batch_export_backfill(client: TestClient):
 
         batch_export_id = batch_export["id"]
 
-        response = backfill_batch_export(
-            client, team.pk, batch_export_id, "2021-01-01T00:00:00Z", "2021-01-01T01:00:00Z"
-        )
+        response = backfill_batch_export(client, team.pk, batch_export_id, "2021-01-01T00:00:00", "2021-01-01T01:00:00")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
@@ -93,9 +91,7 @@ def test_cannot_trigger_backfill_for_another_organization(client: TestClient):
         batch_export_id = batch_export["id"]
 
         client.force_login(other_user)
-        response = backfill_batch_export(
-            client, team.pk, batch_export_id, "2021-01-01T00:00:00Z", "2021-01-01T01:00:00Z"
-        )
+        response = backfill_batch_export(client, team.pk, batch_export_id, "2021-01-01T00:00:00", "2021-01-01T01:00:00")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
@@ -132,7 +128,7 @@ def test_backfill_is_partitioned_by_team_id(client: TestClient):
         batch_export_id = batch_export["id"]
 
         response = backfill_batch_export(
-            client, other_team.pk, batch_export_id, "2021-01-01T00:00:00Z", "2021-01-01T01:00:00Z"
+            client, other_team.pk, batch_export_id, "2021-01-01T00:00:00", "2021-01-01T01:00:00"
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
