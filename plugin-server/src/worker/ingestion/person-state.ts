@@ -161,8 +161,31 @@ export class PersonState {
 
         // Person was likely created in-between start-of-processing and now, so ensure that subsequent queries
         // to fetch person still return the right `person`
-        this.personContainer = this.personContainer.reset()
+        this.personContainer = this.personContainer.with(await this.getPersonOrError())
         return false
+    }
+
+    private async getPersonOrError(): Promise<Person> {
+        const person = await this.db.fetchPerson(this.teamId, this.distinctId)
+        if (!person) {
+            // There are three options for how we got here:
+            // - person creation is ongoing (but we're currently not parallel processing ingestion for the same ID)
+            // - person creation failed (rare)
+            // - person was deleted (rare)
+            // TODO: retries for creation and/or fetching
+            const error = Error('Race condition: Person has been deleted or creation failed')
+            status.error('🚨', 'get_person_failed', { error, teamId: this.teamId, distinctId: this.distinctId })
+            Sentry.captureException(error, {
+                extra: {
+                    teamId: this.teamId,
+                    distinctId: this.distinctId,
+                    timestamp: this.timestamp,
+                    personUuid: this.newUuid,
+                },
+            })
+            throw error
+        }
+        return person
     }
 
     private async createPerson(
@@ -217,13 +240,10 @@ export class PersonState {
     }
 
     private async tryUpdatePerson(): Promise<Person | null> {
-        // Note: In majority of cases person has been found already here!
-        const personFound = await this.personContainer.get()
+        let personFound = await this.personContainer.get()
         if (!personFound) {
-            this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
-            throw new Error(
-                `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
-            )
+            personFound = await this.getPersonOrError()
+            this.personContainer = this.personContainer.with(personFound)
         }
 
         const update: Partial<Person> = {}

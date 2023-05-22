@@ -3,6 +3,7 @@ import * as schedule from 'node-schedule'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
+import { isIngestionParallelBatchingEnabled } from '../../utils/env-utils'
 import { formPipelineEvent } from '../../utils/event'
 import { status } from '../../utils/status'
 import { WarningLimiter } from '../../utils/token-bucket'
@@ -10,7 +11,11 @@ import { groupIntoBatches } from '../../utils/utils'
 import Piscina from '../../worker/piscina'
 import { captureIngestionWarning } from './../../worker/ingestion/utils'
 import { eachBatch } from './batch-processing/each-batch'
-import { eachMessageIngestion } from './batch-processing/each-batch-ingestion'
+import {
+    eachBatchParallelIngestion,
+    eachMessageIngestion,
+    IngestionOverflowMode,
+} from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
 
 export const startAnalyticsEventsIngestionOverflowConsumer = async ({
@@ -39,12 +44,21 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
     // group id. In these cases, updating to this version will result in the
     // re-exporting of events still in Kafka `clickhouse_events_json` topic.
 
+    let batchHandler
+    if (isIngestionParallelBatchingEnabled()) {
+        batchHandler = async (payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> => {
+            await eachBatchParallelIngestion(payload, queue, IngestionOverflowMode.Consume)
+        }
+    } else {
+        batchHandler = eachBatchIngestionFromOverflow
+    }
+
     const queue = new IngestionConsumer(
         hub,
         piscina,
         KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         `${KAFKA_PREFIX}clickhouse-ingestion-overflow`,
-        eachBatchIngestionFromOverflow
+        batchHandler
     )
 
     await queue.start()

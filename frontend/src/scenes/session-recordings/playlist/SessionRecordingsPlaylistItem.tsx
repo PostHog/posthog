@@ -82,7 +82,7 @@ export function SessionRecordingPlaylistItem({
 
     // TODO: Modify onClick to only react to shift+click
     return (
-        <DraggableToNotebook href={urls.sessionRecording(recording.id)}>
+        <DraggableToNotebook href={urls.replaySingle(recording.id)}>
             <li
                 key={recording.id}
                 className={clsx(
