@@ -270,7 +270,7 @@ export class SessionManager {
                 })
                 continue
             }
-            
+
             updatedChunks.set(key, pendingChunks)
         }
 
@@ -420,7 +420,7 @@ export class SessionManager {
         // If it is a chunked message we add to the collected chunks
 
         if (!this.chunks.has(message.chunk_id)) {
-            this.chunks.set(message.chunk_id, new PendingChunks([message]))
+            this.chunks.set(message.chunk_id, new PendingChunks(message))
         } else {
             this.chunks.get(message.chunk_id)?.add(message)
         }
