@@ -23,8 +23,6 @@ const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
 
-const flushIntervalTimeoutMs = 30000
-
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
 export const gaugeIngestionLag = new Gauge({
@@ -74,7 +72,8 @@ export class SessionRecordingBlobIngester {
     constructor(
         private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
-        private objectStorage: ObjectStorage
+        private objectStorage: ObjectStorage,
+        readonly flushIntervalTimeoutMs = 30000
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
@@ -384,7 +383,7 @@ export class SessionRecordingBlobIngester {
 
             gaugeSessionsHandled.set(this.sessions.size)
             gaugeBytesBuffered.set(sessionManangerBufferSizes)
-        }, flushIntervalTimeoutMs)
+        }, this.flushIntervalTimeoutMs)
     }
 
     flushThreshold(
