@@ -294,8 +294,7 @@ export class SessionManager {
             return
         }
 
-        const firstTimestamp = eventsRange.firstTimestamp
-        const lastTimestamp = eventsRange.lastTimestamp
+        const { firstTimestamp, lastTimestamp } = eventsRange
 
         try {
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
