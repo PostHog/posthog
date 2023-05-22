@@ -278,7 +278,7 @@ export class SessionManager {
         try {
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
             const timeRange = `${this.flushBuffer.eventsRange?.firstTimestamp}-${this.flushBuffer.eventsRange?.lastTimestamp}`
-            const dataKey = `${baseKey}/data/${timeRange}` // TODO: Change to be based on events times
+            const dataKey = `${baseKey}/data/${timeRange}`
 
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
 
