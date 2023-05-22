@@ -1977,6 +1977,8 @@ export interface InsightLogicProps {
     doNotLoad?: boolean
     /** If showing a shared insight/dashboard, we need the access token for refreshing. */
     sharingAccessToken?: string
+    /** Temporary hack to disable data exploration to enable result fetching. */
+    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {
