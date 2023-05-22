@@ -38,6 +38,20 @@ DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 logger = structlog.get_logger(__name__)
 
 
+def snapshots_response(data: Any) -> Any:
+    # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
+    # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
+    try:
+        JSONRenderer().render(data=data)
+    except Exception:
+        capture_exception(
+            Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": data}
+        )
+        return JsonResponse(data)
+
+    return Response(data)
+
+
 class SessionRecordingSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
@@ -90,6 +104,18 @@ class SessionRecordingPropertiesSerializer(serializers.Serializer):
             "id": instance["session_id"],
             "properties": instance["properties"],
         }
+
+
+class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
+    source = serializers.CharField()
+    start_timestamp = serializers.IntegerField()
+    end_timestamp = serializers.IntegerField(allow_null=True)
+    key = serializers.CharField(allow_null=True)
+
+
+class SessionRecordingSnapshotsSerializer(serializers.Serializer):
+    sources = serializers.ListField(child=SessionRecordingSnapshotsSourceSerializer(), read_only=True)
+    snapshots = serializers.ListField(read_only=True)
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -149,30 +175,33 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         This path only supports loading from S3 or Redis based on query params
         """
         recording = self.get_object()
+        response_data = {}
         source = request.GET.get("source")
 
-        def respond(data):
-            # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
-            # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
-            try:
-                JSONRenderer().render(data=data)
-            except Exception:
-                capture_exception(
-                    Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": data}
-                )
-                return JsonResponse(data)
-
-            return Response(data)
-
         if not source:
-            # TODO
-            return respond({"playlist": ["wat"]})
+            sources = []
+            blob_keys = object_storage.list_objects(
+                f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
+            )
 
-        if source == "realtime":
+            if blob_keys:
+                sources += [
+                    {
+                        "source": "blob",
+                        "start_timestamp": int(key.split("-")[0]),
+                        "end_timestamp": int(key.split("-")[1]),
+                        "key": key,
+                    }
+                    for key in blob_keys
+                ]
+
+            response_data["sources"] = sources
+
+        elif source == "realtime":
             snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id) or []
-            return respond({"snapshots": snapshots})
+            response_data["snapshots"] = snapshots
 
-        if source == "blob":
+        elif source == "blob":
             blob_key = request.GET.get("blob_key")
             if not blob_key:
                 raise exceptions.ValidationError("Must provide a snapshot file blob key")
@@ -188,6 +217,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 response = HttpResponse(content=r.raw, content_type="application/json")
                 response["Content-Disposition"] = "inline"
                 return response
+        else:
+            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
+
+        serializer = SessionRecordingSnapshotsSerializer(data=response_data)
+        serializer.is_valid(raise_exception=False)
+
+        return Response(serializer.data)
 
     @action(methods=["GET"], detail=True)
     def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:
@@ -223,19 +259,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         recording = self.get_object()
 
-        def respond(data):
-            # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
-            # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
-            try:
-                JSONRenderer().render(data=data)
-            except Exception:
-                capture_exception(
-                    Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": data}
-                )
-                return JsonResponse(data)
-
-            return Response(data)
-
         # TODO: Determine if we should try Redis or not based on the recording start time and the S3 responses
 
         if recording.deleted:
@@ -259,7 +282,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
             snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id)
             if snapshots:
-                return respond({"snapshots": snapshots})
+                return snapshots_response({"snapshots": snapshots})
 
         # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
         filter = Filter(request=request)
@@ -285,7 +308,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         res = {"next": next_url, "snapshot_data_by_window_id": recording.snapshot_data_by_window_id}
 
-        return respond(res)
+        return snapshots_response(res)
 
     # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)
