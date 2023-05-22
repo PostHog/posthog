@@ -341,11 +341,11 @@ export class SessionRecordingBlobIngester {
 
         // We trigger the flushes from this level to reduce the number of running timers
         // the first flush is after a delay to give the consumer time to start
-        this.flushInterval = setTimeout(this.checkEachSession, flushIntervalTimeoutMs * 5)
+        this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs * 5)
     }
 
-    private checkEachSession() {
-        let sessionManangerBufferSizes = 0
+    private async checkEachSession() {
+        let sessionManagerBufferSizes = 0
 
         // in practice, we will always have a values for latestKaftaMessageTimestamp,
         // but in case we get here before the first message, we use now
@@ -357,10 +357,10 @@ export class SessionRecordingBlobIngester {
             this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER
         )
 
-        this.sessions.forEach((sessionManager) => {
-            sessionManangerBufferSizes += sessionManager.buffer.size
+        for (const [_, sessionManager] of this.sessions) {
+            sessionManagerBufferSizes += sessionManager.buffer.size
 
-            void sessionManager.flushIfSessionBufferIsOld(kafkaNow, flushThresholdMillis).catch((err) => {
+            await sessionManager.flushIfSessionBufferIsOld(kafkaNow, flushThresholdMillis).catch((err) => {
                 status.error(
                     '🚽',
                     'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
@@ -372,13 +372,13 @@ export class SessionRecordingBlobIngester {
                 captureException(err, { tags: { session_id: sessionManager.sessionId } })
                 throw err
             })
-        })
+        }
 
         gaugeSessionsHandled.set(this.sessions.size)
-        gaugeBytesBuffered.set(sessionManangerBufferSizes)
+        gaugeBytesBuffered.set(sessionManagerBufferSizes)
 
         // Here we schedule the next process
-        this.flushInterval = setTimeout(this.checkEachSession, flushIntervalTimeoutMs)
+        this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs)
     }
 
     flushThreshold(
