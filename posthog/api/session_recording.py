@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta
+from django.utils import timezone
+
 import json
 from typing import Any, List, Type, cast
 
@@ -108,14 +111,14 @@ class SessionRecordingPropertiesSerializer(serializers.Serializer):
 
 class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
     source = serializers.CharField()
-    start_timestamp = serializers.IntegerField()
-    end_timestamp = serializers.IntegerField(allow_null=True)
+    start_timestamp = serializers.DateTimeField(allow_null=True)
+    end_timestamp = serializers.DateTimeField(allow_null=True)
     key = serializers.CharField(allow_null=True)
 
 
 class SessionRecordingSnapshotsSerializer(serializers.Serializer):
-    sources = serializers.ListField(child=SessionRecordingSnapshotsSourceSerializer(), read_only=True)
-    snapshots = serializers.ListField(read_only=True)
+    sources = serializers.ListField(child=SessionRecordingSnapshotsSourceSerializer(), required=False)
+    snapshots = serializers.ListField(required=False)
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -187,17 +190,37 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
             if blob_keys:
                 for full_key in blob_keys:
+                    # Keys are like 1619712000-1619712060
                     blob_key = full_key.replace(blob_prefix, "")
+                    time_range = [datetime.fromtimestamp(int(x) / 1000) for x in blob_key.split("-")]
+
                     sources.append(
-                        [
-                            {
-                                "source": "blob",
-                                "start_timestamp": int(blob_key.split("-")[0]),
-                                "end_timestamp": int(blob_key.split("-").pop()),
-                                "key": blob_key,
-                            }
-                        ]
+                        {
+                            "source": "blob",
+                            "start_timestamp": time_range[0],
+                            "end_timestamp": time_range.pop(),
+                            "key": blob_key,
+                        }
                     )
+
+            might_have_realtime = True
+            newest_timestamp = None
+
+            if sources:
+                sources = sorted(sources, key=lambda x: x["start_timestamp"])
+                oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
+                newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+
+                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
+
+            if might_have_realtime:
+                sources.append(
+                    {
+                        "source": "realtime",
+                        "start_timestamp": newest_timestamp,
+                        "end_timestamp": None,
+                    }
+                )
 
             response_data["sources"] = sources
 
@@ -224,8 +247,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
 
-        serializer = SessionRecordingSnapshotsSerializer(data=response_data)
-        serializer.is_valid(raise_exception=True)
+        serializer = SessionRecordingSnapshotsSerializer(response_data)
 
         return Response(serializer.data)
 
