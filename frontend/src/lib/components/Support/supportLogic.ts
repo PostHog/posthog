@@ -3,12 +3,13 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
-import { UserType } from '~/types'
+import { Region, UserType } from '~/types'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { captureException } from '@sentry/react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -28,11 +29,10 @@ function getDjangoAdminLink(user: UserType | null): string {
     return `[Admin](${link}) (Organization: '${user.organization?.name}'; Project: ${user.team?.id}:'${user.team?.name}')`
 }
 
-function getSentryLinks(user: UserType | null): string {
+function getSentryLinks(user: UserType | null, cloud: 'EU' | 'US'): string {
     if (!user) {
         return ''
     }
-    const cloud = window.location.origin == 'https://eu.posthog.com' ? 'EU' : 'US'
     const link = `http://go/sentry${cloud}/${user.team?.id}`
     return `[Sentry](${link})`
 }
@@ -86,7 +86,7 @@ export function getURLPathToTargetArea(pathname: string): SupportTicketTargetAre
 export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], preflightLogic, ['preflight']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
@@ -199,6 +199,7 @@ export const supportLogic = kea<supportLogicType>([
                 ' (' +
                 zendesk_ticket_uuid +
                 ')'
+            const cloud = preflightLogic.values.preflight?.region === Region.EU ? 'EU' : 'US'
             const payload = {
                 request: {
                     requester: { name: name, email: email },
@@ -215,7 +216,7 @@ export const supportLogic = kea<supportLogicType>([
                             '\n' +
                             getDjangoAdminLink(userLogic.values.user) +
                             '\n' +
-                            getSentryLinks(userLogic.values.user),
+                            getSentryLinks(userLogic.values.user, cloud),
                     },
                 },
             }
