@@ -30,5 +30,6 @@ class SessionRecordingsMixin(BaseParamMixin):
 
         recordings_ids = json.loads(session_ids_str)
         if isinstance(recordings_ids, list) and all(isinstance(recording_id, str) for recording_id in recordings_ids):
-            return recordings_ids
+            # Sort for stable queries
+            return sorted(recordings_ids)
         return None
