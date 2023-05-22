@@ -67,9 +67,9 @@ export class SessionManager {
         this.buffer = this.createBuffer()
 
         // NOTE: a new SessionManager indicates that either everything has been flushed or a rebalance occured so we should clear the existing redis messages
-        void this.realtimeManager.clearAllMessages(this.teamId, this.sessionId)
+        void realtimeManager.clearAllMessages(this.teamId, this.sessionId)
 
-        this.unsubscribe = this.realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
+        this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
             void this.startRealtime()
         })
 

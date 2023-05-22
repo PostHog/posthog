@@ -30,11 +30,28 @@ describe('session-manager', () => {
         send: jest.fn(),
     }
 
+    const mockRealtimeManager: any = {
+        clearAllMessages: jest.fn(),
+        onSubscriptionEvent: jest.fn(),
+        clearMessages: jest.fn(),
+        addMessage: jest.fn(),
+        addMessagesFromBuffer: jest.fn(),
+    }
+
     beforeEach(() => {
         // it's always May 25
         Settings.now = () => new Date(2018, 4, 25).valueOf()
 
-        sessionManager = new SessionManager(defaultConfig, mockS3Client, 1, 'session_id_1', 1, 'topic', mockFinish)
+        sessionManager = new SessionManager(
+            defaultConfig,
+            mockS3Client,
+            mockRealtimeManager,
+            1,
+            'session_id_1',
+            1,
+            'topic',
+            mockFinish
+        )
         mockFinish.mockClear()
     })
 
