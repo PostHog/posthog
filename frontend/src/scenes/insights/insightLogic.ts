@@ -882,7 +882,7 @@ export const insightLogic = kea<insightLogicType>([
 
             // (Re)load results when filters have changed or if there's no result yet
             if (backendFilterChanged || !values.insight?.result) {
-                if (!values.isUsingDataExploration && !values.insight?.query) {
+                if ((!values.isUsingDataExploration || props.disableDataExploration) && !values.insight?.query) {
                     actions.loadResults()
                 }
             }
