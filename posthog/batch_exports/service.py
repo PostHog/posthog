@@ -4,7 +4,6 @@ from uuid import UUID
 from dataclasses import dataclass, asdict
 from posthog import settings
 from posthog.batch_exports.models import BatchExport, BatchExportRun
-from posthog.models.team.team import Team
 from posthog.temporal.client import sync_connect
 from asgiref.sync import async_to_sync
 
@@ -148,7 +147,6 @@ def backfill_export(batch_export_id: str, start_at: dt.datetime | None = None, e
 
 
 def create_batch_export_run(
-    team_id: int,
     workflow_id: str,
     run_id: str,
     batch_export_id: UUID,
@@ -164,9 +162,7 @@ def create_batch_export_run(
         data_interval_start:
         data_interval_end:
     """
-    team = Team.objects.get(id=team_id)
     run = BatchExportRun(
-        team=team,
         batch_export_id=batch_export_id,
         workflow_id=workflow_id,
         run_id=run_id,

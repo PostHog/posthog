@@ -173,7 +173,6 @@ def destination(team, s3_bucket):
     Technically, we are using a MinIO bucket. But the API is the same, so we also support it!
     """
     dest = BatchExportDestination.objects.create(
-        name="my-s3-bucket",
         type="S3",
         team=team,
         config={
@@ -195,7 +194,7 @@ def destination(team, s3_bucket):
 @pytest.fixture
 def batch_export(destination, team):
     """A test BatchExport."""
-    batch_export = BatchExport.objects.create(team=team, destination=destination, interval="hour")
+    batch_export = BatchExport.objects.create(team=team, name="my-s3-bucket", destination=destination, interval="hour")
 
     batch_export.save()
 
@@ -315,10 +314,11 @@ async def test_s3_export_workflow_with_minio_bucket(
             assert row["team_id"] == matching_event["team_id"]
 
         assert (
-            await sync_to_async(BatchExportRun.objects.filter(team_id=destination.team.id).count)() == 1  # type:ignore
+            await sync_to_async(BatchExportRun.objects.filter(batch_export_id=batch_export.pk).count)()
+            == 1  # type:ignore
         )
 
-        run = await sync_to_async(BatchExportRun.objects.filter(team_id=destination.team.id).first)()  # type:ignore
+        run = await sync_to_async(BatchExportRun.objects.filter(batch_export_id=batch_export.pk).first)()  # type:ignore
         assert run is not None
         assert run.status == "Completed"
         assert run.data_interval_end == max_datetime
