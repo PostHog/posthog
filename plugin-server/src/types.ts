@@ -76,6 +76,7 @@ export enum KafkaSaslMechanism {
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
+    INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     POSTHOG_DB_NAME: string | null
@@ -188,6 +189,8 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
+    // maximum allowed back off of SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS
+    SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER: number
 }
 
 export interface Hub extends PluginsServerConfig {

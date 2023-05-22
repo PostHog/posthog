@@ -43,7 +43,7 @@ export const playerShareLogic = kea<playerShareLogicType>([
         url: [
             (s) => [s.shareUrl, s.shareUrlHasErrors],
             (shareUrl, hasErrors) => {
-                const url = `${window.location.origin}${urls.sessionRecording(props.id)}`
+                const url = `${window.location.origin}${urls.replaySingle(props.id)}`
                 return (
                     url +
                     (shareUrl.includeTime && !hasErrors

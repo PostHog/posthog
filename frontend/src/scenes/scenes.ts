@@ -3,7 +3,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
-import { InsightShortId, SessionRecordingsTabs } from '~/types'
+import { InsightShortId, ReplayTabs } from '~/types'
 import { combineUrl } from 'kea-router'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
@@ -91,17 +91,17 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Web Performance',
     },
-    [Scene.SessionRecordings]: {
+    [Scene.Replay]: {
         projectBased: true,
-        name: 'Recordings',
+        name: 'Session Replay',
     },
-    [Scene.SessionRecording]: {
+    [Scene.ReplaySingle]: {
         projectBased: true,
-        name: 'Recordings',
+        name: 'Replay Recording',
     },
-    [Scene.SessionRecordingPlaylist]: {
+    [Scene.ReplayPlaylist]: {
         projectBased: true,
-        name: 'Recordings Playlist',
+        name: 'Replay Playlist',
     },
     [Scene.Person]: {
         projectBased: true,
@@ -256,10 +256,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Feedback',
     },
-    [Scene.Issues]: {
-        projectBased: true,
-        name: 'Issues',
-    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -287,13 +283,16 @@ export const redirects: Record<
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
+    '/recordings/:id': ({ id }) => urls.replaySingle(id),
+    '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
-            return urls.sessionRecording(hashParams.sessionRecordingId)
+            return urls.replaySingle(hashParams.sessionRecordingId)
         }
-        return urls.sessionRecordings()
+        return urls.replay()
     },
+    '/replay': urls.replay(),
 }
 
 export const routes: Record<string, Scene> = {
@@ -323,14 +322,14 @@ export const routes: Record<string, Scene> = {
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
-    [urls.sessionRecordings()]: Scene.SessionRecordings,
+    [urls.replay()]: Scene.Replay,
     // One entry for every available tab
-    ...Object.values(SessionRecordingsTabs).reduce((acc, tab) => {
-        acc[urls.sessionRecordings(tab)] = Scene.SessionRecordings
+    ...Object.values(ReplayTabs).reduce((acc, tab) => {
+        acc[urls.replay(tab)] = Scene.Replay
         return acc
     }, {} as Record<string, Scene>),
-    [urls.sessionRecording(':id')]: Scene.SessionRecording,
-    [urls.sessionRecordingPlaylist(':id')]: Scene.SessionRecordingPlaylist,
+    [urls.replaySingle(':id')]: Scene.ReplaySingle,
+    [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
@@ -389,5 +388,4 @@ export const routes: Record<string, Scene> = {
     [urls.debugQuery()]: Scene.DebugQuery,
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
-    [urls.issues()]: Scene.Issues,
 }

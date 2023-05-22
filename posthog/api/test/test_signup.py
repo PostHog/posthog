@@ -1155,6 +1155,40 @@ class TestInviteSignupAPI(APIBaseTest):
         )
         self.assertEqual(Organization.objects.filter(name="Org test_api_social_invite_sign_up").count(), 1)
 
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthoganalytics.get_feature_flag", return_value="test")
+    def test_api_social_invite_sign_up_if_email_verification_on(self, ff_mock, email_mock, email_available_mock):
+        """Test to make sure that social signups skip email verification if the verification feature flag is on."""
+        Organization.objects.all().delete()  # Can only create organizations in fresh instances
+        # Simulate SSO process started
+        session = self.client.session
+        session.update(
+            {"backend": "google-oauth2", "email": "test_api_social_invite_sign_up_with_verification@posthog.com"}
+        )
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup",
+            {"organization_name": "Org test_api_social_invite_sign_up_with_verification", "first_name": "Max"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(response.json(), {"continue_url": "/complete/google-oauth2/"})
+
+        # Check the organization and user were created
+        self.assertEqual(
+            User.objects.filter(
+                email="test_api_social_invite_sign_up_with_verification@posthog.com", first_name="Max"
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            Organization.objects.filter(name="Org test_api_social_invite_sign_up_with_verification").count(), 1
+        )
+        me_response = self.client.get("/api/users/@me/")
+        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+
     def test_cannot_use_social_invite_sign_up_if_social_session_is_not_active(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
 
