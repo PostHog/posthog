@@ -31,6 +31,11 @@ export const gaugeS3FilesBytesWritten = new Gauge({
     labelNames: ['team'],
 })
 
+export const gaugeS3LinesWritten = new Gauge({
+    name: 'recording_s3_lines_written',
+    help: 'Number of lines flushed to S3, which will let us see the huyman size of blobs - a good way to see how effective bundling is',
+})
+
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
 // The buffer is a list of messages grouped
@@ -285,6 +290,7 @@ export class SessionManager {
 
             counterS3FilesWritten.labels(reason).inc(1)
             gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
+            gaugeS3LinesWritten.set(this.flushBuffer.count)
             status.info('🚽', `blob_ingester_session_manager - flushed buffer to S3`, {
                 sessionId: this.sessionId,
                 partition: this.partition,
