@@ -97,13 +97,8 @@ export class SessionRecordingBlobIngester {
                 session_id,
                 partition,
                 topic,
-                (offsets, self: SessionManager) => {
+                (offsets) => {
                     this.offsetManager?.removeOffsets(topic, partition, offsets)
-
-                    // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                    if (self.isEmpty) {
-                        this.sessions.delete(key)
-                    }
                 }
             )
 
@@ -365,7 +360,8 @@ export class SessionRecordingBlobIngester {
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER
             )
 
-            this.sessions.forEach((sessionManager) => {
+            const emptySessions: string[] = []
+            this.sessions.forEach((sessionManager, key) => {
                 sessionManangerBufferSizes += sessionManager.buffer.size
 
                 void sessionManager.flushIfSessionBufferIsOld(kafkaNow, flushThresholdMillis).catch((err) => {
@@ -380,6 +376,15 @@ export class SessionRecordingBlobIngester {
                     captureException(err, { tags: { session_id: sessionManager.sessionId } })
                     throw err
                 })
+
+                if (sessionManager.isEmpty) {
+                    emptySessions.push(key)
+                }
+            })
+
+            emptySessions.forEach((key) => {
+                // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+                this.sessions.delete(key)
             })
 
             gaugeSessionsHandled.set(this.sessions.size)
