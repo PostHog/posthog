@@ -25,7 +25,6 @@ from . import (
     organization_domain,
     organization_invite,
     organization_member,
-    person_communication,
     personal_api_key,
     plugin,
     plugin_log_entry,
