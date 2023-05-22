@@ -68,8 +68,6 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
 
 export interface ApiMethodOptions {
     signal?: AbortSignal
-    /** Email and password for HTTP basic authentication. */
-    basicAuthCredentials?: [string, string]
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -1255,12 +1253,7 @@ const api = {
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url, {
-                signal: options?.signal,
-                headers: options?.basicAuthCredentials
-                    ? { Authorization: `Basic ${btoa(options.basicAuthCredentials.join(':'))}` }
-                    : undefined,
-            })
+            response = await fetch(url, { signal: options?.signal })
         } catch (e) {
             throw { status: 0, message: e }
         }
@@ -1282,9 +1275,6 @@ const api = {
             method: 'PATCH',
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                ...(options?.basicAuthCredentials
-                    ? { Authorization: `Basic ${btoa(options.basicAuthCredentials.join(':'))}` }
-                    : {}),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: isFormData ? data : JSON.stringify(data),
@@ -1316,9 +1306,6 @@ const api = {
             method: 'POST',
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                ...(options?.basicAuthCredentials
-                    ? { Authorization: `Basic ${btoa(options.basicAuthCredentials.join(':'))}` }
-                    : {}),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,

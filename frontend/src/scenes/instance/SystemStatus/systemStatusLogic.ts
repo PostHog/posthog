@@ -2,7 +2,7 @@ import api from 'lib/api'
 import { kea, path, actions, reducers, listeners, events, selectors } from 'kea'
 import type { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
-import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult, InstanceSetting, UserType } from '~/types'
+import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult, InstanceSetting } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isUserLoggedIn } from 'lib/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -51,10 +51,6 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'SENTRY_ORGANIZATION',
     'HEATMAP_SAMPLE_N',
 ]
-
-export interface InstanceConfigUpdateForm {
-    password: string
-}
 
 // Note: This logic does some heavy calculations - avoid connecting it outside of system status pages!
 export const systemStatusLogic = kea<systemStatusLogicType>([
@@ -144,26 +140,12 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
 
     forms(({ values }) => ({
         instanceConfigSave: {
-            defaults: { password: '' } as InstanceConfigUpdateForm,
-            errors: ({ password }) => ({
-                password: !password
-                    ? 'Please enter your password to continue'
-                    : password.length < 8
-                    ? 'Password must be at least 8 characters'
-                    : undefined,
-            }),
-            submit: async ({ password }) => {
+            submit: async () => {
                 await Promise.all(
                     Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
-                        await api.update(
-                            `api/instance_settings/${key}`,
-                            {
-                                value,
-                            },
-                            {
-                                basicAuthCredentials: [(userLogic.values.user as UserType).email, password],
-                            }
-                        )
+                        await api.update(`api/instance_settings/${key}`, {
+                            value,
+                        })
                         eventUsageLogic.actions.reportInstanceSettingChange(key, value)
                     })
                 )
@@ -204,13 +186,9 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
             lemonToast.success('Instance configuration updated')
         },
         submitInstanceConfigSaveFailure: ({ error }) => {
-            if ((error as any).status === 401) {
-                actions.setInstanceConfigSaveManualErrors({ password: 'Incorrect password' })
-            } else {
-                captureException(error)
-                lemonToast.error('There was an error updating instance settings - please try again later')
-                actions.loadInstanceSettings()
-            }
+            captureException(error)
+            lemonToast.error('There was an error updating instance settings - please try again later')
+            actions.loadInstanceSettings()
         },
         setInstanceConfigMode: () => {
             actions.resetInstanceConfigSave()

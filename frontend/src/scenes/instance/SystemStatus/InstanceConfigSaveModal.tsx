@@ -1,11 +1,9 @@
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SystemStatusRow } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
 import { systemStatusLogic } from './systemStatusLogic'
-import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
 
 interface ChangeRowInterface extends Pick<SystemStatusRow, 'value'> {
     oldValue?: boolean | string | number | null
@@ -83,7 +81,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                 </>
             }
         >
-            <Form logic={systemStatusLogic} formKey="instanceConfigSave" enableFormOnSubmit className="space-y-2">
+            <div className="space-y-2">
                 {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
                     <LemonBanner type="info">
                         <>
@@ -120,16 +118,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                         isSecret={editableInstanceSettings.find((record) => record.key === key)?.is_secret}
                     />
                 ))}
-                <Field name="password" label="Your password is required for this operation">
-                    <LemonInput
-                        type="password"
-                        className="ph-ignore-input"
-                        data-attr="password"
-                        placeholder="••••••••••"
-                        autoComplete="current-password"
-                    />
-                </Field>
-            </Form>
+            </div>
         </LemonModal>
     )
 }
