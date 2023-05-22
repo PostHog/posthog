@@ -84,6 +84,7 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    await page.setViewportSize(DEFAULT_PAGE_DIMENSIONS)
     const {
         waitForLoadersToDisappear = storyContext.parameters?.layout === 'fullscreen',
         excludeNavigationFromSnapshot = false,
