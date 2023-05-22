@@ -360,7 +360,6 @@ export class SessionRecordingBlobIngester {
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER
             )
 
-            const emptySessions: string[] = []
             this.sessions.forEach((sessionManager, key) => {
                 sessionManangerBufferSizes += sessionManager.buffer.size
 
@@ -378,13 +377,9 @@ export class SessionRecordingBlobIngester {
                 })
 
                 if (sessionManager.isEmpty) {
-                    emptySessions.push(key)
+                    // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+                    this.sessions.delete(key)
                 }
-            })
-
-            emptySessions.forEach((key) => {
-                // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                this.sessions.delete(key)
             })
 
             gaugeSessionsHandled.set(this.sessions.size)
