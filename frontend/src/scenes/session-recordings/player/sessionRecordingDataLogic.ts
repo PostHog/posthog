@@ -30,6 +30,7 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import { decompressSync, strFromU8 } from 'fflate'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -169,6 +170,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     connect({
         logic: [eventUsageLogic],
         values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
+        actions: [sessionRecordingsListPropertiesLogic, ['maybeLoadPropertiesForSessions']],
     }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -238,6 +240,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             actions.loadPerformanceEvents()
         },
         loadRecordingMetaSuccess: () => {
+            actions.maybeLoadPropertiesForSessions([props.sessionRecordingId])
             if (values.fullLoad) {
                 actions.loadRecording(true)
             }
