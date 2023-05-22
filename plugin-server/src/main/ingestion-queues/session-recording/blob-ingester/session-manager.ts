@@ -1,5 +1,6 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException } from '@sentry/node'
+import { captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
@@ -421,16 +422,7 @@ export class SessionManager {
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
         try {
             const messageData = convertToPersistedMessage(message)
-            this.buffer.eventsRange = {
-                firstTimestamp: Math.min(
-                    message.events_summary[0].timestamp,
-                    this.buffer.eventsRange?.firstTimestamp ?? Infinity
-                ),
-                lastTimestamp: Math.max(
-                    message.events_summary[message.events_summary.length - 1].timestamp,
-                    this.buffer.eventsRange?.lastTimestamp ?? 0
-                ),
-            }
+            this.setEventsRangeFrom(message)
 
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
@@ -474,15 +466,15 @@ export class SessionManager {
     }
 
     private async processChunksToBuffer(chunks: IncomingRecordingMessage[]) {
-        // push all but the last offset into the buffer
-        // the final offset was copied into the data passed to `addToBuffer`
-        for (let i = 0; i < chunks.length - 1; i++) {
+        // push all but the first offset into the buffer
+        // the first offset is copied into the data passed to `addToBuffer`
+        for (let i = 0; i < chunks.length; i++) {
             const x = chunks[i]
             this.buffer.offsets.push(x.metadata.offset)
         }
 
         await this.addToBuffer({
-            ...chunks[chunks.length - 1],
+            ...chunks[0], // send the first chunk as the message, it should have the events summary
             data: chunks
                 .sort((a, b) => a.chunk_index - b.chunk_index)
                 .map((c) => c.data)
@@ -515,5 +507,46 @@ export class SessionManager {
                 })
             )
         await Promise.allSettled(filePromises)
+    }
+
+    private getEventRangeForMessage(message: IncomingRecordingMessage): [number | null, number | null] {
+        try {
+            if (!message.events_summary || !message.events_summary.length) {
+                return [null, null]
+            }
+
+            return [
+                message.events_summary[0].timestamp,
+                message.events_summary[message.events_summary.length - 1].timestamp,
+            ]
+        } catch (e) {
+            captureException(e, { tags: { team_id: this.teamId, session_id: this.sessionId }, extra: { message } })
+            return [null, null]
+        }
+    }
+
+    private setEventsRangeFrom(message: IncomingRecordingMessage) {
+        const [start, end] = this.getEventRangeForMessage(message)
+
+        if (start === null) {
+            // if we don't have a start, then we can't have an end,
+            // and we can't set new values for range
+            captureMessage(
+                "blob_ingester_session_manager: can't set events range from message without events summary",
+                {
+                    extra: { message },
+                    tags: {
+                        team_id: this.teamId,
+                        session_id: this.sessionId,
+                    },
+                }
+            )
+            return
+        }
+
+        const firstTimestamp = Math.min(start, this.buffer.eventsRange?.firstTimestamp || Infinity)
+        const lastTimestamp = Math.max(end || start, this.buffer.eventsRange?.lastTimestamp || -Infinity)
+
+        this.buffer.eventsRange = { firstTimestamp, lastTimestamp }
     }
 }
