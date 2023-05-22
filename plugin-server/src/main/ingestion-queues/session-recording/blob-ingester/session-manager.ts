@@ -243,7 +243,7 @@ export class SessionManager {
         const updatedChunks = new Map<string, PendingChunks>()
 
         for (const [key, pendingChunks] of chunks) {
-            if (pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
+            if (!pendingChunks.isComplete && pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
                 // dropping these chunks, don't lose their offsets
                 pendingChunks.chunks.forEach((x) => {
                     // we want to make sure that the offsets for these messages we're ignoring
