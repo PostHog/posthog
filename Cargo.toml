@@ -16,6 +16,10 @@ governor = "0.5.1"
 tower_governor = "0.0.4"
 time = "0.3.20"
 tower-http = {version = "0.4.0", features = ["trace"]}
+bytes = "1"
+anyhow = "1.0"
+flate2 = "1.0"
+base64 = "0.21.1"
 
 [dev-dependencies]
 mockall = "0.11.2"

@@ -1,18 +1,15 @@
-use serde::{Deserialize, Serialize};
-// Define the API interface for capture here.
-// This is used for serializing responses and deserializing requests
+use std::collections::HashMap;
 
-// LATER ME
-// Trying to figure out wtf the schema for this is. Turns out we have about
-// a million special cases and properties all over the place
-// Also - what are the possible types for a property value? Account for those.
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CaptureRequest {
     #[serde(alias = "$token", alias = "api_key")]
     pub token: String,
 
     pub event: String,
-    // pub properties: HashMap<String>,
+    pub properties: HashMap<String, Value>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
