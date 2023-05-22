@@ -6,6 +6,7 @@ use serde_json::Value;
 use anyhow::Result;
 use bytes::{Buf, Bytes};
 use flate2::read::GzDecoder;
+use uuid::Uuid;
 
 #[derive(Deserialize, Default)]
 pub enum Compression {
@@ -45,6 +46,18 @@ impl Event {
 
         Ok(event)
     }
+}
+
+#[derive(Default, Debug, Deserialize, Serialize)]
+pub struct ProcessedEvent {
+    uuid: Uuid,
+    distinct_id: String,
+    ip: String,
+    site_url: String,
+    data: String,
+    now: String,
+    sent_at: String,
+    token: String,
 }
 
 #[cfg(test)]
