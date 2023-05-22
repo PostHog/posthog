@@ -9490,8 +9490,10 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
-                        replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') as path_item_0,
-                        replaceRegexpAll(path_item_0, '/\\d+(/|\\?)?', '/<id>') as path_item
+                        replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') AS path_item_0,
+                        replaceRegexpAll(path_item_0, '/\\d+(/|\\?)?', '/<id>') AS path_item_cleaned,
+                        multiMatchAnyIndex(path_item_cleaned, NULL) AS group_index,
+                        if(group_index > 0, NULL[group_index], path_item_cleaned) AS path_item
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -9569,8 +9571,10 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
-                        replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') as path_item_0,
-                        replaceRegexpAll(path_item_0, '/\\d+(/|\\?)?', '/<id>') as path_item
+                        replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') AS path_item_0,
+                        replaceRegexpAll(path_item_0, '/\\d+(/|\\?)?', '/<id>') AS path_item_cleaned,
+                        multiMatchAnyIndex(path_item_cleaned, NULL) AS group_index,
+                        if(group_index > 0, NULL[group_index], path_item_cleaned) AS path_item
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -9648,8 +9652,10 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
-                        replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') as path_item_0,
-                        replaceRegexpAll(path_item_0, '/\\d+(/|\\?)?', '/<id>') as path_item
+                        replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') AS path_item_0,
+                        replaceRegexpAll(path_item_0, '/\\d+(/|\\?)?', '/<id>') AS path_item_cleaned,
+                        multiMatchAnyIndex(path_item_cleaned, NULL) AS group_index,
+                        if(group_index > 0, NULL[group_index], path_item_cleaned) AS path_item
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -9806,7 +9812,9 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
-                        replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') as path_item
+                        replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') AS path_item_cleaned,
+                        multiMatchAnyIndex(path_item_cleaned, NULL) AS group_index,
+                        if(group_index > 0, NULL[group_index], path_item_cleaned) AS path_item
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
