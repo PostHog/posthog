@@ -725,6 +725,124 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         response = Paths(team=self.team, filter=path_filter).run()
         self.assertEqual(response, correct_response)
 
+    @snapshot_clickhouse_queries
+    def test_path_cleaning_rules_with_wildcard_groups(self):
+        _create_person(distinct_ids=[f"user_1"], team=self.team)
+        _create_person(distinct_ids=[f"user_2"], team=self.team)
+        _create_person(distinct_ids=[f"user_3"], team=self.team)
+
+        _create_event(
+            **{
+                "event": "$pageview",
+                "distinct_id": f"user_1",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:00:00",
+                "properties": {"$current_url": "test.com/step1/foo"},
+            }
+        ),
+        _create_event(
+            **{
+                "event": "$pageview",
+                "distinct_id": f"user_1",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:01:00",
+                "properties": {"$current_url": "test.com/step2"},
+            }
+        ),
+        _create_event(
+            **{
+                "event": "$pageview",
+                "distinct_id": f"user_1",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:02:00",
+                "properties": {"$current_url": "test.com/step3?key=value1"},
+            }
+        ),
+        _create_event(
+            **{
+                "event": "$pageview",
+                "distinct_id": f"user_2",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:00:00",
+                "properties": {"$current_url": "test.com/step1/bar"},
+            }
+        ),
+        _create_event(
+            **{
+                "event": "$pageview",
+                "distinct_id": f"user_2",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:01:00",
+                "properties": {"$current_url": "test.com/step2"},
+            }
+        ),
+        _create_event(
+            **{
+                "event": "$pageview",
+                "distinct_id": f"user_2",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:02:00",
+                "properties": {"$current_url": "test.com/step3?key=value2"},
+            }
+        ),
+        _create_event(
+            **{
+                "event": "$pageview",
+                "distinct_id": f"user_3",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:00:00",
+                "properties": {"$current_url": "test.com/step1/baz"},
+            }
+        ),
+        _create_event(
+            **{
+                "event": "$pageview",
+                "distinct_id": f"user_3",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:01:00",
+                "properties": {"$current_url": "test.com/step2"},
+            }
+        ),
+        _create_event(
+            **{
+                "event": "$pageview",
+                "distinct_id": f"user_3",
+                "team": self.team,
+                "timestamp": "2021-05-01 00:02:00",
+                "properties": {"$current_url": "test.com/step3?key=value3"},
+            }
+        ),
+
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "include_event_types": ["$pageview"],
+            "path_groupings": ["/step1"],
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "local_path_cleaning_filters": [{"alias": "?<param>", "regex": "\\?(.*)"}],
+            "start_point": "/step1",
+        }
+        path_filter = PathFilter(data=data)
+        response = Paths(team=self.team, filter=path_filter).run()
+
+        self.assertEqual(
+            response,
+            [
+                {
+                    "source": "1_/step1",
+                    "target": "2_test.com/step2",
+                    "value": 3,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "2_test.com/step2",
+                    "target": "3_test.com/step3?<param>",
+                    "value": 3,
+                    "average_conversion_time": 60000.0,
+                },
+            ],
+        )
+
     def test_path_by_funnel_after_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
         data = {
