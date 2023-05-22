@@ -97,11 +97,11 @@ export class SessionRecordingBlobIngester {
                 session_id,
                 partition,
                 topic,
-                (offsets) => {
+                (offsets, self: SessionManager) => {
                     this.offsetManager?.removeOffsets(topic, partition, offsets)
 
                     // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                    if (sessionManager.isEmpty) {
+                    if (self.isEmpty) {
                         this.sessions.delete(key)
                     }
                 }

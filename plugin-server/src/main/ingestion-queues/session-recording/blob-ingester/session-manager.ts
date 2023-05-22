@@ -62,7 +62,7 @@ export class SessionManager {
         public readonly sessionId: string,
         public readonly partition: number,
         public readonly topic: string,
-        private readonly onFinish: (offsetsToRemove: number[]) => void
+        private readonly onFinish: (offsetsToRemove: number[], self: SessionManager) => void
     ) {
         this.buffer = this.createBuffer()
 
@@ -322,7 +322,7 @@ export class SessionManager {
             this.flushBuffer = undefined
 
             // TODO: Sync the last processed offset to redis
-            this.onFinish(offsets)
+            this.onFinish(offsets, this)
         }
     }
 
