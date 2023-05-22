@@ -3,7 +3,7 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
     AvailableFeature,
@@ -537,13 +537,6 @@ export function CompleteFunnelExperiment(): JSX.Element {
 
 export function RunningTrendExperiment(): JSX.Element {
     useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
-    useStorybookMocks({
-        get: {
-            '/api/projects/:team_id/experiments/': toPaginatedResponse([MOCK_FUNNEL_EXPERIMENT, MOCK_TREND_EXPERIMENT]),
-            '/api/projects/:team_id/experiments/:experiment_id/': MOCK_TREND_EXPERIMENT,
-            '/api/projects/:team_id/experiments/:experiment_id/results/': MOCK_TREND_EXPERIMENT_RESULTS,
-        },
-    })
     useEffect(() => {
         router.actions.push(urls.experiment(MOCK_TREND_EXPERIMENT.id))
     }, [])
