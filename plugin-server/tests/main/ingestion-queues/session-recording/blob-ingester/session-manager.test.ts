@@ -372,7 +372,7 @@ describe('session-manager', () => {
         ],
     ])(
         'correctly handles pending chunks',
-        async (
+        (
             referenceNow: number,
             chunks: Record<string, IncomingRecordingMessage[]>,
             expectedChunks: Record<string, IncomingRecordingMessage[]>,
@@ -385,7 +385,7 @@ describe('session-manager', () => {
                 pendingChunks.set(key, pc)
             })
 
-            const actualChunks = await sessionManager.handlePendingChunks(pendingChunks, referenceNow, 1000, {})
+            const actualChunks = sessionManager.handleIdleChunks(pendingChunks, referenceNow, 1000, {})
             expect(actualChunks.size).toEqual(Object.keys(expectedChunks).length)
             Object.entries(expectedChunks).forEach(([key, value]) => {
                 expect(actualChunks.get(key)?.chunks).toEqual(value)

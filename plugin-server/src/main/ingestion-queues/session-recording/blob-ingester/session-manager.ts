@@ -47,6 +47,13 @@ export const gaugePendingChunksDropped = new Gauge({
         were blocking ingestion, and were dropped`,
 })
 
+export const gaugePendingChunksBlocking = new Gauge({
+    name: 'recording_pending_chunks_blocking',
+    help: `Chunks can be duplicated or arrive as expected.
+        When flushing we need to check whether we have all chunks or should drop them.
+        If we can't drop them then the write to S3 will be blocked until we have all chunks.`,
+})
+
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
 // The buffer is a list of messages grouped
@@ -206,14 +213,7 @@ export class SessionManager {
                 flushThresholdMillis,
             }
 
-            if (this.chunks.size > 0) {
-                this.chunks = await this.handlePendingChunks(
-                    this.chunks,
-                    referenceNow,
-                    flushThresholdMillis,
-                    logContext
-                )
-            }
+            this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
 
             if (this.chunks.size === 0) {
                 // return the promise and let the caller decide whether to await
@@ -222,6 +222,7 @@ export class SessionManager {
                 })
                 return this.flush('buffer_age')
             } else {
+                gaugePendingChunksBlocking.inc()
                 status.warn(
                     '🚽',
                     `blob_ingester_session_manager would flush buffer due to age, but chunks are still pending`,
@@ -233,26 +234,15 @@ export class SessionManager {
         }
     }
 
-    async handlePendingChunks(
+    handleIdleChunks(
         chunks: Map<string, PendingChunks>,
         referenceNow: number,
         flushThresholdMillis: number,
         logContext: Record<string, any>
-    ): Promise<Map<string, PendingChunks>> {
+    ): Map<string, PendingChunks> {
         const updatedChunks = new Map<string, PendingChunks>()
 
         for (const [key, pendingChunks] of chunks) {
-            if (pendingChunks.isComplete) {
-                try {
-                    await this.processChunksToBuffer(pendingChunks.completedChunks)
-                    gaugePendingChunksCompleted.inc()
-                    continue
-                } catch (e) {
-                    // how do we track this is happening?
-                    // we couldn't process these chunks, but maybe we should wait?
-                }
-            }
-
             if (pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
                 // dropping these chunks, don't lose their offsets
                 pendingChunks.chunks.forEach((x) => {
@@ -429,6 +419,7 @@ export class SessionManager {
         if (pendingChunks && pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
+            gaugePendingChunksCompleted.inc()
             await this.processChunksToBuffer(pendingChunks.completedChunks)
             this.chunks.delete(message.chunk_id)
         }
