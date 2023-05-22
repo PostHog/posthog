@@ -3,7 +3,9 @@ import { appendFile, unlink } from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
+import { PendingChunks } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/pending-chunks'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
+import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
 import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
 
@@ -228,4 +230,187 @@ describe('session-manager', () => {
             'utf-8'
         )
     })
+
+    it.each([
+        [
+            'incomplete and below threshold, we keep it in the chunks buffer',
+            2000,
+            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage] },
+            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage] },
+            [],
+        ],
+        [
+            'incomplete and over the threshold, drop the chunks copying the offsets into the buffer',
+            2500,
+            {
+                '1': [
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 245 },
+                    } as IncomingRecordingMessage,
+                ],
+            },
+            {},
+            [245],
+        ],
+        [
+            'over-complete and over the threshold, should not be possible - do nothing',
+            2500,
+            {
+                '1': [
+                    {
+                        chunk_count: 2,
+                        chunk_index: 0,
+                        data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                        metadata: { timestamp: 997, offset: 123 },
+                    } as IncomingRecordingMessage,
+                    //receives chunk two three times 😱
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                        metadata: { timestamp: 998, offset: 124 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 999, offset: 125 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 126 },
+                    } as IncomingRecordingMessage,
+                ],
+            },
+            {
+                '1': [
+                    {
+                        chunk_count: 2,
+                        chunk_index: 0,
+                        data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                        metadata: { timestamp: 997, offset: 123 },
+                    } as IncomingRecordingMessage,
+                    //receives chunk two three times 😱
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                        metadata: { timestamp: 998, offset: 124 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 999, offset: 125 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 126 },
+                    } as IncomingRecordingMessage,
+                ],
+            },
+            [],
+        ],
+        [
+            'over-complete and under the threshold,do nothing',
+            1000,
+            {
+                '1': [
+                    //receives chunk two three times 😱
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                        metadata: { timestamp: 998, offset: 245 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 999, offset: 246 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 247 },
+                    } as IncomingRecordingMessage,
+                ],
+            },
+            {
+                '1': [
+                    //receives chunk two three times 😱
+                    // drops one of the duplicates in the processing
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                        metadata: { timestamp: 998, offset: 245 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 999, offset: 246 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 247 },
+                    } as IncomingRecordingMessage,
+                ],
+            },
+            [],
+        ],
+        [
+            'over-complete and over the threshold, but not all chunks are present, drop the chunks',
+            4000,
+            {
+                1: [
+                    //receives chunk two three times 😱
+                    // worse, the chunk is decompressible even though it is not complete
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                        metadata: { timestamp: 998, offset: 245 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 999, offset: 246 },
+                    } as IncomingRecordingMessage,
+                    {
+                        chunk_count: 2,
+                        chunk_index: 1,
+                        metadata: { timestamp: 1000, offset: 247 },
+                    } as IncomingRecordingMessage,
+                ],
+            },
+            {},
+            [245, 246, 247],
+        ],
+    ])(
+        'correctly handles pending chunks - %s',
+        (
+            _description: string,
+            referenceNow: number,
+            chunks: Record<string, IncomingRecordingMessage[]>,
+            expectedChunks: Record<string, IncomingRecordingMessage[]>,
+            expectedBufferOffsets: number[]
+        ) => {
+            const pendingChunks = new Map<string, PendingChunks>()
+            Object.entries(chunks).forEach(([key, value]) => {
+                const pc = new PendingChunks(value[0])
+                ;(value as IncomingRecordingMessage[]).slice(1).forEach((chunk) => pc.add(chunk))
+                pendingChunks.set(key, pc)
+            })
+
+            const actualChunks = sessionManager.handleIdleChunks(pendingChunks, referenceNow, 1000, {})
+            expect(actualChunks.size).toEqual(Object.keys(expectedChunks).length)
+            Object.entries(expectedChunks).forEach(([key, value]) => {
+                expect(actualChunks.get(key)?.chunks).toEqual(value)
+            })
+            expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
+        }
+    )
 })

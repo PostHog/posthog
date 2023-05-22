@@ -6,7 +6,6 @@ import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
-import { LazyPersonContainer } from '../lazy-person-container'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
@@ -91,19 +90,12 @@ export class EventPipelineRunner {
         if (processedEvent == null) {
             return this.registerLastStep('pluginsProcessEventStep', event.team_id, [event])
         }
-        const [normalizedEvent, newPersonContainer] = await this.runStep(
-            processPersonsStep,
-            [this, processedEvent],
-            event.team_id
-        )
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.person_loaded_after_person_step', {
-            loaded: String(newPersonContainer.loaded),
-        })
+        const [normalizedEvent, person] = await this.runStep(processPersonsStep, [this, processedEvent], event.team_id)
 
         const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent], event.team_id)
 
-        await this.runStep(createEventStep, [this, preparedEvent, newPersonContainer], event.team_id)
-        return this.registerLastStep('createEventStep', event.team_id, [preparedEvent, newPersonContainer])
+        const rawClickhouseEvent = await this.runStep(createEventStep, [this, preparedEvent, person], event.team_id)
+        return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person])
     }
 
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
@@ -129,7 +121,7 @@ export class EventPipelineRunner {
             step: stepName,
             team_id: String(teamId), // NOTE: potentially high cardinality
         })
-        return { lastStep: stepName, args: args.map((arg) => this.serialize(arg)) }
+        return { lastStep: stepName, args }
     }
 
     protected runStep<Step extends (...args: any[]) => any>(
@@ -165,11 +157,10 @@ export class EventPipelineRunner {
     }
 
     private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
-        const serializedArgs = currentArgs.map((arg: any) => this.serialize(arg))
         status.error('🔔', 'step_failed', { currentStepName, err })
         Sentry.captureException(err, {
             tags: { team_id: teamId },
-            extra: { currentStepName, serializedArgs, originalEvent: this.originalEvent },
+            extra: { currentStepName, currentArgs, originalEvent: this.originalEvent },
         })
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
 
@@ -189,19 +180,11 @@ export class EventPipelineRunner {
                 status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
                 Sentry.captureException(dlqError, {
                     tags: { team_id: teamId },
-                    extra: { currentStepName, serializedArgs, originalEvent: this.originalEvent, err },
+                    extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },
                 })
             }
         }
 
         throw new StepError(currentStepName, currentArgs, err.message)
-    }
-
-    private serialize(arg: any) {
-        if (arg instanceof LazyPersonContainer) {
-            // :KLUDGE: cloneObject fails with hub if we don't do this
-            return { teamId: arg.teamId, distinctId: arg.distinctId, loaded: arg.loaded }
-        }
-        return arg
     }
 }

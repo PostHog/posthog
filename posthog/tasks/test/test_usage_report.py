@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
@@ -195,6 +196,32 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         team_id=self.org_1_team_2.id,
                     )
 
+            # ensure there is a recording that starts before the period and ends during the period
+            # report is going to be for "yesterday" relative to the test so...
+            start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
+            session_that_will_not_match = "session-that-will-not-match-because-it-starts-before-the-period"
+            create_snapshot(
+                has_full_snapshot=True,
+                distinct_id=distinct_id,
+                session_id=session_that_will_not_match,
+                timestamp=start_of_day - relativedelta(hours=1),
+                team_id=self.org_1_team_2.id,
+            )
+            create_snapshot(
+                has_full_snapshot=False,
+                distinct_id=distinct_id,
+                session_id=session_that_will_not_match,
+                timestamp=start_of_day,
+                team_id=self.org_1_team_2.id,
+            )
+            create_snapshot(
+                has_full_snapshot=False,
+                distinct_id=distinct_id,
+                session_id=session_that_will_not_match,
+                timestamp=start_of_day + relativedelta(hours=1),
+                team_id=self.org_1_team_2.id,
+            )
+
             # Events for org 2 team 3
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_2_team_3)
@@ -259,7 +286,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_count_in_month": 32,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
-                    "recording_count_total": 15,
+                    "recording_count_total": 16,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -295,7 +322,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 5,
-                            "recording_count_total": 15,
+                            "recording_count_total": 16,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
