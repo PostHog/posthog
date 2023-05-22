@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
+import { createPool } from 'generic-pool'
 import Redis, { RedisOptions } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
@@ -17,7 +18,6 @@ import {
 } from '../types'
 import { Hub } from './../types'
 import { status } from './status'
-import { createPool } from 'generic-pool'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
