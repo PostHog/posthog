@@ -13,4 +13,11 @@ pub struct CaptureRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct CaptureResponse {}
+pub enum CaptureResponseCode {
+    Ok = 1,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CaptureResponse {
+    pub status: CaptureResponseCode,
+}

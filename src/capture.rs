@@ -6,6 +6,7 @@ use axum::{http::StatusCode, Json};
 // TODO: stream this instead
 use axum::extract::Query;
 
+use crate::api::CaptureResponseCode;
 use crate::{
     api::CaptureResponse,
     event::{Event, EventQuery},
@@ -38,7 +39,9 @@ pub async fn event(
         return Err((StatusCode::BAD_REQUEST, msg));
     }
 
-    Ok(Json(CaptureResponse {}))
+    Ok(Json(CaptureResponse {
+        status: CaptureResponseCode::Ok,
+    }))
 }
 
 pub fn process_events(events: &[Event]) -> Result<(), String> {
@@ -65,12 +68,6 @@ pub fn process_events(events: &[Event]) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-// A group of events! There is no limit here, though our HTTP stack will reject anything above
-// 20mb.
-pub async fn batch() -> &'static str {
-    "No batching for you!"
 }
 
 #[cfg(test)]

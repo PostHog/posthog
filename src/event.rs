@@ -18,13 +18,13 @@ pub enum Compression {
 #[allow(dead_code)] // until they are used
 #[derive(Deserialize, Default)]
 pub struct EventQuery {
-    compression: Compression,
+    compression: Option<Compression>,
 
     #[serde(alias = "ver")]
-    version: String,
+    version: Option<String>,
 
     #[serde(alias = "_")]
-    sent_at: i64,
+    sent_at: Option<i64>,
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
@@ -40,11 +40,14 @@ impl Event {
     /// We post up _at least one_ event, so when decompressiong and deserializing there
     /// could be more than one. Hence this function has to return a Vec.
     /// TODO: Use an axum extractor for this
-    pub fn from_bytes(_: &EventQuery, bytes: Bytes) -> Result<Vec<Event>> {
-        let d = GzDecoder::new(bytes.reader());
-        let event = serde_json::from_reader(d)?;
-
-        Ok(event)
+    pub fn from_bytes(query: &EventQuery, bytes: Bytes) -> Result<Vec<Event>> {
+        match query.compression {
+            Some(Compression::GzipJs) => {
+                let d = GzDecoder::new(bytes.reader());
+                Ok(serde_json::from_reader(d)?)
+            }
+            None => Ok(serde_json::from_reader(bytes.reader())?),
+        }
     }
 }
 
@@ -62,6 +65,7 @@ pub struct ProcessedEvent {
 
 #[cfg(test)]
 mod tests {
+    use super::Compression;
     use base64::Engine as _;
     use bytes::Bytes;
 
@@ -75,7 +79,14 @@ mod tests {
             .unwrap();
 
         let bytes = Bytes::from(decoded_horrible_blob);
-        let events = Event::from_bytes(&EventQuery::default(), bytes);
+        let events = Event::from_bytes(
+            &EventQuery {
+                compression: Some(Compression::GzipJs),
+                version: None,
+                sent_at: None,
+            },
+            bytes,
+        );
 
         assert_eq!(events.is_ok(), true);
     }
