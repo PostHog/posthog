@@ -25,7 +25,7 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
 
     if not encoded_snapshots and attempt_count < ATTEMPT_MAX:
         logger.info(
-            "No realtime snapshots found, publishign subscription and retrying",
+            "No realtime snapshots found, publishing subscription and retrying",
             team_id=team_id,
             session_id=session_id,
             attempt_count=attempt_count,
