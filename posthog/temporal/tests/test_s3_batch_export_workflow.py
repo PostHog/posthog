@@ -20,7 +20,6 @@ from posthog.models import (
     BatchExport,
     BatchExportDestination,
     BatchExportRun,
-    BatchExportSchedule,
 )
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.s3_batch_export import (
@@ -196,8 +195,7 @@ def destination(team, s3_bucket):
 @pytest.fixture
 def batch_export(destination, team):
     """A test BatchExport."""
-    schedule = BatchExportSchedule.objects.create(team=team, paused=True)
-    batch_export = BatchExport.objects.create(team=team, destination=destination, schedule=schedule)
+    batch_export = BatchExport.objects.create(team=team, destination=destination, interval="hour")
 
     batch_export.save()
 
