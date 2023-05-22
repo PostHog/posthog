@@ -2,12 +2,13 @@ import { EventDefinition, PropertyDefinition } from '~/types'
 import {
     IconAutocapture,
     IconPageleave,
-    IconPageview,
+    IconPreview,
     PropertyIcon,
     IconUnverifiedEvent,
     IconVerifiedEvent,
     VerifiedPropertyIcon,
     IconSelectAll,
+    IconPreview,
 } from 'lib/lemon-ui/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -41,7 +42,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
     if (definition.name === '$pageview' || definition.name === '$screen') {
         return (
             <Tooltip title="PostHog event">
-                <IconPageview className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+                <IconPreview className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
