@@ -7,15 +7,19 @@ mod capture;
 mod event;
 mod token;
 
+pub fn router() -> Router {
+    Router::new()
+        .route("/capture", post(capture::event))
+        .route("/batch", post(capture::batch))
+        .layer(TraceLayer::new_for_http())
+}
+
 #[tokio::main]
 async fn main() {
     // initialize tracing
     tracing_subscriber::fmt::init();
 
-    let app = Router::new()
-        .route("/capture", post(capture::event))
-        .route("/batch", post(capture::batch))
-        .layer(TraceLayer::new_for_http());
+    let app = router();
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
