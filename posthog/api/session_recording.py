@@ -128,6 +128,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
 
+        return recording
+
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
         use_v2_list = request.GET.get("version") == "2"
@@ -169,7 +171,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         return Response({"success": True})
 
-    def _snapshots_v2(self, request: request.Request, **kwargs):
+    def _snapshots_v2(self, request: request.Request):
         """
         This will eventually replaced the snapshots endpoint below.
         This path only supports loading from S3 or Redis based on query params
@@ -180,20 +182,22 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         if not source:
             sources = []
-            blob_keys = object_storage.list_objects(
-                f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
-            )
+            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
+            blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
-                sources += [
-                    {
-                        "source": "blob",
-                        "start_timestamp": int(key.split("-")[0]),
-                        "end_timestamp": int(key.split("-")[1]),
-                        "key": key,
-                    }
-                    for key in blob_keys
-                ]
+                for full_key in blob_keys:
+                    blob_key = full_key.replace(blob_prefix, "")
+                    sources.append(
+                        [
+                            {
+                                "source": "blob",
+                                "start_timestamp": int(blob_key.split("-")[0]),
+                                "end_timestamp": int(blob_key.split("-").pop()),
+                                "key": blob_key,
+                            }
+                        ]
+                    )
 
             response_data["sources"] = sources
 
@@ -221,7 +225,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
 
         serializer = SessionRecordingSnapshotsSerializer(data=response_data)
-        serializer.is_valid(raise_exception=False)
+        serializer.is_valid(raise_exception=True)
 
         return Response(serializer.data)
 
@@ -255,7 +259,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         """
 
         if request.GET.get("version") == "2":
-            return self._snapshots_v2(request, **kwargs)
+            return self._snapshots_v2(request)
 
         recording = self.get_object()
 
