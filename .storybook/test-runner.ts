@@ -7,7 +7,7 @@ import { StoryContext } from '@storybook/react'
 
 type SupportedBrowserName = 'chromium' | 'firefox' | 'webkit'
 
-const STANDARD_PAGE_WIDTH = 1032
+const STANDARD_PAGE_WIDTH = 1280
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/react' {
