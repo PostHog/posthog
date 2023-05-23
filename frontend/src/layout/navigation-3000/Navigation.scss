@@ -293,10 +293,7 @@
     cursor: pointer;
     opacity: 0.9; // Make items slightly lower contrast when not hovered
     background: var(--sidebar-list-item-background);
-
-    &:not(:last-child) {
-        border-bottom-width: 1px;
-    }
+    border-bottom-width: 1px;
 
     &:hover,
     &[aria-current='page'] {
