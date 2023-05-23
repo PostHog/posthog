@@ -32,7 +32,7 @@ describe('ingester rebalancing tests', () => {
     })
 
     it('rebalances partitions safely from one to two consumers', async () => {
-        ingesterOne = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage)
+        ingesterOne = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage, hub.redisPool)
 
         await ingesterOne.start()
 
@@ -47,7 +47,7 @@ describe('ingester rebalancing tests', () => {
             assertIngesterHasExpectedPartitions(ingesterOne, [1])
         })
 
-        ingesterTwo = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage)
+        ingesterTwo = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage, hub.redisPool)
         await ingesterTwo.start()
 
         await waitForExpect(() => {
