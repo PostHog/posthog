@@ -38,13 +38,6 @@ export const gaugeS3LinesWritten = new Gauge({
     help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
 })
 
-export const gaugePendingChunksCompleted = new Gauge({
-    name: 'recording_pending_chunks_completed',
-    help: `Chunks can be duplicated or arrive as expected.
-        When flushing we need to check whether we have all chunks or should drop them.
-        This metric indicates a set of pending chunks were complete and could be added to the buffer`,
-})
-
 export const gaugePendingChunksDropped = new Gauge({
     name: 'recording_pending_chunks_dropped',
     help: `Chunks can be duplicated or arrive as expected.
@@ -257,6 +250,7 @@ export class SessionManager {
                 oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
                 referenceTime: referenceNow,
                 flushThresholdMillis,
+                bufferedLines: this.buffer.count,
             })
         }
     }
@@ -474,17 +468,8 @@ export class SessionManager {
         if (pendingChunks && pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
-            gaugePendingChunksCompleted.inc()
             await this.processChunksToBuffer(pendingChunks.completedChunks)
             this.chunks.delete(message.chunk_id)
-        } else {
-            status.info('🧩', 'blob_ingester_session_manager received incomplete chunk', {
-                chunk_id: message.chunk_id,
-                chunk_index: message.chunk_index,
-                chunk_count: message.chunk_count,
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
         }
     }
 
