@@ -19,7 +19,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     dropdownMatchSelectWidth?: boolean
     allowClear?: boolean
     style?: React.CSSProperties
-    buttonProps?: Omit<LemonButtonProps, 'onClick'>
+    buttonProps?: Omit<LemonButtonProps, 'onClick' | 'type' | 'status'>
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
 }
 
@@ -60,6 +60,8 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
         <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
     )
     internalButtonProps.onClick = () => setVisible(!visible)
+    internalButtonProps.status = 'stealth'
+    internalButtonProps.type = 'secondary'
 
     useEffect(() => {
         if (!buttonProps.loading) {
