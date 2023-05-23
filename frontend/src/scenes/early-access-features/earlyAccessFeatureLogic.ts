@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, EarlyAccessFeatureStage, EarlyAccsesFeatureType, NewEarlyAccessFeatureType } from '~/types'
+import { Breadcrumb, EarlyAccessFeatureStage, EarlyAccessFeatureType, NewEarlyAccessFeatureType } from '~/types'
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -36,7 +36,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
         promote: true,
-        deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccsesFeatureType['id']) => ({ earlyAccessFeatureId }),
+        deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
     }),
     loaders(({ props }) => ({
         earlyAccessFeature: {
@@ -47,8 +47,8 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 }
                 return NEW_EARLY_ACCESS_FEATURE
             },
-            saveEarlyAccessFeature: async (updatedEarlyAccessFeature: Partial<EarlyAccsesFeatureType>) => {
-                let result: EarlyAccsesFeatureType
+            saveEarlyAccessFeature: async (updatedEarlyAccessFeature: Partial<EarlyAccessFeatureType>) => {
+                let result: EarlyAccessFeatureType
                 if (props.id === 'new') {
                     result = await api.earlyAccessFeatures.create(
                         updatedEarlyAccessFeature as NewEarlyAccessFeatureType
@@ -57,7 +57,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 } else {
                     result = await api.earlyAccessFeatures.update(
                         props.id,
-                        updatedEarlyAccessFeature as EarlyAccsesFeatureType
+                        updatedEarlyAccessFeature as EarlyAccessFeatureType
                     )
                 }
                 return result
@@ -66,7 +66,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     })),
     forms(({ actions }) => ({
         earlyAccessFeature: {
-            defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccsesFeatureType,
+            defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccessFeatureType,
             errors: (payload) => ({
                 name: !payload.name ? 'Feature name must be set' : undefined,
             }),
@@ -93,7 +93,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         mode: [(_, p) => [p.id], (id): 'view' | 'edit' => (id === 'new' ? 'edit' : 'view')],
         breadcrumbs: [
             (s) => [s.earlyAccessFeature],
-            (earlyAccessFeature: EarlyAccsesFeatureType): Breadcrumb[] => [
+            (earlyAccessFeature: EarlyAccessFeatureType): Breadcrumb[] => [
                 {
                     name: 'Early Access Management',
                     path: urls.earlyAccessFeatures(),

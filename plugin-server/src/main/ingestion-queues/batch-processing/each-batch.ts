@@ -9,6 +9,11 @@ import { latestOffsetTimestampGauge } from '../metrics'
 require('@sentry/tracing')
 
 export async function eachBatch(
+    /**
+     * Using the provided groupIntoBatches function, split the incoming batch into micro-batches
+     * that are executed **sequentially**, committing offsets after each of them.
+     * Events within a single micro-batch are processed in parallel.
+     */
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
     queue: IngestionConsumer,
     eachMessage: (message: KafkaMessage, queue: IngestionConsumer) => Promise<void>,

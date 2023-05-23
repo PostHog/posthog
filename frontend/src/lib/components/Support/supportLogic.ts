@@ -3,12 +3,13 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
-import { UserType } from '~/types'
+import { Region, UserType } from '~/types'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { captureException } from '@sentry/react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -16,7 +17,7 @@ function getSessionReplayLink(): string {
         Math.floor((new Date().getTime() - (posthog?.sessionManager?._sessionStartTimestamp || 0)) / 1000) - LOOK_BACK,
         0
     )
-    const link = `https://app.posthog.com/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
+    const link = `https://app.posthog.com/replay/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
     return `[Session replay](${link})`
 }
 
@@ -28,14 +29,12 @@ function getDjangoAdminLink(user: UserType | null): string {
     return `[Admin](${link}) (Organization: '${user.organization?.name}'; Project: ${user.team?.id}:'${user.team?.name}')`
 }
 
-function getSentryLinks(user: UserType | null): string {
+function getSentryLinks(user: UserType | null, cloud: 'EU' | 'US'): string {
     if (!user) {
         return ''
     }
-    const cloud = window.location.origin == 'https://eu.posthog.com' ? 'EU' : 'US'
-    const link = `http://go/sentry${cloud}/${user.email}`
-    const pluginServer = `http://go/pluginServerSentry${cloud}/${user.team?.id}`
-    return `[Sentry](${link}) | [Plugin Server Sentry](${pluginServer})`
+    const link = `http://go/sentry${cloud}/${user.team?.id}`
+    return `[Sentry](${link})`
 }
 
 export const TARGET_AREA_TO_NAME = {
@@ -87,7 +86,7 @@ export function getURLPathToTargetArea(pathname: string): SupportTicketTargetAre
 export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], preflightLogic, ['preflight']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
@@ -200,6 +199,7 @@ export const supportLogic = kea<supportLogicType>([
                 ' (' +
                 zendesk_ticket_uuid +
                 ')'
+            const cloud = preflightLogic.values.preflight?.region === Region.EU ? 'EU' : 'US'
             const payload = {
                 request: {
                     requester: { name: name, email: email },
@@ -216,7 +216,7 @@ export const supportLogic = kea<supportLogicType>([
                             '\n' +
                             getDjangoAdminLink(userLogic.values.user) +
                             '\n' +
-                            getSentryLinks(userLogic.values.user),
+                            getSentryLinks(userLogic.values.user, cloud),
                     },
                 },
             }

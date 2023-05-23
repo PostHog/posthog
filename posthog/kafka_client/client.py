@@ -214,7 +214,7 @@ class ClickhouseProducer:
         self.producer = KafkaProducer() if not TEST else None
 
     def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
-        if self.producer is not None:
+        if self.producer is not None:  # TODO: this should be not sync and
             self.producer.produce(topic=topic, data=data)
         else:
             sync_execute(sql, data)

@@ -42,7 +42,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                     {!!event.properties?.$session_id && (
                         <LemonButton
                             status="stealth"
-                            to={urls.sessionRecording(event.properties.$session_id)}
+                            to={urls.replaySingle(event.properties.$session_id)}
                             disableClientSideRouting
                             onClick={(e) => {
                                 e.preventDefault()

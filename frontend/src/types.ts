@@ -447,7 +447,7 @@ export enum SavedInsightsTabs {
     History = 'history',
 }
 
-export enum SessionRecordingsTabs {
+export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
     FilePlayback = 'file-playback',
@@ -1810,7 +1810,7 @@ export interface TrendResult {
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
-    filter?: FilterType
+    filter?: TrendsFilterType
 }
 
 interface Person {
@@ -1977,6 +1977,8 @@ export interface InsightLogicProps {
     doNotLoad?: boolean
     /** If showing a shared insight/dashboard, we need the access token for refreshing. */
     sharingAccessToken?: string
+    /** Temporary hack to disable data exploration to enable result fetching. */
+    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {
@@ -2079,7 +2081,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: string[] | null
-    features: EarlyAccsesFeatureType[] | null
+    features: EarlyAccessFeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -2106,7 +2108,7 @@ export enum EarlyAccessFeatureStage {
     GeneralAvailability = 'general-availability',
 }
 
-export interface EarlyAccsesFeatureType {
+export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
     feature_flag: FeatureFlagBasicType
@@ -2118,7 +2120,7 @@ export interface EarlyAccsesFeatureType {
     created_at: string
 }
 
-export interface NewEarlyAccessFeatureType extends Omit<EarlyAccsesFeatureType, 'id' | 'created_at' | 'feature_flag'> {
+export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
     feature_flag_id: number | undefined
 }
 
@@ -2339,10 +2341,17 @@ export interface Experiment {
     updated_at: string | null
 }
 
-export interface ExperimentVariant {
+export interface FunnelExperimentVariant {
     key: string
     success_count: number
     failure_count: number
+}
+
+export interface TrendExperimentVariant {
+    key: string
+    count: number
+    exposure: number
+    absolute_exposure: number
 }
 
 interface BaseExperimentResults {
@@ -2353,17 +2362,18 @@ interface BaseExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
-    variants: ExperimentVariant[]
 }
 
 export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
+    variants: TrendExperimentVariant[]
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
+    variants: FunnelExperimentVariant[]
 }
 
 export interface TrendsExperimentResults {
