@@ -6,7 +6,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconEdit, IconDelete } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useState, useEffect, useMemo } from 'react'
-import { BillingProductV2Type } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
 import { convertAmountToUsage, convertUsageToAmount, summarizeUsage } from './billing-utils'
 import { BillingGaugeProps, BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
@@ -23,11 +23,17 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     const discountPercent = billing?.discount_percent
     const [isEditingBillingLimit, setIsEditingBillingLimit] = useState(false)
     const [billingLimitInput, setBillingLimitInput] = useState<number | undefined>(DEFAULT_BILLING_LIMIT)
+    const productAndAddonTiers: BillingV2TierType[][] = [
+        product.tiers,
+        ...product.addons
+            ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
+            ?.map((addon: BillingProductV2AddonType) => addon.tiers),
+    ].filter(Boolean) as BillingV2TierType[][]
 
     const billingLimitAsUsage = product.tiers
         ? isEditingBillingLimit
-            ? convertAmountToUsage(`${billingLimitInput}`, product.tiers, discountPercent)
-            : convertAmountToUsage(customLimitUsd || '', product.tiers, discountPercent)
+            ? convertAmountToUsage(`${billingLimitInput}`, productAndAddonTiers, discountPercent)
+            : convertAmountToUsage(customLimitUsd || '', productAndAddonTiers, discountPercent)
         : 0
 
     const usageKey = product.usage_key ?? product.type ?? ''

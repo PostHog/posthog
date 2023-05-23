@@ -64,13 +64,29 @@ export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[], 
     return amount.toFixed(2)
 }
 
-export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[], discountPercent?: number): number => {
+export const convertAmountToUsage = (
+    amount: string,
+    productAndAddonTiers: BillingV2TierType[][],
+    discountPercent?: number
+): number => {
     if (!amount) {
         return 0
     }
-    if (!tiers) {
+    if (!productAndAddonTiers) {
         return 0
     }
+
+    const tiers = productAndAddonTiers[0].map((tier, index) => {
+        const addonsTiers = productAndAddonTiers.slice(1)
+        let totalAmount = parseFloat(tier.unit_amount_usd)
+        for (const addonTiers of addonsTiers) {
+            totalAmount += parseFloat(addonTiers[index].unit_amount_usd)
+        }
+        return {
+            ...tier,
+            unit_amount_usd: totalAmount.toString(),
+        }
+    })
 
     let remainingAmount = parseFloat(amount)
     let usage = 0
@@ -83,10 +99,9 @@ export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[],
         return 0
     }
 
-    // add discount to remaining amount so user knows what unit amount they'll be throttled at
+    // consider discounts so user knows what unit amount they'll be throttled at
     if (discountPercent) {
-        const discount = remainingAmount * (discountPercent / 100)
-        remainingAmount += discount
+        remainingAmount = remainingAmount / (1 - discountPercent / 100)
     }
 
     const allTiersZero = tiers.every((tier) => !parseFloat(tier.unit_amount_usd))
