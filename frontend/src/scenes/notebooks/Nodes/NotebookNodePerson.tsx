@@ -19,7 +19,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
     return (
         <NodeWrapper className={NotebookNodeType.Person} title="Person" {...props} href={urls.person(id)}>
-            <div className="border bg-light rounded">
+            <div className="border bg-inverse rounded">
                 <div className="p-4">
                     {personLoading ? (
                         <LemonSkeleton className="h-6" />

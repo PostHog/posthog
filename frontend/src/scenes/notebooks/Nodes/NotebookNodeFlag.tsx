@@ -24,7 +24,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             href={urls.featureFlag(id)}
             heightEstimate={'3rem'}
         >
-            <div className="border rounded bg-light">
+            <div className="border rounded bg-inverse">
                 <div className="flex items-center gap-2 p-4">
                     <IconFlag className="text-lg" />
                     {featureFlagLoading ? (
