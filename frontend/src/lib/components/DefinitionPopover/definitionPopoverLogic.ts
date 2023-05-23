@@ -26,7 +26,6 @@ export interface DefinitionPopoverLogicProps {
     type: TaxonomicFilterGroupType | string
     /* Callback to update specific item in in-memory list */
     updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
-    onMouseLeave?: () => void
     onCancel?: () => void
     onSave?: () => void
     hideView?: boolean
@@ -123,7 +122,6 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
     }),
     selectors: {
         type: [() => [(_, props) => props.type], (type) => type],
-        onMouseLeave: [() => [(_, props) => props.onMouseLeave], (onMouseLeave) => onMouseLeave],
         hideView: [() => [(_, props) => props.hideView], (hideView) => hideView ?? false],
         hideEdit: [() => [(_, props) => props.hideEdit], (hideEdit) => hideEdit ?? false],
         openDetailInNewTab: [
