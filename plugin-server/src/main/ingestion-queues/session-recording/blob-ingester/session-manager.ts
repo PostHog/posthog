@@ -235,14 +235,29 @@ export class SessionManager {
                 return this.flush('buffer_age')
             } else {
                 gaugePendingChunksBlocking.inc()
+                const chunkStates: Record<string, any> = {}
+                for (const [key, chunk] of this.chunks.entries()) {
+                    chunkStates[key] = { expected: chunk.expectedSize, received: chunk.chunks.length }
+                }
                 status.warn(
                     '🚽',
                     `blob_ingester_session_manager would flush buffer due to age, but chunks are still pending`,
                     {
                         ...logContext,
+                        chunks: chunkStates,
                     }
                 )
             }
+        } else {
+            status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
+                bufferAge,
+                sessionId: this.sessionId,
+                partition: this.partition,
+                chunkSize: this.chunks.size,
+                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+                referenceTime: referenceNow,
+                flushThresholdMillis,
+            })
         }
     }
 
@@ -462,6 +477,14 @@ export class SessionManager {
             gaugePendingChunksCompleted.inc()
             await this.processChunksToBuffer(pendingChunks.completedChunks)
             this.chunks.delete(message.chunk_id)
+        } else {
+            status.info('🧩', 'blob_ingester_session_manager received incomplete chunk', {
+                chunk_id: message.chunk_id,
+                chunk_index: message.chunk_index,
+                chunk_count: message.chunk_count,
+                sessionId: this.sessionId,
+                partition: this.partition,
+            })
         }
     }
 

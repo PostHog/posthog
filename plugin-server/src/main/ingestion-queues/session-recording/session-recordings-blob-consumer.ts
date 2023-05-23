@@ -340,8 +340,7 @@ export class SessionRecordingBlobIngester {
         })
 
         // We trigger the flushes from this level to reduce the number of running timers
-        // the first flush is after a delay to give the consumer time to start
-        this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs * 5)
+        this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs)
     }
 
     private async checkEachSession() {
