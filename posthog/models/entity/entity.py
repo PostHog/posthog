@@ -37,6 +37,7 @@ MathType = Literal[
     "p90_count_per_actor",
     "p95_count_per_actor",
     "p99_count_per_actor",
+    "hogql",
 ]
 
 
