@@ -138,6 +138,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.FeatureFlag]: {
         projectBased: true,
     },
+    [Scene.Surveys]: {
+        projectBased: true,
+        name: 'Surveys',
+    },
+    [Scene.Survey]: {
+        projectBased: true,
+        name: 'Survey',
+    },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
     },
