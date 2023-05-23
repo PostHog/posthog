@@ -608,10 +608,20 @@ export type EncodedRecordingSnapshot = {
     data: eventWithTime[] | string
 }
 
+export interface SessionRecordingSnapshotSource {
+    source: string
+    start_timestamp?: string
+    end_timestamp?: string
+    key?: string
+}
+
 export interface SessionRecordingSnapshotResponse {
-    next?: string
-    // When loaded from real-time
+    // Future interface
+    sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
+
+    // legacy interface
+    next?: string
     // When loaded from S3
     blob_keys?: string[]
     // When loaded from Clickhouse (legacy)
