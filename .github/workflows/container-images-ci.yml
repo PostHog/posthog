@@ -34,11 +34,16 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v3
 
+            - name: Lowercase GITHUB_REPOSITORY
+              id: lowercase
+              run: |
+                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
             - name: Docker meta
               id: meta
               uses: docker/metadata-action@v4
               with:
-                  images: ghcr.io/${{ github.repository }}/posthog
+                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog
                   tags: |
                       type=schedule
                       type=ref,event=branch
@@ -109,6 +114,11 @@ jobs:
                   username: ${{ github.repository_owner }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            - name: Lowercase GITHUB_REPOSITORY
+              id: lowercase
+              run: |
+                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
             - name: Build container images
               id: build
               uses: depot/build-push-action@v1
@@ -124,7 +134,7 @@ jobs:
                   # Use the non-cloud image as base image and extend it with
                   # the posthog-cloud code we've checked out.
                   build-args: |
-                      BASE_IMAGE=ghcr.io/${{ github.repository }}/posthog:${{ needs.posthog_build.outputs.container_image_version }}
+                      BASE_IMAGE=ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog:${{ needs.posthog_build.outputs.container_image_version }}
 
     deploy_preview:
         uses: ./.github/workflows/pr-deploy.yml
