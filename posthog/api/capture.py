@@ -300,7 +300,8 @@ def get_event(request):
         request_dump = {
             "path": request.get_full_path(),
             "method": request.method,
-            "content-encoding": request.META.get("content-encoding", ""),
+            "content_encoding": request.META.get("content-encoding", ""),
+            "content_type": request.content_type,
             "ip": request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR")),
             "now": now.isoformat(),
             "body": base64.b64encode(request.body).decode(encoding="ascii"),
