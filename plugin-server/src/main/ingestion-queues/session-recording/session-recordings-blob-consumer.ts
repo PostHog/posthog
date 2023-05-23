@@ -354,25 +354,21 @@ export class SessionRecordingBlobIngester {
             // in practice, we will always have a values for latestKaftaMessageTimestamp,
             // but in case we get here before the first message, we use now
             const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition] || DateTime.now().toMillis()
-            const flushThresholdMillis = this.flushThreshold(
-                kafkaNow,
-                DateTime.now().toMillis(),
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000,
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER
-            )
 
-            void sessionManager.flushIfSessionBufferIsOld(kafkaNow, flushThresholdMillis).catch((err) => {
-                status.error(
-                    '🚽',
-                    'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
-                    {
-                        err,
-                        session_id: sessionManager.sessionId,
-                    }
-                )
-                captureException(err, { tags: { session_id: sessionManager.sessionId } })
-                throw err
-            })
+            void sessionManager
+                .flushIfSessionBufferIsOld(kafkaNow, this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000)
+                .catch((err) => {
+                    status.error(
+                        '🚽',
+                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
+                        {
+                            err,
+                            session_id: sessionManager.sessionId,
+                        }
+                    )
+                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                    throw err
+                })
         }
 
         gaugeSessionsHandled.set(this.sessions.size)
@@ -380,20 +376,6 @@ export class SessionRecordingBlobIngester {
 
         // Here we schedule the next process
         this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs)
-    }
-
-    flushThreshold(
-        kafkaNow: number,
-        serverNow: number,
-        configuredAgeToleranceMillis: number,
-        maxBufferAgeMultiplier = 5
-    ): number {
-        // return at least config milliseconds
-        // for every ten minutes of lag add the same amount again
-        const tenMinutesInMillis = 10 * 60 * 1000
-        const age = serverNow - kafkaNow
-        const steps = Math.min(maxBufferAgeMultiplier, Math.ceil(age / tenMinutesInMillis))
-        return steps ? configuredAgeToleranceMillis * steps : configuredAgeToleranceMillis
     }
 
     public async stop(): Promise<void> {
