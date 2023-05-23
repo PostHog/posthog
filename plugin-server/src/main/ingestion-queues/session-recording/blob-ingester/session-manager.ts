@@ -1,6 +1,5 @@
 import { Upload } from '@aws-sdk/lib-storage'
-import { captureException } from '@sentry/node'
-import { captureMessage } from '@sentry/node'
+import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
@@ -468,18 +467,23 @@ export class SessionManager {
         if (pendingChunks && pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
-            await this.processChunksToBuffer(pendingChunks.completedChunks)
+            await this.processChunksToBuffer(pendingChunks.completedChunks, pendingChunks.allChunkOffsets)
             this.chunks.delete(message.chunk_id)
         }
     }
 
-    private async processChunksToBuffer(chunks: IncomingRecordingMessage[]) {
-        // push all but the first offset into the buffer
+    private async processChunksToBuffer(chunks: IncomingRecordingMessage[], allOffsets: number[]): Promise<void> {
+        const offsets = new Set<number>()
+        // push all but the first offset from the chunks into the buffer
         // the first offset is copied into the data passed to `addToBuffer`
-        for (let i = 0; i < chunks.length; i++) {
-            const x = chunks[i]
-            this.buffer.offsets.push(x.metadata.offset)
+        // and will be added there
+        for (let i = 1; i < chunks.length; i++) {
+            offsets.add(chunks[i].metadata.offset)
         }
+        // in order to complete the chunks, we may have thrown away messages
+        // their offsets still need including in the buffer
+        allOffsets.filter((ao) => ao !== chunks[0].metadata.offset).forEach((offset) => offsets.add(offset))
+        offsets.forEach((offset) => this.buffer.offsets.push(offset))
 
         await this.addToBuffer({
             ...chunks[0], // send the first chunk as the message, it should have the events summary
