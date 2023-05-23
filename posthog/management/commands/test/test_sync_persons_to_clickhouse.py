@@ -368,6 +368,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             "team_id": self.team.pk,
             "person": True,
             "person_distinct_id": True,
+            "person_override": True,
             "group": True,
             "deletes": True,
         }
