@@ -175,6 +175,7 @@ jobs:
 
             - name: Wait for PostHog
               uses: iFaxity/wait-on-action
+              timeout-minutes: 3
               with:
                   verbose: true
                   log: true
