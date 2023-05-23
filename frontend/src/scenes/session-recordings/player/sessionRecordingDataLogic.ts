@@ -27,7 +27,6 @@ import { userLogic } from 'scenes/userLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
-import { decompressSync, strFromU8 } from 'fflate'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -179,6 +178,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingMeta: true,
         addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
+        loadRecordingSnapshotsV2: (source?: string, key?: string) => ({ source, key }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
@@ -454,14 +454,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const blob_key = snapshotDataClone.blob_keys.shift()
 
-                    const response = await api.getResponse(
-                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshot_file/?blob_key=${blob_key}`
+                    if (!blob_key) {
+                        throw new Error('Missing key')
+                    }
+                    const encodedResponse = await api.recordings.getBlobSnapshots(props.sessionRecordingId, blob_key)
+                    const snapshots = prepareRecordingSnapshots(
+                        parseEncodedSnapshots(encodedResponse),
+                        values.sessionPlayerSnapshotData?.snapshots ?? []
                     )
-                    breakpoint()
-
-                    const contentBuffer = new Uint8Array(await response.arrayBuffer())
-                    const jsonLines = strFromU8(decompressSync(contentBuffer)).trim().split('\n')
-                    const snapshots = parseEncodedSnapshots(jsonLines)
 
                     return {
                         blob_keys: snapshotDataClone.blob_keys,
@@ -485,6 +485,50 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         currentTeamId: values.currentTeamId,
                         sessionRecordingId: props.sessionRecordingId,
                     })
+                },
+
+                loadRecordingSnapshotsV2: async (
+                    { source, key },
+                    breakpoint
+                ): Promise<SessionPlayerSnapshotData | null> => {
+                    if (!props.sessionRecordingId) {
+                        return values.sessionPlayerSnapshotData
+                    }
+
+                    cache.snapshotsStartTime = performance.now()
+
+                    const params = toParams({ source, key })
+                    const data: SessionPlayerSnapshotData = {
+                        snapshots: [],
+                        ...(values.sessionPlayerSnapshotData || {}),
+                    }
+
+                    await breakpoint(1)
+
+                    if (source === 'blob') {
+                        if (!key) {
+                            throw new Error('Missing key')
+                        }
+                        const encodedResponse = await api.recordings.getBlobSnapshots(props.sessionRecordingId, key)
+                        data.snapshots = prepareRecordingSnapshots(
+                            parseEncodedSnapshots(encodedResponse),
+                            values.sessionPlayerSnapshotData?.snapshots ?? []
+                        )
+                    } else {
+                        const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
+                        if (response.snapshots) {
+                            data.snapshots = prepareRecordingSnapshots(
+                                parseEncodedSnapshots(response.snapshots),
+                                values.sessionPlayerSnapshotData?.snapshots ?? []
+                            )
+                        }
+
+                        if (response.sources) {
+                            data.sources = response.sources
+                        }
+                    }
+
+                    return data
                 },
             },
         ],

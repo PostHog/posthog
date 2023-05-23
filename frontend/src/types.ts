@@ -609,7 +609,7 @@ export type EncodedRecordingSnapshot = {
 }
 
 export interface SessionRecordingSnapshotSource {
-    source: string
+    source: 'blob' | 'realtime'
     start_timestamp?: string
     end_timestamp?: string
     key?: string
@@ -642,6 +642,7 @@ export type RecordingSnapshot = eventWithTime & {
 
 export interface SessionPlayerSnapshotData {
     snapshots: RecordingSnapshot[]
+    sources?: SessionRecordingSnapshotSource[]
     next?: string
     blob_keys?: string[]
 }

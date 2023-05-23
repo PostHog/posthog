@@ -39,6 +39,7 @@ import {
     DashboardTemplateEditorType,
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
+    SessionRecordingSnapshotResponse,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -52,6 +53,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
+import { decompressSync, strFromU8 } from 'fflate'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -1037,8 +1039,21 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async listSnapshots(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
+        async listSnapshots(
+            recordingId: SessionRecordingType['id'],
+            params: string
+        ): Promise<SessionRecordingSnapshotResponse> {
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
+        },
+
+        async getBlobSnapshots(recordingId: SessionRecordingType['id'], key: string): Promise<string[]> {
+            const response = await new ApiRequest()
+                .recording(recordingId)
+                .withAction('snapshots')
+                .withQueryString(toParams({ source: 'blob', key }))
+                .getResponse()
+            const contentBuffer = new Uint8Array(await response.arrayBuffer())
+            return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
 
         async updateRecording(
