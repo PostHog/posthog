@@ -38,7 +38,7 @@ jobs:
               id: meta
               uses: docker/metadata-action@v4
               with:
-                  images: ghcr.io/posthog/posthog/posthog
+                  images: ghcr.io/${{ github.repository }}/posthog
                   tags: |
                       type=schedule
                       type=ref,event=branch
@@ -124,7 +124,7 @@ jobs:
                   # Use the non-cloud image as base image and extend it with
                   # the posthog-cloud code we've checked out.
                   build-args: |
-                      BASE_IMAGE=ghcr.io/posthog/posthog/posthog:${{ needs.posthog_build.outputs.container_image_version }}
+                      BASE_IMAGE=ghcr.io/${{ github.repository }}/posthog:${{ needs.posthog_build.outputs.container_image_version }}
 
     deploy_preview:
         uses: ./.github/workflows/pr-deploy.yml
