@@ -10,7 +10,7 @@ logger = structlog.get_logger(__name__)
 
 SUBSCRIPTION_CHANNEL = "@posthog/replay/realtime-subscriptions"
 ATTEMPT_MAX = 5
-ATTEMPT_WAIT_TIME_SECONDS = 2
+ATTEMPT_TIMEOUT_SECONDS = 5
 
 
 def get_key(team_id: str, suffix: str) -> str:
@@ -32,7 +32,7 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
         )
         # If we don't have it we could be in the process of getting it and syncing it
         redis.publish(SUBSCRIPTION_CHANNEL, json.dumps({"team_id": team_id, "session_id": session_id}))
-        sleep(ATTEMPT_WAIT_TIME_SECONDS)
+        sleep(ATTEMPT_TIMEOUT_SECONDS / ATTEMPT_MAX)
         return get_realtime_snapshots(team_id, session_id, attempt_count + 1)
 
     if encoded_snapshots:
