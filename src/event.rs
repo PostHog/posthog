@@ -4,7 +4,7 @@ use std::io::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bytes::{Buf, Bytes};
 use flate2::read::GzDecoder;
 use uuid::Uuid;
@@ -28,6 +28,11 @@ pub struct EventQuery {
     sent_at: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct EventFormData {
+    pub data: String,
+}
+
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct Event {
     #[serde(alias = "$token", alias = "api_key")]
@@ -44,20 +49,24 @@ impl Event {
     pub fn from_bytes(query: &EventQuery, bytes: Bytes) -> Result<Vec<Event>> {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
-        match query.compression {
+        let payload = match query.compression {
             Some(Compression::GzipJs) => {
                 let mut d = GzDecoder::new(bytes.reader());
                 let mut s = String::new();
                 d.read_to_string(&mut s)?;
-
-                tracing::debug!(json = s, "decoded event data");
-
-                let event = serde_json::from_str(s.as_str())?;
-
-                Ok(event)
+                s
             }
-            None => Ok(serde_json::from_reader(bytes.reader())?),
+            None => String::from_utf8(bytes.into())?,
+        };
+
+        tracing::debug!(json = payload, "decoded event data");
+        if let Ok(events) = serde_json::from_str::<Vec<Event>>(&payload) {
+            return Ok(events);
         }
+        if let Ok(events) = serde_json::from_str::<Event>(&payload) {
+            return Ok(vec![events]);
+        }
+        Err(anyhow!("unknown input shape"))
     }
 }
 
