@@ -85,8 +85,20 @@ const amountToUsageMappingWithPercentDiscount = [
 
 describe('convertUsageToAmount', () => {
     it.each(amountToUsageMapping)('should convert usage to an amount based on the tiers', (mapping) => {
-        if (billingJson.products[0].tiers && billingJson.discount_percent) {
-            expect(convertUsageToAmount(mapping.usage, billingJson.products[0].tiers)).toEqual(mapping.amount)
+        if (billingJson.products[0].tiers) {
+            expect(convertUsageToAmount(mapping.usage, [billingJson.products[0].tiers])).toEqual(mapping.amount)
+        }
+    })
+})
+describe('convertUsageToAmountWithAddons', () => {
+    it.each(amountToUsageMappingWithAddons)('should convert usage to an amount based on the tiers', (mapping) => {
+        if (billingJson.products[0].tiers) {
+            expect(
+                convertUsageToAmount(mapping.usage, [
+                    billingJson.products[0].tiers,
+                    billingJson.products[0].addons[0].tiers,
+                ])
+            ).toEqual(mapping.amount)
         }
     })
 })
@@ -121,10 +133,11 @@ describe('convertUsageToAmountWithPercentDiscount', () => {
     it.each(amountToUsageMappingWithPercentDiscount)(
         'should convert usage to an amount based on the tiers',
         (mapping) => {
-            if (billingJson.products[0].tiers && billingJson.discount_percent) {
-                expect(
-                    convertUsageToAmount(mapping.usage, billingJson.products[0].tiers, billingJson.discount_percent)
-                ).toEqual(mapping.amount)
+            const discountPercent = 20
+            if (billingJson.products[0].tiers) {
+                expect(convertUsageToAmount(mapping.usage, [billingJson.products[0].tiers], discountPercent)).toEqual(
+                    mapping.amount
+                )
             }
         }
     )

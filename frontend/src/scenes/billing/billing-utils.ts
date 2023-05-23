@@ -35,13 +35,29 @@ export const projectUsage = (
     return Math.round((usage / timeSoFar) * timeTotal)
 }
 
-export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[], percentDiscount?: number): string => {
-    if (!tiers) {
+export const convertUsageToAmount = (
+    usage: number,
+    productAndAddonTiers: BillingV2TierType[][],
+    percentDiscount?: number
+): string => {
+    if (!productAndAddonTiers) {
         return ''
     }
     let remainingUsage = usage
     let amount = 0
     let previousTier: BillingV2TierType | undefined = undefined
+
+    const tiers = productAndAddonTiers[0].map((tier, index) => {
+        const allAddonsTiers = productAndAddonTiers.slice(1)
+        let totalAmount = parseFloat(tier.unit_amount_usd)
+        for (const addonTiers of allAddonsTiers) {
+            totalAmount += parseFloat(addonTiers[index].unit_amount_usd)
+        }
+        return {
+            ...tier,
+            unit_amount_usd: totalAmount.toString(),
+        }
+    })
 
     for (const tier of tiers) {
         if (remainingUsage <= 0) {
@@ -58,7 +74,7 @@ export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[], 
 
     // remove discount from total price
     if (percentDiscount) {
-        amount = amount / (1 + percentDiscount / 100)
+        amount = amount * (1 - percentDiscount / 100)
     }
 
     return amount.toFixed(2)
@@ -77,9 +93,9 @@ export const convertAmountToUsage = (
     }
 
     const tiers = productAndAddonTiers[0].map((tier, index) => {
-        const addonsTiers = productAndAddonTiers.slice(1)
+        const allAddonsTiers = productAndAddonTiers.slice(1)
         let totalAmount = parseFloat(tier.unit_amount_usd)
-        for (const addonTiers of addonsTiers) {
+        for (const addonTiers of allAddonsTiers) {
             totalAmount += parseFloat(addonTiers[index].unit_amount_usd)
         }
         return {

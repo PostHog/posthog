@@ -50,7 +50,11 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             parseInt(customLimitUsd || '0') ||
                 (product.tiers
                     ? parseInt(
-                          convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers, discountPercent)
+                          convertUsageToAmount(
+                              (product.projected_usage || 0) * 1.5,
+                              productAndAddonTiers,
+                              discountPercent
+                          )
                       )
                     : 0) ||
                 DEFAULT_BILLING_LIMIT
