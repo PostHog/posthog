@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from django.utils import timezone
 
 import json
 from typing import Any, List, Type, cast
