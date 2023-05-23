@@ -9,7 +9,7 @@ on:
 jobs:
     repo-sync:
         name: Sync posthog-foss with posthog
-        if: github.repository == 'PostHog/posthog'
+        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         runs-on: ubuntu-latest
         steps:
             - name: Sync repositories 1 to 1 - master branch

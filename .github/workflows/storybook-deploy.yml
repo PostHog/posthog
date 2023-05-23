@@ -9,7 +9,7 @@ on:
 jobs:
     storybook-deployment:
         runs-on: ubuntu-latest
-        if: github.repository == 'PostHog/posthog'
+        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         steps:
             - name: Check out PostHog/posthog repo
               uses: actions/checkout@v3

@@ -14,7 +14,7 @@ on:
 jobs:
     build-push:
         name: Build & push container release image
-        if: github.repository == 'PostHog/posthog'
+        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         runs-on: ubuntu-latest
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run

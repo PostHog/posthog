@@ -12,7 +12,7 @@ jobs:
     slack:
         name: Notify Slack of start of deploy
         runs-on: ubuntu-20.04
-        if: github.repository == 'posthog/posthog'
+        if: github.event.pull_request.head.repo.full_name == 'posthog/posthog'
         steps:
             - name: Notify Platform team on slack
               uses: rtCamp/action-slack-notify@v2
@@ -28,7 +28,7 @@ jobs:
     sentry:
         name: Notify Sentry of a production release
         runs-on: ubuntu-20.04
-        if: github.repository == 'PostHog/posthog'
+        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         steps:
             - name: Checkout master
               uses: actions/checkout@v3

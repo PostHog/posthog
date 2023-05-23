@@ -9,7 +9,7 @@ jobs:
     report-pr-age:
         name: Report age of PR
         runs-on: ubuntu-20.04
-        if: github.repository == 'PostHog/posthog' && github.event.pull_request.merged == true
+        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && github.event.pull_request.merged == true
         steps:
             - name: Calculate PR age
               run: |
@@ -31,7 +31,7 @@ jobs:
     report-pr-as-annotation:
         name: Report PR to PostHog
         runs-on: ubuntu-20.04
-        if: github.repository == 'PostHog/posthog' && github.event.pull_request.merged == true
+        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && github.event.pull_request.merged == true
         steps:
             - name: Report PR to PostHog
               uses: PostHog/posthog-annotate-merges-github-action@0.2.0

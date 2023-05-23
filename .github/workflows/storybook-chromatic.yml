@@ -17,7 +17,7 @@ jobs:
         name: Publish to Chromatic
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        if: github.repository == 'PostHog/posthog' # Don't run on forks
+        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog' # Don't run on forks
         outputs:
             storybook-url: ${{ steps.publish.outputs.storybookUrl }}
         steps:
@@ -102,7 +102,7 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ github.repository == 'PostHog/posthog' && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
               uses: pnpm/action-setup@v2
@@ -134,7 +134,7 @@ jobs:
                   # Solving this bug by overriding $HOME: https://github.com/microsoft/playwright/issues/6500
                   HOME: /root
                   # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
-                  VARIANT: ${{ github.repository == 'PostHog/posthog' && 'update' || 'verify' }}
+                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && 'update' || 'verify' }}
               run: |
                   pnpm test:visual-regression:stories:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 
@@ -142,14 +142,14 @@ jobs:
               if: matrix.browser == 'chromium' && matrix.shard == 1
               env:
                   # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
-                  VARIANT: ${{ github.repository == 'PostHog/posthog' && 'update' || 'verify' }}
+                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && 'update' || 'verify' }}
               run: |
                   pnpm test:visual-regression:legacy:ci:$VARIANT
 
             - name: Count snapshot changes from git diff
               id: diff
               # Skip on forks
-              if: github.repository == 'PostHog/posthog'
+              if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               run: |
                   git config --global --add safe.directory '*' # Calm git down about file ownership
                   git diff --name-status frontend/__snapshots__/ # For debugging
@@ -164,7 +164,7 @@ jobs:
 
             - name: Compress new/changed images using OptiPNG
               if: |
-                  github.repository == 'PostHog/posthog' && (
+                  github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && (
                     steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-added != '0'
                     || steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-modified != '0'
                   )
@@ -175,7 +175,7 @@ jobs:
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
-              if: github.repository == 'PostHog/posthog'
+              if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               id: commit
               with:
                   add: '["frontend/__snapshots__/", "playwright/"]'
@@ -197,7 +197,7 @@ jobs:
         if: always() # Run even if visual-regression fails for one (or more) of the browsers
         steps:
             - name: Post comment about updated snapshots
-              if: github.repository == 'PostHog/posthog'
+              if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               uses: actions/github-script@v6
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
