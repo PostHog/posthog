@@ -182,6 +182,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         recording = self.get_object()
         response_data = {}
         source = request.GET.get("source")
+        # TODO: Handle the old S3 storage method for pinned recordings
 
         if not source:
             sources = []
@@ -269,26 +270,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
-
-        if request.GET.get("blob_loading_enabled", "false") == "true":
-            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
-            blob_keys = object_storage.list_objects(blob_prefix)
-
-            if blob_keys:
-                return Response(
-                    {
-                        "snapshot_data_by_window_id": [],
-                        "blob_keys": [x.replace(blob_prefix, "") for x in blob_keys],
-                        "next": None,
-                    }
-                )
-
-            # TODO: Temporarily we are just "falling back" to redis, when we should actually be includig it in the response somehow
-            # TODO: Call redis to try and load the snapshots via pubsub mechanism
-
-            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id)
-            if snapshots:
-                return snapshots_response({"snapshots": snapshots})
 
         # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
         filter = Filter(request=request)
