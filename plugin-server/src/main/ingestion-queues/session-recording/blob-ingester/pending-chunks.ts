@@ -46,8 +46,9 @@ export class PendingChunks {
     }
 
     isIdle(referenceNow: number, idleThreshold: number) {
-        const lastChunk = this.chunks[this.chunks.length - 1]
-        return lastChunk.metadata.timestamp < referenceNow - idleThreshold
+        const lastChunk = this.chunks.sort((a, b) => a.metadata.timestamp - b.metadata.timestamp)[0]
+        const chunkAge = referenceNow - lastChunk.metadata.timestamp
+        return chunkAge >= idleThreshold
     }
 
     add(message: IncomingRecordingMessage) {

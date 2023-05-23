@@ -262,10 +262,10 @@ describe('session-manager', () => {
 
     it.each([
         [
-            'incomplete and below threshold, we keep it in the chunks buffer',
+            'incomplete and below threshold of 1000, we keep it in the chunks buffer',
             2000,
-            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage] },
-            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage] },
+            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage] },
+            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage] },
             [],
         ],
         [
