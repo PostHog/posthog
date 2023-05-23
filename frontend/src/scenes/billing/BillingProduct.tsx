@@ -196,7 +196,13 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             >
                                 Current bill
                             </LemonLabel>
-                            <div className="font-bold text-4xl">${product.current_amount_usd}</div>
+                            <div className="font-bold text-4xl">
+                                $
+                                {(
+                                    parseFloat(product.current_amount_usd || '') *
+                                    (1 - (billing?.discount_percent ? billing.discount_percent / 100 : 0))
+                                ).toFixed(2) || '0.00'}
+                            </div>
                         </div>
                         {product.tiered && product.tiers && (
                             <>
@@ -209,7 +215,11 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                         Predicted bill
                                     </LemonLabel>
                                     <div className="font-bold text-muted text-2xl">
-                                        ${product.projected_amount_usd || '0.00'}
+                                        $
+                                        {(
+                                            parseFloat(product.projected_amount_usd || '') *
+                                            (1 - (billing?.discount_percent ? billing.discount_percent / 100 : 0))
+                                        ).toFixed(2) || '0.00'}
                                     </div>
                                 </div>
                                 {billing?.billing_period?.interval == 'month' && (

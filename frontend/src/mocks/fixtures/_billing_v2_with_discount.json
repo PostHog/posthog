@@ -375,7 +375,7 @@
         }
     ],
     "current_total_amount_usd": "2713.18",
-    "current_total_amount_usd_after_discount": "1356.59",
+    "current_total_amount_usd_after_discount": "1899.23",
     "products": [
         {
             "name": "Product analytics + data stack",
@@ -1204,7 +1204,7 @@
         }
     },
     "free_trial_until": null,
-    "discount_percent": 50,
+    "discount_percent": 30,
     "discount_amount_usd": null,
     "available_plans": [
         {
