@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::prelude::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -41,26 +42,35 @@ impl Event {
     /// could be more than one. Hence this function has to return a Vec.
     /// TODO: Use an axum extractor for this
     pub fn from_bytes(query: &EventQuery, bytes: Bytes) -> Result<Vec<Event>> {
+        tracing::debug!(len = bytes.len(), "decoding new event");
+
         match query.compression {
             Some(Compression::GzipJs) => {
-                let d = GzDecoder::new(bytes.reader());
-                Ok(serde_json::from_reader(d)?)
+                let mut d = GzDecoder::new(bytes.reader());
+                let mut s = String::new();
+                d.read_to_string(&mut s)?;
+
+                tracing::debug!(json = s, "decoded event data");
+
+                let event = serde_json::from_str(s.as_str())?;
+
+                Ok(event)
             }
             None => Ok(serde_json::from_reader(bytes.reader())?),
         }
     }
 }
 
-#[derive(Default, Debug, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct ProcessedEvent {
-    uuid: Uuid,
-    distinct_id: String,
-    ip: String,
-    site_url: String,
-    data: String,
-    now: String,
-    sent_at: String,
-    token: String,
+    pub uuid: Uuid,
+    pub distinct_id: String,
+    pub ip: String,
+    pub site_url: String,
+    pub data: String,
+    pub now: String,
+    pub sent_at: String,
+    pub token: String,
 }
 
 #[cfg(test)]

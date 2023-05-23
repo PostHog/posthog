@@ -4,6 +4,7 @@ mod api;
 mod capture;
 mod event;
 mod router;
+mod sink;
 mod token;
 
 #[tokio::main]
