@@ -345,7 +345,7 @@ export class SessionRecordingBlobIngester {
         this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs)
     }
 
-    private async checkEachSession() {
+    private checkEachSession() {
         let sessionManagerBufferSizes = 0
 
         for (const [_, sessionManager] of this.sessions) {
@@ -361,7 +361,7 @@ export class SessionRecordingBlobIngester {
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER
             )
 
-            await sessionManager.flushIfSessionBufferIsOld(kafkaNow, flushThresholdMillis).catch((err) => {
+            void sessionManager.flushIfSessionBufferIsOld(kafkaNow, flushThresholdMillis).catch((err) => {
                 status.error(
                     '🚽',
                     'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,

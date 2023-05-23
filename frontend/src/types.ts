@@ -1810,7 +1810,7 @@ export interface TrendResult {
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
-    filter?: FilterType
+    filter?: TrendsFilterType
 }
 
 interface Person {
@@ -2293,10 +2293,17 @@ export interface Experiment {
     updated_at: string | null
 }
 
-export interface ExperimentVariant {
+export interface FunnelExperimentVariant {
     key: string
     success_count: number
     failure_count: number
+}
+
+export interface TrendExperimentVariant {
+    key: string
+    count: number
+    exposure: number
+    absolute_exposure: number
 }
 
 interface BaseExperimentResults {
@@ -2307,17 +2314,18 @@ interface BaseExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
-    variants: ExperimentVariant[]
 }
 
 export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
+    variants: TrendExperimentVariant[]
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
+    variants: FunnelExperimentVariant[]
 }
 
 export interface TrendsExperimentResults {

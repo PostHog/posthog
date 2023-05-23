@@ -1,7 +1,7 @@
 import { connect, kea, path, reducers, actions, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
+import { SessionRecordingPropertiesType } from '~/types'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { sessionRecordingsListPropertiesLogicType } from './sessionRecordingsListPropertiesLogicType'
@@ -56,9 +56,12 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
 
     reducers({
         recordingPropertiesById: [
-            {} as Record<SessionRecordingType['id'], SessionRecordingPropertiesType['properties']>,
+            {} as Record<string, SessionRecordingPropertiesType['properties']>,
             {
-                loadPropertiesForSessionsSuccess: (state, { recordingProperties }) => {
+                loadPropertiesForSessionsSuccess: (
+                    state,
+                    { recordingProperties }
+                ): Record<string, SessionRecordingPropertiesType['properties']> => {
                     const newState = { ...state }
                     recordingProperties.forEach((properties) => {
                         newState[properties.id] = properties.properties
