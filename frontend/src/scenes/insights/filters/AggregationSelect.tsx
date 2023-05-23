@@ -190,7 +190,7 @@ function AggregationSelectComponent({
     )
 }
 
-function CustomHogQLOption({
+export function CustomHogQLOption({
     onSelect,
     actualValue,
 }: {

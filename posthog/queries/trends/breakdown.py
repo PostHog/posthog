@@ -17,6 +17,7 @@ from posthog.constants import (
     PropertyOperatorType,
     TREND_FILTER_TYPE_EVENTS,
 )
+from posthog.hogql.hogql import translate_hogql
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
@@ -140,6 +141,7 @@ class TrendsBreakdown:
         aggregate_operation, _, math_params = process_math(
             self.entity,
             self.team,
+            filter=self.filter,
             event_table_alias=self.EVENT_TABLE_ALIAS,
             person_id_alias=f"person_id"
             if self.person_on_events_mode == PersonOnEventsMode.V1_ENABLED
@@ -259,6 +261,8 @@ class TrendsBreakdown:
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
                     sample_clause=sample_clause,
                 )
+            elif self.entity.math == "hogql":
+                content_sql = translate_hogql(self.entity.math_hogql, self.filter.hogql_context)
             elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 content_sql = VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL.format(
                     breakdown_filter=breakdown_filter,
@@ -347,6 +351,8 @@ class TrendsBreakdown:
                     sample_clause=sample_clause,
                     **breakdown_filter_params,
                 )
+            elif self.entity.math == "hogql":
+                content_sql = translate_hogql(self.entity.math_hogql, self.filter.hogql_context)
             elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 inner_sql = VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,

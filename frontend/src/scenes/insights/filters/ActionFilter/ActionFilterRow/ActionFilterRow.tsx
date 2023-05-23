@@ -10,6 +10,7 @@ import {
     BaseMathType,
     PropertyMathType,
     CountPerActorMathType,
+    HogQLMathType,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { entityFilterLogic } from '../entityFilterLogic'
@@ -133,7 +134,12 @@ export function ActionFilterRow({
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
     let name: string | null | undefined, value: PropertyFilterValue
-    const { math, math_property: mathProperty, math_group_type_index: mathGroupTypeIndex } = filter
+    const {
+        math,
+        math_property: mathProperty,
+        math_hogql: mathHogQL,
+        math_group_type_index: mathGroupTypeIndex,
+    } = filter
 
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
@@ -145,6 +151,10 @@ export function ActionFilterRow({
                 mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
                     ? mathProperty ?? '$time'
                     : undefined,
+            math_hogql:
+                mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
+                    ? mathHogQL ?? 'count()'
+                    : undefined,
             type: filter.type,
             index,
         })
@@ -152,7 +162,17 @@ export function ActionFilterRow({
     const onMathPropertySelect = (_: unknown, property: string): void => {
         updateFilterMath({
             ...filter,
+            math_hogql: undefined,
             math_property: property,
+            index,
+        })
+    }
+
+    const onMathHogQLSelect = (_: unknown, hogql: string): void => {
+        updateFilterMath({
+            ...filter,
+            math_property: undefined,
+            math_hogql: hogql,
             index,
         })
     }
@@ -331,6 +351,40 @@ export function ActionFilterRow({
                                             />
                                         </div>
                                     )}
+                                    {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                        MathCategory.HogQLExpression && (
+                                        <div className="flex-auto overflow-hidden">
+                                            <TaxonomicStringPopover
+                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
+                                                groupTypes={[TaxonomicFilterGroupType.HogQLExpression]}
+                                                value={mathHogQL}
+                                                onChange={(currentValue) => onMathHogQLSelect(index, currentValue)}
+                                                eventNames={name ? [name] : []}
+                                                dataAttr="math-hogql-select"
+                                                renderValue={(currentValue) => (
+                                                    <Tooltip
+                                                        title={
+                                                            <>
+                                                                Calculate{' '}
+                                                                {mathDefinitions[math ?? ''].name.toLowerCase()} from
+                                                                property <code>{currentValue}</code>. Note that only{' '}
+                                                                {name} occurences where <code>{currentValue}</code> is
+                                                                set with a numeric value will be taken into account.
+                                                            </>
+                                                        }
+                                                        placement="right"
+                                                    >
+                                                        <div /* <div> needed for <Tooltip /> to work */>
+                                                            <PropertyKeyInfo
+                                                                value={currentValue}
+                                                                disablePopover={true}
+                                                            />
+                                                        </div>
+                                                    </Tooltip>
+                                                )}
+                                            />
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>
@@ -472,6 +526,18 @@ function useMathSelectorOptions({
             'data-attr': `math-node-property-value-${index}`,
         })
     }
+
+    options.push({
+        value: HogQLMathType.HogQL,
+        label: (
+            <div className="flex items-center gap-2">
+                <span>HogQL Expression</span>
+            </div>
+        ),
+        tooltip: 'Aggregate events by custom SQL expression.',
+        'data-attr': `math-node-hogql-expression-${index}`,
+    })
+
     return [
         {
             options,

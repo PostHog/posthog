@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import type { mathsLogicType } from './mathsLogicType'
-import { BaseMathType, CountPerActorMathType, PropertyMathType } from '~/types'
+import { BaseMathType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 
 export enum MathCategory {
@@ -10,6 +10,7 @@ export enum MathCategory {
     ActorCount,
     EventCountPerActor,
     PropertyValue,
+    HogQLExpression,
 }
 
 export interface MathDefinition {
@@ -199,6 +200,14 @@ export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition>
         category: MathCategory.PropertyValue,
     },
 }
+export const HOGQL_MATH_DEFINITIONS: Record<HogQLMathType, MathDefinition> = {
+    [HogQLMathType.HogQL]: {
+        name: 'HogQL expression',
+        shortName: 'HogQL expression',
+        description: <></>,
+        category: MathCategory.HogQLExpression,
+    },
+}
 
 export const COUNT_PER_ACTOR_MATH_DEFINITIONS: Record<CountPerActorMathType, MathDefinition> = {
     [CountPerActorMathType.Average]: {
@@ -284,6 +293,7 @@ export const mathsLogic = kea<mathsLogicType>({
                     ...groupsMathDefinitions,
                     ...PROPERTY_MATH_DEFINITIONS,
                     ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
+                    ...HOGQL_MATH_DEFINITIONS,
                 }
                 return allMathDefinitions
             },

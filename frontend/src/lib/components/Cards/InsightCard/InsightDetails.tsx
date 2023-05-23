@@ -146,16 +146,23 @@ function SeriesDisplay({
                     {insightType !== InsightType.FUNNELS && (
                         <div>
                             counted by{' '}
-                            {mathDefinition?.category === MathCategory.PropertyValue && filter.math_property && (
+                            {mathDefinition?.category === MathCategory.HogQLExpression ? (
+                                filter.math_hogql
+                            ) : (
                                 <>
-                                    {' '}
-                                    event's
-                                    <span className="SeriesDisplay__raw-name">
-                                        <PropertyKeyInfo value={filter.math_property} />
-                                    </span>
+                                    {mathDefinition?.category === MathCategory.PropertyValue &&
+                                        filter.math_property && (
+                                            <>
+                                                {' '}
+                                                event's
+                                                <span className="SeriesDisplay__raw-name">
+                                                    <PropertyKeyInfo value={filter.math_property} />
+                                                </span>
+                                            </>
+                                        )}
+                                    <b>{mathDefinition?.name.toLowerCase()}</b>
                                 </>
                             )}
-                            <b>{mathDefinition?.name.toLowerCase()}</b>
                         </div>
                     )}
                     {filter.properties && filter.properties.length > 0 && (

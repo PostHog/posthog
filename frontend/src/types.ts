@@ -1782,6 +1782,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
+    math_hogql?: string
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
@@ -2575,6 +2576,9 @@ export enum CountPerActorMathType {
     P99 = 'p99_count_per_actor',
 }
 
+export enum HogQLMathType {
+    HogQL = 'hogql',
+}
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
