@@ -235,11 +235,16 @@ export class SessionManager {
                 return this.flush('buffer_age')
             } else {
                 gaugePendingChunksBlocking.inc()
+                const chunkStates: Record<string, any> = {}
+                for (const [key, chunk] of this.chunks.entries()) {
+                    chunkStates[key] = { expected: chunk.expectedSize, received: chunk.chunks.length }
+                }
                 status.warn(
                     '🚽',
                     `blob_ingester_session_manager would flush buffer due to age, but chunks are still pending`,
                     {
                         ...logContext,
+                        chunks: chunkStates,
                     }
                 )
             }
