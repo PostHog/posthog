@@ -19,7 +19,6 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     dropdownMatchSelectWidth?: boolean
     allowClear?: boolean
     style?: React.CSSProperties
-    buttonProps?: Omit<LemonButtonProps, 'onClick' | 'type' | 'status'>
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
 }
 
@@ -46,25 +45,25 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     placeholderClass = 'text-muted',
     allowClear = false,
     excludedProperties,
-    ...buttonProps
+    ...buttonPropsRest
 }: TaxonomicPopoverProps<ValueType>): JSX.Element {
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
 
     const isClearButtonShown = allowClear && !!localValue
 
-    const internalButtonProps = buttonProps as LemonButtonProps
-    internalButtonProps.children = localValue ? (
+    const buttonPropsFinal = buttonPropsRest as LemonButtonProps
+    buttonPropsFinal.children = localValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
     ) : (
         <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
     )
-    internalButtonProps.onClick = () => setVisible(!visible)
-    internalButtonProps.status = 'stealth'
-    internalButtonProps.type = 'secondary'
+    buttonPropsFinal.onClick = () => setVisible(!visible)
+    buttonPropsFinal.status = 'stealth'
+    buttonPropsFinal.type = 'secondary'
 
     useEffect(() => {
-        if (!buttonProps.loading) {
+        if (!buttonPropsFinal.loading) {
             setLocalValue(value || ('' as ValueType))
         }
     }, [value])
@@ -104,10 +103,10 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
                             },
                             divider: false,
                         }}
-                        {...internalButtonProps}
+                        {...buttonPropsFinal}
                     />
                 ) : (
-                    <LemonButton {...internalButtonProps} />
+                    <LemonButton {...buttonPropsFinal} />
                 )}
             </LemonDropdown>
         </div>
