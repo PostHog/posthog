@@ -396,7 +396,7 @@ export class SessionManager {
             this.flushBuffer = undefined
 
             // TODO: Sync the last processed offset to redis
-            this.onFinish(offsets)
+            this.onFinish(offsets.sort((a, b) => a - b))
         }
     }
 
@@ -503,9 +503,6 @@ export class SessionManager {
                 .map((c) => c.data)
                 .join(''),
         })
-
-        // chunk processing can leave the offsets out of order
-        this.buffer.offsets.sort((a, b) => a - b)
     }
 
     public async destroy(): Promise<void> {
