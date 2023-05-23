@@ -133,6 +133,7 @@ async function expectStoryToMatchSceneSnapshot(
 ): Promise<void> {
     await page.evaluate(() => {
         document.querySelector('.TopBar')?.remove()
+        document.querySelector('.Announcement')?.remove()
     })
 
     const dimensions = await page.locator('.main-app-content').boundingBox()
