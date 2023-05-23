@@ -136,14 +136,6 @@ async function expectStoryToMatchSceneSnapshot(
         document.querySelector('.SideBar')?.setAttribute('style', 'overflow: visible;')
     })
 
-    const contentHeight = await page.evaluate(() => {
-        return document.querySelector('.main-app-content')?.getBoundingClientRect()?.height
-    })
-    // Ensure the page size is bigger than the component otherwise it can get clipped
-    // await page.setViewportSize({
-    //     height: Math.max(DEFAULT_PAGE_DIMENSIONS.height, Math.round(contentHeight || 0)),
-    //     width: DEFAULT_PAGE_DIMENSIONS.width,
-    // })
     await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
 }
 

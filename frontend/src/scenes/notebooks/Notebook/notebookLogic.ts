@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 import type { notebookLogicType } from './notebookLogicType'
-import { JSONContent } from '@tiptap/core'
+import type { JSONContent } from '@tiptap/core/src/types'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic } from './notebooksListLogic'
 import { NotebookListItemType, NotebookSyncStatus, NotebookType } from '~/types'
