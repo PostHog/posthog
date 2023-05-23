@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import type { personsAndGroupsSidebarLogicType } from './personsAndGroupsSidebarLogicType'
@@ -25,6 +25,14 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
             ['activeScene', 'sceneParams'],
         ],
         actions: [personsLogic, ['setListFilters', 'loadPersons']],
+    }),
+    actions({
+        loadData: true,
+    }),
+    listeners({
+        loadData: () => {
+            personsLogic.actions.loadPersons()
+        },
     }),
     selectors(({ actions, values }) => ({
         isLoading: [(s) => [s.personsLoading], (personsLoading) => personsLoading],
@@ -78,12 +86,12 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
     })),
     subscriptions(({ actions, cache }) => ({
         searchTerm: (searchTerm) => {
-            clearTimeout(cache.loadPersonsTimeout)
+            clearTimeout(cache.loadTimeout)
             actions.setListFilters({ search: searchTerm })
-            cache.loadPersonsTimeout = setTimeout(() => actions.loadPersons(), SEARCH_DEBOUNCE_MS)
+            cache.loadTimeout = setTimeout(() => actions.loadData(), SEARCH_DEBOUNCE_MS)
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadPersons()
+        actions.loadData()
     }),
 ])
