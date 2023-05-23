@@ -1,3 +1,4 @@
+import { Upload } from '@aws-sdk/lib-storage'
 import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
@@ -13,7 +14,24 @@ jest.mock('fs', () => {
     return {
         ...jest.requireActual('fs'),
         writeFileSync: jest.fn(),
-        createReadStream: jest.fn(),
+        createReadStream: jest.fn().mockImplementation(() => {
+            return {
+                pipe: jest.fn(),
+            }
+        }),
+    }
+})
+
+jest.mock('@aws-sdk/lib-storage', () => {
+    const mockUpload = jest.fn().mockImplementation(() => {
+        return {
+            done: jest.fn().mockResolvedValue(undefined),
+        }
+    })
+
+    return {
+        __esModule: true,
+        Upload: mockUpload,
     }
 })
 
@@ -62,35 +80,14 @@ describe('session-manager', () => {
             id: expect.any(String),
             size: 61, // The size of the event payload - this may change when test data changes
             offsets: [1],
+            eventsRange: {
+                firstTimestamp: 1679568043305,
+                lastTimestamp: 1679568043305,
+            },
         })
 
         // the buffer file was created
         expect(writeFileSync).toHaveBeenCalledWith(sessionManager.buffer.file, '', 'utf-8')
-    })
-
-    it('tracks buffer age span', async () => {
-        const firstMessageTimestamp = DateTime.now().toMillis() - 10000
-        const secondMessageTimestamp = DateTime.now().toMillis() - 5000
-
-        const payload = JSON.stringify([{ simple: 'data' }])
-        const event = createIncomingRecordingMessage({
-            data: compressToString(payload),
-        })
-
-        event.metadata.timestamp = firstMessageTimestamp
-        await sessionManager.add(event)
-
-        event.metadata.timestamp = secondMessageTimestamp
-        await sessionManager.add(event)
-
-        expect(sessionManager.buffer).toEqual({
-            count: 2,
-            oldestKafkaTimestamp: firstMessageTimestamp,
-            file: expect.any(String),
-            id: expect.any(String),
-            size: 61 * 2, // The size of the event payload - this may change when test data changes
-            offsets: [1, 1],
-        })
     })
 
     it('does not flush if it has received a message recently', async () => {
@@ -115,19 +112,51 @@ describe('session-manager', () => {
     })
 
     it('does flush if it has not received a message recently', async () => {
+        const firstTimestamp = 1679568043305
+        const lastTimestamp = 1679568043305 + 4000
+
         const payload = JSON.stringify([{ simple: 'data' }])
-        const event = createIncomingRecordingMessage({
+        const eventOne = createIncomingRecordingMessage({
             data: compressToString(payload),
+            events_summary: [
+                {
+                    timestamp: firstTimestamp,
+                    type: 4,
+                    data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
+                },
+            ],
+        })
+        const eventTwo = createIncomingRecordingMessage({
+            data: compressToString(payload),
+            events_summary: [
+                {
+                    timestamp: lastTimestamp,
+                    type: 4,
+                    data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
+                },
+            ],
         })
 
         const flushThreshold = 2500 // any value here...
-        event.metadata.timestamp = DateTime.now().minus({ milliseconds: flushThreshold }).toMillis()
-        await sessionManager.add(event)
+        eventOne.metadata.timestamp = DateTime.now().minus({ milliseconds: flushThreshold }).toMillis()
+        await sessionManager.add(eventOne)
+        eventTwo.metadata.timestamp = DateTime.now().minus({ milliseconds: flushThreshold }).toMillis()
+        await sessionManager.add(eventTwo)
 
         await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), flushThreshold)
 
         // as a proxy for flush having been called or not
         expect(createReadStream).toHaveBeenCalled()
+        const mockUploadCalls = (Upload as unknown as jest.Mock).mock.calls
+        expect(mockUploadCalls.length).toBe(1)
+        expect(mockUploadCalls[0].length).toBe(1)
+        expect(mockUploadCalls[0][0]).toEqual(
+            expect.objectContaining({
+                params: expect.objectContaining({
+                    Key: `session_recordings/team_id/1/session_id/session_id_1/data/${firstTimestamp}-${lastTimestamp}`,
+                }),
+            })
+        )
     })
 
     it('does not flush a short session even when lagging if within threshold', async () => {

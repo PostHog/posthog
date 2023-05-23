@@ -124,9 +124,16 @@ export function InstanceConfigTab(): JSX.Element {
                     <>
                         {Object.keys(instanceConfigEditingState).length > 0 && (
                             <span className="text-warning-dark flex items-center gap-2">
-                                <IconWarning className="text-lg" /> You have{' '}
-                                <b>{Object.keys(instanceConfigEditingState).length}</b> unapplied{' '}
-                                {pluralize(Object.keys(instanceConfigEditingState).length, 'change', undefined, false)}
+                                <IconWarning className="text-xl" />
+                                <span>
+                                    You have <b>{Object.keys(instanceConfigEditingState).length}</b> unapplied{' '}
+                                    {pluralize(
+                                        Object.keys(instanceConfigEditingState).length,
+                                        'change',
+                                        undefined,
+                                        false
+                                    )}
+                                </span>
                             </span>
                         )}
                         <LemonButton type="secondary" disabled={instanceSettingsLoading} onClick={discard}>
