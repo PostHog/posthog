@@ -216,6 +216,28 @@ def test_decompress_deduplicates_if_duplicate_chunks(raw_snapshot_events):
     )
 
 
+def test_decompress_ignores_if_too_few_chunks_even_after_deduplication(raw_snapshot_events):
+    snapshot_data_list = [
+        event["properties"]["$snapshot_data"] for event in compress_and_chunk_snapshots(raw_snapshot_events, 10)
+    ]  # makes 12 chunks
+    # take the first four chunks four times, then not quite all the remainder
+    # leaves more than 12 chunks in total, but not enough to decompress
+    snapshot_data_list = (
+        snapshot_data_list[:4]
+        + snapshot_data_list[:4]
+        + snapshot_data_list[:4]
+        + snapshot_data_list[:4]
+        + snapshot_data_list[4:-1]
+    )
+
+    window_id = "abc123"
+    snapshot_list = []
+    for snapshot_data in snapshot_data_list:
+        snapshot_list.append(SnapshotDataTaggedWithWindowId(window_id=window_id, snapshot_data=snapshot_data))
+
+    assert decompress_chunked_snapshot_data(2, "someid", snapshot_list)["snapshot_data_by_window_id"][window_id] == []
+
+
 def test_paginate_decompression(chunked_and_compressed_snapshot_events):
     snapshot_data = [
         SnapshotDataTaggedWithWindowId(
