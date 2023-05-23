@@ -19,7 +19,7 @@ describe('ingester', () => {
     })
 
     beforeEach(() => {
-        ingester = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage)
+        ingester = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage, hub.redisPool)
     })
 
     it('creates a new session manager if needed', async () => {
