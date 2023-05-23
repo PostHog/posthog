@@ -2022,9 +2022,9 @@ export interface SurveyAppearance {
 export interface SurveyQuestion {
     type: SurveyQuestionType
     question: string
-    required: boolean
-    link: string | null
-    choices: string[] | null
+    required?: boolean
+    link?: string | null
+    choices?: string[] | null
 }
 
 export enum SurveyQuestionType {

@@ -5,17 +5,20 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { Survey, SurveyType } from '~/types'
+import { Survey, SurveyQuestionType, SurveyType } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
 
-type NewSurvey = Pick<Survey, 'name' | 'description' | 'type' | 'linked_flag' | 'questions'>
+interface NewSurvey extends Pick<Survey, 'name' | 'description' | 'type' | 'questions' | 'targeting_flag'>{
+    linked_flag_id: number | undefined
+}
 
 const NEW_SURVEY: NewSurvey = {
     name: '',
     description: '',
-    questions: [],
+    questions: [{type: SurveyQuestionType.Open, question: ''}],
     type: SurveyType.Popover,
-    linked_flag: null,
+    linked_flag_id: undefined,
+    targeting_flag: null,
 }
 
 export interface SurveyLogicProps {
