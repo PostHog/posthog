@@ -1,14 +1,17 @@
+use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use base64::engine::general_purpose;
 use base64::Engine;
+use capture::api::{CaptureResponse, CaptureResponseCode};
 use capture::event::ProcessedEvent;
 use capture::router::router;
+use capture::sink::EventSink;
 use capture::time::TimeSource;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use time::OffsetDateTime;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Deserialize)]
 struct RequestDump {
@@ -26,12 +29,36 @@ static REQUESTS_DUMP_FILE_NAME: &str = "tests/requests_dump.jsonl";
 
 #[derive(Clone)]
 pub struct FixedTime {
-    pub time: time::OffsetDateTime,
+    pub time: String,
 }
 
 impl TimeSource for FixedTime {
     fn current_time(&self) -> String {
         self.time.to_string()
+    }
+}
+
+#[derive(Clone, Default)]
+struct MemorySink {
+    events: Arc<Mutex<Vec<ProcessedEvent>>>,
+}
+
+impl MemorySink {
+    fn len(&self) -> usize {
+        self.events.lock().unwrap().len()
+    }
+}
+
+#[async_trait]
+impl EventSink for MemorySink {
+    async fn send(&self, event: ProcessedEvent) -> anyhow::Result<()> {
+        self.events.lock().unwrap().push(event);
+        Ok(())
+    }
+
+    async fn send_batch(&self, events: &[ProcessedEvent]) -> anyhow::Result<()> {
+        self.events.lock().unwrap().extend_from_slice(&events);
+        Ok(())
     }
 }
 
@@ -42,7 +69,6 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
 
     for line in reader.lines() {
         let case: RequestDump = serde_json::from_str(&line?)?;
-
         if !case.path.starts_with("/e/") {
             println!("Skipping {} test case", &case.path);
             continue;
@@ -55,10 +81,9 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             case.method
         );
 
-        let timesource = FixedTime {
-            time: OffsetDateTime::now_utc(),
-        };
-        let app = router(timesource);
+        let sink = MemorySink::default();
+        let timesource = FixedTime { time: case.now };
+        let app = router(timesource, sink.clone());
 
         let client = TestClient::new(app);
         let mut req = client.post(&case.path).body(raw_body);
@@ -72,8 +97,14 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             req = req.header("X-Forwarded-For", case.ip);
         }
         let res = req.send().await;
-
         assert_eq!(res.status(), StatusCode::OK, "{}", res.text().await);
+        assert_eq!(
+            Some(CaptureResponse {
+                status: CaptureResponseCode::Ok
+            }),
+            res.json().await
+        );
+        assert_eq!(sink.len(), case.output.len())
     }
     Ok(())
 }

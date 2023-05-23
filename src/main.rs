@@ -15,8 +15,7 @@ async fn main() {
     // initialize tracing
     tracing_subscriber::fmt::init();
 
-    let st = SystemTime {};
-    let app = router::router(st);
+    let app = router::router(SystemTime {}, sink::PrintSink {});
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`

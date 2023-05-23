@@ -12,12 +12,12 @@ pub struct CaptureRequest {
     pub properties: HashMap<String, Value>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum CaptureResponseCode {
     Ok = 1,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct CaptureResponse {
     pub status: CaptureResponseCode,
 }
