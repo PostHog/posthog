@@ -241,7 +241,7 @@ redis==4.5.4
     # via
     #   -c requirements.txt
     #   fakeredis
-requests==2.28.1
+requests==2.31.0
     # via
     #   -c requirements.txt
     #   coreapi
