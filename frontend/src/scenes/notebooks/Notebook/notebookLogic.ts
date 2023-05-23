@@ -2,18 +2,15 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 import type { notebookLogicType } from './notebookLogicType'
-import type { JSONContent } from '@tiptap/core/src/types'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic } from './notebooksListLogic'
 import { NotebookListItemType, NotebookSyncStatus, NotebookType } from '~/types'
 import { delay } from 'lib/utils'
 
-// NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we jusz use Any
-// import type { Editor } from '@tiptap/core'
+// NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
+import { JSONContent, Editor } from './utils'
 
 const SYNC_DELAY = 1000
-
-export type Editor = any
 
 export type NotebookLogicProps = {
     id: string | number

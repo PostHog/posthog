@@ -52,7 +52,7 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
 
         createNotebookSuccess: ({ notebooks }) => {
             // NOTE: This is temporary: We probably only want to select it if it is created from the sidebar
-            actions.selectNotebook(notebooks[notebooks.length - 1].id)
+            actions.selectNotebook(notebooks[notebooks.length - 1].short_id)
         },
     })),
 

@@ -101,7 +101,7 @@ export function NotebooksTable(): JSX.Element {
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 100 }}
                 dataSource={notebooks as NotebookListItemType[]}
-                rowKey="id"
+                rowKey="short_id"
                 columns={columns}
                 loading={notebooksLoading}
                 defaultSorting={{ columnKey: 'title', order: 1 }}
