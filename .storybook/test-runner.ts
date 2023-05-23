@@ -132,16 +132,18 @@ async function expectStoryToMatchSceneSnapshot(
     browser: SupportedBrowserName
 ): Promise<void> {
     await page.evaluate(() => {
-        document.querySelector('.TopBar')?.remove()
-        document.querySelector('.Announcement')?.remove()
+        // The screenshot gets clipped by the overflow hidden of the sidebar
+        document.querySelector('.SideBar')?.setAttribute('style', 'overflow: visible;')
     })
 
-    const dimensions = await page.locator('.main-app-content').boundingBox()
-    // Ensure the page size is bigger than the component otherwise it can get clipped
-    await page.setViewportSize({
-        height: Math.max(DEFAULT_PAGE_DIMENSIONS.height, Math.round(dimensions?.height || 0)),
-        width: DEFAULT_PAGE_DIMENSIONS.width,
+    const contentHeight = await page.evaluate(() => {
+        return document.querySelector('.main-app-content')?.getBoundingClientRect()?.height
     })
+    // Ensure the page size is bigger than the component otherwise it can get clipped
+    // await page.setViewportSize({
+    //     height: Math.max(DEFAULT_PAGE_DIMENSIONS.height, Math.round(contentHeight || 0)),
+    //     width: DEFAULT_PAGE_DIMENSIONS.width,
+    // })
     await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
 }
 
