@@ -109,7 +109,7 @@ class SessionRecordingPropertiesSerializer(serializers.Serializer):
 
 
 class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
-    source = serializers.CharField()
+    source = serializers.CharField()  # type: ignore
     start_timestamp = serializers.DateTimeField(allow_null=True)
     end_timestamp = serializers.DateTimeField(allow_null=True)
     blob_key = serializers.CharField(allow_null=True)
@@ -184,7 +184,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         # TODO: Handle the old S3 storage method for pinned recordings
 
         if not source:
-            sources = []
+            sources: List[dict] = []
             blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
             blob_keys = object_storage.list_objects(blob_prefix)
 
@@ -229,7 +229,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             response_data["snapshots"] = snapshots
 
         elif source == "blob":
-            blob_key = request.GET.get("blob_key")
+            blob_key = request.GET.get("blob_key", "")
             if not blob_key:
                 raise exceptions.ValidationError("Must provide a snapshot file blob key")
 
