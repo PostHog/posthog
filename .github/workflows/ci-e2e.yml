@@ -174,8 +174,10 @@ jobs:
                   $DOCKER_RUN python manage.py setup_dev
 
             - name: Wait for PostHog
-              uses: iFaxity/wait-on-action@v1
+              uses: iFaxity/wait-on-action
               with:
+                  verbose: true
+                  log: true
                   resource: http://localhost:8000
 
             - name: Cypress run
