@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { connect, kea, key, listeners, path, props, selectors } from 'kea'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
@@ -23,7 +23,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingsListPropertiesLogic,
             ['recordingPropertiesById'],
         ],
-        actions: [sessionRecordingDataLogic(props), ['loadRecordingMetaSuccess']],
+        actions: [
+            sessionRecordingDataLogic(props),
+            ['loadRecordingMetaSuccess'],
+            sessionRecordingsListPropertiesLogic,
+            ['maybeLoadPropertiesForSessions'],
+        ],
     })),
     selectors(() => ({
         sessionPerson: [
@@ -102,5 +107,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return recordingPropertiesById[props.sessionRecordingId] ?? sessionPlayerData.person?.properties
             },
         ],
+    })),
+    listeners(({ actions, props }) => ({
+        loadRecordingMetaSuccess: () => {
+            actions.maybeLoadPropertiesForSessions([props.sessionRecordingId])
+        },
     })),
 ])
