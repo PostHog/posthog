@@ -459,7 +459,7 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
-export enum ExperimentStatus {
+export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
@@ -1984,6 +1984,54 @@ export interface SetInsightOptions {
     overrideFilter?: boolean
     /** calling with this updates the "last saved" filters */
     fromPersistentApi?: boolean
+}
+
+export interface Survey {
+    /** UUID */
+    id: string
+    name: string
+    description: string
+    type: SurveyType
+    linked_flag: FeatureFlagBasicType | null
+    targeting_flag: FeatureFlagBasicType | null
+    conditions: { url: string; selector: string } | null
+    appearance: SurveyAppearance
+    questions: SurveyQuestion[]
+    created_at: string
+    created_by: UserBasicType | null
+    start_date: string
+    end_date: string | null
+    archived: boolean
+}
+
+export enum SurveyType {
+    Popover = 'popover',
+    Button = 'button',
+    FullScreen = 'full_screen',
+    Email = 'email',
+}
+
+export interface SurveyAppearance {
+    background_color?: string
+    button_color?: string
+    text_color?: string
+}
+
+export interface SurveyQuestion {
+    type: SurveyQuestionType
+    question: string
+    required: boolean
+    link: string | null
+    choices: string[] | null
+}
+
+export enum SurveyQuestionType {
+    Open = 'open',
+    MultipleChoiceSingle = 'multiple_single',
+    MultipleChoiceMulti = 'multiple_multi',
+    NPS = 'nps',
+    Rating = 'rating',
+    Link = 'link',
 }
 
 export interface FeatureFlagGroupType {
