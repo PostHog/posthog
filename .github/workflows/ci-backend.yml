@@ -39,6 +39,7 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
         # Set job outputs to values from filter step
         outputs:
@@ -268,7 +269,7 @@ jobs:
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
-              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               with:
                   add: '["ee", "posthog/clickhouse/test/__snapshots__", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/", "posthog/migrations"]'
                   message: 'Update query snapshots'
@@ -277,7 +278,7 @@ jobs:
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
-              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               run: |
                   if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
@@ -305,7 +306,7 @@ jobs:
         needs: changes
         timeout-minutes: 30
         # This workflow may be skipped as a whole (as opposed to the other ones), as it's optional on forks anyway
-        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true'
+        if: github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true'
 
         name: Django tests – Cloud
         runs-on: ubuntu-latest

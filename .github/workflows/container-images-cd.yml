@@ -19,7 +19,7 @@ concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
 jobs:
     posthog_build:
         name: Build and push PostHog
-        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-latest
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -62,7 +62,7 @@ jobs:
 
     posthog_cloud_build:
         name: Build and push PostHog Cloud
-        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-latest
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
