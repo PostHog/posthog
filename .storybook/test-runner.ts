@@ -7,11 +7,6 @@ import { StoryContext } from '@storybook/react'
 
 type SupportedBrowserName = 'chromium' | 'firefox' | 'webkit'
 
-const DEFAULT_PAGE_DIMENSIONS = {
-    width: 1280,
-    height: 720,
-}
-
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/react' {
     interface Parameters {
@@ -84,7 +79,7 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    await page.setViewportSize(DEFAULT_PAGE_DIMENSIONS)
+    // await page.setViewportSize(DEFAULT_PAGE_DIMENSIONS)
     const {
         waitForLoadersToDisappear = storyContext.parameters?.layout === 'fullscreen',
         excludeNavigationFromSnapshot = false,
