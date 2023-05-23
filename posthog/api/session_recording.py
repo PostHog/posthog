@@ -113,7 +113,7 @@ class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
     source = serializers.CharField()
     start_timestamp = serializers.DateTimeField(allow_null=True)
     end_timestamp = serializers.DateTimeField(allow_null=True)
-    key = serializers.CharField(allow_null=True)
+    blob_key = serializers.CharField(allow_null=True)
 
 
 class SessionRecordingSnapshotsSerializer(serializers.Serializer):
@@ -199,7 +199,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                             "source": "blob",
                             "start_timestamp": time_range[0],
                             "end_timestamp": time_range.pop(),
-                            "key": blob_key,
+                            "blob_key": blob_key,
                         }
                     )
 
@@ -250,26 +250,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         serializer = SessionRecordingSnapshotsSerializer(response_data)
 
         return Response(serializer.data)
-
-    @action(methods=["GET"], detail=True)
-    def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:
-        self.get_object()  # 404 check
-        blob_key = request.GET.get("blob_key")
-
-        if not blob_key:
-            raise exceptions.ValidationError("Must provide a snapshot file blob key")
-
-        # very short-lived pre-signed URL
-        file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{self.kwargs['pk']}/data/{blob_key}"
-        url = object_storage.get_presigned_url(file_key, expiration=60)
-        if not url:
-            raise exceptions.NotFound("Snapshot file not found")
-
-        with requests.get(url=url, stream=True) as r:
-            r.raise_for_status()
-            response = HttpResponse(content=r.raw, content_type="application/json")
-            response["Content-Disposition"] = "inline"
-            return response
 
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):

@@ -1046,11 +1046,11 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },
 
-        async getBlobSnapshots(recordingId: SessionRecordingType['id'], key: string): Promise<string[]> {
+        async getBlobSnapshots(recordingId: SessionRecordingType['id'], blobKey: string): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
-                .withQueryString(toParams({ source: 'blob', key }))
+                .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
                 .getResponse()
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')

@@ -612,7 +612,8 @@ export interface SessionRecordingSnapshotSource {
     source: 'blob' | 'realtime'
     start_timestamp?: string
     end_timestamp?: string
-    key?: string
+    blob_key?: string
+    loaded: boolean
 }
 
 export interface SessionRecordingSnapshotResponse {

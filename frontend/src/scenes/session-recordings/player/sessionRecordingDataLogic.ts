@@ -15,6 +15,7 @@ import {
     SessionPlayerSnapshotData,
     SessionRecordingId,
     SessionRecordingSnapshotResponse,
+    SessionRecordingSnapshotSource,
     SessionRecordingType,
     SessionRecordingUsageType,
 } from '~/types'
@@ -178,7 +179,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingMeta: true,
         addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
-        loadRecordingSnapshotsV2: (source?: string, key?: string) => ({ source, key }),
+        loadRecordingSnapshotsV2: (source?: SessionRecordingSnapshotSource) => ({ source }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
@@ -207,7 +208,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadedFromBlobStorage: [
             false as boolean,
             {
-                loadRecordingBlobSnapshotsSuccess: () => true,
+                loadRecordingSnapshotsV2Success: () => true,
             },
         ],
         isNotFound: [
@@ -219,7 +220,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions, cache, props }) => ({
+    listeners(({ values, actions, cache }) => ({
         loadRecording: ({ full }) => {
             // If we don't have metadata then we load that first, which will trigger this again
             if (!values.sessionPlayerMetaData) {
@@ -232,7 +233,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
 
             if (!values.sessionPlayerSnapshotData?.snapshots) {
-                actions.loadRecordingSnapshots()
+                if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY]) {
+                    actions.loadRecordingSnapshotsV2()
+                } else {
+                    actions.loadRecordingSnapshots()
+                }
             }
             actions.loadEvents()
             actions.loadPerformanceEvents()
@@ -242,18 +247,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.loadRecording(true)
             }
         },
-        loadRecordingBlobSnapshotsSuccess: () => {
-            if (values.sessionPlayerSnapshotData?.blob_keys?.length) {
-                actions.loadRecordingBlobSnapshots(null)
+        loadRecordingSnapshotsV2Success: () => {
+            const nextSourceToLoad = values.sessionPlayerSnapshotData?.sources?.find((s) => !s.loaded)
+
+            if (nextSourceToLoad) {
+                actions.loadRecordingSnapshotsV2(nextSourceToLoad)
             } else {
-                actions.loadRecordingSnapshotsSuccess(values.sessionPlayerSnapshotData)
+                actions.reportUsageIfFullyLoaded()
             }
         },
         loadRecordingSnapshotsSuccess: () => {
-            if (values.sessionPlayerSnapshotData?.blob_keys?.length) {
-                actions.loadRecordingBlobSnapshots(null)
-                return
-            } else if (!!values.sessionPlayerSnapshotData?.next) {
+            if (!!values.sessionPlayerSnapshotData?.next) {
                 actions.loadRecordingSnapshots(values.sessionPlayerSnapshotData?.next)
             } else {
                 actions.reportUsageIfFullyLoaded()
@@ -270,88 +274,88 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.reportViewed()
             }
 
-            if (!values.sessionPlayerSnapshotData?.next) {
-                // this is a short term mechanism to compare blob and api loaded snapshot data
-                ;(window as any).PH_SESSION_REPLAY = {
-                    compare: async () => {
-                        console.group('comparing session for: ', props.sessionRecordingId)
-                        if (!values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY]) {
-                            console.error(
-                                'FOR SIMPLICITY THIS MECHANISM ASSUMES YOU HAVE THE BLOB STORAGE FLAG ENABLED'
-                            )
-                            return false
-                        }
-                        if (!values.sessionPlayerSnapshotData?.snapshots.length || !values.loadedFromBlobStorage) {
-                            console.log('There are no current values **from blob storage**')
-                            return false
-                        }
-                        const fakePoint = (): Promise<void> => Promise.resolve()
-                        let comparisonData = await makeSnapshotsAPICall({
-                            breakpoint: fakePoint,
-                            nextUrl: undefined,
-                            recordingStartTime: props.recordingStartTime,
-                            blobLoadingEnabled: false,
-                            currentSnapshotData: null,
-                            currentTeamId: values.currentTeamId,
-                            sessionRecordingId: props.sessionRecordingId,
-                        })
+            // if (!values.sessionPlayerSnapshotData?.next) {
+            //     // this is a short term mechanism to compare blob and api loaded snapshot data
+            //     ;(window as any).PH_SESSION_REPLAY = {
+            //         compare: async () => {
+            //             console.group('comparing session for: ', props.sessionRecordingId)
+            //             if (!values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY]) {
+            //                 console.error(
+            //                     'FOR SIMPLICITY THIS MECHANISM ASSUMES YOU HAVE THE BLOB STORAGE FLAG ENABLED'
+            //                 )
+            //                 return false
+            //             }
+            //             if (!values.sessionPlayerSnapshotData?.snapshots.length || !values.loadedFromBlobStorage) {
+            //                 console.log('There are no current values **from blob storage**')
+            //                 return false
+            //             }
+            //             const fakePoint = (): Promise<void> => Promise.resolve()
+            //             let comparisonData = await makeSnapshotsAPICall({
+            //                 breakpoint: fakePoint,
+            //                 nextUrl: undefined,
+            //                 recordingStartTime: props.recordingStartTime,
+            //                 blobLoadingEnabled: false,
+            //                 currentSnapshotData: null,
+            //                 currentTeamId: values.currentTeamId,
+            //                 sessionRecordingId: props.sessionRecordingId,
+            //             })
 
-                        while (comparisonData.next) {
-                            comparisonData = await makeSnapshotsAPICall({
-                                breakpoint: fakePoint,
-                                nextUrl: comparisonData.next,
-                                recordingStartTime: props.recordingStartTime,
-                                blobLoadingEnabled: false,
-                                currentSnapshotData: comparisonData,
-                                currentTeamId: values.currentTeamId,
-                                sessionRecordingId: props.sessionRecordingId,
-                            })
-                        }
-                        console.log('finished loading comparison data')
-                        console.log('now we have: ', {
-                            fromBlobStorage: values.sessionPlayerSnapshotData?.snapshots,
-                            fromAPI: comparisonData?.snapshots,
-                        })
+            //             while (comparisonData.next) {
+            //                 comparisonData = await makeSnapshotsAPICall({
+            //                     breakpoint: fakePoint,
+            //                     nextUrl: comparisonData.next,
+            //                     recordingStartTime: props.recordingStartTime,
+            //                     blobLoadingEnabled: false,
+            //                     currentSnapshotData: comparisonData,
+            //                     currentTeamId: values.currentTeamId,
+            //                     sessionRecordingId: props.sessionRecordingId,
+            //                 })
+            //             }
+            //             console.log('finished loading comparison data')
+            //             console.log('now we have: ', {
+            //                 fromBlobStorage: values.sessionPlayerSnapshotData?.snapshots,
+            //                 fromAPI: comparisonData?.snapshots,
+            //             })
 
-                        console.log(
-                            'blob storage returned ',
-                            values.sessionPlayerSnapshotData?.snapshots?.length,
-                            ' snapshots'
-                        )
-                        console.log('api returned ', comparisonData?.snapshots?.length, ' snapshots')
+            //             console.log(
+            //                 'blob storage returned ',
+            //                 values.sessionPlayerSnapshotData?.snapshots?.length,
+            //                 ' snapshots'
+            //             )
+            //             console.log('api returned ', comparisonData?.snapshots?.length, ' snapshots')
 
-                        const timestampsMatch = values.sessionPlayerSnapshotData?.snapshots?.every(
-                            (snapshot, index) => {
-                                const comparisonSnapshot = comparisonData?.snapshots?.[index]
-                                if (!comparisonSnapshot) {
-                                    return false
-                                }
-                                return snapshot.timestamp === comparisonSnapshot.timestamp
-                            }
-                        )
+            //             const timestampsMatch = values.sessionPlayerSnapshotData?.snapshots?.every(
+            //                 (snapshot, index) => {
+            //                     const comparisonSnapshot = comparisonData?.snapshots?.[index]
+            //                     if (!comparisonSnapshot) {
+            //                         return false
+            //                     }
+            //                     return snapshot.timestamp === comparisonSnapshot.timestamp
+            //                 }
+            //             )
 
-                        if (values.sessionPlayerSnapshotData?.snapshots?.length === comparisonData?.snapshots?.length) {
-                            if (timestampsMatch) {
-                                console.log('🎉 storage and api have the same timestamps ✅')
-                            } else {
-                                console.error(
-                                    '🧨 storage and api snapshots are the same length but have different timestamps'
-                                )
-                            }
-                        } else {
-                            if (timestampsMatch) {
-                                console.error(
-                                    '⚠️ storage and api have the same timestamps but different lengths. If this is a recent recording then the ingester probably has not flushed the whole thing yet'
-                                )
-                            } else {
-                                console.error('🧨 storage and api have different lengths and different timestamps')
-                            }
-                        }
+            //             if (values.sessionPlayerSnapshotData?.snapshots?.length === comparisonData?.snapshots?.length) {
+            //                 if (timestampsMatch) {
+            //                     console.log('🎉 storage and api have the same timestamps ✅')
+            //                 } else {
+            //                     console.error(
+            //                         '🧨 storage and api snapshots are the same length but have different timestamps'
+            //                     )
+            //                 }
+            //             } else {
+            //                 if (timestampsMatch) {
+            //                     console.error(
+            //                         '⚠️ storage and api have the same timestamps but different lengths. If this is a recent recording then the ingester probably has not flushed the whole thing yet'
+            //                     )
+            //                 } else {
+            //                     console.error('🧨 storage and api have different lengths and different timestamps')
+            //                 }
+            //             }
 
-                        console.groupEnd()
-                    },
-                }
-            }
+            //             console.groupEnd()
+            //         },
+            //     }
+            // }
         },
         loadEventsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
@@ -421,7 +425,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (response.snapshot_data_by_window_id) {
                     const snapshots = convertSnapshotsResponse(response.snapshot_data_by_window_id)
                     // When loaded from S3 the snapshots are already present
-                    actions.loadRecordingSnapshotsSuccess({
+                    actions.loadRecordingSnapshotsV2Success({
                         snapshots,
                     })
                 }
@@ -442,32 +446,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         sessionPlayerSnapshotData: [
             null as SessionPlayerSnapshotData | null,
             {
-                loadRecordingBlobSnapshots: async (_, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
-                    const snapshotDataClone = { ...values.sessionPlayerSnapshotData } as SessionPlayerSnapshotData
-
-                    if (!snapshotDataClone?.blob_keys?.length) {
-                        // only call this loader action when there are blob_keys to load
-                        return snapshotDataClone
-                    }
-
-                    await breakpoint(1)
-
-                    const blob_key = snapshotDataClone.blob_keys.shift()
-
-                    if (!blob_key) {
-                        throw new Error('Missing key')
-                    }
-                    const encodedResponse = await api.recordings.getBlobSnapshots(props.sessionRecordingId, blob_key)
-                    const snapshots = prepareRecordingSnapshots(
-                        parseEncodedSnapshots(encodedResponse),
-                        values.sessionPlayerSnapshotData?.snapshots ?? []
-                    )
-
-                    return {
-                        blob_keys: snapshotDataClone.blob_keys,
-                        snapshots: prepareRecordingSnapshots(snapshots, snapshotDataClone.snapshots),
-                    }
-                },
                 loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
                     cache.snapshotsStartTime = performance.now()
 
@@ -487,17 +465,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     })
                 },
 
-                loadRecordingSnapshotsV2: async (
-                    { source, key },
-                    breakpoint
-                ): Promise<SessionPlayerSnapshotData | null> => {
+                loadRecordingSnapshotsV2: async ({ source }, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
                     if (!props.sessionRecordingId) {
                         return values.sessionPlayerSnapshotData
                     }
 
                     cache.snapshotsStartTime = performance.now()
 
-                    const params = toParams({ source, key })
                     const data: SessionPlayerSnapshotData = {
                         snapshots: [],
                         ...(values.sessionPlayerSnapshotData || {}),
@@ -505,16 +479,24 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     await breakpoint(1)
 
-                    if (source === 'blob') {
-                        if (!key) {
+                    if (source?.source === 'blob') {
+                        if (!source.blob_key) {
                             throw new Error('Missing key')
                         }
-                        const encodedResponse = await api.recordings.getBlobSnapshots(props.sessionRecordingId, key)
+                        const encodedResponse = await api.recordings.getBlobSnapshots(
+                            props.sessionRecordingId,
+                            source.blob_key
+                        )
                         data.snapshots = prepareRecordingSnapshots(
                             parseEncodedSnapshots(encodedResponse),
                             values.sessionPlayerSnapshotData?.snapshots ?? []
                         )
                     } else {
+                        const params = toParams({
+                            source: source?.source,
+                            key: source?.blob_key,
+                            version: '2',
+                        })
                         const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
                         if (response.snapshots) {
                             data.snapshots = prepareRecordingSnapshots(
@@ -526,6 +508,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         if (response.sources) {
                             data.sources = response.sources
                         }
+                    }
+
+                    if (source) {
+                        source.loaded = true
                     }
 
                     return data
