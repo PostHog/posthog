@@ -94,6 +94,7 @@ interface RecordingViewedProps {
     end_time?: number // End timestamp of the session
     page_change_events_length: number
     recording_width?: number
+    loadedFromBlobStorage: boolean
 
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
@@ -362,8 +363,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             playerData: SessionPlayerData,
             durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
-            delay?: number
-        ) => ({ playerData, durations, type, delay }),
+            delay?: number,
+            loadedFromBlobStorage?: boolean
+        ) => ({ playerData, durations, type, delay, loadedFromBlobStorage }),
         reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
@@ -379,7 +381,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         ) => ({ correlationType, action, props }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
-        reportRecordingsListFetched: (loadTime: number) => ({ loadTime }),
+        reportRecordingsListFetched: (loadTime: number, listingVersion: '1' | '2' | '3') => ({
+            loadTime,
+            listingVersion,
+        }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
         reportRecordingPlayerSeekbarEventHovered: true,
@@ -553,7 +558,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 /* Report one event per annotation */
                 const properties = {
                     total_items_count: annotations.length,
-                    content_length: annotation.content.length,
+                    content_length: annotation.content?.length || 0,
                     scope: annotation.scope,
                     deleted: annotation.deleted,
                     created_by_me: annotation.created_by && annotation.created_by?.uuid === userLogic.values.user?.uuid,
@@ -929,7 +934,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ playerData, durations, type }) => {
+        reportRecording: ({ playerData, durations, type, loadedFromBlobStorage }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
@@ -944,6 +949,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
                 load_time: durations.firstPaint?.duration ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
+                loadedFromBlobStorage,
             }
             posthog.capture(`recording ${type}`, payload)
         },
@@ -981,8 +987,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
-        reportRecordingsListFetched: ({ loadTime }) => {
-            posthog.capture('recording list fetched', { load_time: loadTime })
+        reportRecordingsListFetched: ({ loadTime, listingVersion }) => {
+            posthog.capture('recording list fetched', { load_time: loadTime, listing_version: listingVersion })
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
             posthog.capture('recording list properties fetched', { load_time: loadTime })

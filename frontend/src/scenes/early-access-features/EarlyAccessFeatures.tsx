@@ -1,10 +1,9 @@
-import { LemonButton, LemonDivider, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { EarlyAccsesFeatureType } from '~/types'
+import { EarlyAccessFeatureType } from '~/types'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
 export const scene: SceneExport = {
@@ -12,7 +11,7 @@ export const scene: SceneExport = {
     logic: earlyAccessFeaturesLogic,
 }
 
-const STAGES_IN_ORDER: Record<EarlyAccsesFeatureType['stage'], number> = {
+const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
     concept: 0,
     alpha: 1,
     beta: 2,
@@ -25,11 +24,31 @@ export function EarlyAccessFeatures(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Early Access Management"
-                caption="Release features in a controlled way. Track adoption in stages."
+                title={
+                    <div className="flex items-center gap-2">
+                        Early Access Management
+                        <LemonTag type="warning" className="uppercase">
+                            Beta
+                        </LemonTag>
+                    </div>
+                }
+                caption={
+                    <>
+                        Allow your users to enable or disable features that are in public beta. Check out our{' '}
+                        <Link
+                            data-attr="early-access-management-help"
+                            to="https://posthog.com/docs/feature-flags/early-access-feature-management?utm_medium=in-product&utm_campaign=learn-more"
+                            target="_blank"
+                        >
+                            {' '}
+                            documentation
+                        </Link>{' '}
+                        to learn more.
+                    </>
+                }
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
-                        New release
+                        New public beta
                     </LemonButton>
                 }
                 delimited
@@ -74,38 +93,6 @@ export function EarlyAccessFeatures(): JSX.Element {
                             )
                         },
                         sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
-                    },
-                    {
-                        width: 0,
-                        render(_, feature) {
-                            return (
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                status="stealth"
-                                                to={urls.earlyAccessFeature(feature.id)}
-                                                fullWidth
-                                            >
-                                                View
-                                            </LemonButton>
-                                            <LemonDivider />
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() => {
-                                                    // TODO: Allow archival
-                                                }}
-                                                fullWidth
-                                            >
-                                                {/* Using "Archive" as "Deleting" a feature is very close to implying
-                                    that it'll be deleted from code */}
-                                                Archive feature
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                            )
-                        },
                     },
                 ]}
                 dataSource={earlyAccessFeatures}

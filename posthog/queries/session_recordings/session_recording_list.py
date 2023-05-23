@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import timedelta
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
@@ -14,7 +15,8 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
 
 
-class EventFiltersSQL(NamedTuple):
+@dataclasses.dataclass(frozen=True)
+class EventFiltersSQL:
     non_aggregate_select_condition_clause: str
     aggregate_event_select_clause: str
     aggregate_select_clause: str
@@ -287,7 +289,7 @@ class SessionRecordingList(EventQuery):
                 action = entity.get_action()
                 event_names_to_filter.extend([ae for ae in action.get_step_events() if ae not in event_names_to_filter])
             else:
-                if entity.id not in event_names_to_filter:
+                if entity.id not in event_names_to_filter and entity.id is not None:
                     event_names_to_filter.append(entity.id)
 
             condition_sql, filter_params = self.format_event_filter(
@@ -301,6 +303,10 @@ class SessionRecordingList(EventQuery):
             params = {**params, **filter_params}
 
         params = {**params, "event_names": list(event_names_to_filter)}
+
+        if len(event_names_to_filter) == 0:
+            # using "All events"
+            where_conditions = ""
 
         return EventFiltersSQL(
             non_aggregate_select_condition_clause,
@@ -537,7 +543,7 @@ class SessionRecordingListV2(SessionRecordingList):
                 action = entity.get_action()
                 event_names_to_filter.extend([ae for ae in action.get_step_events() if ae not in event_names_to_filter])
             else:
-                if entity.id not in event_names_to_filter:
+                if entity.id not in event_names_to_filter and entity.id is not None:
                     event_names_to_filter.append(entity.id)
 
             condition_sql, filter_params = self.format_event_filter(
@@ -560,6 +566,10 @@ class SessionRecordingListV2(SessionRecordingList):
             params = {**params, **filter_params}
 
         params = {**params, "event_names": list(event_names_to_filter)}
+
+        if len(event_names_to_filter) == 0:
+            # using "All events"
+            where_conditions = ""
 
         return EventFiltersSQL(
             non_aggregate_select_condition_clause,

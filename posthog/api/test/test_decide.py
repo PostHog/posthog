@@ -1,6 +1,8 @@
 import base64
 import json
 from unittest.mock import patch
+import time
+
 
 from django.core.cache import cache
 from django.db import connection
@@ -12,6 +14,7 @@ from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.plugin import sync_team_inject_web_apps
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
@@ -1378,13 +1381,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(5):
             response = self._post_decide(api_version=3, distinct_id="example_id_1")
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
-        with self.assertNumQueries(6):
-            # get cohort, get team, get person filter
+        with self.assertNumQueries(5):
+            # get cohort, get person filter
             response = self._post_decide(api_version=3, distinct_id="another_id")
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
@@ -1414,12 +1417,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(5):
             response = self._post_decide(api_version=3, distinct_id="example_id_1")
             self.assertEqual(response.json()["featureFlags"], {})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(5):
             response = self._post_decide(api_version=3, distinct_id="another_id")
             self.assertEqual(response.json()["featureFlags"], {})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
@@ -1447,10 +1450,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user
         )
         response = self._post_decide({"distinct_id": "example_id", "api_key": None, "project_id": self.team.id})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_json = response.json()
-        self.assertEqual(response_json["featureFlags"], [])
-        self.assertFalse(response_json["sessionRecording"])
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_invalid_payload_on_decide_endpoint(self):
 
@@ -1641,3 +1641,163 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=2, distinct_id={"x": "z"})
             self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
             # need to pass in exact string to get the property flag
+
+    def test_rate_limits(self):
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.1, DECIDE_BUCKET_CAPACITY=3):
+            self.client.logout()
+            Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+            FeatureFlag.objects.create(
+                team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+            )
+            FeatureFlag.objects.create(
+                team=self.team,
+                filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+                name="This is a feature flag with default params, no filters.",
+                key="default-flag",
+                created_by=self.user,
+            )  # Should be enabled for everyone
+
+            for i in range(3):
+                response = self._post_decide(api_version=i + 1)
+                self.assertEqual(response.status_code, 200)
+
+            response = self._post_decide(api_version=2)
+            self.assertEqual(response.status_code, 429)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "rate_limit_exceeded",
+                    "detail": "Rate limit exceeded ",
+                    "attr": None,
+                },
+            )
+
+    def test_rate_limits_replenish_over_time(self):
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=1, DECIDE_BUCKET_CAPACITY=1):
+            self.client.logout()
+            Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+            FeatureFlag.objects.create(
+                team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+            )
+            FeatureFlag.objects.create(
+                team=self.team,
+                filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+                name="This is a feature flag with default params, no filters.",
+                key="default-flag",
+                created_by=self.user,
+            )  # Should be enabled for everyone
+
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 429)
+
+            # wait for bucket to replenish
+            time.sleep(1)
+
+            response = self._post_decide(api_version=2)
+            self.assertEqual(response.status_code, 200)
+
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 429)
+
+    def test_rate_limits_work_with_invalid_tokens(self):
+        self.client.logout()
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.01, DECIDE_BUCKET_CAPACITY=3):
+            for _ in range(3):
+                response = self._post_decide(api_version=3, data={"token": "aloha?", "distinct_id": "123"})
+                self.assertEqual(response.status_code, 401)
+
+            response = self._post_decide(api_version=3, data={"token": "aloha?", "distinct_id": "123"})
+            self.assertEqual(response.status_code, 429)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "rate_limit_exceeded",
+                    "detail": "Rate limit exceeded ",
+                    "attr": None,
+                },
+            )
+
+    def test_rate_limits_work_with_missing_tokens(self):
+        self.client.logout()
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.1, DECIDE_BUCKET_CAPACITY=3):
+            for _ in range(3):
+                response = self._post_decide(api_version=3, data={"distinct_id": "123"})
+                self.assertEqual(response.status_code, 401)
+
+            response = self._post_decide(api_version=3, data={"distinct_id": "123"})
+            self.assertEqual(response.status_code, 429)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "rate_limit_exceeded",
+                    "detail": "Rate limit exceeded ",
+                    "attr": None,
+                },
+            )
+
+    def test_rate_limits_work_with_malformed_request(self):
+        self.client.logout()
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.1, DECIDE_BUCKET_CAPACITY=4):
+
+            def invalid_request():
+                return self.client.post("/decide/", {"data": "1==1"}, HTTP_ORIGIN="http://127.0.0.1:8000")
+
+            for _ in range(4):
+                response = invalid_request()
+                self.assertEqual(response.status_code, 400)
+
+            response = invalid_request()
+            self.assertEqual(response.status_code, 429)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "rate_limit_exceeded",
+                    "detail": "Rate limit exceeded ",
+                    "attr": None,
+                },
+            )
+
+    def test_rate_limits_dont_apply_when_disabled(self):
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="n"):
+            self.client.logout()
+
+            for _ in range(3):
+                response = self._post_decide(api_version=3)
+                self.assertEqual(response.status_code, 200)
+
+            response = self._post_decide(api_version=2)
+            self.assertEqual(response.status_code, 200)
+
+    def test_rate_limits_dont_mix_teams(self):
+        new_token = "bazinga"
+        Team.objects.create(
+            organization=self.organization,
+            api_token=new_token,
+            test_account_filters=[
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+            ],
+        )
+        self.client.logout()
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.1, DECIDE_BUCKET_CAPACITY=3):
+
+            for _ in range(3):
+                response = self._post_decide(api_version=3)
+                self.assertEqual(response.status_code, 200)
+
+            response = self._post_decide(api_version=2)
+            self.assertEqual(response.status_code, 429)
+
+            # other team is fine
+            for _ in range(3):
+                response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "123"})
+                self.assertEqual(response.status_code, 200)
+
+            response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
+            self.assertEqual(response.status_code, 429)

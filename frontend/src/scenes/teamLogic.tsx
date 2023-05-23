@@ -92,10 +92,9 @@ export const teamLogic = kea<teamLogicType>([
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
                     }
 
-                    if (updatedAttribute) {
-                        const updatedValue = Object.values(payload).length === 1 ? Object.values(payload)[0] : null
-                        eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(updatedAttribute, updatedValue)
-                    }
+                    Object.keys(payload).map((property) => {
+                        eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
+                    })
 
                     lemonToast.dismiss('updateCurrentTeam')
                     lemonToast.success(message, {

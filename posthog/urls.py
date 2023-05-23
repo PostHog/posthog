@@ -3,14 +3,13 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib import admin
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseServerError
 from django.urls import URLPattern, include, path, re_path
-from django.views.decorators import csrf
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from two_factor.urls import urlpatterns as tf_urls
-
+from django.template import loader
 from posthog.api import (
     api_not_found,
     authentication,
@@ -28,6 +27,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from sentry_sdk import last_event_id
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.prompt import prompt_webhook
 from posthog.api.early_access_feature import early_access_features
@@ -71,7 +71,19 @@ admin_urlpatterns = (
 )
 
 
-@csrf.ensure_csrf_cookie
+@requires_csrf_token
+def handler500(request):
+    """
+    500 error handler.
+
+    Templates: :template:`500.html`
+    Context: None
+    """
+    template = loader.get_template("500.html")
+    return HttpResponseServerError(template.render({"sentry_event_id": last_event_id()}))
+
+
+@ensure_csrf_cookie
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
 

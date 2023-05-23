@@ -1,10 +1,19 @@
+import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { status } from '../../../utils/status'
 import { IngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
 
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
+
 export async function eachBatch(
+    /**
+     * Using the provided groupIntoBatches function, split the incoming batch into micro-batches
+     * that are executed **sequentially**, committing offsets after each of them.
+     * Events within a single micro-batch are processed in parallel.
+     */
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
     queue: IngestionConsumer,
     eachMessage: (message: KafkaMessage, queue: IngestionConsumer) => Promise<void>,
@@ -13,6 +22,8 @@ export async function eachBatch(
 ): Promise<void> {
     const batchStartTimer = new Date()
     const loggingKey = `each_batch_${key}`
+
+    const transaction = Sentry.startTransaction({ name: `eachBatch(${eachMessage.name})` }, { topic: queue.topic })
 
     try {
         const messageBatches = groupIntoBatches(
@@ -23,6 +34,8 @@ export async function eachBatch(
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', messageBatches.length, { key: key })
 
         for (const messageBatch of messageBatches) {
+            const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: messageBatch.length } })
+
             if (!isRunning() || isStale()) {
                 status.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
                     isRunning: isRunning(),
@@ -49,6 +62,8 @@ export async function eachBatch(
                 .set(Number.parseInt(lastBatchMessage.timestamp))
 
             await heartbeat()
+
+            batchSpan.finish()
         }
 
         status.debug(
@@ -59,5 +74,6 @@ export async function eachBatch(
         )
     } finally {
         queue.pluginsServer.statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
+        transaction.finish()
     }
 }

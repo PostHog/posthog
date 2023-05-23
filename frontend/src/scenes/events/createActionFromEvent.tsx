@@ -61,7 +61,7 @@ export async function createActionFromEvent(
                           url_matching: ActionStepUrlMatching.Exact,
                       }
                     : {}),
-                ...(event.elements.length > 0 ? elementsToAction(event.elements) : {}),
+                ...(event.elements?.length > 0 ? elementsToAction(event.elements) : {}),
             },
         ],
     }

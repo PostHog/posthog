@@ -6,7 +6,7 @@ import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
-import { PopoverVisibilityContext } from '../Popover'
+import { PopoverReferenceContext } from '../Popover'
 
 export type LemonButtonDropdown = Omit<LemonDropdownProps, 'children'>
 
@@ -102,7 +102,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             },
             ref
         ): JSX.Element => {
-            const [popoverVisibility, popoverPlacement] = useContext(PopoverVisibilityContext) || [false, null]
+            const [popoverVisibility, popoverPlacement] = useContext(PopoverReferenceContext) || [false, null]
 
             if (!active && popoverVisibility) {
                 active = true
@@ -172,7 +172,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     {...buttonProps}
                 >
                     {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-                    {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
+                    {children ? <span className="LemonButton__content">{children}</span> : null}
                     {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
                 </ButtonComponent>
             )

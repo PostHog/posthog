@@ -18,12 +18,14 @@ import { DependencyUnavailableError } from './error'
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     public producer: HighLevelProducer
+    private readonly waitForAck: boolean
 
-    constructor(producer: HighLevelProducer) {
+    constructor(producer: HighLevelProducer, waitForAck: boolean) {
         this.producer = producer
+        this.waitForAck = waitForAck
     }
 
-    async queueMessage(kafkaMessage: ProducerRecord) {
+    async queueMessage(kafkaMessage: ProducerRecord, waitForAck?: boolean) {
         try {
             return await Promise.all(
                 kafkaMessage.messages.map((message) =>
@@ -42,6 +44,7 @@ export class KafkaProducerWrapper {
                         // objects with a single key-value pair, and the
                         // undefined values need to be filtered out.
                         headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
+                        waitForAck: waitForAck === undefined ? this.waitForAck : waitForAck,
                     })
                 )
             )
@@ -58,15 +61,23 @@ export class KafkaProducerWrapper {
         }
     }
 
-    async queueMessages(kafkaMessages: ProducerRecord[]): Promise<void> {
-        await Promise.all(kafkaMessages.map((message) => this.queueMessage(message)))
+    async queueMessages(kafkaMessages: ProducerRecord[], waitForAck?: boolean): Promise<void> {
+        await Promise.all(kafkaMessages.map((message) => this.queueMessage(message, waitForAck)))
     }
 
-    async queueSingleJsonMessage(topic: string, key: Message['key'], object: Record<string, any>): Promise<void> {
-        await this.queueMessage({
-            topic,
-            messages: [{ key, value: JSON.stringify(object) }],
-        })
+    async queueSingleJsonMessage(
+        topic: string,
+        key: Message['key'],
+        object: Record<string, any>,
+        waitForAck?: boolean
+    ): Promise<void> {
+        await this.queueMessage(
+            {
+                topic,
+                messages: [{ key, value: JSON.stringify(object) }],
+            },
+            waitForAck
+        )
     }
 
     public async flush() {

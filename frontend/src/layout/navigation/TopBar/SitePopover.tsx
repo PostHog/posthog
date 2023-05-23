@@ -14,6 +14,7 @@ import {
     IconSettings,
     IconCorporate,
     IconPlus,
+    IconPreview,
 } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { Link } from 'lib/lemon-ui/Link'
@@ -33,6 +34,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -244,6 +247,7 @@ export function SitePopoverOverlay(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { closeSitePopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -264,6 +268,18 @@ export function SitePopoverOverlay(): JSX.Element {
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />
+                {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON] && (
+                    <div
+                        className="LemonButton LemonButton--tertiary LemonButton--status-primary LemonButton--full-width LemonButton__content flex items-center  LemonButton--has-icon"
+                        data-attr="early-access-feature-button"
+                        onClick={closeSitePopover}
+                    >
+                        <span className="LemonButton__icon">
+                            <IconPreview />
+                        </span>
+                        Enable beta features
+                    </div>
+                )}
             </SitePopoverSection>
             {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                 <SitePopoverSection title="Other organizations">

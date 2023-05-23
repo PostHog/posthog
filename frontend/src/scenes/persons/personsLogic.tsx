@@ -23,7 +23,13 @@ import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-export interface PersonLogicProps {
+export interface PersonPaginatedResponse {
+    next: string | null
+    previous: string | null
+    results: PersonType[]
+}
+
+export interface PersonsLogicProps {
     cohort?: number | 'new'
     syncWithUrl?: boolean
     urlId?: string
@@ -31,7 +37,7 @@ export interface PersonLogicProps {
 }
 
 export const personsLogic = kea<personsLogicType>({
-    props: {} as PersonLogicProps,
+    props: {} as PersonsLogicProps,
     key: (props) => {
         if (props.fixedProperties) {
             return JSON.stringify(props.fixedProperties)
@@ -126,12 +132,12 @@ export const personsLogic = kea<personsLogicType>({
     selectors: () => ({
         apiDocsURL: [
             () => [(_, props) => props.cohort],
-            (cohort: PersonLogicProps['cohort']) =>
+            (cohort: PersonsLogicProps['cohort']) =>
                 !!cohort
                     ? 'https://posthog.com/docs/api/cohorts#get-api-projects-project_id-cohorts-id-persons'
                     : 'https://posthog.com/docs/api/persons',
         ],
-        cohortId: [() => [(_, props) => props.cohort], (cohort: PersonLogicProps['cohort']) => cohort],
+        cohortId: [() => [(_, props) => props.cohort], (cohort: PersonsLogicProps['cohort']) => cohort],
         currentTab: [
             (s) => [s.activeTab],
             (activeTab) => {

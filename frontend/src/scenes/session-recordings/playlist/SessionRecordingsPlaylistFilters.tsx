@@ -7,7 +7,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { eventUsageLogic, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
-import { AvailableFeature, RecordingDurationFilter, SessionRecordingsTabs } from '~/types'
+import { AvailableFeature, RecordingDurationFilter, ReplayTabs } from '~/types'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { useActions, useValues } from 'kea'
@@ -15,7 +15,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { SessionRecordingsPlaylistProps } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import clsx from 'clsx'
-import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 
@@ -24,7 +23,6 @@ export function SessionRecordingsPlaylistFilters({
     personUUID,
     filters: defaultFilters,
     updateSearchParams,
-    embedded = false,
 }: SessionRecordingsPlaylistProps): JSX.Element {
     const logicProps = {
         playlistShortId,
@@ -38,7 +36,7 @@ export function SessionRecordingsPlaylistFilters({
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: SessionRecordingsTabs.Recent })
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({ filters }, true)
@@ -76,22 +74,6 @@ export function SessionRecordingsPlaylistFilters({
             pageKey={!!personUUID ? `person-${personUUID}` : 'session-recordings'}
         />
     )
-
-    if (embedded) {
-        return (
-            <div className="flex flex-col gap-4 p-2">
-                <SessionRecordingsFilters filters={filters} setFilters={setFilters} showPropertyFilters={!personUUID} />
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Date</LemonLabel>
-                    {dateFilter}
-                </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Duration</LemonLabel>
-                    {durationFilter}
-                </div>
-            </div>
-        )
-    }
 
     return (
         <div className={clsx('flex flex-wrap items-end justify-between gap-4 mb-4')}>
@@ -145,6 +127,7 @@ export function SessionRecordingsPlaylistFilters({
                             node={NotebookNodeType.RecordingPlaylist}
                             properties={{ filters: {} }}
                             data-attr="add-playlist-to-notebook-button"
+                            size="small"
                         >
                             Add to notebook
                         </AddToNotebook>

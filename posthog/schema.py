@@ -289,14 +289,6 @@ class LifecycleToggle(str, Enum):
     dormant = "dormant"
 
 
-class MathGroupTypeIndex2(float, Enum):
-    number_0 = 0
-    number_1 = 1
-    number_2 = 2
-    number_3 = 3
-    number_4 = 4
-
-
 class PathCleaningFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -478,12 +470,11 @@ class BreakdownFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    aggregation_group_type_index: Optional[float] = None
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
+    breakdown_histogram_bin_count: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
 
 
@@ -531,6 +522,7 @@ class FunnelsFilter(BaseModel):
     entrance_period_start: Optional[str] = None
     exclusions: Optional[List[FunnelStepRangeEntityFilter]] = None
     funnel_advanced: Optional[bool] = None
+    funnel_aggregate_by_hogql: Optional[str] = None
     funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted1] = None
     funnel_correlation_person_entity: Optional[Dict[str, Any]] = None
     funnel_custom_steps: Optional[List[float]] = None
@@ -635,7 +627,7 @@ class EventsNode(BaseModel):
         extra = Extra.forbid
 
     custom_name: Optional[str] = None
-    event: Optional[str] = None
+    event: Optional[str] = Field(None, description="The event or `null` for all events.")
     fixedProperties: Optional[
         List[
             Union[
@@ -732,55 +724,6 @@ class EventsQuery(BaseModel):
     response: Optional[EventsQueryResponse] = Field(None, description="Cached query response")
     select: List[str] = Field(..., description="Return a limited set of data. Required.")
     where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
-
-
-class NewEntityNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    custom_name: Optional[str] = None
-    event: Optional[str] = None
-    fixedProperties: Optional[
-        List[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-            ]
-        ]
-    ] = Field(
-        None,
-        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
-    )
-    kind: str = Field("NewEntityNode", const=True)
-    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str]] = None
-    math_group_type_index: Optional[MathGroupTypeIndex2] = None
-    math_property: Optional[str] = None
-    name: Optional[str] = None
-    properties: Optional[
-        List[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-            ]
-        ]
-    ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
 
 
 class PersonsNode(BaseModel):
@@ -1018,9 +961,7 @@ class StickinessQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
     stickinessFilter: Optional[StickinessFilter] = Field(
         None, description="Properties specific to the stickiness insight"
     )
@@ -1060,9 +1001,7 @@ class TrendsQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
     trendsFilter: Optional[TrendsFilter] = Field(None, description="Properties specific to the trends insight")
 
 
@@ -1080,7 +1019,6 @@ class AnyPartialFilterTypeItem(BaseModel):
     breakdown_histogram_bin_count: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     compare: Optional[bool] = None
     date_from: Optional[str] = None
@@ -1137,7 +1075,6 @@ class AnyPartialFilterTypeItem1(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     compare: Optional[bool] = None
     date_from: Optional[str] = None
@@ -1196,7 +1133,6 @@ class AnyPartialFilterTypeItem2(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1214,6 +1150,7 @@ class AnyPartialFilterTypeItem2(BaseModel):
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     funnel_advanced: Optional[bool] = None
+    funnel_aggregate_by_hogql: Optional[str] = None
     funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted] = None
     funnel_correlation_person_entity: Optional[Dict[str, Any]] = None
     funnel_custom_steps: Optional[List[float]] = None
@@ -1263,7 +1200,6 @@ class AnyPartialFilterTypeItem3(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1329,7 +1265,6 @@ class AnyPartialFilterTypeItem4(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1384,7 +1319,6 @@ class AnyPartialFilterTypeItem5(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1436,7 +1370,6 @@ class AnyPartialFilterTypeItem6(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1510,9 +1443,7 @@ class FunnelsQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
 
 
 class LegacyQuery(BaseModel):
@@ -1565,9 +1496,7 @@ class LifecycleQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
 
 
 class PathsQuery(BaseModel):

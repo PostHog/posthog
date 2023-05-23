@@ -362,7 +362,7 @@ export enum ActionStepUrlMatching {
 }
 
 export interface ActionStepType {
-    event?: string
+    event?: string | null
     href?: string | null
     id?: number
     name?: string
@@ -447,7 +447,7 @@ export enum SavedInsightsTabs {
     History = 'history',
 }
 
-export enum SessionRecordingsTabs {
+export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
     FilePlayback = 'file-playback',
@@ -646,6 +646,7 @@ export enum SessionRecordingPlayerTab {
 }
 
 export enum SessionPlayerState {
+    READY = 'ready',
     BUFFER = 'buffer',
     PLAY = 'play',
     PAUSE = 'pause',
@@ -653,6 +654,8 @@ export enum SessionPlayerState {
     SKIP = 'skip',
     ERROR = 'error',
 }
+
+export type AutoplayDirection = 'newer' | 'older' | null
 
 /** Sync with plugin-server/src/types.ts */
 export type ActionStepProperties =
@@ -700,7 +703,6 @@ export interface Entity {
 export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
-    NEW_ENTITY = 'new_entity',
 }
 
 export type EntityFilter = {
@@ -1063,7 +1065,7 @@ export interface BillingV2TierType {
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
-    projected_amount_usd: number | null
+    projected_amount_usd: string | null
     up_to: number | null
 }
 
@@ -1445,8 +1447,8 @@ export enum AnnotationScope {
 export interface RawAnnotationType {
     id: number
     scope: AnnotationScope
-    content: string
-    date_marker: string
+    content: string | null
+    date_marker: string | null
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
@@ -1458,6 +1460,10 @@ export interface RawAnnotationType {
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+    date_marker: dayjs.Dayjs | null
+}
+
+export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
     date_marker: dayjs.Dayjs
 }
 
@@ -1555,7 +1561,6 @@ export interface FilterType {
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
 }
@@ -1584,11 +1589,11 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
-    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
@@ -1621,6 +1626,7 @@ export interface FunnelsFilterType extends FilterType {
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    funnel_aggregate_by_hogql?: string
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
@@ -1804,7 +1810,7 @@ export interface TrendResult {
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
-    filter?: FilterType
+    filter?: TrendsFilterType
 }
 
 interface Person {
@@ -1969,6 +1975,10 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    /** If showing a shared insight/dashboard, we need the access token for refreshing. */
+    sharingAccessToken?: string
+    /** Temporary hack to disable data exploration to enable result fetching. */
+    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {
@@ -1983,7 +1993,6 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
-    feature_preview?: string
 }
 
 export interface MultivariateFlagVariant {
@@ -2001,6 +2010,7 @@ export interface FeatureFlagFilters {
     multivariate: MultivariateFlagOptions | null
     aggregation_group_type_index?: number | null
     payloads: Record<string, JsonType>
+    super_groups?: FeatureFlagGroupType[]
 }
 
 export interface FeatureFlagBasicType {
@@ -2023,7 +2033,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: string[] | null
-    features: EarlyAccsesFeatureType[] | null
+    features: EarlyAccessFeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -2043,19 +2053,26 @@ export interface CombinedFeatureFlagAndValueType {
     value: boolean | string
 }
 
-export interface EarlyAccsesFeatureType {
+export enum EarlyAccessFeatureStage {
+    Concept = 'concept',
+    Alpha = 'alpha',
+    Beta = 'beta',
+    GeneralAvailability = 'general-availability',
+}
+
+export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
     feature_flag: FeatureFlagBasicType
     name: string
     description: string
-    stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
+    stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string
 }
 
-export interface NewEarlyAccessFeatureType extends Omit<EarlyAccsesFeatureType, 'id' | 'created_at' | 'feature_flag'> {
+export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
     feature_flag_id: number | undefined
 }
 
@@ -2276,10 +2293,17 @@ export interface Experiment {
     updated_at: string | null
 }
 
-export interface ExperimentVariant {
+export interface FunnelExperimentVariant {
     key: string
     success_count: number
     failure_count: number
+}
+
+export interface TrendExperimentVariant {
+    key: string
+    count: number
+    exposure: number
+    absolute_exposure: number
 }
 
 interface BaseExperimentResults {
@@ -2290,17 +2314,18 @@ interface BaseExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
-    variants: ExperimentVariant[]
 }
 
 export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
+    variants: TrendExperimentVariant[]
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
+    variants: FunnelExperimentVariant[]
 }
 
 export interface TrendsExperimentResults {
@@ -2686,7 +2711,13 @@ export type OnlineExportContext = {
     max_limit?: number
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext
+export type QueryExportContext = {
+    source: Record<string, any>
+    filename?: string
+    max_limit?: number
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
 
 export interface ExportedAssetType {
     id: number

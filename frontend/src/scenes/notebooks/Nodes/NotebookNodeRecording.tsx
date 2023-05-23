@@ -1,14 +1,20 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import {
+    SessionRecordingPlayer,
+    SessionRecordingPlayerProps,
+} from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { urls } from 'scenes/urls'
+import { createUrlRegex } from './utils'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const recordingLogicProps = {
-        embedded: true,
-        sessionRecordingId: props.node.attrs.sessionRecordingId,
-        playerKey: `notebook-${props.node.attrs.sessionRecordingId}`,
+    const id = props.node.attrs.id
+    const recordingLogicProps: SessionRecordingPlayerProps = {
+        sessionRecordingId: id,
+        playerKey: `notebook-${id}`,
+        autoPlay: false,
     }
 
     return (
@@ -16,18 +22,18 @@ const Component = (props: NodeViewProps): JSX.Element => {
             {...props}
             className={NotebookNodeType.Recording}
             title="Recording"
+            href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
             // TODO: Fix "meta" preview
             // preview={<PlayerMeta {...recordingLogicProps} />}
         >
-            {/* TODO: replace hardcoded height, 32 (top) + 500 (player) + 16 (margins) + 88 (seekbar) = 620 */}
-            <div style={{ maxHeight: 636 }}>
+            <div style={{ height: 500 }}>
                 <SessionRecordingPlayer {...recordingLogicProps} />
             </div>
         </NodeWrapper>
     )
 }
 
-export const RecordingNode = Node.create({
+export const NotebookNodeRecording = Node.create({
     name: NotebookNodeType.Recording,
     group: 'block',
     atom: true,
@@ -35,7 +41,7 @@ export const RecordingNode = Node.create({
 
     addAttributes() {
         return {
-            sessionRecordingId: {
+            id: {
                 default: null,
             },
         }
@@ -55,5 +61,17 @@ export const RecordingNode = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            nodePasteRule({
+                find: createUrlRegex(urls.replaySingle('') + '(.+)'),
+                type: this.type,
+                getAttributes: (match) => {
+                    return { id: match[1] }
+                },
+            }),
+        ]
     },
 })

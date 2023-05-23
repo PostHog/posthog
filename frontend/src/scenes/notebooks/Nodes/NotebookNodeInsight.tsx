@@ -1,18 +1,22 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { BindLogic, useValues } from 'kea'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ItemMode } from '~/types'
+import { InsightShortId, ItemMode } from '~/types'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { createUrlRegex } from './utils'
+import { urls } from 'scenes/urls'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const logic = insightLogic({ dashboardItemId: props.node.attrs.shortId })
+    const logic = insightLogic({ dashboardItemId: props.node.attrs.id })
     const { insightProps } = useValues(logic)
 
+    const href = `/insights/${props.node.attrs.id}`
+
     return (
-        <NodeWrapper className={NotebookNodeType.Insight} title="Insight" {...props}>
+        <NodeWrapper className={NotebookNodeType.Insight} title="Insight" href={href} {...props}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer
@@ -28,7 +32,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const InsightNode = Node.create({
+export const NotebookNodeInsight = Node.create({
     name: NotebookNodeType.Insight,
     group: 'block',
     atom: true,
@@ -36,7 +40,7 @@ export const InsightNode = Node.create({
 
     addAttributes() {
         return {
-            shortId: {},
+            id: '',
         }
     },
 
@@ -54,5 +58,17 @@ export const InsightNode = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            nodePasteRule({
+                find: createUrlRegex(urls.insightView('(.+)' as InsightShortId)),
+                type: this.type,
+                getAttributes: (match) => {
+                    return { id: match[1] }
+                },
+            }),
+        ]
     },
 })

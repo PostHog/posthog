@@ -318,10 +318,12 @@ describe('filtersToQueryNode', () => {
                     aggregation_axis_format: 'numeric',
                     aggregation_axis_prefix: '£',
                     aggregation_axis_postfix: '%',
-                    breakdown_histogram_bin_count: 1,
                     formula: 'A+B',
                     shown_as: ShownAsValue.VOLUME,
                     display: ChartDisplayType.ActionsAreaGraph,
+                },
+                breakdown: {
+                    breakdown_histogram_bin_count: 1,
                 },
             }
             expect(result).toEqual(query)

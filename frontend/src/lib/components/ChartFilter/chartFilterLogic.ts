@@ -9,8 +9,6 @@ import {
     keyForInsightLogicProps,
 } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { TrendsFilter, StickinessFilter } from '~/queries/schema'
-import { filterForQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export const chartFilterLogic = kea<chartFilterLogicType>({
@@ -18,8 +16,18 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
     key: keyForInsightLogicProps('new'),
     path: (key) => ['lib', 'components', 'ChartFilter', 'chartFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
-        actions: [insightLogic(props), ['setFilters'], insightVizDataLogic(props), ['updateInsightFilter']],
-        values: [insightLogic(props), ['filters'], insightVizDataLogic(props), ['querySource']],
+        actions: [
+            insightLogic(props),
+            ['setFilters'],
+            insightVizDataLogic(props),
+            ['updateInsightFilter', 'updateBreakdown'],
+        ],
+        values: [
+            insightLogic(props),
+            ['filters'],
+            insightVizDataLogic(props),
+            ['isTrends', 'isStickiness', 'display', 'series'],
+        ],
     }),
 
     actions: () => ({
@@ -44,12 +52,27 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
                 }
             }
 
-            if (isTrendsQuery(values.querySource) || isStickinessQuery(values.querySource)) {
-                const currentDisplay = (
-                    filterForQuery(values.querySource) as TrendsFilter | StickinessFilter | undefined
-                )?.display
-                if (currentDisplay !== chartFilter) {
-                    actions.updateInsightFilter({ display: chartFilter as ChartDisplayType })
+            const { isTrends, isStickiness, display, series } = values
+            const newDisplay = chartFilter as ChartDisplayType
+
+            if ((isTrends || isStickiness) && display !== newDisplay) {
+                actions.updateInsightFilter({ display: newDisplay })
+
+                // For the map, make sure we are breaking down by country
+                if (isTrends && newDisplay === ChartDisplayType.WorldMap) {
+                    const math = series?.[0].math
+                    const math_group_type_index = series?.[0].math_group_type_index
+
+                    actions.updateBreakdown({
+                        breakdown: '$geoip_country_code',
+                        breakdown_type:
+                            (math === 'unique_group'
+                                ? 'group'
+                                : ['dau', 'weekly_active', 'monthly_active'].includes(math || '')
+                                ? 'person'
+                                : null) || 'event',
+                        breakdown_group_type_index: math_group_type_index,
+                    })
                 }
             }
         },

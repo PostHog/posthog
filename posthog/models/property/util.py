@@ -69,6 +69,7 @@ from posthog.utils import is_json, is_valid_regex
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
+    *,
     hogql_context: HogQLContext,
     prepend: str = "global",
     table_name: str = "",
@@ -79,6 +80,7 @@ def parse_prop_grouped_clauses(
     group_properties_joined: bool = True,
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
+    """Translate the given property filter group into an SQL condition clause (+ SQL params)."""
     if not property_group or len(property_group.values) == 0:
         return "", {}
 
@@ -141,6 +143,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 def parse_prop_clauses(
     team_id: int,
     filters: List[Property],
+    *,
     hogql_context: Optional[HogQLContext],
     prepend: str = "global",
     table_name: str = "",
@@ -151,6 +154,7 @@ def parse_prop_clauses(
     group_properties_joined: bool = True,
     property_operator: PropertyOperatorType = PropertyOperatorType.AND,
 ) -> Tuple[str, Dict]:
+    """Translate the given property filter into an SQL condition clause (+ SQL params)."""
     final = []
     params: Dict[str, Any] = {}
 
@@ -173,12 +177,6 @@ def parse_prop_clauses(
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {table_formatted}distinct_id IN ({person_id_query})")
-                elif person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
-                    person_id_query, cohort_filter_params = format_cohort_subquery(
-                        cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
-                    )
-                    params = {**params, **cohort_filter_params}
-                    final.append(f"{property_operator} {person_id_query}")
                 else:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
                         cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
@@ -197,7 +195,10 @@ def parse_prop_clauses(
             )
             final.append(f" {filter_query}")
             params.update(filter_params)
-        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+        elif prop.type == "person" and person_properties_mode in [
+            PersonPropertiesMode.DIRECT_ON_EVENTS,
+            PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2,
+        ]:
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
                 idx,
@@ -272,7 +273,8 @@ def parse_prop_clauses(
                 params.update(filter_params)
         elif (
             prop.type == "group"
-            and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS
+            and person_properties_mode
+            in [PersonPropertiesMode.DIRECT_ON_EVENTS, PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2]
             and groups_on_events_querying_enabled()
         ):
             group_column = f"group{prop.group_type_index}_properties"
@@ -321,7 +323,10 @@ def parse_prop_clauses(
             filter_query, filter_params = method(cohort, idx, prepend=prepend)  # type: ignore
             filter_query = f"""{person_id_joined_alias if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'person_id'} IN ({filter_query})"""
 
-            if has_person_id_joined or person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+            if has_person_id_joined or person_properties_mode in [
+                PersonPropertiesMode.DIRECT_ON_EVENTS,
+                PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2,
+            ]:
                 final.append(f"{property_operator} {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead

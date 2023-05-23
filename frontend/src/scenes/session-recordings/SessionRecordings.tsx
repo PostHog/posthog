@@ -7,7 +7,7 @@ import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tabs } from 'antd'
-import { AvailableFeature, SessionRecordingsTabs } from '~/types'
+import { AvailableFeature, ReplayTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -27,7 +27,7 @@ export function SessionsRecordings(): JSX.Element {
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: SessionRecordingsTabs.Recent })
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
 
     const newPlaylistHandler = useAsyncHandler(async () => {
@@ -37,12 +37,12 @@ export function SessionsRecordings(): JSX.Element {
 
     return (
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
-        <div className="-mb-12">
+        <div className="-mb-16">
             <PageHeader
-                title={<div>Session Recordings</div>}
+                title={<div>Session Replay</div>}
                 buttons={
                     <>
-                        {tab === SessionRecordingsTabs.Recent && !recordingsDisabled && (
+                        {tab === ReplayTabs.Recent && !recordingsDisabled && (
                             <LemonButton
                                 type="secondary"
                                 icon={<IconSettings />}
@@ -52,7 +52,7 @@ export function SessionsRecordings(): JSX.Element {
                             </LemonButton>
                         )}
 
-                        {tab === SessionRecordingsTabs.Playlists && (
+                        {tab === ReplayTabs.Playlists && (
                             <LemonButton
                                 type="primary"
                                 onClick={(e) =>
@@ -78,9 +78,9 @@ export function SessionsRecordings(): JSX.Element {
                 activeKey={tab}
                 animated={false}
                 style={{ borderColor: '#D9D9D9' }}
-                onChange={(t) => router.actions.push(urls.sessionRecordings(t as SessionRecordingsTabs))}
+                onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             >
-                {Object.values(SessionRecordingsTabs).map((value) => (
+                {Object.values(ReplayTabs).map((value) => (
                     <Tabs.TabPane tab={humanFriendlyTabName(value)} key={value} />
                 ))}
             </Tabs>
@@ -101,11 +101,11 @@ export function SessionsRecordings(): JSX.Element {
             ) : null}
             {!tab ? (
                 <Spinner />
-            ) : tab === SessionRecordingsTabs.Recent ? (
+            ) : tab === ReplayTabs.Recent ? (
                 <SessionRecordingsPlaylist updateSearchParams />
-            ) : tab === SessionRecordingsTabs.Playlists ? (
-                <SavedSessionRecordingPlaylists tab={SessionRecordingsTabs.Playlists} />
-            ) : tab === SessionRecordingsTabs.FilePlayback ? (
+            ) : tab === ReplayTabs.Playlists ? (
+                <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
+            ) : tab === ReplayTabs.FilePlayback ? (
                 <SessionRecordingFilePlayback />
             ) : null}
         </div>

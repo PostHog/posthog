@@ -70,8 +70,8 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             icon: <IconBarChart />,
         },
         {
-            identifier: Scene.SessionRecordings,
-            label: 'Session replay',
+            identifier: Scene.Replay,
+            label: 'Recordings',
             icon: <IconRecording />,
         },
         {

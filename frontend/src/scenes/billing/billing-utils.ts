@@ -35,7 +35,7 @@ export const projectUsage = (
     return Math.round((usage / timeSoFar) * timeTotal)
 }
 
-export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[]): string => {
+export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[], percentDiscount?: number): string => {
     if (!tiers) {
         return ''
     }
@@ -56,10 +56,15 @@ export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[]):
         previousTier = tier
     }
 
+    // remove discount from total price
+    if (percentDiscount) {
+        amount = amount / (1 + percentDiscount / 100)
+    }
+
     return amount.toFixed(2)
 }
 
-export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[]): number => {
+export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[], discountPercent?: number): number => {
     if (!amount) {
         return 0
     }
@@ -76,6 +81,12 @@ export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[])
             return tiers[0].up_to || 0
         }
         return 0
+    }
+
+    // add discount to remaining amount so user knows what unit amount they'll be throttled at
+    if (discountPercent) {
+        const discount = remainingAmount * (discountPercent / 100)
+        remainingAmount += discount
     }
 
     const allTiersZero = tiers.every((tier) => !parseFloat(tier.unit_amount_usd))
@@ -111,7 +122,9 @@ export const getUpgradeAllProductsLink = (
     url += `${product.type}:${upgradeToPlanKey},`
     if (product.addons?.length) {
         for (const addon of product.addons) {
-            url += `${addon.type}:${addon.plans[0].plan_key},`
+            if (addon.plans?.[0]?.plan_key) {
+                url += `${addon.type}:${addon.plans[0].plan_key},`
+            }
         }
     }
     // remove the trailing comma that will be at the end of the url

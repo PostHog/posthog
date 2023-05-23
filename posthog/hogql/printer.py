@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from difflib import get_close_matches
 from typing import List, Literal, Optional, Union, cast
 
 
@@ -465,6 +466,12 @@ class _Printer(Visitor):
             else:
                 return f"{node.name}({', '.join(args)})"
         else:
+            all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
+            close_matches = get_close_matches(node.name, all_function_names, 1)
+            if len(close_matches) > 0:
+                raise HogQLException(
+                    f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
+                )
             raise HogQLException(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
@@ -577,8 +584,7 @@ class _Printer(Visitor):
             materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
-                if not self.context.within_non_hogql_query:
-                    property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
+                property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
                 materialized_property_sql = property_sql
         elif (
             self.context.within_non_hogql_query
@@ -593,23 +599,26 @@ class _Printer(Visitor):
             if materialized_column:
                 materialized_property_sql = self._print_identifier(materialized_column)
 
+        args: List[str] = []
         if materialized_property_sql is not None:
+            # When reading materialized columns, treat the values "" and "null" as NULL-s.
+            # TODO: rematerialize all columns to support empty strings and "null" string values.
+            materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
+
             if len(type.chain) == 1:
                 return materialized_property_sql
             else:
-                args = [materialized_property_sql]
                 for name in type.chain[1:]:
                     key = f"hogql_val_{len(self.context.values)}"
                     self.context.values[key] = name
                     args.append(f"%({key})s")
-                return trim_quotes_expr(f"JSONExtractRaw({', '.join(args)})")
+                return self._unsafe_json_extract_trim_quotes(materialized_property_sql, args)
 
-        args = [self.visit(field_type)]
         for name in type.chain:
             key = f"hogql_val_{len(self.context.values)}"
             self.context.values[key] = name
             args.append(f"%({key})s")
-        return trim_quotes_expr(f"JSONExtractRaw({', '.join(args)})")
+        return self._unsafe_json_extract_trim_quotes(self.visit(field_type), args)
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         sample_value = self.visit_ratio_expr(node.sample_value)
@@ -664,6 +673,9 @@ class _Printer(Visitor):
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
+    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: List[str]) -> str:
+        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field] + unsafe_args)}), ''), 'null'), '^\"|\"$', '')"
+
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
@@ -680,7 +692,3 @@ class _Printer(Visitor):
 
     def _get_timezone(self):
         return self.context.database.get_timezone() if self.context.database else "UTC"
-
-
-def trim_quotes_expr(expr: str) -> str:
-    return f"replaceRegexpAll({expr}, '^\"|\"$', '')"
