@@ -241,7 +241,7 @@ def decompress_chunked_snapshot_data(
             chunks = list(deduplicated_chunks.values())
 
         # even after deduplication, we don't know we have the right number of chunks
-        if len(chunks) < chunks[0]["snapshot_data"]["chunk_count"]:
+        if len(chunks) != chunks[0]["snapshot_data"]["chunk_count"]:
             capture_message(
                 "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} expected chunks".format(
                     team_id,
