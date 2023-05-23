@@ -174,7 +174,7 @@ jobs:
                   $DOCKER_RUN python manage.py setup_dev
 
             - name: Wait for PostHog
-              uses: iFaxity/wait-on-action
+              uses: iFaxity/wait-on-action@v1
               timeout-minutes: 3
               with:
                   verbose: true
