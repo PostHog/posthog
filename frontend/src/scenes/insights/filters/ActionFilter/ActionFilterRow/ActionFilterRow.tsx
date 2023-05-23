@@ -360,7 +360,7 @@ export function ActionFilterRow({
                                                 value={mathHogQL}
                                                 onChange={(currentValue) => onMathHogQLSelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
-                                                dataAttr="math-hogql-select"
+                                                dataAttr={`math-hogql-select-${index}`}
                                                 renderValue={(currentValue) => (
                                                     <Tooltip
                                                         title={
