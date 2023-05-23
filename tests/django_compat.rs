@@ -4,9 +4,11 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use capture::event::ProcessedEvent;
 use capture::router::router;
+use capture::time::TimeSource;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize)]
 struct RequestDump {
@@ -21,6 +23,17 @@ struct RequestDump {
 }
 
 static REQUESTS_DUMP_FILE_NAME: &str = "tests/requests_dump.jsonl";
+
+#[derive(Clone)]
+pub struct FixedTime {
+    pub time: time::OffsetDateTime,
+}
+
+impl TimeSource for FixedTime {
+    fn current_time(&self) -> String {
+        self.time.to_string()
+    }
+}
 
 #[tokio::test]
 async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
@@ -42,7 +55,11 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             case.method
         );
 
-        let app = router();
+        let timesource = FixedTime {
+            time: OffsetDateTime::now_utc(),
+        };
+        let app = router(timesource);
+
         let client = TestClient::new(app);
         let mut req = client.post(&case.path).body(raw_body);
         if !case.content_encoding.is_empty() {

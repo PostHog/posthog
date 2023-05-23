@@ -3,16 +3,18 @@ use std::sync::Arc;
 use axum::{routing::post, Router};
 use tower_http::trace::TraceLayer;
 
-use crate::{capture, sink};
+use crate::{capture, sink, time::TimeSource};
 
 #[derive(Clone)]
 pub struct State {
     pub sink: Arc<dyn sink::EventSink + Send + Sync>,
+    pub timesource: Arc<dyn TimeSource + Send + Sync>,
 }
 
-pub fn router() -> Router {
+pub fn router<TZ: TimeSource + Send + Sync + 'static>(timesource: TZ) -> Router {
     let state = State {
         sink: Arc::new(sink::PrintSink {}),
+        timesource: Arc::new(timesource),
     };
 
     Router::new()

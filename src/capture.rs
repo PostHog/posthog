@@ -153,6 +153,7 @@ mod tests {
     async fn all_events_have_same_token() {
         let state = State {
             sink: Arc::new(sink::PrintSink {}),
+            timesource: Arc::new(crate::time::SystemTime {}),
         };
 
         let events = vec![
@@ -176,6 +177,7 @@ mod tests {
     async fn all_events_have_different_token() {
         let state = State {
             sink: Arc::new(sink::PrintSink {}),
+            timesource: Arc::new(crate::time::SystemTime {}),
         };
 
         let events = vec![
