@@ -135,9 +135,6 @@ jobs:
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev
 
-                  $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
-                  $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
-
             - name: Wait for PostHog
               uses: iFaxity/wait-on-action@v1
               with:
