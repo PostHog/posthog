@@ -8,7 +8,6 @@ import {
     IconVerifiedEvent,
     VerifiedPropertyIcon,
     IconSelectAll,
-    IconPreview,
 } from 'lib/lemon-ui/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
