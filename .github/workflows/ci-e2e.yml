@@ -17,10 +17,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
-        name: Determine need to run backend checks
+        name: Determine need to run E2D checks
         # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.filter.outputs.backend }}
+            pathsToTest: ${{ steps.filter.outputs.pathsToTest }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -172,6 +172,9 @@ jobs:
 
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev
+
+                  # only starts the plugin server so that the "wait for PostHog" step passes
+                  $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
 
             - name: Wait for PostHog
               uses: iFaxity/wait-on-action@v1
