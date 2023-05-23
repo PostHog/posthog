@@ -23,8 +23,6 @@ const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
 
-const flushIntervalTimeoutMs = 30000
-
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
 export const gaugeIngestionLag = new Gauge({
@@ -75,7 +73,8 @@ export class SessionRecordingBlobIngester {
     constructor(
         private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
-        private objectStorage: ObjectStorage
+        private objectStorage: ObjectStorage,
+        private flushIntervalTimeoutMs = 30000
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
@@ -100,11 +99,6 @@ export class SessionRecordingBlobIngester {
                 topic,
                 (offsets) => {
                     this.offsetManager?.removeOffsets(topic, partition, offsets)
-
-                    // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                    if (sessionManager.isEmpty) {
-                        this.sessions.delete(key)
-                    }
                 }
             )
 
@@ -342,13 +336,13 @@ export class SessionRecordingBlobIngester {
         })
 
         // We trigger the flushes from this level to reduce the number of running timers
-        this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs)
+        this.flushInterval = setTimeout(() => this.checkEachSession(), this.flushIntervalTimeoutMs)
     }
 
     private checkEachSession() {
         let sessionManagerBufferSizes = 0
 
-        for (const [_, sessionManager] of this.sessions) {
+        for (const [key, sessionManager] of this.sessions) {
             sessionManagerBufferSizes += sessionManager.buffer.size
 
             // in practice, we will always have a values for latestKaftaMessageTimestamp,
@@ -369,13 +363,18 @@ export class SessionRecordingBlobIngester {
                     captureException(err, { tags: { session_id: sessionManager.sessionId } })
                     throw err
                 })
+
+            // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+            if (sessionManager.isEmpty) {
+                this.sessions.delete(key)
+            }
         }
 
         gaugeSessionsHandled.set(this.sessions.size)
         gaugeBytesBuffered.set(sessionManagerBufferSizes)
 
         // Here we schedule the next process
-        this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs)
+        this.flushInterval = setTimeout(() => this.checkEachSession(), this.flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {
