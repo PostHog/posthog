@@ -37,7 +37,11 @@ export function RenderMetricValue(
     }
 
     if (value_type === 'bool' || typeof value === 'boolean') {
-        return <LemonTag type={value ? 'success' : 'danger'}>{value ? 'Yes' : 'No'}</LemonTag>
+        return (
+            <LemonTag className="uppercase" type={value ? 'success' : 'danger'}>
+                {value ? 'Yes' : 'No'}
+            </LemonTag>
+        )
     }
 
     if (value === null || value === undefined || value === '') {
