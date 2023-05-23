@@ -76,6 +76,7 @@ jobs:
                   --set image.tag=pr-$PR_NUM \
                   --timeout 30m \
                   --create-namespace \
+                  --version 30.19.0-b83adfd0fd73c0288ee220b2f7f3cad97b42507e \
                   --namespace $NAMESPACE \
                   $RELEASE_NAME charts-clickhouse/charts/posthog \
                   --wait \
