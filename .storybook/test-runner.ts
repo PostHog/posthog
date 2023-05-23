@@ -131,6 +131,10 @@ async function expectStoryToMatchSceneSnapshot(
     context: TestContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    await page.evaluate(() => {
+        document.querySelector('.TopBar')?.remove()
+    })
+
     const dimensions = await page.locator('.main-app-content').boundingBox()
     // Ensure the page size is bigger than the component otherwise it can get clipped
     await page.setViewportSize({
