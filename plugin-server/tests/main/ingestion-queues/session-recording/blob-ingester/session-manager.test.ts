@@ -93,9 +93,10 @@ describe('session-manager', () => {
         expect(sessionManager.buffer).toEqual({
             count: 1,
             oldestKafkaTimestamp: messageTimestamp,
+            newestKafkaTimestamp: messageTimestamp,
             file: expect.any(String),
             id: expect.any(String),
-            size: 61, // The size of the event payload - this may change when test data changes
+            size: 55, // The size of the event payload - this may change when test data changes
             offsets: [1],
             eventsRange: {
                 firstTimestamp: 1679568043305,
@@ -239,7 +240,7 @@ describe('session-manager', () => {
         expect(sessionManager.buffer.count).toEqual(1)
         expect(appendFile).toHaveBeenCalledWith(
             sessionManager.buffer.file,
-            '{"window_id":"window_id_1","data":"[{\\"second\\":\\"event\\"}]"}\n',
+            '{"window_id":"window_id_1","data":[{"second":"event"}]}\n',
             'utf-8'
         )
     })
@@ -272,7 +273,7 @@ describe('session-manager', () => {
         // the data was written
         expect(appendFile).toHaveBeenCalledWith(
             sessionManager.buffer.file,
-            '{"window_id":"window_id_1","data":"[{\\"simple\\":\\"data\\"}]"}\n',
+            '{"window_id":"window_id_1","data":[{"simple":"data"}]}\n',
             'utf-8'
         )
     })
