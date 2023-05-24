@@ -361,27 +361,6 @@ export function ActionFilterRow({
                                                 onChange={(currentValue) => onMathHogQLSelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
                                                 dataAttr={`math-hogql-select-${index}`}
-                                                renderValue={(currentValue) => (
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                Calculate{' '}
-                                                                {mathDefinitions[math ?? ''].name.toLowerCase()} from
-                                                                property <code>{currentValue}</code>. Note that only{' '}
-                                                                {name} occurences where <code>{currentValue}</code> is
-                                                                set with a numeric value will be taken into account.
-                                                            </>
-                                                        }
-                                                        placement="right"
-                                                    >
-                                                        <div /* <div> needed for <Tooltip /> to work */>
-                                                            <PropertyKeyInfo
-                                                                value={currentValue}
-                                                                disablePopover={true}
-                                                            />
-                                                        </div>
-                                                    </Tooltip>
-                                                )}
                                             />
                                         </div>
                                     )}
