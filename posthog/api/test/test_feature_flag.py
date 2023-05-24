@@ -2613,9 +2613,9 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):
-
+        # execute so we capture queries in snapshots
+        execute(*args, **kwargs)
         raise OperationalError("canceling statement due to statement timeout")
-        # return execute(*args, **kwargs)
 
 
 def slow_query(execute, sql, *args, **kwargs):

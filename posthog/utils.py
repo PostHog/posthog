@@ -28,6 +28,7 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
+from django.db import DEFAULT_DB_ALIAS, connections
 
 import lzstring
 import posthoganalytics
@@ -756,6 +757,22 @@ def compact_number(value: Union[int, float]) -> str:
         magnitude += 1
         value /= 1000.0
     return f"{value:f}".rstrip("0").rstrip(".") + ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
+
+
+@lru_cache(maxsize=1)
+def is_postgres_connected_cached_check(_ttl: int) -> bool:
+    """
+    The setting will change way less frequently than it will be called
+    _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
+    """
+    # Uses the same check as in the healthcheck
+    try:
+        with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
+            cursor.execute("SELECT 1")
+        return True
+    except Exception:
+        logger.exception("postgres_connection_failure")
+        return False
 
 
 def is_postgres_alive() -> bool:
