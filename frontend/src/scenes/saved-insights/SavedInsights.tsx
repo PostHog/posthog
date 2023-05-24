@@ -341,7 +341,7 @@ function SavedInsightsGrid(): JSX.Element {
 
 export function SavedInsights(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const isUsingDataExploration = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+    const isUsingDataExploration = true
     const isUsingDashboardQueries = !!featureFlags[FEATURE_FLAGS.HOGQL]
 
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =

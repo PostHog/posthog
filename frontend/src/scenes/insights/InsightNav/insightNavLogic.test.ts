@@ -30,13 +30,9 @@ describe('insightNavLogic', () => {
 
             theFeatureFlagLogic = featureFlagLogic()
             theFeatureFlagLogic.mount()
-            theFeatureFlagLogic.actions.setFeatureFlags(
-                [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS, FEATURE_FLAGS.HOGQL],
-                {
-                    [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: false,
-                    [FEATURE_FLAGS.HOGQL]: false,
-                }
-            )
+            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL], {
+                [FEATURE_FLAGS.HOGQL]: false,
+            })
 
             const insightLogicProps: InsightLogicProps = {
                 dashboardItemId: 'new',
@@ -123,19 +119,7 @@ describe('insightNavLogic', () => {
             await expectLogic(theInsightLogic).toMatchValues({ erroredQueryId: null })
         })
 
-        it('can set active view to JSON even when data exploration off', async () => {
-            await expectLogic(theInsightNavLogic, () => {
-                theInsightNavLogic.actions.setActiveView(InsightType.JSON)
-            }).toMatchValues({
-                activeView: InsightType.JSON,
-            })
-        })
-
-        it('can set active view to QUERY when data exploration on', async () => {
-            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS], {
-                [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: true,
-            })
-
+        it('can set active view to QUERY', async () => {
             await expectLogic(theInsightNavLogic, () => {
                 theInsightNavLogic.actions.setActiveView(InsightType.JSON)
             }).toMatchValues({
@@ -186,22 +170,7 @@ describe('insightNavLogic', () => {
                 })
             })
 
-            it('does not ignore set of JSON view from loadResultsSuccess when data exploration is off', async () => {
-                await expectLogic(theInsightNavLogic, () => {
-                    theInsightLogic.actions.loadResultsSuccess({
-                        filters: {},
-                        query: { kind: NodeKind.DataTableNode } as DataTableNode,
-                    })
-                }).toMatchValues({
-                    activeView: InsightType.JSON,
-                })
-            })
-
-            it('sets QUERY view from loadResultsSuccess when data exploration is on', async () => {
-                theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS], {
-                    [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: true,
-                })
-
+            it('sets QUERY view from loadResultsSuccess', async () => {
                 await expectLogic(theInsightNavLogic, () => {
                     theInsightLogic.actions.loadResultsSuccess({
                         filters: {},

@@ -130,7 +130,6 @@ export const FEATURE_FLAGS = {
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
-    DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
     REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
     SAMPLING: 'sampling', // owner: @yakkomajuri

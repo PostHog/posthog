@@ -804,9 +804,9 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         isUsingDataExploration: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+            () => [],
+            (): boolean => {
+                return true
             },
         ],
         isUsingDashboardQueries: [

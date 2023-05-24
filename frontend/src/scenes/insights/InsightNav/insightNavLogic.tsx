@@ -47,10 +47,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
         },
     }),
     selectors({
-        isUsingDataExploration: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
-        ],
+        isUsingDataExploration: [() => [], () => true],
         allowQueryTab: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL]],
         activeView: [
             (s) => [s.filters, s.query, s.userSelectedView],
