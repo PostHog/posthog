@@ -94,7 +94,7 @@ export const surveyLogic = kea<surveyLogicType>([
     selectors({
         isSurveyRunning: [
             (s) => [s.survey],
-            (survey): boolean => {
+            (survey: Survey): boolean => {
                 return !!(survey.start_date && !survey.end_date)
             },
         ],
