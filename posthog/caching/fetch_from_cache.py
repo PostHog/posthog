@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
 from django.utils.timezone import now
-from prometheus_client import Gauge
+from prometheus_client import Counter
 
 from posthog.caching.calculate_results import calculate_cache_key, calculate_result_by_insight
 from posthog.caching.insight_cache import update_cached_state
@@ -11,7 +11,7 @@ from posthog.models import DashboardTile, Insight
 from posthog.models.dashboard import Dashboard
 from posthog.utils import get_safe_cache
 
-gaugeInsightCacheRead = Gauge(
+insight_cache_read_counter = Counter(
     "posthog_cloud_insight_cache_read", "A read from the redis insight cache", labelnames=["result"]
 )
 
@@ -51,10 +51,10 @@ def fetch_cached_insight_result(target: Union[Insight, DashboardTile], refresh_f
     cached_result = get_safe_cache(cache_key)
 
     if cached_result is None:
-        gaugeInsightCacheRead.labels("cache_miss").inc()
+        insight_cache_read_counter.labels("cache_miss").inc()
         return NothingInCacheResult(cache_key=cache_key)
     else:
-        gaugeInsightCacheRead.labels("cache_hit").inc()
+        insight_cache_read_counter.labels("cache_hit").inc()
         last_refresh = cached_result.get("last_refresh")
         next_allowed_client_refresh = (
             cached_result.get("next_allowed_client_refresh") or last_refresh + refresh_frequency
