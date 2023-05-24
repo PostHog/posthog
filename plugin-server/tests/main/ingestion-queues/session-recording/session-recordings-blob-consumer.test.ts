@@ -4,6 +4,7 @@ import { Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { createIncomingRecordingMessage } from './fixtures'
 
+const veryShortFlushInterval = 5
 describe('ingester', () => {
     let ingester: SessionRecordingBlobIngester
 
@@ -19,7 +20,12 @@ describe('ingester', () => {
     })
 
     beforeEach(() => {
-        ingester = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage)
+        ingester = new SessionRecordingBlobIngester(
+            hub.teamManager,
+            defaultConfig,
+            hub.objectStorage,
+            veryShortFlushInterval
+        )
     })
 
     it('creates a new session manager if needed', async () => {
@@ -55,10 +61,17 @@ describe('ingester', () => {
     })
 
     it('destroys a session manager if finished', async () => {
+        // it is slow to start the ingester in beforeEach
+        // and, it only needs starting here because we are testing the flush interval
+        await ingester.start()
+
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)
         expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
         await ingester.sessions.get('1-session_id_1')?.flush('buffer_age')
+
+        await new Promise((resolve) => setTimeout(resolve, veryShortFlushInterval))
+
         expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
     })
 })
