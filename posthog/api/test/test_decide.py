@@ -1,6 +1,8 @@
 import base64
 import json
 from unittest.mock import patch
+import time
+
 
 from django.core.cache import cache
 from django.db import connection
@@ -229,7 +231,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         sync_team_inject_web_apps(self.team)
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(1):
+        # 3 of these queries are just for setting transaction scope
+        with self.assertNumQueries(4):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -249,7 +252,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(5):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -1641,7 +1644,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # need to pass in exact string to get the property flag
 
     def test_rate_limits(self):
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_RATE_LIMIT="3/m"):
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.1, DECIDE_BUCKET_CAPACITY=3):
             self.client.logout()
             Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
             FeatureFlag.objects.create(
@@ -1671,10 +1674,39 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 },
             )
 
+    def test_rate_limits_replenish_over_time(self):
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=1, DECIDE_BUCKET_CAPACITY=1):
+            self.client.logout()
+            Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+            FeatureFlag.objects.create(
+                team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+            )
+            FeatureFlag.objects.create(
+                team=self.team,
+                filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+                name="This is a feature flag with default params, no filters.",
+                key="default-flag",
+                created_by=self.user,
+            )  # Should be enabled for everyone
+
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 429)
+
+            # wait for bucket to replenish
+            time.sleep(1)
+
+            response = self._post_decide(api_version=2)
+            self.assertEqual(response.status_code, 200)
+
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 429)
+
     def test_rate_limits_work_with_invalid_tokens(self):
         self.client.logout()
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_RATE_LIMIT="3/m"):
-
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.01, DECIDE_BUCKET_CAPACITY=3):
             for _ in range(3):
                 response = self._post_decide(api_version=3, data={"token": "aloha?", "distinct_id": "123"})
                 self.assertEqual(response.status_code, 401)
@@ -1693,8 +1725,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_rate_limits_work_with_missing_tokens(self):
         self.client.logout()
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_RATE_LIMIT="3/m"):
-
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.1, DECIDE_BUCKET_CAPACITY=3):
             for _ in range(3):
                 response = self._post_decide(api_version=3, data={"distinct_id": "123"})
                 self.assertEqual(response.status_code, 401)
@@ -1713,7 +1744,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_rate_limits_work_with_malformed_request(self):
         self.client.logout()
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_RATE_LIMIT="4/m"):
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.1, DECIDE_BUCKET_CAPACITY=4):
 
             def invalid_request():
                 return self.client.post("/decide/", {"data": "1==1"}, HTTP_ORIGIN="http://127.0.0.1:8000")
@@ -1755,8 +1786,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             ],
         )
         self.client.logout()
-
-        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_RATE_LIMIT="3/m"):
+        with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.1, DECIDE_BUCKET_CAPACITY=3):
 
             for _ in range(3):
                 response = self._post_decide(api_version=3)

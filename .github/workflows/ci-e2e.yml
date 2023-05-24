@@ -119,11 +119,16 @@ jobs:
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
                   EOT
 
+            - name: Lowercase GITHUB_REPOSITORY
+              id: lowercase
+              run: |
+                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
             - name: Get the PostHog container image of this PR
               id: meta
               uses: docker/metadata-action@v4
               with:
-                  images: ghcr.io/posthog/posthog/posthog
+                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog
 
             - name: Start PostHog
               run: |

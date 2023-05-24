@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, DefaultDict, Dict, Generator, List, Optional
 
 from dateutil.parser import parse, ParserError
+from prometheus_client import Histogram
+from prometheus_client.utils import INF
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
@@ -26,6 +28,12 @@ FULL_SNAPSHOT = 2
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
 
 # event.type
+
+recordingsChunksLength = Histogram(
+    "session_recordings_chunks_length",
+    "We chunk session recordings to fit them into kafka, how often do we chunk and by how much?",
+    buckets=(0, 1, 2, 5, 7, 10, 15, 20, 50, 100, 500, INF),
+)
 
 
 class RRWEB_MAP_EVENT_TYPE:
@@ -117,6 +125,7 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
 
     id = str(utils.UUIDT())
     chunks = chunk_string(compressed_data, chunk_size)
+    recordingsChunksLength.observe(len(chunks))
 
     for index, chunk in enumerate(chunks):
         yield {
@@ -220,6 +229,18 @@ def decompress_chunked_snapshot_data(
 
     # Decompress the chunks and split the resulting events by window_id
     for chunks in chunk_list:
+        was_originally_over_complete = False
+        if len(chunks) > chunks[0]["snapshot_data"]["chunk_count"]:
+            was_originally_over_complete = True
+            deduplicated_chunks = {}
+            for chunk in chunks:
+                # reduce the chunks into deduplicated chunks by chunk_id taking only the first seen for each chunk_id
+                if chunk["snapshot_data"]["chunk_index"] not in deduplicated_chunks:
+                    deduplicated_chunks[chunk["snapshot_data"]["chunk_index"]] = chunk
+
+            chunks = list(deduplicated_chunks.values())
+
+        # even after deduplication, we don't know we have the right number of chunks
         if len(chunks) != chunks[0]["snapshot_data"]["chunk_count"]:
             capture_message(
                 "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} expected chunks".format(
@@ -228,7 +249,16 @@ def decompress_chunked_snapshot_data(
                     chunks[0]["snapshot_data"]["chunk_id"],
                     len(chunks),
                     chunks[0]["snapshot_data"]["chunk_count"],
-                )
+                ),
+                tags={
+                    "team_id": team_id,
+                },
+                extras={
+                    "session_recording_id": session_recording_id,
+                    "expected_chunk_count": chunks[0]["snapshot_data"]["chunk_count"],
+                    "received_chunk_count": len(chunks),
+                    "was_originally_over_complete": was_originally_over_complete,
+                },
             )
             continue
 

@@ -11,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { AvailableFeature, ChartDisplayType, FilterType, FunnelStep, FunnelVizType, InsightType } from '~/types'
 import './Experiment.scss'
+import '../insights/Insight.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
@@ -100,6 +101,7 @@ export function Experiment(): JSX.Element {
     const { insightProps } = useValues(
         insightLogic({
             dashboardItemId: experimentInsightId,
+            disableDataExploration: true,
         })
     )
     const {

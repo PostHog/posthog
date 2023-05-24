@@ -29,7 +29,7 @@ export function renderColumn(
     } else if (value === errorColumn) {
         return <LemonTag color="red">Error</LemonTag>
     } else if (value === null) {
-        return <LemonTag>NULL</LemonTag>
+        return <span className="italic text-muted">NULL</span>
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {

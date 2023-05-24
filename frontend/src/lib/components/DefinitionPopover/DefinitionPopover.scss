@@ -1,31 +1,3 @@
-.definition-popover-overlay {
-    width: 100vw;
-    height: 100vh;
-    position: fixed;
-    top: 0;
-    left: 0;
-    background-color: var(--bg-depth);
-    opacity: 0.2;
-
-    &.definition-popover-overlay--enter {
-        opacity: 0;
-    }
-
-    &.definition-popover-overlay--enter-active {
-        opacity: 0.2;
-        transition: opacity 150ms;
-    }
-
-    &.definition-popover-overlay--exit {
-        opacity: 0.2;
-    }
-
-    &.definition-popover-overlay--exit-active {
-        opacity: 0;
-        transition: opacity 150ms;
-    }
-}
-
 .definition-popover {
     width: 316px;
     padding: 0.5rem 0.75rem 0.75rem 0.75rem;
@@ -85,6 +57,10 @@
 
                 &.taxonomy-icon-verified {
                     color: var(--success);
+                }
+
+                &.taxonomy-icon-built-in {
+                    color: var(--primary);
                 }
             }
         }
@@ -162,7 +138,7 @@
                         }
 
                         pre {
-                            background-color: var(--bg-mid);
+                            background-color: var(--mid);
                             padding: 0 4px;
                             font-size: 12px;
                             margin: 2px 0.25rem 1px;

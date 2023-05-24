@@ -1,4 +1,4 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import {
     SessionRecordingPlayer,
@@ -7,12 +7,14 @@ import {
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { urls } from 'scenes/urls'
+import { createUrlRegex } from './utils'
 
 const Component = (props: NodeViewProps): JSX.Element => {
+    const id = props.node.attrs.id
     const recordingLogicProps: SessionRecordingPlayerProps = {
-        embedded: true,
-        sessionRecordingId: props.node.attrs.sessionRecordingId,
-        playerKey: `notebook-${props.node.attrs.sessionRecordingId}`,
+        sessionRecordingId: id,
+        playerKey: `notebook-${id}`,
+        autoPlay: false,
     }
 
     return (
@@ -20,7 +22,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             {...props}
             className={NotebookNodeType.Recording}
             title="Recording"
-            href={urls.sessionRecording(recordingLogicProps.sessionRecordingId)}
+            href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
             // TODO: Fix "meta" preview
             // preview={<PlayerMeta {...recordingLogicProps} />}
         >
@@ -39,7 +41,7 @@ export const NotebookNodeRecording = Node.create({
 
     addAttributes() {
         return {
-            sessionRecordingId: {
+            id: {
                 default: null,
             },
         }
@@ -59,5 +61,17 @@ export const NotebookNodeRecording = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            nodePasteRule({
+                find: createUrlRegex(urls.replaySingle('') + '(.+)'),
+                type: this.type,
+                getAttributes: (match) => {
+                    return { id: match[1] }
+                },
+            }),
+        ]
     },
 })

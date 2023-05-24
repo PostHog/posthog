@@ -78,7 +78,7 @@ export function PropertyGroupFilters({
                                                         }
                                                         value={group.type}
                                                     />
-                                                    <div className="flex-1 h-px mx-2 bg-dark-grey" />
+                                                    <LemonDivider />
                                                     <LemonButton
                                                         icon={<IconCopy />}
                                                         status="primary-alt"

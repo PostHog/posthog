@@ -38,11 +38,11 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingId,
         sessionRecordingData,
         playerKey,
-        embedded = false,
         includeMeta = true,
         recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
         matching,
         noBorder = false,
+        autoPlay = true,
         nextSessionRecording,
     } = props
 
@@ -52,6 +52,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         matching,
         sessionRecordingData,
         recordingStartTime,
+        autoPlay,
         nextSessionRecording,
     }
     const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed, closeExplorer } =
@@ -124,7 +125,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 ref={ref}
                 className={clsx('SessionRecordingPlayer', {
                     'SessionRecordingPlayer--fullscreen': isFullScreen,
-                    'SessionRecordingPlayer--no-border': noBorder || embedded,
+                    'SessionRecordingPlayer--no-border': noBorder,
                     'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
                     'SessionRecordingPlayer--explorer-mode': !!explorerMode,
                     'SessionRecordingPlayer--inspector-focus': inspectorFocus,

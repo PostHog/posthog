@@ -78,7 +78,7 @@ class TestPropertyTypes(BaseTest):
         )
         self.assertEqual(printed, expected)
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_property_types_combined(self):
         printed = self._print_select("select properties.$screen_width * person.properties.tickets from events")
         expected = (
