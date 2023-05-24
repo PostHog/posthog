@@ -64,6 +64,8 @@ export interface BasicListItem {
     key: string | number | string[]
     /** Item name. This must be a string for accesibility. */
     name: string
+    /** Whether the name is a placeholder (e.g. an insight derived name), in which case it'll be italicized. */
+    isNamePlaceholder?: boolean
     /**
      * URL within the app.
      * In rare cases this can be explicitly null (e.g. the "Load more" item). Such items are italicized.

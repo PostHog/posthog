@@ -98,13 +98,14 @@ export function SidebarList({
 function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListItem; active?: boolean }): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-    const formattedName = !item.url ? (
-        <i>{item.name}</i>
-    ) : item.searchMatch?.nameHighlightRanges?.length ? (
+    let formattedName = item.searchMatch?.nameHighlightRanges?.length ? (
         <TextWithHighlights ranges={item.searchMatch.nameHighlightRanges}>{item.name}</TextWithHighlights>
     ) : (
         item.name
     )
+    if (!item.url || item.isNamePlaceholder) {
+        formattedName = <i>{formattedName}</i>
+    }
 
     return (
         <li

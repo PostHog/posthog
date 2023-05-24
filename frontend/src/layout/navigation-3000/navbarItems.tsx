@@ -19,6 +19,7 @@ import { dashboardsSidebarLogic } from './sidebars/dashboardsSidebarLogic'
 import { featureFlagsSidebarLogic } from './sidebars/featureFlagsSidebarLogic'
 import { cohortsSidebarLogic } from './sidebars/cohortsSidebarLogic'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroupsSidebarLogic'
+import { insightsSidebarLogic } from './sidebars/insightsSidebarLogic'
 
 /** A list of navbar sections with items. */
 export const NAVBAR_ITEMS: NavbarItem[][] = [
@@ -68,6 +69,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             identifier: Scene.SavedInsights,
             label: 'Analytics',
             icon: <IconBarChart />,
+            pointer: insightsSidebarLogic,
         },
         {
             identifier: Scene.Replay,
