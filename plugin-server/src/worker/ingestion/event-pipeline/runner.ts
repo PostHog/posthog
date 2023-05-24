@@ -173,7 +173,7 @@ export class EventPipelineRunner {
 
         if (sentToDql) {
             try {
-                const message = generateEventDeadLetterQueueMessage(this.originalEvent, err)
+                const message = generateEventDeadLetterQueueMessage(this.originalEvent, err, teamId)
                 await this.hub.db.kafkaProducer!.queueMessage(message)
                 this.hub.statsd?.increment('events_added_to_dead_letter_queue')
             } catch (dlqError) {

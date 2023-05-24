@@ -9,7 +9,6 @@ import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipelin
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
-import { generateEventDeadLetterQueueMessage } from '../../../../src/worker/ingestion/utils'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
@@ -17,16 +16,15 @@ jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
-jest.mock('../../../../src/worker/ingestion/utils')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
     steps: Array<string> = []
     stepsWithArgs: Array<[string, any[]]> = []
 
-    protected runStep(step: any, [runner, ...args]: any[], sendtoDLQ: boolean) {
+    protected runStep(step: any, [runner, ...args]: any[], teamId: number, sendtoDLQ: boolean) {
         this.steps.push(step.name)
         this.stepsWithArgs.push([step.name, args])
-        return super.runStep(step, [runner, ...args], sendtoDLQ)
+        return super.runStep(step, [runner, ...args], teamId, sendtoDLQ)
     }
 }
 
@@ -184,12 +182,16 @@ describe('EventPipelineRunner', () => {
             })
 
             it('emits failures to dead letter queue until createEvent', async () => {
-                jest.mocked(generateEventDeadLetterQueueMessage).mockReturnValue('DLQ event' as any)
                 jest.mocked(prepareEventStep).mockRejectedValue(error)
 
                 await runner.runEventPipeline(pipelineEvent)
 
-                expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledWith('DLQ event' as any)
+                expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledTimes(1)
+                expect(JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].messages[0].value)).toMatchObject({
+                    team_id: 2,
+                    distinct_id: 'my_id',
+                    error: 'ingestEvent failed. Error: testError',
+                })
                 expect(hub.statsd.increment).toHaveBeenCalledWith('events_added_to_dead_letter_queue')
             })
 
