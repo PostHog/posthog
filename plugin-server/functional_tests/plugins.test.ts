@@ -61,27 +61,31 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
 
     await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
 
-    await waitForExpect(async () => {
+    const events = await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(1)
-        expect(events[0].properties).toEqual(
-            expect.objectContaining({
-                processed: 'hell yes',
-                upperUuid: uuid.toUpperCase(),
-                runCount: 1,
-            })
-        )
+        return events
     })
 
+    expect(events[0].properties).toEqual(
+        expect.objectContaining({
+            processed: 'hell yes',
+            upperUuid: uuid.toUpperCase(),
+            runCount: 1,
+        })
+    )
+
     // onEvent ran
-    await waitForExpect(async () => {
+    const onEvent = await waitForExpect(async () => {
         const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
         const onEvent = logEntries.filter(({ message: [method] }) => method === 'onEvent')
         expect(onEvent.length).toBeGreaterThan(0)
-        const onEventEvent = onEvent[0].message[1]
-        expect(onEventEvent.event).toEqual('custom event')
-        expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
+        return onEvent
     })
+
+    const onEventEvent = onEvent[0].message[1]
+    expect(onEventEvent.event).toEqual('custom event')
+    expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
 })
 
 test.concurrent(`plugin method tests: creates error on unhandled throw`, async () => {

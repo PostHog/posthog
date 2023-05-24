@@ -313,8 +313,7 @@ export async function startPluginsServer(
                     await piscina?.broadcastTask({ task: 'reloadPlugins' })
 
                     if (hub?.capabilities.pluginScheduledTasks && piscina) {
-                        await piscina.broadcastTask({ task: 'reloadSchedule' })
-                        hub.pluginSchedule = await loadPluginSchedule(piscina)
+                        hub.pluginSchedule = await loadPluginSchedule(hub)
                     }
                 },
                 'reset-available-features-cache': async (message) => {

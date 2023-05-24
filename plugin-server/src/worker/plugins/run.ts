@@ -5,6 +5,8 @@ import { processError } from '../../utils/db/error'
 import { instrument } from '../../utils/metrics'
 import { runRetriableFunction } from '../../utils/retries'
 import { IllegalOperationError } from '../../utils/utils'
+import { LazyPluginVM } from '../vm/lazy'
+import { loadPlugin } from './loadPlugin'
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
@@ -172,7 +174,7 @@ export async function runPluginTask(
 ): Promise<any> {
     const timer = new Date()
     let response
-    const pluginConfig = hub.pluginConfigs.get(pluginConfigId)
+    const pluginConfig = await getPluginConfig(hub, pluginConfigId)
     const teamId = pluginConfig?.team_id
     let shouldQueueAppMetric = false
 
@@ -241,7 +243,7 @@ async function getPluginMethodsForTeam<M extends keyof VMMethods>(
     teamId: number,
     method: M
 ): Promise<[PluginConfig, VMMethods[M]][]> {
-    const pluginConfigs = hub.pluginConfigsPerTeam.get(teamId) || []
+    const pluginConfigs = await getPluginsForTeam(hub, teamId)
     if (pluginConfigs.length === 0) {
         return []
     }
@@ -249,4 +251,69 @@ async function getPluginMethodsForTeam<M extends keyof VMMethods>(
         pluginConfigs.map(async (pluginConfig) => [pluginConfig, await pluginConfig?.vm?.getVmMethod(method)])
     )
     return methodsObtained as [PluginConfig, VMMethods[M]][]
+}
+
+async function getPluginsForTeam(hub: Hub, teamId: number) {
+    // Query all plugin configs for the given team. To avoid querying the
+    // database for each event we cache, the plugin config promises are loaded
+    // into the hub.pluginConfigs LRU. Note that we cache the promise rather
+    // than the result, as we want to avoid a thundering herd of queries when
+    // there are already running queries for the same team.
+    const pluginConfigsCache = hub.pluginConfigsPerTeam.get(teamId)
+    if (pluginConfigsCache) {
+        return await pluginConfigsCache
+    } else {
+        const pluginConfigsPromise = initPluginsForTeam(hub, teamId)
+        hub.pluginConfigsPerTeam.set(teamId, pluginConfigsPromise)
+        return await pluginConfigsPromise
+    }
+}
+
+async function initPluginsForTeam(hub: Hub, teamId: number) {
+    // Query all plugin configs for the given team. To avoid querying the
+    // database for each event we cache, the plugin config promises are loaded
+    // into the hub.pluginConfigs LRU. Note that we cache the promise rather
+    // than the result, as we want to avoid a thundering herd of queries when
+    // there are already running queries for the same team.
+    const pluginConfigs = await hub.db.postgresQuery<PluginConfig>(
+        `SELECT * FROM posthog_pluginconfig WHERE team_id = $1 AND enabled = true`,
+        [teamId],
+        'getPluginConfigsForTeam'
+    )
+
+    // Load the plugin configs into the hub.
+    return await Promise.all(pluginConfigs.rows.map((pluginConfig) => loadPluginConfig(hub, pluginConfig)))
+}
+
+async function loadPluginConfig(hub: Hub, pluginConfig: PluginConfig) {
+    const pluginVM = new LazyPluginVM(hub, pluginConfig)
+    await loadPlugin(hub, pluginConfig)
+    pluginConfig.vm = pluginVM
+    return pluginConfig
+}
+
+async function getPluginConfig(hub: Hub, pluginConfigId: number) {
+    // Either get the pluginConfig with VM loaded from the cache, or load it
+    // from the database.
+    const pluginConfigCache = hub.pluginConfigs.get(pluginConfigId)
+    if (pluginConfigCache) {
+        return await pluginConfigCache
+    }
+    const pluginConfig = await initPluginConfig(hub, pluginConfigId)
+    hub.pluginConfigs.set(pluginConfigId, Promise.resolve(pluginConfig))
+    return pluginConfig
+}
+
+async function initPluginConfig(hub: Hub, pluginConfigId: number) {
+    const pluginConfigRows = await hub.db.postgresQuery<PluginConfig>(
+        `SELECT * FROM posthog_pluginconfig WHERE id = $1`,
+        [pluginConfigId],
+        'getPluginConfig'
+    )
+    if (pluginConfigRows.rowCount === 0) {
+        throw new Error(`Plugin config ${pluginConfigId} not found`)
+    }
+    const pluginConfig = pluginConfigRows.rows[0]
+    await loadPlugin(hub, pluginConfig)
+    return pluginConfig
 }

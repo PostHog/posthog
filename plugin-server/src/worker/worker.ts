@@ -8,7 +8,6 @@ import { processError } from '../utils/db/error'
 import { status } from '../utils/status'
 import { cloneObject, pluginConfigIdFromStack } from '../utils/utils'
 import { setupMmdb } from './plugins/mmdb'
-import { setupPlugins } from './plugins/setup'
 import { workerTasks } from './tasks'
 import { TimeoutError } from './vm/vm'
 
@@ -24,13 +23,12 @@ export async function createWorker(config: PluginsServerConfig, hub: Hub): Promi
         async () => {
             status.info('🧵', `Starting fake Piscina worker thread`)
             ;['unhandledRejection', 'uncaughtException'].forEach((event) => {
-                process.on(event, (error: Error) => {
-                    processUnhandledException(error, hub, event)
+                process.on(event, async (error: Error) => {
+                    await processUnhandledException(error, hub, event)
                 })
             })
 
             const updateJob = await setupMmdb(hub)
-            await setupPlugins(hub)
 
             for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
                 if (updateJob) {
@@ -95,14 +93,14 @@ export const createTaskRunner =
             }
         )
 
-export function processUnhandledException(error: Error, server: Hub, kind: string): void {
+export async function processUnhandledException(error: Error, server: Hub, kind: string): Promise<void> {
     let pluginConfig: PluginConfig | undefined = undefined
 
     if (error instanceof TimeoutError) {
         pluginConfig = error.pluginConfig
     } else {
         const pluginConfigId = pluginConfigIdFromStack(error.stack || '', server.pluginConfigSecretLookup)
-        pluginConfig = pluginConfigId ? server.pluginConfigs.get(pluginConfigId) : undefined
+        pluginConfig = pluginConfigId ? await server.pluginConfigs.get(pluginConfigId) : undefined
     }
 
     if (pluginConfig) {

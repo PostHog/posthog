@@ -1,35 +1,49 @@
 import { JobHelpers } from 'graphile-worker'
 
 import { KAFKA_SCHEDULED_TASKS } from '../../config/kafka-topics'
-import { Hub, PluginConfigId } from '../../types'
+import { Hub } from '../../types'
 import { status } from '../../utils/status'
-import { delay } from '../../utils/utils'
 import Piscina from '../../worker/piscina'
 
 type TaskTypes = 'runEveryMinute' | 'runEveryHour' | 'runEveryDay'
 
-export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000): Promise<Hub['pluginSchedule']> {
-    let allThreadsReady = false
-    while (maxIterations--) {
-        // Make sure the schedule loaded successfully on all threads
-        if (!allThreadsReady) {
-            const threadsScheduleReady = await piscina.broadcastTask({ task: 'pluginScheduleReady' })
-            allThreadsReady = threadsScheduleReady.every((res: any) => res)
-        }
+export async function loadPluginSchedule(hub: Hub): Promise<Hub['pluginSchedule']> {
+    // Queries Postgres to retrieve a mapping from task type (runEveryMinute,
+    // runEveryHour, runEveryDay) to a list of plugin config ids that are
+    // registered as providing the task. We use the capabilities JSONB column to
+    // filter on plugins that contain a `scheduled_task` key.
+    const schedules = await hub.db.postgresQuery<{
+        id: number
+        task_types: 'runEveryMinute' | 'runEveryHour' | 'runEveryDay'[]
+    }>(
+        `
+            SELECT 
+                config.id AS id, 
+                plugin.capabilities->>'scheduled_task' AS task_types
+            FROM posthog_pluginconfig config
+            JOIN posthog_plugin plugin
+                ON plugin.id = config.plugin_id
+            JOIN posthog_team team
+                ON team.id = config.team_id
+            JOIN posthog_organization org
+                ON org.id = team.organization_id
+            WHERE 
+                plugin.capabilities ? 'scheduled_task'
+                AND config.enabled = true
+                AND org.plugins_access_level > 0
+        `,
+        undefined,
+        'loadPluginSchedule'
+    )
 
-        if (allThreadsReady) {
-            // Having ensured the schedule is loaded on all threads, pull it from only one of them
-            const schedule = (await piscina.run({ task: 'getPluginSchedule' })) as Record<
-                string,
-                PluginConfigId[]
-            > | null
-            if (schedule) {
-                return schedule
-            }
+    // Reduce the rows into a mapping from task type to plugin config ids.
+    return schedules.rows.reduce((acc, { id, task_types }) => {
+        for (const taskType of task_types) {
+            acc[taskType] = acc[taskType] || []
+            acc[taskType].push(id)
         }
-        await delay(200)
-    }
-    throw new Error('Could not load plugin schedule in time')
+        return acc
+    }, {} as { [taskType: string]: number[] })
 }
 
 export async function runScheduledTasks(

@@ -5,6 +5,7 @@ import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { Kafka, SASLOptions } from 'kafkajs'
+import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
 import * as path from 'path'
@@ -23,6 +24,7 @@ import {
     Hub,
     KafkaSaslMechanism,
     KafkaSecurityProtocol,
+    PluginConfig,
     PluginServerCapabilities,
     PluginsServerConfig,
 } from '../../types'
@@ -217,9 +219,8 @@ export async function createHub(
         enqueuePluginJob,
         objectStorage: objectStorage,
 
-        plugins: new Map(),
-        pluginConfigs: new Map(),
-        pluginConfigsPerTeam: new Map(),
+        pluginConfigs: new LRU<number, Promise<PluginConfig>>({ maxAge: 1000 * 60 * 10 }),
+        pluginConfigsPerTeam: new LRU<number, Promise<PluginConfig[]>>({ maxAge: 1000 * 60 * 10 }),
         pluginConfigSecrets: new Map(),
         pluginConfigSecretLookup: new Map(),
 

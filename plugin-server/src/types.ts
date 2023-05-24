@@ -14,6 +14,7 @@ import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
+import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
 import { Pool } from 'pg'
@@ -208,8 +209,8 @@ export interface Hub extends PluginsServerConfig {
     pluginMetricsJob: Job | undefined
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
-    pluginConfigs: Map<PluginConfigId, PluginConfig>
-    pluginConfigsPerTeam: Map<TeamId, PluginConfig[]>
+    pluginConfigs: LRU<number, Promise<PluginConfig>>
+    pluginConfigsPerTeam: LRU<number, Promise<PluginConfig[]>>
     pluginSchedule: Record<string, PluginConfigId[]> | null
     // unique hash for each plugin config; used to verify IDs caught on stack traces for unhandled promise rejections
     pluginConfigSecrets: Map<PluginConfigId, string>

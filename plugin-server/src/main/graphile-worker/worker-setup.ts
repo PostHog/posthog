@@ -43,7 +43,7 @@ export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWork
     }
 
     if (hub.capabilities.pluginScheduledTasks) {
-        hub.pluginSchedule = await loadPluginSchedule(piscina)
+        hub.pluginSchedule = await loadPluginSchedule(hub)
 
         // TODO: In the future we might benefit from scheduling tasks more granularly i.e. <taskType, pluginConfigId>
         // KLUDGE: Given we're currently not doing the above, if we throw after executing n tasks for given type, those n tasks will be re-run
