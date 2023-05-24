@@ -18,7 +18,6 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Query } from '~/queries/Query/Query'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
-import { QuerySchema } from '~/queries/schema'
 
 export const scene: SceneExport = {
     component: Survey,
@@ -119,7 +118,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         <div>
                             <PropertyFilters
                                 orFiltering={true}
-                                pageKey={`survey-${survey.id}-targeting`}
+                                pageKey={`survey-${id}-targeting`}
                                 propertyFilters={survey.targeting_flag?.filters?.groups[0].properties}
                                 logicalRowDivider
                                 addButton={
@@ -183,7 +182,6 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
 
 export function SurveyView(): JSX.Element {
     const { survey, isSurveyRunning, dataTableQuery } = useValues(surveyLogic)
-    const { setDataTableQuery } = useActions(surveyLogic)
     const [tabKey, setTabKey] = useState('overview')
 
     return (
@@ -268,7 +266,7 @@ export function SurveyView(): JSX.Element {
                                     </div>
                                 </div>
                                 <LemonDivider />
-                                <Query query={dataTableQuery} setQuery={(q) => setDataTableQuery(q as QuerySchema)} />
+                                <Query query={dataTableQuery} />
                             </div>
                         ),
                         key: 'results',

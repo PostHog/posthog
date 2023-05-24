@@ -7,9 +7,10 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import { Survey, SurveyQuestionType, SurveyType } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
-import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
-export interface NewSurvey extends Pick<Survey, 'name' | 'description' | 'type' | 'questions' | 'targeting_flag'> {
+export interface NewSurvey
+    extends Pick<Survey, 'name' | 'description' | 'type' | 'questions' | 'targeting_flag' | 'start_date' | 'end_date'> {
     linked_flag_id: number | undefined
 }
 
@@ -20,6 +21,8 @@ const NEW_SURVEY: NewSurvey = {
     type: SurveyType.Popover,
     linked_flag_id: undefined,
     targeting_flag: null,
+    start_date: null,
+    end_date: null,
 }
 
 export interface SurveyLogicProps {
@@ -51,14 +54,13 @@ export const surveyLogic = kea<surveyLogicType>([
     key(({ id }) => id),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
-        setDataTableQuery: (query: QuerySchema) => ({ query }),
     }),
     loaders(({ props }) => ({
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
-                    // return await api.surveys.get(props.id)
-                    return await { id: '123', name: 'early access', created_at: new Date() }
+                    return await api.surveys.get(props.id)
+                    // return await ({ id: '123', name: 'early access', created_at: new Date() } as Survey)
                 }
                 return { ...NEW_SURVEY }
             },
@@ -87,19 +89,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 editingSurvey: (_, { editing }) => editing,
             },
         ],
-        dataTableQuery: [
-            DEFAULT_DATATABLE_QUERY as DataTableNode,
-            {
-                setDataTableQuery: (_, { query }) => {
-                    if (query.kind === NodeKind.DataTableNode) {
-                        return query as DataTableNode
-                    } else {
-                        console.error('Invalid query', query)
-                        return DEFAULT_DATATABLE_QUERY
-                    }
-                },
-            },
-        ],
+        dataTableQuery: [DEFAULT_DATATABLE_QUERY as DataTableNode],
     }),
     selectors({
         isSurveyRunning: [
@@ -109,19 +99,18 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
     }),
-    forms(({ actions, values }) => ({
+    forms(({ actions, props }) => ({
         survey: {
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
             errors: ({ name }) => ({
                 name: !name ? 'Please enter a name' : undefined,
             }),
             submit: async (surveyPayload) => {
-                if (values.survey?.id) {
+                if (props.id && props.id !== 'new') {
                     actions.updateSurvey(surveyPayload)
                 } else {
                     actions.createSurvey(surveyPayload)
                 }
-                actions.loadSurveySuccess(surveyPayload)
             },
         },
     })),
