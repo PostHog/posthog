@@ -5,6 +5,7 @@ on:
         branches:
             - master
             - main
+    pull_request:
 
 jobs:
     repo-sync:
