@@ -1909,8 +1909,7 @@ describe('PersonState.update()', () => {
                     ).handleIdentifyOrAlias(),
                 ])
 
-                let persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(2) // only one of them succeeded
+                // Note: we can't verify anything here because the concurrency might have enabled both merges to already happen.
 
                 await Promise.all([
                     personState(
@@ -1938,7 +1937,7 @@ describe('PersonState.update()', () => {
                 ])
 
                 // verify Postgres persons
-                persons = await fetchPostgresPersonsH()
+                const persons = await fetchPostgresPersonsH()
                 expect(persons.length).toEqual(1)
                 expect(persons[0]).toEqual(
                     expect.objectContaining({
