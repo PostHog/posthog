@@ -337,7 +337,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             cohort_id,
             {
                 "insight": "FUNNELS",
-                "events": '[{"id": "$pageview", "math": null, "name": "$pageview", "type": "events", "order": 0, "properties": [], "math_property": null}, {"id": "$another_view", "math": null, "name": "$another_view", "type": "events", "order": 1, "properties": [], "math_property": null}]',
+                "events": '[{"id": "$pageview", "math": null, "name": "$pageview", "type": "events", "order": 0, "properties": [], "math_hogql": null, "math_property": null}, {"id": "$another_view", "math": null, "name": "$another_view", "type": "events", "order": 1, "properties": [], "math_hogql": null, "math_property": null}]',
                 "display": "FunnelViz",
                 "interval": "day",
                 "layout": "horizontal",
