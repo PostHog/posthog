@@ -40,7 +40,7 @@
 
             .hotkey {
                 margin-bottom: 0;
-                background-color: var(--light) !important;
+                background-color: var(--inverse) !important;
                 border-color: var(--border) !important;
                 color: var(--muted);
             }
@@ -61,7 +61,7 @@
 
         .deprecated {
             .hotkey {
-                background-color: var(--light) !important;
+                background-color: var(--inverse) !important;
             }
         }
     }
@@ -177,10 +177,6 @@
         padding-left: 1rem;
         padding-right: 1rem;
         min-height: 48px;
-    }
-
-    .insight-more-btn-highlight {
-        background-color: var(--yellow-light);
     }
 }
 

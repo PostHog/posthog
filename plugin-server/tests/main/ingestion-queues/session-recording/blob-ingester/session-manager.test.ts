@@ -262,10 +262,10 @@ describe('session-manager', () => {
 
     it.each([
         [
-            'incomplete and below threshold, we keep it in the chunks buffer',
+            'incomplete and below threshold of 1000, we keep it in the chunks buffer',
             2000,
-            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage] },
-            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage] },
+            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage] },
+            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage] },
             [],
         ],
         [
@@ -439,6 +439,84 @@ describe('session-manager', () => {
             Object.entries(expectedChunks).forEach(([key, value]) => {
                 expect(actualChunks.get(key)?.chunks).toEqual(value)
             })
+            expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
+        }
+    )
+
+    it.each([
+        [
+            'incomplete, we do not add to the buffer',
+            [
+                { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage,
+                { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage,
+            ],
+            0,
+            [],
+        ],
+        [
+            'exactly complete, we add to the buffer',
+            [
+                {
+                    chunk_count: 2,
+                    chunk_index: 0,
+                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                    metadata: { timestamp: 1000, offset: 1 },
+                } as IncomingRecordingMessage,
+                {
+                    chunk_count: 2,
+                    chunk_index: 1,
+                    data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                    metadata: { timestamp: 1000, offset: 2 },
+                } as IncomingRecordingMessage,
+            ],
+            1,
+            [2, 1],
+        ],
+        [
+            'over complete, we add only necessary data to the buffer, but all offsets',
+            [
+                // receives first event 3 times
+                {
+                    chunk_count: 2,
+                    chunk_index: 0,
+                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                    metadata: { timestamp: 1000, offset: 1 },
+                } as IncomingRecordingMessage,
+                {
+                    chunk_count: 2,
+                    chunk_index: 0,
+                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                    metadata: { timestamp: 1000, offset: 2 },
+                } as IncomingRecordingMessage,
+                {
+                    chunk_count: 2,
+                    chunk_index: 0,
+                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                    metadata: { timestamp: 1000, offset: 3 },
+                } as IncomingRecordingMessage,
+                {
+                    chunk_count: 2,
+                    chunk_index: 1,
+                    data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                    metadata: { timestamp: 1000, offset: 4 },
+                } as IncomingRecordingMessage,
+            ],
+            1,
+            [4, 2, 3, 1],
+        ],
+    ])(
+        'correctly handles adding to and completing chunks - %s',
+        (
+            _description: string,
+            chunks: IncomingRecordingMessage[],
+            expectedBufferCount: number,
+            expectedBufferOffsets: number[]
+        ) => {
+            chunks.forEach(async (chunk) => {
+                await sessionManager.add(chunk)
+            })
+
+            expect(sessionManager.buffer.count).toEqual(expectedBufferCount)
             expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
         }
     )

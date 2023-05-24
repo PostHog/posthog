@@ -35,7 +35,7 @@ logger = structlog.get_logger(__name__)
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
-FLAG_MATCHING_QUERY_TIMEOUT_MS = 1 * 1000  # 1 second. Any longer and we'll just error out.
+FLAG_MATCHING_QUERY_TIMEOUT_MS = 300  # 300 ms. Any longer and we'll just error out.
 
 FLAG_EVALUATION_ERROR_COUNTER = Counter(
     "flag_evaluation_error_total",
@@ -317,7 +317,9 @@ class FeatureFlagMatcher:
     @cached_property
     def query_conditions(self) -> Dict[str, bool]:
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+            # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
+            # and not just the database query.
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2):
                 all_conditions: Dict = {}
                 team_id = self.feature_flags[0].team_id
                 person_query: QuerySet = Person.objects.filter(

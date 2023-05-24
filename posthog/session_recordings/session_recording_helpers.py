@@ -229,6 +229,18 @@ def decompress_chunked_snapshot_data(
 
     # Decompress the chunks and split the resulting events by window_id
     for chunks in chunk_list:
+        was_originally_over_complete = False
+        if len(chunks) > chunks[0]["snapshot_data"]["chunk_count"]:
+            was_originally_over_complete = True
+            deduplicated_chunks = {}
+            for chunk in chunks:
+                # reduce the chunks into deduplicated chunks by chunk_id taking only the first seen for each chunk_id
+                if chunk["snapshot_data"]["chunk_index"] not in deduplicated_chunks:
+                    deduplicated_chunks[chunk["snapshot_data"]["chunk_index"]] = chunk
+
+            chunks = list(deduplicated_chunks.values())
+
+        # even after deduplication, we don't know we have the right number of chunks
         if len(chunks) != chunks[0]["snapshot_data"]["chunk_count"]:
             capture_message(
                 "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} expected chunks".format(
@@ -237,7 +249,16 @@ def decompress_chunked_snapshot_data(
                     chunks[0]["snapshot_data"]["chunk_id"],
                     len(chunks),
                     chunks[0]["snapshot_data"]["chunk_count"],
-                )
+                ),
+                tags={
+                    "team_id": team_id,
+                },
+                extras={
+                    "session_recording_id": session_recording_id,
+                    "expected_chunk_count": chunks[0]["snapshot_data"]["chunk_count"],
+                    "received_chunk_count": len(chunks),
+                    "was_originally_over_complete": was_originally_over_complete,
+                },
             )
             continue
 
