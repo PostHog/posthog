@@ -1868,6 +1868,22 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "capture_performance_opt_in": True,
         }
         self._update_team(ALL_TEAM_PARAMS_FOR_DECIDE)
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
+            rollout_percentage=100,
+            name="Filter by property",
+            key="filer-by-property",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"properties": []},
+            rollout_percentage=100,
+            name="Filter by property",
+            key="no-props",
+            created_by=self.user,
+        )
         # populate redis caches
         self._post_decide(api_version=2, origin="https://random.example.com")
 
@@ -1886,4 +1902,4 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)
-            self.assertEqual(response["featureFlags"], {})
+            self.assertEqual(response["featureFlags"], {"no-props": True})
