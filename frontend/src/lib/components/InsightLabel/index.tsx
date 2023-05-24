@@ -78,7 +78,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
     if (math === 'hogql') {
         return (
             <Tag title={String(mathHogQL)}>
-                {String(mathHogQL).length > 10 ? `${mathHogQL?.substring(0, 10)}...` : String(mathHogQL ?? '')}
+                {String(mathHogQL).length > 20 ? `${mathHogQL?.substring(0, 20)}...` : String(mathHogQL ?? '')}
             </Tag>
         )
     }
