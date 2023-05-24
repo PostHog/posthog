@@ -70,7 +70,7 @@ export class SessionRecordingBlobIngester {
     lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
     enabledTeams: number[] | null
-    latestKafkaMessageTimestamp: Record<number, number | null> = {}
+    latestKafkaMessageTimestamp: number | null = null
 
     constructor(
         private teamManager: TeamManager,
@@ -140,8 +140,7 @@ export class SessionRecordingBlobIngester {
         }
 
         // track the latest message timestamp seen so, we can use it to calculate a reference "now"
-        // lag does not distribute evenly across partitions, so track timestamps per partition
-        this.latestKafkaMessageTimestamp[message.partition] = message.timestamp
+        this.latestKafkaMessageTimestamp = message.timestamp
         gaugeLagMilliseconds.labels(message.partition.toString()).set(DateTime.now().toMillis() - message.timestamp)
 
         let messagePayload: RawEventMessage
@@ -353,7 +352,7 @@ export class SessionRecordingBlobIngester {
 
             // in practice, we will always have a values for latestKaftaMessageTimestamp,
             // but in case we get here before the first message, we use now
-            const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition] || DateTime.now().toMillis()
+            const kafkaNow = this.latestKafkaMessageTimestamp || DateTime.now().toMillis()
 
             void sessionManager
                 .flushIfSessionBufferIsOld(kafkaNow, this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000)
