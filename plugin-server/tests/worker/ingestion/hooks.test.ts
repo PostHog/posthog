@@ -97,11 +97,72 @@ describe('hooks', () => {
     describe('getValueOfToken', () => {
         const action = { id: 1, name: 'action1' } as Action
         const event = {
+            eventUuid: '123',
+            event: '$pageview',
             distinctId: 'WALL-E',
             properties: { $browser: 'Chrome' },
             person_properties: { enjoys_broccoli_on_pizza: false },
         } as unknown as PostIngestionEvent
 
+        test('event UUID', () => {
+            const tokenUserName = ['event', 'uuid']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('123')
+            expect(markdown).toBe('123')
+        })
+
+        test('event name', () => {
+            const tokenUserName = ['event', 'name']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('$pageview')
+            expect(markdown).toBe('$pageview')
+        })
+
+        test('event event', () => {
+            const tokenUserName = ['event', 'event']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('123')
+            expect(markdown).toBe('[123](http://localhost:8000/events/123)')
+        })
+
+        test('event distinct_id', () => {
+            const tokenUserName = ['event', 'distinct_id']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('distinct_id')
+            expect(markdown).toBe('WALL-E')
+        })
         test('person with just distinct ID', () => {
             const tokenUserName = ['person']
 

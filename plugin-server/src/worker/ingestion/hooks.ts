@@ -28,31 +28,36 @@ export function determineWebhookType(url: string): WebhookType {
     return WebhookType.Teams
 }
 
-export function getUserDetails(event: PostIngestionEvent, siteUrl: string, webhookType: WebhookType): [string, string] {
-    const userName = stringify(
-        event.person_properties?.email ||
-            event.person_properties?.name ||
-            event.person_properties?.username ||
-            event.distinctId
-    )
-    let userMarkdown: string
+export function toWebhookLink(text: string | null, url: string, webhookType: WebhookType): [string, string] {
+    const name = stringify(text)
+    let markdown: string
     if (webhookType === WebhookType.Slack) {
-        userMarkdown = `<${siteUrl}/person/${event.distinctId}|${userName}>`
+        markdown = `<${url}|${name}>`
     } else {
-        userMarkdown = `[${userName}](${siteUrl}/person/${event.distinctId})`
+        markdown = `[${name}](${url})`
     }
-    return [userName, userMarkdown]
+    return [name, markdown]
+}
+
+export function getUserDetails(event: PostIngestionEvent, siteUrl: string, webhookType: WebhookType): [string, string] {
+    const userName =
+        event.person_properties?.email ||
+        event.person_properties?.name ||
+        event.person_properties?.username ||
+        event.distinctId
+    return toWebhookLink(userName, `${siteUrl}/person/${event.distinctId}`, webhookType)
 }
 
 export function getActionDetails(action: Action, siteUrl: string, webhookType: WebhookType): [string, string] {
-    const actionName = stringify(action.name)
-    let actionMarkdown: string
-    if (webhookType === WebhookType.Slack) {
-        actionMarkdown = `<${siteUrl}/action/${action.id}|${actionName}>`
-    } else {
-        actionMarkdown = `[${actionName}](${siteUrl}/action/${action.id})`
-    }
-    return [actionName, actionMarkdown]
+    return toWebhookLink(action.name, `${siteUrl}/action/${action.id}`, webhookType)
+}
+
+export function getEventDetails(
+    event: PostIngestionEvent,
+    siteUrl: string,
+    webhookType: WebhookType
+): [string, string] {
+    return toWebhookLink(event.event, `${siteUrl}/events/${event.eventUuid}`, webhookType)
 }
 
 export function getTokens(messageFormat: string): [string[], string] {
@@ -102,16 +107,23 @@ export function getValueOfToken(
             ;[text, markdown] = getActionDetails(action, siteUrl, webhookType)
         }
     } else if (tokenParts[0] === 'event') {
-        if (tokenParts[1] === 'name') {
+        if (tokenParts[1] === 'uuid') {
+            text = stringify(event.eventUuid)
+            markdown = text
+        } else if (tokenParts[1] === 'name') {
             text = stringify(event.event)
+            markdown = text
+        } else if (tokenParts[1] === 'event') {
+            ;[text, markdown] = getEventDetails(event, siteUrl, webhookType)
         } else if (tokenParts[1] === 'distinct_id') {
             text = stringify(event.distinctId)
+            markdown = text
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
             const propertyName = tokenParts[2]
             const property = event.properties?.[propertyName]
             text = stringify(property)
+            markdown = text
         }
-        markdown = text
     } else {
         throw new Error()
     }

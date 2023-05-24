@@ -3,8 +3,9 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
-import { InsightShortId, ReplayTabs } from '~/types'
+import { InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 import { combineUrl } from 'kea-router'
+import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -293,6 +294,20 @@ export const redirects: Record<
     '/events/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
+    '/events/:id': ({ id }) =>
+        combineUrl(
+            urls.events(),
+            {},
+            {
+                q: getDefaultEventsSceneQuery([
+                    {
+                        type: PropertyFilterType.HogQL,
+                        key: `uuid = '${id.replaceAll(/[^a-f0-9\-]/g, '')}'`,
+                        value: null,
+                    },
+                ]),
+            }
+        ).url,
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
