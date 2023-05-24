@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { Breadcrumb, Survey, SurveyQuestionType, SurveyType } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 
@@ -97,6 +97,16 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey): boolean => {
                 return survey.start_date && !survey.end_date
             },
+        ],
+        breadcrumbs: [
+            (s) => [s.survey],
+            (survey: Survey): Breadcrumb[] => [
+                {
+                    name: 'Surveys',
+                    path: urls.surveys(),
+                },
+                ...(survey?.name ? [{ name: survey.name }] : []),
+            ],
         ],
     }),
     forms(({ actions, props }) => ({
