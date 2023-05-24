@@ -16,22 +16,29 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: Groups,
     logic: groupsListLogic,
+    paramsToProps: ({ params: { groupTypeIndex } }) => ({
+        groupTypeIndex: parseInt(groupTypeIndex),
+    }),
 }
 
-export function Groups(): JSX.Element {
+export function Groups({ groupTypeIndex }: { groupTypeIndex?: string } = {}): JSX.Element {
     const {
-        currentTabName,
-        groupName: { singular, plural },
+        groupTypeName: { singular, plural },
         groups,
         groupsLoading,
         search,
     } = useValues(groupsListLogic)
     const { loadGroups, setSearch } = useActions(groupsListLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    if (groupTypeIndex === undefined) {
+        throw new Error('groupTypeIndex is undefined')
+    }
 
     if (
         groupsAccessStatus == GroupsAccessStatus.HasAccess ||
@@ -40,7 +47,7 @@ export function Groups(): JSX.Element {
     ) {
         return (
             <>
-                <PersonPageHeader />
+                <PersonPageHeader activeGroupTypeIndex={parseInt(groupTypeIndex)} />
                 <GroupsIntroduction access={groupsAccessStatus} />
             </>
         )
@@ -48,7 +55,7 @@ export function Groups(): JSX.Element {
 
     const columns: LemonTableColumns<Group> = [
         {
-            title: currentTabName,
+            title: capitalizeFirstLetter(plural),
             key: 'group_key',
             render: function Render(_, group: Group) {
                 return (
@@ -69,7 +76,7 @@ export function Groups(): JSX.Element {
 
     return (
         <>
-            <PersonPageHeader />
+            <PersonPageHeader activeGroupTypeIndex={parseInt(groupTypeIndex)} />
             <LemonInput
                 type="search"
                 placeholder={`Search for ${plural}`}
@@ -121,7 +128,7 @@ export function Groups(): JSX.Element {
                         </LemonBanner>
                         <CodeSnippet language={Language.JavaScript} wrap>
                             {`posthog.group('${singular}', 'id:5', {\n` +
-                                `    name: 'Awesome ${currentTabName}',\n` +
+                                `    name: 'Awesome ${singular}',\n` +
                                 '    value: 11\n' +
                                 '});'}
                         </CodeSnippet>

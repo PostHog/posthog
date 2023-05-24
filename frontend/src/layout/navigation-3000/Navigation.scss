@@ -227,6 +227,7 @@
     --accordion-inset: 1.25rem;
     --accordion-header-background: var(--accent-3000);
     min-height: var(--accordion-row-height);
+    flex-shrink: 0;
     flex-basis: 0;
     overflow-x: hidden;
     overflow-y: auto;
@@ -234,7 +235,7 @@
         --accordion-header-background: var(--bg-3000);
     }
     &.Accordion--expanded {
-        flex-basis: auto;
+        flex-grow: 1;
         &:not(:last-child) {
             border-bottom-width: 1px;
         }
