@@ -376,7 +376,7 @@ export function ActionFilterRow({
                                                     type="secondary"
                                                     data-attr={`math-hogql-select-${index}`}
                                                 >
-                                                    {mathHogQL}
+                                                    <code>{mathHogQL}</code>
                                                 </LemonButton>
                                             </LemonDropdown>
                                         </div>
