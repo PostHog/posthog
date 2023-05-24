@@ -143,7 +143,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
         saveInsight: ({ redirectToViewMode }) => {
             let filters = values.insight.filters
-            if (values.isUsingDataExploration && isInsightVizNode(values.query)) {
+            if (isInsightVizNode(values.query)) {
                 const querySource = values.query.source
                 filters = queryNodeToFilter(querySource)
             } else if (values.isUsingDashboardQueries && values.isQueryBasedInsight) {
