@@ -65,7 +65,7 @@ export const groupsListLogic = kea<groupsListLogicType>({
         groupTypeName: [
             (s, p) => [p.groupTypeIndex, s.aggregationLabel],
             (groupTypeIndex, aggregationLabel): Noun =>
-                groupTypeIndex === '-1' ? { singular: 'person', plural: 'persons' } : aggregationLabel(groupTypeIndex),
+                groupTypeIndex === -1 ? { singular: 'person', plural: 'persons' } : aggregationLabel(groupTypeIndex),
         ],
         breadcrumbs: [
             (s, p) => [s.groupTypeName, p.groupTypeIndex],

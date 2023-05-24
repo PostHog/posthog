@@ -101,7 +101,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                                         key: group.group_key,
                                         name: group.group_key,
                                         url: urls.group(groupType.group_type_index, group.group_key),
-                                        searchMatch: findSearchTermInItemName(name, searchTerm),
+                                        searchMatch: findSearchTermInItemName(group.group_key, searchTerm),
                                     } as BasicListItem
                                 }),
                                 loading: groupsLoading[groupType.group_type_index],
