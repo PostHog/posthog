@@ -219,27 +219,28 @@ export class SessionManager {
 
             this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
 
-            if (this.chunks.size === 0) {
-                // return the promise and let the caller decide whether to await
-                status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
-                    ...logContext,
-                })
-                return this.flush('buffer_age')
-            } else {
+            if (this.chunks.size !== 0) {
                 gaugePendingChunksBlocking.inc()
                 const chunkStates: Record<string, any> = {}
                 for (const [key, chunk] of this.chunks.entries()) {
-                    chunkStates[key] = { expected: chunk.expectedSize, received: chunk.chunks.length }
+                    chunkStates[key] = chunk.logContext
                 }
                 status.warn(
                     '🚽',
-                    `blob_ingester_session_manager would flush buffer due to age, but chunks are still pending`,
+                    `blob_ingester_session_manager flush buffer due to age, but chunks are still pending`,
                     {
                         ...logContext,
                         chunks: chunkStates,
                     }
                 )
             }
+
+            // flush even though there may be incomplete chunks
+            // return the promise and let the caller decide whether to await
+            status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+                ...logContext,
+            })
+            return this.flush('buffer_age')
         } else {
             status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
                 bufferAge,
@@ -263,7 +264,7 @@ export class SessionManager {
         const updatedChunks = new Map<string, PendingChunks>()
 
         for (const [key, pendingChunks] of chunks) {
-            if (!pendingChunks.isComplete && pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
+            if (pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
                 // dropping these chunks, don't lose their offsets
                 pendingChunks.chunks.forEach((x) => {
                     // we want to make sure that the offsets for these messages we're ignoring

@@ -2830,3 +2830,24 @@ export type PromptFlag = {
     locationCSS?: Partial<CSSStyleDeclaration>
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
+
+export type NotebookListItemType = {
+    // id: string
+    short_id: string
+    title?: string
+    created_at: string
+    created_by: UserBasicType | null
+    last_modified_at?: string
+    last_modified_by?: UserBasicType | null
+}
+
+export type NotebookType = NotebookListItemType & {
+    content: any // TODO: Type this better
+}
+
+export enum NotebookMode {
+    View = 'view',
+    Edit = 'edit',
+}
+
+export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'

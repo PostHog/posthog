@@ -79,6 +79,7 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    // await page.setViewportSize(DEFAULT_PAGE_DIMENSIONS)
     const {
         waitForLoadersToDisappear = storyContext.parameters?.layout === 'fullscreen',
         excludeNavigationFromSnapshot = false,
@@ -125,6 +126,11 @@ async function expectStoryToMatchSceneSnapshot(
     context: TestContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    await page.evaluate(() => {
+        // The screenshot gets clipped by the overflow hidden of the sidebar
+        document.querySelector('.SideBar')?.setAttribute('style', 'overflow: visible;')
+    })
+
     await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
 }
 

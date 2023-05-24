@@ -158,7 +158,6 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
         super().__init__(data)
 
     def to_dict(self) -> Dict[str, Any]:
-
         ret = super().to_dict()
 
         for _, func in inspect.getmembers(self, inspect.ismethod):
