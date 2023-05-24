@@ -85,7 +85,12 @@ export class SessionRecordingBlobIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const { partition, topic, offset } = event.metadata
+        const { partition, topic, offset, timestamp } = event.metadata
+
+        // track the latest message timestamp seen so, we can use it to calculate a reference "now"
+        // lag does not distribute evenly across partitions, so track timestamps per partition
+        this.latestKafkaMessageTimestamp[partition] = timestamp
+        gaugeLagMilliseconds.labels(partition.toString()).set(DateTime.now().toMillis() - timestamp)
 
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
@@ -132,11 +137,6 @@ export class SessionRecordingBlobIngester {
             // Typing says this can happen but in practice it shouldn't
             return statusWarn('message value or timestamp is empty')
         }
-
-        // track the latest message timestamp seen so, we can use it to calculate a reference "now"
-        // lag does not distribute evenly across partitions, so track timestamps per partition
-        this.latestKafkaMessageTimestamp[message.partition] = message.timestamp
-        gaugeLagMilliseconds.labels(message.partition.toString()).set(DateTime.now().toMillis() - message.timestamp)
 
         let messagePayload: RawEventMessage
         let event: PipelineEvent

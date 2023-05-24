@@ -458,6 +458,9 @@ export class SessionManager {
     private async addToChunks(message: IncomingRecordingMessage): Promise<void> {
         // If it is a chunked message we add to the collected chunks
 
+        // NOTE: This is NOT what we want but to test if this is the source of our offset commit issues.
+        this.buffer.offsets.push(message.metadata.offset)
+
         if (!this.chunks.has(message.chunk_id)) {
             this.chunks.set(message.chunk_id, new PendingChunks(message))
         } else {
@@ -473,18 +476,9 @@ export class SessionManager {
         }
     }
 
-    private async processChunksToBuffer(chunks: IncomingRecordingMessage[], allOffsets: number[]): Promise<void> {
-        const offsets = new Set<number>()
-        // push all but the first offset from the chunks into the buffer
-        // the first offset is copied into the data passed to `addToBuffer`
-        // and will be added there
-        for (let i = 1; i < chunks.length; i++) {
-            offsets.add(chunks[i].metadata.offset)
-        }
-        // in order to complete the chunks, we may have thrown away messages
-        // their offsets still need including in the buffer
-        allOffsets.filter((ao) => ao !== chunks[0].metadata.offset).forEach((offset) => offsets.add(offset))
-        offsets.forEach((offset) => this.buffer.offsets.push(offset))
+    private async processChunksToBuffer(chunks: IncomingRecordingMessage[], _allOffsets: number[]): Promise<void> {
+        // NOTE: Uncomment this when we stop testing the offset issue
+        // allOffsets.forEach((offset) => this.buffer.offsets.push(offset))
 
         await this.addToBuffer({
             ...chunks[0], // send the first chunk as the message, it should have the events summary
