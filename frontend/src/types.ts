@@ -2001,7 +2001,7 @@ export interface Survey {
     questions: SurveyQuestion[]
     created_at: string
     created_by: UserBasicType | null
-    start_date: string
+    start_date: string | null
     end_date: string | null
     archived: boolean
 }

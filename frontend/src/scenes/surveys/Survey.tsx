@@ -13,6 +13,11 @@ import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { EditableField } from 'lib/components/EditableField/EditableField'
+import { Query } from '~/queries/Query/Query'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { useState } from 'react'
 
 export const scene: SceneExport = {
     component: Survey,
@@ -72,7 +77,11 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     <LemonTextArea data-attr="survey-description" />
                 </Field>
                 <Field name="type" label="Type">
-                    <LemonSelect dropdownMaxContentWidth data-attr="survey-type" options={[{ label: 'Popover', value: SurveyType.Popover }]} />
+                    <LemonSelect
+                        dropdownMaxContentWidth
+                        data-attr="survey-type"
+                        options={[{ label: 'Popover', value: SurveyType.Popover }]}
+                    />
                 </Field>
                 <Field
                     name="linked_flag_id"
@@ -93,7 +102,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </Group>
                 ))}
                 <PureField label="Targeting">
-                <LemonDivider />
+                    <LemonDivider />
                     <Group name="conditions">
                         <Field name="url" label="URL">
                             <LemonInput />
@@ -117,27 +126,30 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         Add condition
                                     </LemonButton>
                                 }
-                                onChange={(properties) => { }}
+                                onChange={() => {}}
                                 // updateConditionSet(index, undefined, properties)}
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                ]}
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
-                            // errorMessages={
-                            //     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
-                            //         ? propertySelectErrors[index].properties.map((message, index) => {
-                            //             return message.value ? (
-                            //                 <div
-                            //                     key={index}
-                            //                     className="text-danger flex items-center gap-1 text-sm"
-                            //                 >
-                            //                     <IconErrorOutline className="text-xl" /> {message.value}
-                            //                 </div>
-                            //             ) : (
-                            //                 <></>
-                            //             )
-                            //         })
-                            //         : null
-                            // }
+                                // errorMessages={
+                                //     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
+                                //         ? propertySelectErrors[index].properties.map((message, index) => {
+                                //             return message.value ? (
+                                //                 <div
+                                //                     key={index}
+                                //                     className="text-danger flex items-center gap-1 text-sm"
+                                //                 >
+                                //                     <IconErrorOutline className="text-xl" /> {message.value}
+                                //                 </div>
+                                //             ) : (
+                                //                 <></>
+                                //             )
+                                //         })
+                                //         : null
+                                // }
                             />
                         </div>
                     </div>
@@ -148,5 +160,100 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
 }
 
 export function SurveyView(): JSX.Element {
-    return <div>survey view</div>
+    const { survey, isSurveyRunning, dataTableQuery } = useValues(surveyLogic)
+    const { setDataTableQuery } = useActions(surveyLogic)
+    const [tabKey, setTabKey] = useState('overview')
+
+    return (
+        <div>
+            <PageHeader
+                title={survey.name}
+                buttons={
+                    <div className="flex items-center gap-2">
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton data-attr="edit-survey" fullWidth onClick={() => {}}>
+                                        Edit
+                                    </LemonButton>
+                                    <LemonDivider />
+                                    <LemonButton status="danger">Delete survey</LemonButton>
+                                </>
+                            }
+                        />
+                        <LemonDivider vertical />
+                        {!isSurveyRunning ? (
+                            <LemonButton type="primary" onClick={() => {}}>
+                                Launch
+                            </LemonButton>
+                        ) : (
+                            <LemonButton type="primary" onClick={() => {}}>
+                                Stop
+                            </LemonButton>
+                        )}
+                    </div>
+                }
+                caption={
+                    <>
+                        {survey && !!survey.description && (
+                            <EditableField
+                                multiline
+                                name="description"
+                                value={survey.description || ''}
+                                placeholder="Description (optional)"
+                                onSave={
+                                    () => {}
+                                    // updatesurvey({ id: survey.id, description: value, allowUndo: true })
+                                }
+                                saveOnBlur={true}
+                                compactButtons
+                            />
+                        )}
+                    </>
+                }
+            />
+            <LemonTabs
+                activeKey={tabKey}
+                onChange={(key) => setTabKey(key)}
+                tabs={[
+                    {
+                        content: (
+                            <div className="flex flex-col">
+                                <span className="card-secondary mt-4">Type</span>
+                                <span>{SurveyType.Popover}</span>
+                                <span className="card-secondary mt-4">Questions</span>
+                                <span />
+                            </div>
+                        ),
+                        key: 'overview',
+                        label: 'Overview',
+                    },
+                    survey.start_date && {
+                        content: (
+                            <div>
+                                <div className="flex flex-row gap-4">
+                                    <div className="border rounded p-4">
+                                        <span>Impressions</span>
+                                        <h2>257</h2>
+                                    </div>
+                                    <div className="border rounded p-4">
+                                        <span>Started</span>
+                                        <h2>78</h2>
+                                    </div>
+                                    <div className="border rounded p-4">
+                                        <span>Completed</span>
+                                        <h2>55</h2>
+                                    </div>
+                                </div>
+                                <LemonDivider />
+                                <Query query={dataTableQuery} setQuery={setDataTableQuery} />
+                            </div>
+                        ),
+                        key: 'results',
+                        label: 'Results',
+                    },
+                ]}
+            />
+        </div>
+    )
 }

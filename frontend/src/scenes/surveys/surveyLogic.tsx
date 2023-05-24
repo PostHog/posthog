@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { kea, path, props, key, listeners, afterMount, reducers, actions } from 'kea'
+import { kea, path, props, key, listeners, afterMount, reducers, actions, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -7,15 +7,16 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import { Survey, SurveyQuestionType, SurveyType } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
+import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
 
-interface NewSurvey extends Pick<Survey, 'name' | 'description' | 'type' | 'questions' | 'targeting_flag'>{
+interface NewSurvey extends Pick<Survey, 'name' | 'description' | 'type' | 'questions' | 'targeting_flag'> {
     linked_flag_id: number | undefined
 }
 
 const NEW_SURVEY: NewSurvey = {
     name: '',
     description: '',
-    questions: [{type: SurveyQuestionType.Open, question: ''}],
+    questions: [{ type: SurveyQuestionType.Open, question: '' }],
     type: SurveyType.Popover,
     linked_flag_id: undefined,
     targeting_flag: null,
@@ -25,18 +26,39 @@ export interface SurveyLogicProps {
     id: string | 'new'
 }
 
+const DEFAULT_DATATABLE_QUERY: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: {
+        kind: NodeKind.EventsQuery,
+        select: ['*', 'event', 'timestamp', 'person'],
+        orderBy: ['timestamp DESC'],
+        after: '-30d',
+        limit: 100,
+        event: 'insight viewed',
+    },
+    propertiesViaUrl: true,
+    showExport: true,
+    showReload: true,
+    showColumnConfigurator: true,
+    showEventFilter: true,
+    showPropertyFilter: true,
+}
+
 export const surveyLogic = kea<surveyLogicType>([
     path(['scenes', 'surveys', 'surveyLogic']),
     props({} as SurveyLogicProps),
     key(({ id }) => id),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
+        setDataTableQuery: (query: Node | QuerySchema) => ({ query }),
     }),
     loaders(({ props }) => ({
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await api.surveys.get(props.id)
+                    // return await api.surveys.get(props.id)
+                    return await { id: '123', name: 'early access', created_at: new Date() }
                 }
                 return { ...NEW_SURVEY }
             },
@@ -63,6 +85,27 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
+            },
+        ],
+        dataTableQuery: [
+            DEFAULT_DATATABLE_QUERY as DataTableNode | null,
+            {
+                setDataTableQuery: (_, { query }) => {
+                    if (query.kind === NodeKind.DataTableNode) {
+                        return query as DataTableNode
+                    } else {
+                        console.error('Invalid query', query)
+                        return DEFAULT_DATATABLE_QUERY
+                    }
+                },
+            },
+        ],
+    }),
+    selectors({
+        isSurveyRunning: [
+            (s) => [s.survey],
+            (survey): boolean => {
+                return survey.start_date && !survey.end_date
             },
         ],
     }),
