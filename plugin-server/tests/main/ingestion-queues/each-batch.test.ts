@@ -1,8 +1,6 @@
-import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../src/config/kafka-topics'
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import {
-    eachBatchIngestion,
     eachBatchParallelIngestion,
     IngestionOverflowMode,
     splitIngestionBatch,
@@ -14,9 +12,7 @@ import {
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
-import { ConfiguredLimiter } from '../../../src/utils/token-bucket'
 import { groupIntoBatches } from '../../../src/utils/utils'
-import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
@@ -76,26 +72,6 @@ describe('eachBatchX', () => {
                     value: JSON.stringify(event),
                     timestamp,
                     offset: event.offset,
-                })),
-            },
-            resolveOffset: jest.fn(),
-            heartbeat: jest.fn(),
-            commitOffsetsIfNecessary: jest.fn(),
-            isRunning: jest.fn(() => true),
-            isStale: jest.fn(() => false),
-        }
-    }
-
-    function createBatchWithMultipleEventsWithKeys(events: any[], timestamp?: any): any {
-        return {
-            batch: {
-                partition: 0,
-                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
-                messages: events.map((event) => ({
-                    value: JSON.stringify(event),
-                    timestamp,
-                    offset: event.offset,
-                    key: event.team_id + ':' + event.distinct_id,
                 })),
             },
             resolveOffset: jest.fn(),
@@ -169,81 +145,6 @@ describe('eachBatchX', () => {
                 'kafka_queue.each_batch_async_handlers',
                 expect.any(Date)
             )
-        })
-    })
-
-    describe('eachBatchIngestion', () => {
-        it('calls runLightweightCaptureEndpointEventPipeline', async () => {
-            const batch = createBatch(captureEndpointEvent)
-            await eachBatchIngestion(batch, queue)
-
-            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({
-                distinct_id: 'id',
-                event: 'event',
-                properties: {},
-                ip: null,
-                now: null,
-                sent_at: null,
-                site_url: null,
-                team_id: 1,
-                uuid: 'uuid1',
-            })
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_ingestion',
-                expect.any(Date)
-            )
-        })
-
-        it('does not reproduce if already consuming from overflow', async () => {
-            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
-            batch.batch.topic = KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW
-            const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
-
-            await eachBatchIngestion(batch, queue)
-
-            expect(consume).not.toHaveBeenCalled()
-            expect(captureIngestionWarning).not.toHaveBeenCalled()
-            expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
-        })
-
-        it('breaks up by teamId:distinctId for enabled teams', async () => {
-            const batch = createBatchWithMultipleEvents([
-                { ...captureEndpointEvent, offset: 1, team_id: 3 },
-                { ...captureEndpointEvent, offset: 2, team_id: 3 }, // repeat
-                { ...captureEndpointEvent, offset: 3, team_id: 3 }, // repeat
-                { ...captureEndpointEvent, offset: 4, team_id: 3, distinct_id: 'id2' },
-                { ...captureEndpointEvent, offset: 5, team_id: 4 },
-                { ...captureEndpointEvent, offset: 6, team_id: 5 },
-                { ...captureEndpointEvent, offset: 7 },
-                { ...captureEndpointEvent, offset: 8, team_id: 3, distinct_id: 'id2' }, // repeat
-                { ...captureEndpointEvent, offset: 9, team_id: 4 },
-                { ...captureEndpointEvent, offset: 10, team_id: 4 }, // repeat
-                { ...captureEndpointEvent, offset: 11, team_id: 3 },
-                { ...captureEndpointEvent, offset: 12 },
-                { ...captureEndpointEvent, offset: 13 }, // repeat
-            ])
-
-            await eachBatchIngestion(batch, queue)
-
-            // Check the breakpoints in the batches matching repeating teamId:distinctId
-            expect(batch.resolveOffset).toBeCalledTimes(6)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(1)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(2)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(7)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(9)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(12)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(13)
-
-            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith(
-                'ingest_event_batching.input_length',
-                13,
-                {
-                    key: 'ingestion',
-                }
-            )
-            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith('ingest_event_batching.batch_count', 6, {
-                key: 'ingestion',
-            })
         })
     })
 
