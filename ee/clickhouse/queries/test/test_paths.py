@@ -2342,6 +2342,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    @freeze_time("2023-05-23T11:00:00.000Z")
     def test_wildcard_groups_evil_input(self):
         evil_string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
         # P1 for pageview event /2/bar/1/foo
