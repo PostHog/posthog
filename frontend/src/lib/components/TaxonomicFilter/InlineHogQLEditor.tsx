@@ -11,7 +11,7 @@ export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): 
         <div className="px-2">
             <HogQLEditor
                 onChange={onChange}
-                value={String(value)}
+                value={String(value ?? '')}
                 submitText={value ? 'Update HogQL expression' : 'Add HogQL expression'}
                 disableAutoFocus // :TRICKY: No autofocus here. It's controlled in the TaxonomicFilter.
             />

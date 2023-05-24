@@ -37,6 +37,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -354,14 +356,29 @@ export function ActionFilterRow({
                                     {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                         MathCategory.HogQLExpression && (
                                         <div className="flex-auto overflow-hidden">
-                                            <TaxonomicStringPopover
-                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
-                                                groupTypes={[TaxonomicFilterGroupType.HogQLExpression]}
-                                                value={mathHogQL}
-                                                onChange={(currentValue) => onMathHogQLSelect(index, currentValue)}
-                                                eventNames={name ? [name] : []}
-                                                dataAttr={`math-hogql-select-${index}`}
-                                            />
+                                            <LemonDropdown
+                                                overlay={
+                                                    // eslint-disable-next-line react/forbid-dom-props
+                                                    <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                                        <HogQLEditor
+                                                            disablePersonProperties
+                                                            value={mathHogQL}
+                                                            onChange={(currentValue) =>
+                                                                onMathHogQLSelect(index, currentValue)
+                                                            }
+                                                        />
+                                                    </div>
+                                                }
+                                            >
+                                                <LemonButton
+                                                    fullWidth
+                                                    status="stealth"
+                                                    type="secondary"
+                                                    data-attr={`math-hogql-select-${index}`}
+                                                >
+                                                    {mathHogQL}
+                                                </LemonButton>
+                                            </LemonDropdown>
                                         </div>
                                     )}
                                 </>
