@@ -4,22 +4,22 @@ import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic } from './notebooksListLogic'
-import { NotebookListItemType, NotebookSyncStatus, NotebookType } from '~/types'
-import { delay } from 'lib/utils'
+import { NotebookSyncStatus, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
 import { JSONContent, Editor } from './utils'
+import api from 'lib/api'
 
 const SYNC_DELAY = 1000
 
 export type NotebookLogicProps = {
-    id: string | number
+    shortId: string
 }
 
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
-    key(({ id }) => id),
+    key(({ shortId }) => shortId),
     connect({
         values: [notebooksListLogic, ['localNotebooks', 'scratchpadNotebook']],
         actions: [notebooksListLogic, ['receiveNotebookUpdate']],
@@ -31,7 +31,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
         setReady: true,
         loadNotebook: true,
-        saveNotebook: (notebook: Partial<NotebookType>) => ({ notebook }),
+        saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
     }),
     reducers({
         localContent: [
@@ -53,15 +53,6 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
             },
         ],
-        mockRemoteContent: [
-            null as JSONContent | null,
-            { persist: true },
-            {
-                loadNotebookSuccess: (_, { notebook }) => notebook.content,
-                saveNotebookSuccess: (_, { notebook }) => notebook?.content ?? null,
-            },
-        ],
-
         editor: [
             null as Editor | null,
             {
@@ -82,23 +73,20 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 loadNotebook: async () => {
                     // NOTE: This is all hacky and temporary until we have a backend
-                    // TODO: Add a "revision" counter to handle updates for now
-                    let found: NotebookListItemType | undefined
+                    let response: NotebookType | undefined
 
-                    if (props.id === 'scratchpad') {
-                        found = values.scratchpadNotebook
+                    if (props.shortId === 'scratchpad') {
+                        response = {
+                            ...values.scratchpadNotebook,
+                            content: {},
+                            version: 0,
+                        }
                     } else {
-                        await delay(1000)
-                        found = values.localNotebooks.find((x) => x.short_id === props.id)
+                        response = await api.notebooks.get(props.shortId)
                     }
 
-                    if (!found) {
+                    if (!response) {
                         throw new Error('Notebook not found')
-                    }
-
-                    const response = {
-                        ...found,
-                        content: values.mockRemoteContent,
                     }
 
                     if (!values.notebook) {
@@ -113,12 +101,13 @@ export const notebookLogic = kea<notebookLogicType>([
                     if (!values.notebook) {
                         return
                     }
-                    await delay(1000)
+                    const response = await api.notebooks.update(values.notebook.short_id, {
+                        version: values.notebook.version,
+                        content: notebook.content,
+                        title: notebook.title,
+                    })
 
-                    return {
-                        ...values.notebook,
-                        ...notebook,
-                    }
+                    return response
                 },
             },
         ],
@@ -176,7 +165,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
-            if (!values.isLocalOnly) {
+            if (!values.isLocalOnly && values.content) {
                 actions.saveNotebook({
                     content: values.content,
                     title: values.title,

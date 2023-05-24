@@ -48,7 +48,9 @@ class NotebookSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "short_id",
+            "title",
             "content",
+            "version",
             "deleted",
             "created_at",
             "created_by",
@@ -96,6 +98,12 @@ class NotebookSerializer(serializers.ModelSerializer):
         if validated_data.keys():
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
+
+        # TODO: This is not atomic meaning we could still end up with race conditions
+        if validated_data.get("version") != instance.version:
+            raise serializers.ValidationError("Notebook was modified by someone else. Please refresh and try again.")
+
+        validated_data["version"] = instance.version + 1
 
         updated_notebook = super().update(instance, validated_data)
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)

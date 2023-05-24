@@ -63,7 +63,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                     />
                                 </span>
                                 <span className="flex items-center gap-1 px-1">
-                                    {selectedNotebook && <NotebookSyncInfo id={selectedNotebook} />}
+                                    {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
                                     <LemonButton
                                         size="small"
@@ -105,7 +105,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                             </header>
                             <Notebook
                                 key={selectedNotebook}
-                                id={selectedNotebook}
+                                shortId={selectedNotebook}
                                 editable={isEditable}
                                 sourceMode={showCode}
                             />

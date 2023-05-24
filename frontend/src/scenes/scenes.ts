@@ -392,6 +392,6 @@ export const routes: Record<string, Scene> = {
     [urls.debugQuery()]: Scene.DebugQuery,
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
-    [urls.notebook(':id')]: Scene.Notebook,
-    [urls.notebookEdit(':id')]: Scene.Notebook,
+    [urls.notebook(':shortId')]: Scene.Notebook,
+    [urls.notebookEdit(':shortId')]: Scene.Notebook,
 }
