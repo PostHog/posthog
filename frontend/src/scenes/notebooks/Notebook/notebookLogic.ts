@@ -21,7 +21,7 @@ export const notebookLogic = kea<notebookLogicType>([
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId }) => shortId),
     connect({
-        values: [notebooksListLogic, ['localNotebooks', 'scratchpadNotebook']],
+        values: [notebooksListLogic, ['scratchpadNotebook']],
         actions: [notebooksListLogic, ['receiveNotebookUpdate']],
     }),
     actions({

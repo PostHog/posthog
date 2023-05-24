@@ -31,16 +31,6 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 setScratchpadNotebook: (_, { notebook }) => notebook,
             },
         ],
-
-        // NOTE: This is temporary, until we have a backend
-        localNotebooks: [
-            [] as NotebookListItemType[],
-            { persist: true },
-            {
-                createNotebookSuccess: (_, { notebooks }) => notebooks,
-                receiveNotebookUpdateSuccess: (_, { notebooks }) => notebooks,
-            },
-        ],
     }),
 
     loaders(({ values }) => ({
@@ -64,11 +54,11 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                         }, 500)
                     }
 
-                    return [...values.localNotebooks, notebook]
+                    return [notebook]
                 },
 
                 receiveNotebookUpdate: ({ notebook }) => {
-                    return values.localNotebooks.map((n) => (n.short_id === notebook.short_id ? notebook : n))
+                    return values.notebooks.map((n) => (n.short_id === notebook.short_id ? notebook : n))
                 },
             },
         ],
