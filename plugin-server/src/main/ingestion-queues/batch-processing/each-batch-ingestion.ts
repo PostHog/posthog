@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
+import { exponentialBuckets, Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
@@ -114,9 +115,26 @@ export async function eachBatchParallelIngestion(
             return Promise.resolve()
         }
 
-        const tasks = [...Array(queue.pluginsServer.INGESTION_CONCURRENCY)].map(() =>
-            processMicroBatches(splitBatch.toProcess)
-        )
+        /**
+         * Process micro-batches in parallel tasks on the main event loop. This will not allow to use more than
+         * one core, but will make better use of that core by waiting less on IO. Parallelism is currently
+         * limited by the distinct_id constraint we have on the input topic: one consumer batch does not hold
+         * a lot of different distinct_ids.
+         *
+         * Overflow rerouting (mostly waiting on kafka ACKs) is done in an additional task if needed.
+         */
+        const parallelism = Math.min(splitBatch.toProcess.length, queue.pluginsServer.INGESTION_CONCURRENCY)
+        ingestionParallelism
+            .labels({
+                overflow_mode: IngestionOverflowMode[overflowMode],
+            })
+            .observe(parallelism)
+        ingestionParallelismPotential
+            .labels({
+                overflow_mode: IngestionOverflowMode[overflowMode],
+            })
+            .observe(splitBatch.toProcess.length)
+        const tasks = [...Array(parallelism)].map(() => processMicroBatches(splitBatch.toProcess))
         if (splitBatch.toOverflow.length > 0) {
             tasks.push(emitToOverflow(queue, splitBatch.toOverflow))
         }
@@ -256,3 +274,17 @@ function countAndLogEvents(): void {
         messageLogDate = now
     }
 }
+
+const ingestionParallelism = new Histogram({
+    name: 'ingestion_batch_parallelism',
+    help: 'Processing parallelism per ingestion consumer batch',
+    labelNames: ['overflow_mode'],
+    buckets: exponentialBuckets(1, 2, 7), // Up to 64
+})
+
+const ingestionParallelismPotential = new Histogram({
+    name: 'ingestion_batch_parallelism_potential',
+    help: 'Number of eligible parts per ingestion consumer batch',
+    labelNames: ['overflow_mode'],
+    buckets: exponentialBuckets(1, 2, 7), // Up to 64
+})

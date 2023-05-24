@@ -46,8 +46,9 @@ export class PendingChunks {
     }
 
     isIdle(referenceNow: number, idleThreshold: number) {
-        const lastChunk = this.chunks[this.chunks.length - 1]
-        return lastChunk.metadata.timestamp < referenceNow - idleThreshold
+        const lastChunk = this.chunks.sort((a, b) => a.metadata.timestamp - b.metadata.timestamp)[0]
+        const chunkAge = referenceNow - lastChunk.metadata.timestamp
+        return chunkAge >= idleThreshold
     }
 
     add(message: IncomingRecordingMessage) {
@@ -58,5 +59,17 @@ export class PendingChunks {
             }
             return a.chunk_index - b.chunk_index
         })
+    }
+
+    get logContext(): Record<string, any> {
+        const sortedChunks = this.chunks.sort((a, b) => a.metadata.timestamp - b.metadata.timestamp)
+
+        return {
+            chunk_count: this.expectedSize,
+            chunk_indexes: this.chunks.map((x) => x.chunk_index),
+            chunk_offsets_counts: this.chunks.length,
+            first_chunk_timestamp: sortedChunks[0].metadata.timestamp,
+            last_chunk_timestamp: sortedChunks[sortedChunks.length - 1].metadata.timestamp,
+        }
     }
 }

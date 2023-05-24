@@ -16,7 +16,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const href = `/insights/${props.node.attrs.id}`
 
     return (
-        <NodeWrapper className={NotebookNodeType.Insight} title="Insight" href={href} {...props}>
+        <NodeWrapper className={NotebookNodeType.Insight} title="Insight" href={href} heightEstimate="16rem" {...props}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer

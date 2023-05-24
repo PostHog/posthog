@@ -4,6 +4,7 @@
     z-index: var(--z-popover);
     display: flex;
     flex-direction: row;
+
     h5 {
         margin: 0.25rem 0.5rem;
     }
@@ -119,6 +120,6 @@
 }
 
 .Popover__content {
-    overflow: auto;
+    overflow-y: auto;
     max-height: 100%;
 }

@@ -262,10 +262,10 @@ describe('session-manager', () => {
 
     it.each([
         [
-            'incomplete and below threshold, we keep it in the chunks buffer',
+            'incomplete and below threshold of 1000, we keep it in the chunks buffer',
             2000,
-            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage] },
-            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage] },
+            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage] },
+            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage] },
             [],
         ],
         [
@@ -284,7 +284,7 @@ describe('session-manager', () => {
             [245],
         ],
         [
-            'over-complete and over the threshold, should not be possible - do nothing',
+            'over-complete and over the threshold, should not be possible - drop them',
             2500,
             {
                 '1': [
@@ -313,37 +313,11 @@ describe('session-manager', () => {
                     } as IncomingRecordingMessage,
                 ],
             },
-            {
-                '1': [
-                    {
-                        chunk_count: 2,
-                        chunk_index: 0,
-                        data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-                        metadata: { timestamp: 997, offset: 123 },
-                    } as IncomingRecordingMessage,
-                    //receives chunk two three times 😱
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                        metadata: { timestamp: 998, offset: 124 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 999, offset: 125 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 126 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            [],
+            {},
+            [123, 124, 125, 126],
         ],
         [
-            'over-complete and under the threshold,do nothing',
+            'over-complete and under the threshold, do nothing',
             1000,
             {
                 '1': [
