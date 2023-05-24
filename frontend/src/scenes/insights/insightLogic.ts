@@ -1171,37 +1171,27 @@ export const insightLogic = kea<insightLogicType>([
     })),
     events(({ props, values, actions }) => ({
         afterMount: () => {
-            const hasDashboardItemId =
-                !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-')
-            const isCachedWithResultAndFilters =
-                !!props.cachedInsight &&
-                !!props.cachedInsight?.result &&
-                (Object.keys(props.cachedInsight?.filters || {}).length > 0 ||
-                    Object.keys(props.cachedInsight?.query || {}).length > 0)
+            if (!props.dashboardItemId || props.dashboardItemId === 'new' || props.dashboardItemId.startsWith('new-')) {
+                return
+            }
 
-            if (!isCachedWithResultAndFilters || !!values.isUsingDataExploration) {
-                if (hasDashboardItemId) {
-                    const insight = findInsightFromMountedLogic(
-                        props.dashboardItemId as string | InsightShortId,
-                        props.dashboardId
-                    )
-                    if (insight) {
-                        actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
-                        if (insight?.result) {
-                            actions.reportInsightViewed(insight, insight.filters || {})
-                        } else if (!insight.query) {
-                            actions.loadResults()
-                        }
-                        return
-                    }
+            const insight = findInsightFromMountedLogic(
+                props.dashboardItemId as string | InsightShortId,
+                props.dashboardId
+            )
+            console.debug('afterMount', props, insight)
+            if (insight) {
+                actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
+                if (insight?.result) {
+                    actions.reportInsightViewed(insight, insight.filters || {})
+                } else if (!insight.query) {
+                    actions.loadResults()
                 }
-                if (!props.doNotLoad) {
-                    if (props.cachedInsight?.filters && !props.cachedInsight?.query && !values.isUsingDataExploration) {
-                        actions.loadResults()
-                    } else if (hasDashboardItemId) {
-                        actions.loadInsight(props.dashboardItemId as InsightShortId)
-                    }
-                }
+                return
+            }
+
+            if (!props.doNotLoad) {
+                actions.loadInsight(props.dashboardItemId as InsightShortId)
             }
         },
         beforeUnmount: () => {

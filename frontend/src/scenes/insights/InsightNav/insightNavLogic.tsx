@@ -3,7 +3,6 @@ import { InsightLogicProps, InsightType } from '~/types'
 
 import type { insightNavLogicType } from './insightNavLogicType'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { NodeKind } from '~/queries/schema'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
@@ -36,7 +35,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
-        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
+        actions: [insightDataLogic(props), ['setQuery']],
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
@@ -159,30 +158,18 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     actions.setQuery(examples.HogQLTable)
                 }
             } else {
-                if (values.isUsingDataExploration) {
-                    if (view === InsightType.TRENDS) {
-                        actions.setQuery(queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault))
-                    } else if (view === InsightType.FUNNELS) {
-                        actions.setQuery(queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault))
-                    } else if (view === InsightType.RETENTION) {
-                        actions.setQuery(queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault))
-                    } else if (view === InsightType.PATHS) {
-                        actions.setQuery(queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault))
-                    } else if (view === InsightType.STICKINESS) {
-                        actions.setQuery(queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault))
-                    } else if (view === InsightType.LIFECYCLE) {
-                        actions.setQuery(queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault))
-                    }
-                } else {
-                    actions.setFilters(
-                        cleanFilters(
-                            // double-check that the view is valid
-                            { ...values.filters, insight: view || InsightType.TRENDS },
-                            values.filters
-                        ),
-                        undefined,
-                        true
-                    )
+                if (view === InsightType.TRENDS) {
+                    actions.setQuery(queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.FUNNELS) {
+                    actions.setQuery(queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.RETENTION) {
+                    actions.setQuery(queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.PATHS) {
+                    actions.setQuery(queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.STICKINESS) {
+                    actions.setQuery(queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.LIFECYCLE) {
+                    actions.setQuery(queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault))
                 }
             }
         },
