@@ -15,12 +15,12 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { IconInfo, IconPlayCircle, IconPlus } from 'lib/lemon-ui/icons'
 import { tagsModel } from '~/models/tagsModel'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonTextArea } from '@posthog/lemon-ui'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -285,7 +285,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 {({ value, onChange }) => (
                                     <>
                                         <LemonLabel showOptional>Message format</LemonLabel>
-                                        <LemonInput
+                                        <LemonTextArea
                                             placeholder="Default: [action.name] triggered by [person]"
                                             value={value}
                                             onChange={onChange}

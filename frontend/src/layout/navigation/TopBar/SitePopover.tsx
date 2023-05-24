@@ -14,7 +14,7 @@ import {
     IconSettings,
     IconCorporate,
     IconPlus,
-    IconPreview,
+    IconRedeem,
 } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { Link } from 'lib/lemon-ui/Link'
@@ -275,7 +275,7 @@ export function SitePopoverOverlay(): JSX.Element {
                         onClick={closeSitePopover}
                     >
                         <span className="LemonButton__icon">
-                            <IconPreview />
+                            <IconRedeem />
                         </span>
                         Enable beta features
                     </div>
