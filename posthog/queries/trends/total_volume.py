@@ -112,12 +112,11 @@ class TrendsTotalVolume:
                     **content_sql_params,
                     aggregator=determine_aggregator(entity, team),
                 )
-            elif entity.math == "hogql":
-                tag_queries(trend_volume_type="hogql")
-                content_sql = VOLUME_AGGREGATE_SQL.format(event_query_base=event_query_base, **content_sql_params)
-
             else:
-                tag_queries(trend_volume_type="volume_aggregate")
+                if entity.math == "hogql":
+                    tag_queries(trend_volume_type="hogql")
+                else:
+                    tag_queries(trend_volume_type="volume_aggregate")
                 content_sql = VOLUME_AGGREGATE_SQL.format(event_query_base=event_query_base, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))

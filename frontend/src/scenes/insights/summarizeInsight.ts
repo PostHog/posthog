@@ -149,7 +149,7 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
                             : mathType
                     }`
                 } else if (mathDefinition?.category === MathCategory.HogQLExpression) {
-                    series = localFilter.math_property ? localFilter.math_property.substring(6) : ''
+                    series = localFilter.math_hogql ?? 'HogQL'
                 } else {
                     series = `${getDisplayNameFromEntityFilter(localFilter)} ${
                         mathDefinition

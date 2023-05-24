@@ -204,7 +204,7 @@ export const HOGQL_MATH_DEFINITIONS: Record<HogQLMathType, MathDefinition> = {
     [HogQLMathType.HogQL]: {
         name: 'HogQL expression',
         shortName: 'HogQL expression',
-        description: <></>,
+        description: <>Aggregate with a custom HogQL expression.</>,
         category: MathCategory.HogQLExpression,
     },
 }
