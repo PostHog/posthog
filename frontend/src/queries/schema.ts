@@ -1,5 +1,4 @@
 import {
-    AnyPartialFilterType,
     AnyPropertyFilter,
     Breakdown,
     BreakdownKeyType,
@@ -44,7 +43,6 @@ export enum NodeKind {
     // Interface nodes
     DataTableNode = 'DataTableNode',
     InsightVizNode = 'InsightVizNode',
-    LegacyQuery = 'LegacyQuery',
 
     // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
@@ -76,7 +74,6 @@ export type QuerySchema =
     // Interface nodes
     | DataTableNode
     | InsightVizNode
-    | LegacyQuery
 
     // New queries, not yet implemented
     | TrendsQuery
@@ -471,13 +468,6 @@ export interface RecentPerformancePageViewNode extends DataNode {
 }
 
 export type HogQLExpression = string
-
-// Legacy queries
-
-export interface LegacyQuery extends Node {
-    kind: NodeKind.LegacyQuery
-    filters: AnyPartialFilterType
-}
 
 // Various utility types below
 

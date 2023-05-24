@@ -1,7 +1,6 @@
 import {
     isDataNode,
     isDataTableNode,
-    isLegacyQuery,
     isInsightQueryNode,
     isInsightVizNode,
     isTimeToSeeDataSessionsNode,
@@ -11,7 +10,6 @@ import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, Node, QueryContext, QuerySchema } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
@@ -63,9 +61,7 @@ export function Query(props: QueryProps): JSX.Element | null {
     }
 
     let component
-    if (isLegacyQuery(query)) {
-        component = <LegacyInsightQuery query={query} context={queryContext} />
-    } else if (isDataTableNode(query)) {
+    if (isDataTableNode(query)) {
         component = (
             <DataTable query={query} setQuery={setQuery} context={queryContext} cachedResults={props.cachedResults} />
         )

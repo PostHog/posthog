@@ -18,7 +18,6 @@ import {
     IconListView,
     IconPerson,
     IconPlusMini,
-    IconQuestionAnswer,
     IconSelectEvents,
     IconStarFilled,
     IconStarOutline,
@@ -192,12 +191,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Insight visualization',
         description: 'View your insights',
         icon: IconBarChart,
-        inMenu: true,
-    },
-    [NodeKind.LegacyQuery]: {
-        name: 'A legacy query',
-        description: 'Watch out for these, they might be dangerous',
-        icon: IconQuestionAnswer,
         inMenu: true,
     },
     [NodeKind.TimeToSeeDataSessionsQuery]: {

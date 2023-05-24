@@ -2,7 +2,6 @@ import { DataNode, EventsQuery, PersonsNode } from './schema'
 import {
     isInsightQueryNode,
     isEventsQuery,
-    isLegacyQuery,
     isPersonsNode,
     isTimeToSeeDataSessionsQuery,
     isTimeToSeeDataQuery,
@@ -60,12 +59,6 @@ export function queryExportContext<N extends DataNode = DataNode>(
         })
     } else if (isInsightVizNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isLegacyQuery(query)) {
-        return legacyInsightQueryExportContext({
-            filters: query.filters,
-            currentTeamId: getCurrentTeamId(),
-            methodOptions,
-        })
     } else if (isTimeToSeeDataSessionsQuery(query)) {
         return {
             path: '/api/time_to_see_data/sessions',
@@ -130,13 +123,6 @@ export async function query<N extends DataNode = DataNode>(
             currentTeamId: getCurrentTeamId(),
             methodOptions,
             refresh,
-        })
-        return await response.json()
-    } else if (isLegacyQuery(queryNode)) {
-        const [response] = await legacyInsightQuery({
-            filters: queryNode.filters,
-            currentTeamId: getCurrentTeamId(),
-            methodOptions,
         })
         return await response.json()
     } else if (isTimeToSeeDataQuery(queryNode)) {
