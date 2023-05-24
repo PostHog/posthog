@@ -51,7 +51,8 @@ describe('eachBatchIngestionWithOverflow', () => {
         queue = {
             bufferSleep: jest.fn(),
             pluginsServer: {
-                INGESTION_CONCURRENCY: 4,
+                WORKER_CONCURRENCY: 1,
+                TASKS_PER_WORKER: 10,
                 BUFFER_CONVERSION_SECONDS: 60,
                 statsd: {
                     timing: jest.fn(),
