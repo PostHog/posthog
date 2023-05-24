@@ -20,6 +20,16 @@ tailscale:
   enabled: true
   hostname: $NAMESPACE
 
+web:
+  hpa:
+    enabled: true
+events:
+  hpa:
+    enabled: true
+decide:
+  hpa:
+    enabled: true
+
 clickhouse:
   persistence:
     size: 100Gi
