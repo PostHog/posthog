@@ -464,8 +464,8 @@ export const keyMapping: KeyMappingInterface = {
             hide: true,
         },
         $time: {
-            label: 'Timestamp (seconds)',
-            description: 'Time as given by the client, seconds since epoch.',
+            label: '$time (deprecated)',
+            description: 'Use the HogQL field `timestamp` instead. This field was only set on some client side events.',
             hide: true,
             examples: ['1681211521.345'],
         },
