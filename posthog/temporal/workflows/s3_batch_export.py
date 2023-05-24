@@ -2,7 +2,11 @@ import datetime as dt
 import json
 from dataclasses import dataclass
 from string import Template
+import tempfile
+from aiochclient import ChClient
 
+from django.conf import settings
+import boto3
 from aiohttp import ClientSession
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -16,17 +20,10 @@ from posthog.temporal.workflows.base import (
     update_export_run_status,
 )
 
-INSERT_INTO_S3_QUERY_TEMPLATE = Template(
-    """
-    INSERT INTO FUNCTION s3({path}, $auth {file_format})
-    $partition_clause
-    """
-)
-
 SELECT_QUERY_TEMPLATE = Template(
     """
     SELECT $fields
-    FROM $table_name
+    FROM events
     WHERE
         timestamp >= toDateTime({data_interval_start}, 'UTC')
         AND timestamp < toDateTime({data_interval_end}, 'UTC')
@@ -54,40 +51,13 @@ class S3InsertInputs:
     team_id: int
     data_interval_start: str
     data_interval_end: str
-    file_format: str = "CSV"
-    table_name: str = "events"
-    partition_key: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
-
-
-def build_s3_url(bucket: str, region: str, key_template: str, is_debug_or_test: bool, **template_vars):
-    """Form a S3 URL given input parameters.
-
-    ClickHouse requires an S3 URL with http scheme.
-    """
-    if not template_vars:
-        key = key_template
-    else:
-        key = key_template.format(**template_vars)
-
-    if is_debug_or_test:
-        # Note we are making a request to the object storage from the local ClickHouse container.
-        # So, we are communicating via the network created by docker/podman compose. This means we
-        # can use the service name to resolve to the object storage container.
-        base_endpoint = "http://object-storage:19000"
-    else:
-        base_endpoint = f"https://s3.{region}.amazonaws.com"
-
-    return f"{base_endpoint}/{bucket}/{key}"
 
 
 def prepare_template_vars(inputs: S3InsertInputs):
     end_at = dt.datetime.fromisoformat(inputs.data_interval_end)
     return {
-        "partition_id": "{_partition_id}",
-        "table_name": inputs.table_name,
-        "file_format": inputs.file_format,
         "datetime": inputs.data_interval_end,
         "year": end_at.year,
         "month": end_at.month,
@@ -100,26 +70,11 @@ def prepare_template_vars(inputs: S3InsertInputs):
 
 @activity.defn
 async def insert_into_s3_activity(inputs: S3InsertInputs):
-    """Activity that runs a INSERT INTO query in ClickHouse targetting an S3 table function."""
-    from aiochclient import ChClient
-    from django.conf import settings
-
+    """
+    Activity that runs a INSERT INTO query in ClickHouse targetting an S3
+    table function.
+    """
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
-
-    if inputs.table_name not in TABLE_PARTITION_KEYS:
-        raise ValueError(f"Unsupported table {inputs.table_name}")
-
-    if inputs.partition_key:
-        if inputs.partition_key not in TABLE_PARTITION_KEYS[inputs.table_name]:
-            raise ValueError(f"Unsupported partition_key {inputs.partition_key}")
-        partition_clause = f"PARTITION BY {inputs.partition_key}"
-    else:
-        partition_clause = ""
-
-    if inputs.aws_access_key_id is not None and inputs.aws_secret_access_key is not None:
-        auth = "{aws_access_key_id}, {aws_secret_access_key},"
-    else:
-        auth = ""
 
     async with ClientSession() as s:
         client = ChClient(
@@ -136,49 +91,123 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         data_interval_start_ch = dt.datetime.fromisoformat(inputs.data_interval_start).strftime("%Y-%m-%d %H:%M:%S")
         data_interval_end_ch = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d %H:%M:%S")
         row = await client.fetchrow(
-            SELECT_QUERY_TEMPLATE.substitute(table_name=inputs.table_name, fields="count(*)"),
+            SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count"),
             params={
                 "team_id": inputs.team_id,
                 "data_interval_start": data_interval_start_ch,
                 "data_interval_end": data_interval_end_ch,
             },
         )
-        count = row[0]
 
-        if count is None or count == 0:
+        if row is None:
+            raise ValueError(f"Unexpected result from ClickHouse: {row}")
+
+        count = row["count"]
+
+        if count == 0:
             activity.logger.info(
-                "Nothing to export in batch %s - %s. Exiting.", inputs.data_interval_start, inputs.data_interval_end
+                "Nothing to export in batch %s - %s. Exiting.",
+                inputs.data_interval_start,
+                inputs.data_interval_end,
+                count,
             )
             return
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
         template_vars = prepare_template_vars(inputs)
-        s3_url = build_s3_url(
-            bucket=inputs.bucket_name,
-            region=inputs.region,
-            key_template=inputs.key_template,
-            is_debug_or_test=settings.TEST or settings.DEBUG,
-            **template_vars,
-        )
 
-        query_template = Template(INSERT_INTO_S3_QUERY_TEMPLATE.template + SELECT_QUERY_TEMPLATE.template)
+        query_template = Template(SELECT_QUERY_TEMPLATE.template)
 
         activity.logger.debug(query_template.template)
 
-        await client.execute(
-            query_template.safe_substitute(
-                table_name=inputs.table_name, fields="*", auth=auth, partition_clause=partition_clause
-            ),
+        # Create a multipart upload to S3
+        key = inputs.key_template.format(**template_vars)
+        s3_client = boto3.client(
+            "s3",
+            region_name=inputs.region,
+            aws_access_key_id=inputs.aws_access_key_id,
+            aws_secret_access_key=inputs.aws_secret_access_key,
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        )
+        response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
+        upload_id = response["UploadId"]
+
+        # Iterate through chunks of results from ClickHouse and push them to S3
+        # as a multipart upload. The intention here is to keep memory usage low,
+        # even if the entire results set is large. We receive results from
+        # ClickHouse, write them to a local file, and then upload the file to S3
+        # when it reaches 50MB in size.
+        parts = []
+        part_number = 1
+        results_iterator = client.iterate(
+            query_template.safe_substitute(fields="*"),
+            json=True,
             params={
                 "aws_access_key_id": inputs.aws_access_key_id,
                 "aws_secret_access_key": inputs.aws_secret_access_key,
-                "path": s3_url,
-                "file_format": inputs.file_format,
                 "team_id": inputs.team_id,
                 "data_interval_start": data_interval_start_ch,
                 "data_interval_end": data_interval_end_ch,
             },
+        )
+
+        with tempfile.NamedTemporaryFile() as local_results_file:
+            while True:
+                try:
+                    result = await results_iterator.__anext__()
+                except StopAsyncIteration:
+                    break
+
+                if not result:
+                    break
+
+                # Write the results to a local file
+                local_results_file.write(json.dumps(result).encode("utf-8"))
+                local_results_file.write("\n".encode("utf-8"))
+                local_results_file.flush()
+
+                # Write results to S3 when the file reaches 50MB and reset the
+                # file.
+                if local_results_file.tell() > 50 * 1024 * 1024:
+                    activity.logger.info("Uploading part %s", part_number)
+
+                    local_results_file.seek(0)
+                    response = s3_client.upload_part(
+                        Bucket=inputs.bucket_name,
+                        Key=key,
+                        PartNumber=part_number,
+                        UploadId=upload_id,
+                        Body=local_results_file,
+                    )
+                    part_number += 1
+
+                    # Record the ETag for the part
+                    parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+
+                    # Reset the file
+                    local_results_file.seek(0)
+                    local_results_file.truncate()
+
+            # Upload the last part
+            local_results_file.seek(0)
+            response = s3_client.upload_part(
+                Bucket=inputs.bucket_name,
+                Key=key,
+                PartNumber=part_number,
+                UploadId=upload_id,
+                Body=local_results_file,
+            )
+
+            # Record the ETag for the last part
+            parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+
+        # Complete the multipart upload
+        s3_client.complete_multipart_upload(
+            Bucket=inputs.bucket_name,
+            Key=key,
+            UploadId=upload_id,
+            MultipartUpload={"Parts": parts},
         )
 
 
@@ -227,10 +256,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             bucket_name=inputs.bucket_name,
             region=inputs.region,
             key_template=inputs.key_template,
-            partition_key=inputs.partition_key,
-            table_name=inputs.table_name,
             team_id=inputs.team_id,
-            file_format=inputs.file_format,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
             data_interval_start=data_interval_start.isoformat(),
