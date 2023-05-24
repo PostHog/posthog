@@ -14,14 +14,14 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Sync repositories 1 to 1 - master branch
-              uses: PostHog/git-sync@d088980
+              uses: PostHog/git-sync@d0889805a3546677b58818a3b54986b83df196e8
               with:
                   source_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog.git'
                   source_branch: 'master'
                   destination_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog-foss.git'
                   destination_branch: 'master'
             - name: Sync repositories 1 to 1 – tags
-              uses: PostHog/git-sync@d088980
+              uses: PostHog/git-sync@d0889805a3546677b58818a3b54986b83df196e8
               with:
                   source_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog.git'
                   source_branch: 'refs/tags/*'
