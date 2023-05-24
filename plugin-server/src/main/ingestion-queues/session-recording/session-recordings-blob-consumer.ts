@@ -336,45 +336,44 @@ export class SessionRecordingBlobIngester {
         })
 
         // We trigger the flushes from this level to reduce the number of running timers
-        this.flushInterval = setTimeout(() => this.checkEachSession(), this.flushIntervalTimeoutMs)
-    }
+        this.flushInterval = setInterval(() => {
+            let sessionManagerBufferSizes = 0
 
-    private checkEachSession() {
-        let sessionManagerBufferSizes = 0
+            for (const [key, sessionManager] of this.sessions) {
+                sessionManagerBufferSizes += sessionManager.buffer.size
 
-        for (const [key, sessionManager] of this.sessions) {
-            sessionManagerBufferSizes += sessionManager.buffer.size
+                // in practice, we will always have a values for latestKaftaMessageTimestamp,
+                // but in case we get here before the first message, we use now
+                const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition] || DateTime.now().toMillis()
 
-            // in practice, we will always have a values for latestKaftaMessageTimestamp,
-            // but in case we get here before the first message, we use now
-            const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition] || DateTime.now().toMillis()
-
-            void sessionManager
-                .flushIfSessionBufferIsOld(kafkaNow, this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000)
-                .catch((err) => {
-                    status.error(
-                        '🚽',
-                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
-                        {
-                            err,
-                            session_id: sessionManager.sessionId,
-                        }
+                void sessionManager
+                    .flushIfSessionBufferIsOld(
+                        kafkaNow,
+                        this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
                     )
-                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
-                    throw err
-                })
+                    .catch((err) => {
+                        status.error(
+                            '🚽',
+                            'blob_ingester_consumer - failed trying to flush on idle session: ' +
+                                sessionManager.sessionId,
+                            {
+                                err,
+                                session_id: sessionManager.sessionId,
+                            }
+                        )
+                        captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                        throw err
+                    })
 
-            // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-            if (sessionManager.isEmpty) {
-                this.sessions.delete(key)
+                // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+                if (sessionManager.isEmpty) {
+                    this.sessions.delete(key)
+                }
             }
-        }
 
-        gaugeSessionsHandled.set(this.sessions.size)
-        gaugeBytesBuffered.set(sessionManagerBufferSizes)
-
-        // Here we schedule the next process
-        this.flushInterval = setTimeout(() => this.checkEachSession(), this.flushIntervalTimeoutMs)
+            gaugeSessionsHandled.set(this.sessions.size)
+            gaugeBytesBuffered.set(sessionManagerBufferSizes)
+        }, this.flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {
