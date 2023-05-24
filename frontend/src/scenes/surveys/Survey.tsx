@@ -248,30 +248,32 @@ export function SurveyView(): JSX.Element {
                         key: 'overview',
                         label: 'Overview',
                     },
-                    survey.start_date && {
-                        content: (
-                            <div>
-                                <div className="flex flex-row gap-4">
-                                    <div className="border rounded p-4">
-                                        <span>Impressions</span>
-                                        <h2>257</h2>
-                                    </div>
-                                    <div className="border rounded p-4">
-                                        <span>Started</span>
-                                        <h2>78</h2>
-                                    </div>
-                                    <div className="border rounded p-4">
-                                        <span>Completed</span>
-                                        <h2>55</h2>
-                                    </div>
-                                </div>
-                                <LemonDivider />
-                                <Query query={dataTableQuery} />
-                            </div>
-                        ),
-                        key: 'results',
-                        label: 'Results',
-                    },
+                    survey.start_date
+                        ? {
+                              content: (
+                                  <div>
+                                      <div className="flex flex-row gap-4">
+                                          <div className="border rounded p-4">
+                                              <span>Impressions</span>
+                                              <h2>257</h2>
+                                          </div>
+                                          <div className="border rounded p-4">
+                                              <span>Started</span>
+                                              <h2>78</h2>
+                                          </div>
+                                          <div className="border rounded p-4">
+                                              <span>Completed</span>
+                                              <h2>55</h2>
+                                          </div>
+                                      </div>
+                                      <LemonDivider />
+                                      <Query query={dataTableQuery} />
+                                  </div>
+                              ),
+                              key: 'results',
+                              label: 'Results',
+                          }
+                        : null,
                 ]}
             />
         </div>
