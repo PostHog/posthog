@@ -84,6 +84,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLimitAsUsage: [
             (s, p) => [s.billing, p.product, s.isEditingBillingLimit, s.billingLimitInput, s.customLimitUsd],
             (billing, product, isEditingBillingLimit, billingLimitInput, customLimitUsd) => {
+                // cast the product as a product, not an addon, to avoid TS errors. This is fine since we're just getting the tiers.
+                product = product as BillingProductV2Type
                 const productAndAddonTiers: BillingV2TierType[][] = [
                     product.tiers,
                     ...product.addons
