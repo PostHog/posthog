@@ -1179,7 +1179,6 @@ export const insightLogic = kea<insightLogicType>([
                 props.dashboardItemId as string | InsightShortId,
                 props.dashboardId
             )
-            console.debug('afterMount', props, insight)
             if (insight) {
                 actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                 if (insight?.result) {
