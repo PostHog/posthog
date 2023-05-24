@@ -1,7 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
+import { DataNode } from '~/queries/schema'
+
 import { FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps, InsightType } from '~/types'
 
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { funnelCorrelationDetailsLogic } from './funnelCorrelationDetailsLogic'
 
 const funnelResults = [
@@ -42,8 +46,8 @@ describe('funnelCorrelationDetailsLogic', () => {
             filters: {
                 insight: InsightType.FUNNELS,
                 actions: [
-                    { id: '$pageview', order: 0 },
-                    { id: '$pageview', order: 1 },
+                    { type: 'actions', id: '$pageview', order: 0 },
+                    { type: 'actions', id: '$pageview', order: 1 },
                 ],
             },
             result: funnelResults,
@@ -51,6 +55,13 @@ describe('funnelCorrelationDetailsLogic', () => {
     }
 
     beforeEach(async () => {
+        const builtDataNodeLogic = dataNodeLogic({
+            key: insightVizDataNodeKey(defaultProps),
+            query: {} as DataNode,
+            cachedResults: { result: funnelResults },
+        })
+        builtDataNodeLogic.mount()
+
         logic = funnelCorrelationDetailsLogic(defaultProps)
         logic.mount()
     })
