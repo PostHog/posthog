@@ -1,22 +1,30 @@
 @import '../../../styles/mixins';
 
-.SideBar__layout {
-    position: relative;
-    flex-grow: 1;
-    height: 100%;
-    min-height: calc(100vh - 3.5rem);
+.SideBar {
     display: flex;
+    overflow: hidden;
+    position: relative;
+    flex: 1;
+}
+
+.SideBar__content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: auto;
 }
 
 .SideBar__slider {
-    z-index: var(--z-lemon-sidebar);
     transition: 200ms ease margin, 200ms ease transform;
     position: absolute;
+    z-index: var(--z-lemon-sidebar);
     flex-shrink: 0;
     height: 100%;
     width: 15.5rem;
     background: var(--side);
     border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
 
     .SideBar--hidden & {
         // As an optimization we use transform instead of margin on mobile,
@@ -28,6 +36,22 @@
         position: relative;
         .SideBar--hidden & {
             margin-left: -15.5rem;
+        }
+    }
+
+    .SideBar__slider__content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        justify-content: space-between;
+
+        > ul {
+            overflow: auto;
+            padding: 1rem 0.5rem;
+            li {
+                margin-top: 1px;
+            }
         }
     }
 }
@@ -51,26 +75,6 @@
     }
     @include screen($lg) {
         display: none;
-    }
-}
-
-.SideBar__content {
-    position: sticky;
-    top: 3.5rem;
-    width: 100%;
-    height: calc(100vh - 3.5rem);
-
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    justify-content: space-between;
-
-    > ul {
-        overflow: auto;
-        padding: 1rem 0.5rem;
-        li {
-            margin-top: 1px;
-        }
     }
 }
 
