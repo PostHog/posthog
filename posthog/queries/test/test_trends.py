@@ -5390,7 +5390,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "entity_math": "dau",
                 "entity_type": "events",
                 "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
-                'up", "custom_name": null, "math": "dau", "math_property": null, '
+                'up", "custom_name": null, "math": "dau", "math_property": null, "math_hogql": null, '
                 '"math_group_type_index": null, "properties": {}}]',
                 "insight": "TRENDS",
                 "interval": "hour",
