@@ -1,31 +1,39 @@
+import { mkdirSync, rmSync } from 'node:fs'
+import path from 'path'
+
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingBlobIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
-import { Hub } from '../../../../src/types'
+import { Hub, PluginsServerConfig } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { createIncomingRecordingMessage } from './fixtures'
 
 const veryShortFlushInterval = 5
 describe('ingester', () => {
+    const config: PluginsServerConfig = {
+        ...defaultConfig,
+        SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/test-session-recordings',
+    }
+
     let ingester: SessionRecordingBlobIngester
 
     let hub: Hub
     let closeHub: () => Promise<void>
 
+    beforeAll(() => {
+        mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
+    })
+
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
+        ingester = new SessionRecordingBlobIngester(hub.teamManager, config, hub.objectStorage, veryShortFlushInterval)
     })
 
     afterEach(async () => {
         await closeHub()
     })
 
-    beforeEach(() => {
-        ingester = new SessionRecordingBlobIngester(
-            hub.teamManager,
-            defaultConfig,
-            hub.objectStorage,
-            veryShortFlushInterval
-        )
+    afterAll(() => {
+        rmSync(config.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
     })
 
     it('creates a new session manager if needed', async () => {
