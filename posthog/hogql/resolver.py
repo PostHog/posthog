@@ -251,11 +251,7 @@ class Resolver(CloningVisitor):
             raise ResolverException("Alias cannot be empty")
 
         node = super().visit_alias(node)
-
-        if not node.expr.type:
-            raise ResolverException(f"Cannot alias an expression without a type: {node.alias}")
-
-        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type)
+        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
         scope.aliases[node.alias] = node.type
         return node
 
