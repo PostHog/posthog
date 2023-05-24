@@ -12,6 +12,9 @@ import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-c
 import { IngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
 
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
+
 export enum IngestionOverflowMode {
     Disabled,
     Reroute,
