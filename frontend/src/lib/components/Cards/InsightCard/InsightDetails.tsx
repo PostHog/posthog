@@ -147,7 +147,7 @@ function SeriesDisplay({
                         <div>
                             counted by{' '}
                             {mathDefinition?.category === MathCategory.HogQLExpression ? (
-                                filter.math_hogql
+                                <code>{filter.math_hogql}</code>
                             ) : (
                                 <>
                                     {mathDefinition?.category === MathCategory.PropertyValue &&
@@ -177,23 +177,21 @@ function SeriesDisplay({
                 </>
             }
         >
-            <span>
-                {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
-                {filter.custom_name && <b> "{filter.custom_name}"</b>}
-                {filter.type === 'actions' && filter.id ? (
-                    <Link
-                        to={urls.action(filter.id)}
-                        className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
-                        title="Action series"
-                    >
-                        {filter.name}
-                    </Link>
-                ) : (
-                    <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                        <PropertyKeyInfo value={filter.name || '$pageview'} />
-                    </span>
-                )}
-            </span>
+            {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
+            {filter.custom_name && <b> "{filter.custom_name}"</b>}
+            {filter.type === 'actions' && filter.id ? (
+                <Link
+                    to={urls.action(filter.id)}
+                    className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
+                    title="Action series"
+                >
+                    {filter.name}
+                </Link>
+            ) : (
+                <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
+                    <PropertyKeyInfo value={filter.name || '$pageview'} />
+                </span>
+            )}
         </LemonRow>
     )
 }
