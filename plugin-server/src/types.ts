@@ -124,6 +124,7 @@ export interface PluginsServerConfig {
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
+    SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
