@@ -8,7 +8,7 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea } fro
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { SurveyType } from '~/types'
+import { SurveyQuestion, SurveyType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
@@ -18,6 +18,7 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Query } from '~/queries/Query/Query'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
+import { QuerySchema } from '~/queries/schema'
 
 export const scene: SceneExport = {
     component: Survey,
@@ -94,10 +95,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         </div>
                     )}
                 </Field>
-                {survey.questions.map((question, index) => (
+                {survey.questions.map((question: SurveyQuestion, index: number) => (
                     <Group name={`questions.${index}`} key={index}>
                         <Field name="question" label="Question">
-                            <LemonInput />
+                            <LemonInput value={question.question} />
                         </Field>
                     </Group>
                 ))}
@@ -267,7 +268,7 @@ export function SurveyView(): JSX.Element {
                                     </div>
                                 </div>
                                 <LemonDivider />
-                                <Query query={dataTableQuery} setQuery={setDataTableQuery} />
+                                <Query query={dataTableQuery} setQuery={(q) => setDataTableQuery(q as QuerySchema)} />
                             </div>
                         ),
                         key: 'results',

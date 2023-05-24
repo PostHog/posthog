@@ -9,7 +9,7 @@ import { Survey, SurveyQuestionType, SurveyType } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
 import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
 
-interface NewSurvey extends Pick<Survey, 'name' | 'description' | 'type' | 'questions' | 'targeting_flag'> {
+export interface NewSurvey extends Pick<Survey, 'name' | 'description' | 'type' | 'questions' | 'targeting_flag'> {
     linked_flag_id: number | undefined
 }
 
@@ -51,7 +51,7 @@ export const surveyLogic = kea<surveyLogicType>([
     key(({ id }) => id),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
-        setDataTableQuery: (query: Node | QuerySchema) => ({ query }),
+        setDataTableQuery: (query: QuerySchema) => ({ query }),
     }),
     loaders(({ props }) => ({
         survey: {
@@ -88,7 +88,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         dataTableQuery: [
-            DEFAULT_DATATABLE_QUERY as DataTableNode | null,
+            DEFAULT_DATATABLE_QUERY as DataTableNode,
             {
                 setDataTableQuery: (_, { query }) => {
                     if (query.kind === NodeKind.DataTableNode) {
