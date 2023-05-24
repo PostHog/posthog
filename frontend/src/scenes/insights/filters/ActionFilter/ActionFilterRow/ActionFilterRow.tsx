@@ -525,11 +525,7 @@ function useMathSelectorOptions({
 
     options.push({
         value: HogQLMathType.HogQL,
-        label: (
-            <div className="flex items-center gap-2">
-                <span>HogQL Expression</span>
-            </div>
-        ),
+       label: 'HogQL expression',
         tooltip: 'Aggregate events by custom SQL expression.',
         'data-attr': `math-node-hogql-expression-${index}`,
     })
