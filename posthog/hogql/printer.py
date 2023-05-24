@@ -702,8 +702,8 @@ class _Printer(Visitor):
         return f"{self._print_identifier(node.name)}({', '.join(self.visit(expr) for expr in node.args)}) OVER ({self.visit(node.over_expr)})"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
-        if node.frame_type == "PRECEEDING":
-            return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} PRECEEDING"
+        if node.frame_type == "PRECEDING":
+            return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} PRECEDING"
         elif node.frame_type == "FOLLOWING":
             return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} FOLLOWING"
         elif node.frame_type == "CURRENT ROW":
