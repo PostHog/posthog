@@ -73,5 +73,6 @@ describe('ingester', () => {
         await new Promise((resolve) => setTimeout(resolve, veryShortFlushInterval))
 
         expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
+        await ingester.stop()
     })
 })
