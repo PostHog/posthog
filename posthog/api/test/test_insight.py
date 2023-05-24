@@ -26,8 +26,10 @@ from posthog.models import (
     Person,
     Team,
     User,
+    SharingConfiguration,
+    OrganizationMembership,
+    Text,
 )
-from posthog.models.organization import OrganizationMembership
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -35,6 +37,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
+    flush_persons_and_events,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
 )
@@ -325,7 +328,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
 
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_listing_insights_does_not_nplus1(self) -> None:
         query_counts: List[int] = []
@@ -480,6 +483,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": response_data["short_id"],
                     },
@@ -720,6 +724,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
                         "trigger": None,
+                        "type": None,
                     },
                     "item_id": str(insight_id),
                     "scope": "Insight",
@@ -744,6 +749,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
                         "trigger": None,
+                        "type": None,
                     },
                     "item_id": str(insight_id),
                     "scope": "Insight",
@@ -757,6 +763,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
                         "trigger": None,
+                        "type": None,
                     },
                     "item_id": str(insight_id),
                     "scope": "Insight",
@@ -846,6 +853,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "pageview unique users",
                         "short_id": response_data["short_id"],
                     },
@@ -909,6 +917,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 },
                             ],
                             "trigger": None,
+                            "type": None,
                             "name": "insight new name",
                             "short_id": short_id,
                         },
@@ -922,6 +931,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "detail": {
                             "changes": None,
                             "trigger": None,
+                            "type": None,
                             "name": "insight name",
                             "short_id": short_id,
                         },
@@ -980,6 +990,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -1001,6 +1012,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -1022,6 +1034,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -1606,55 +1619,256 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.assertEqual(len(response["result"]), 11)
 
-    def test_insight_with_specified_token(self) -> None:
-        _, _, user2 = User.objects.bootstrap("Test", "team2@posthog.com", None)
-        assert user2.team is not None
-        assert self.team is not None
-        assert self.user.team is not None
+    def test_logged_out_user_cannot_retrieve_insight(self) -> None:
+        self.client.logout()
+        insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
 
-        self.assertNotEqual(user2.team.id, self.team.id)
-        self.client.force_login(self.user)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/",
+        )
 
+        self.assertEqual(response.status_code, 401, response.json())
+        self.assertEqual(response.json(), self.unauthenticated_response())
+
+    def test_logged_out_user_can_retrieve_insight_with_correct_insight_sharing_access_token(self) -> None:
+        self.client.logout()
         _create_person(
             team=self.team,
             distinct_ids=["person1"],
             properties={"email": "person1@test.com"},
         )
-
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="person1",
-            timestamp=timezone.now() - timedelta(days=6),
-        )
-
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id="person1",
             timestamp=timezone.now() - timedelta(days=5),
         )
-
-        events_filter = json.dumps([{"id": "$pageview"}])
-
-        response_team1 = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?events={events_filter}")
-        response_team1_token = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={events_filter}&token={self.user.team.api_token}"
+        flush_persons_and_events()
+        insight = Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+        Insight.objects.create(  # This one isn't shared
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="abcdfghi",
+        )
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=insight, enabled=True, access_token="xyz"
+        )
+        other_sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, enabled=True, access_token="klm"
         )
 
-        self.client.force_login(user2)
-        response_team2 = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={events_filter}",
-            data={"token": user2.team.api_token},
+        response_invalid_token_retrieve = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token=abc",
+        )
+        response_incorrect_token_retrieve = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={other_sharing_configuration.access_token}",
+        )
+        response_correct_token_retrieve = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
+        )
+        response_correct_token_list = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
         )
 
-        self.assertEqual(response_team1.status_code, 200)
-        self.assertEqual(response_team2.status_code, 200)
-        self.assertEqual(response_team1.json()["result"], response_team1_token.json()["result"])
-        self.assertNotEqual(len(response_team1.json()["result"]), len(response_team2.json()["result"]))
+        self.assertEqual(response_invalid_token_retrieve.status_code, 401, response_invalid_token_retrieve.json())
+        self.assertEqual(
+            response_invalid_token_retrieve.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
+        )
+        self.assertEqual(response_incorrect_token_retrieve.status_code, 404, response_incorrect_token_retrieve.json())
+        self.assertEqual(
+            response_incorrect_token_retrieve.json(),
+            self.not_found_response(),
+        )
+        self.assertEqual(response_correct_token_retrieve.status_code, 200, response_correct_token_retrieve.json())
+        self.assertDictContainsSubset(
+            {
+                "name": "Foobar",
+            },
+            response_correct_token_retrieve.json(),
+        )
+        self.assertEqual(response_correct_token_list.status_code, 200, response_correct_token_list.json())
+        # abcdfghi not returned as it's not related to this sharing configuration
+        self.assertEqual(response_correct_token_list.json()["count"], 1)
+        self.assertDictContainsSubset(
+            {
+                "id": insight.id,
+                "name": "Foobar",
+                "short_id": "12345678",
+            },
+            response_correct_token_list.json()["results"][0],
+        )
 
-        response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/insights/trend?token=invalid")
-        self.assertEqual(response_invalid_token.status_code, 401)
+    def test_logged_out_user_cannot_retrieve_deleted_insight_with_correct_insight_sharing_access_token(self) -> None:
+        self.client.logout()
+        deleted_insight = Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+            deleted=True,
+        )
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=deleted_insight, enabled=True, access_token="ghi"
+        )
+
+        response_retrieve = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{deleted_insight.id}/?sharing_access_token={sharing_configuration.access_token}",
+        )
+
+        self.assertEqual(response_retrieve.status_code, 404, response_retrieve.json())
+        self.assertEqual(
+            response_retrieve.json(),
+            self.not_found_response(),
+        )
+
+    def test_logged_out_user_cannot_update_insight_with_correct_insight_sharing_access_token(self) -> None:
+        self.client.logout()
+        insight = Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=insight, enabled=True, access_token="ghi"
+        )
+
+        response_retrieve = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
+            {"name": "Barfoo"},
+        )
+
+        self.assertEqual(response_retrieve.status_code, 403, response_retrieve.json())
+        self.assertEqual(
+            response_retrieve.json(),
+            self.permission_denied_response(),
+        )
+
+    def test_logged_out_user_cannot_retrieve_insight_with_disabled_insight_sharing_access_token(self) -> None:
+        self.client.logout()
+        insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=insight, enabled=False, access_token="xyz"  # DISABLED!
+        )
+
+        response_retrieve = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
+        )
+        response_list = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?short_id={insight.short_id}&sharing_access_token={sharing_configuration.access_token}",
+        )
+
+        self.assertEqual(response_retrieve.status_code, 401, response_retrieve.json())
+        self.assertEqual(
+            response_retrieve.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
+        )
+        self.assertEqual(response_list.status_code, 401, response_retrieve.json())
+        self.assertEqual(
+            response_list.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
+        )
+
+    def test_logged_out_user_can_retrieve_insight_with_correct_dashboard_sharing_access_token(self) -> None:
+        self.client.logout()
+        _create_person(
+            team=self.team,
+            distinct_ids=["person1"],
+            properties={"email": "person1@test.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person1",
+            timestamp=timezone.now() - timedelta(days=5),
+        )
+        flush_persons_and_events()
+        insight = Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+        deleted_insight = Insight.objects.create(
+            name="Barfoo",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="87654321",
+            deleted=True,
+        )
+        deleted_tile_insight = Insight.objects.create(
+            name="Foobaz",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="abcdabcd",
+        )
+        random_text = Text.objects.create(team=self.team)
+        dashboard = Dashboard.objects.create(team=self.team, name="Test dashboard")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=deleted_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=deleted_tile_insight, deleted=True)
+        DashboardTile.objects.create(dashboard=dashboard, text=random_text)
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, dashboard=dashboard, enabled=True, access_token="xyz"
+        )
+
+        response_incorrect_token_retrieve = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token=abc",
+        )
+        response_correct_token_retrieve = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
+        )
+        response_correct_token_list = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
+        )
+
+        self.assertEqual(response_incorrect_token_retrieve.status_code, 401, response_incorrect_token_retrieve.json())
+        self.assertEqual(
+            response_incorrect_token_retrieve.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
+        )
+        self.assertEqual(response_correct_token_retrieve.status_code, 200, response_correct_token_retrieve.json())
+        self.assertDictContainsSubset({"name": "Foobar"}, response_correct_token_retrieve.json())
+        # Below checks that the deleted insight and non-deleted insight whose tile is deleted are not be retrievable
+        # Also, the text tile should not affect things
+        self.assertEqual(response_correct_token_list.status_code, 200, response_correct_token_list.json())
+        self.assertEqual(response_correct_token_list.json()["count"], 1)
+
+    def test_logged_out_user_cannot_retrieve_insight_with_correct_deleted_dashboard_sharing_access_token(self) -> None:
+        self.client.logout()
+        insight = Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="Test dashboard", deleted=True)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, dashboard=dashboard, enabled=True, access_token="xyz"
+        )
+
+        response_correct_token_list = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
+        )
+
+        self.assertEqual(response_correct_token_list.status_code, 200, response_correct_token_list.json())
+        self.assertEqual(response_correct_token_list.json()["count"], 0)
 
     def test_insight_trends_csv(self) -> None:
         with freeze_time("2012-01-14T03:21:34.000Z"):
@@ -2316,20 +2530,55 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
 
-        self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"deleted": True, "name": "an insight"},  # This request should work also if other fields are provided
+        )
 
         self.assertEqual(
             self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
             status.HTTP_404_NOT_FOUND,
         )
 
-        update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": False})
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"deleted": False, "name": "an insight"},  # This request should work also if other fields are provided
+        )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(
             self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
             status.HTTP_200_OK,
         )
+
+        # assert that undeletes end up in the activity log
+        activity_response = self.dashboard_api.get_insight_activity(insight_id)
+
+        activity: List[Dict] = activity_response["results"]
+        # we will have three logged activities (in reverse order) undelete, delete, create
+        assert [a["activity"] for a in activity] == ["updated", "updated", "created"]
+        undelete_change_log = activity[0]["detail"]["changes"][0]
+        assert undelete_change_log == {
+            "action": "changed",
+            "after": False,
+            "before": True,
+            "field": "deleted",
+            "type": "Insight",
+        }
+
+    def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        other_insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=other_team,
+            short_id="abcabc",
+            deleted=True,
+        )
+
+        other_update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{other_insight.id}", {"deleted": False}
+        )
+        self.assertEqual(other_update_response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cancel_running_query(self) -> None:
         # There is no good way of writing a test that tests this without it being very slow

@@ -1,26 +1,26 @@
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
-import { PlaylistPopover } from './playlist-popover/PlaylistPopover'
+import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
-export function PlayerMetaLinks(props: SessionRecordingPlayerProps): JSX.Element {
-    const { sessionRecordingId } = props
-    const logic = sessionRecordingPlayerLogic(props)
-    const { setPause, deleteRecording } = useActions(logic)
+export function PlayerMetaLinks(): JSX.Element {
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const onShare = (): void => {
         setPause()
+        // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
+        const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
         openPlayerShareDialog({
-            seconds: Math.floor((logic.values.currentPlayerTime || 0) / 1000),
+            seconds: Math.floor(currentPlayerTime / 1000),
             id: sessionRecordingId,
         })
     }
@@ -40,22 +40,37 @@ export function PlayerMetaLinks(props: SessionRecordingPlayerProps): JSX.Element
         })
     }
 
+    const commonProps: Partial<LemonButtonProps> = {
+        size: 'small',
+    }
+
     return (
-        <div className="flex flex-row gap-1 items-center">
-            <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" size="small">
-                Share
+        <div className="flex flex-row gap-1 items-center justify-end">
+            <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
+                <span>Share</span>
             </LemonButton>
 
-            <PlaylistPopover {...props} />
+            <PlaylistPopoverButton {...commonProps}>
+                <span>Pin</span>
+            </PlaylistPopoverButton>
 
             {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                <AddToNotebook node={NotebookNodeType.Recording} properties={{ ...props }} />
+                <AddToNotebook
+                    tooltip="Add to Notebook"
+                    node={NotebookNodeType.Recording}
+                    properties={{ id: sessionRecordingId }}
+                    {...commonProps}
+                />
             )}
 
-            {props.playerKey !== 'modal' && (
-                <LemonButton status="danger" onClick={onDelete} size="small">
-                    <IconDelete className="text-lg" />
-                </LemonButton>
+            {logicProps.playerKey !== 'modal' && (
+                <LemonButton
+                    tooltip="Delete"
+                    icon={<IconDelete />}
+                    onClick={onDelete}
+                    {...commonProps}
+                    status="danger"
+                />
             )}
         </div>
     )

@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
@@ -39,6 +40,19 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             "last_modified_at": mock.ANY,
             "last_modified_by": response.json()["last_modified_by"],
         }
+
+    def test_creates_too_many_playlists(self):
+        limit = 0
+        for feature in AVAILABLE_PRODUCT_FEATURES:
+            if "key" in feature and feature["key"] == "recordings_playlists":
+                limit = int(feature["limit"])
+        for _ in range(limit):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test"}
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+        response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test"})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_gets_individual_playlist_by_shortid(self):
         create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists")
@@ -162,7 +176,6 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
     def test_fetch_playlist_recordings(self):
-
         playlist1 = SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="playlist1",
@@ -198,8 +211,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         ).json()
 
         assert len(result["results"]) == 2
-        assert result["results"][0]["id"] == "session2"
-        assert result["results"][1]["id"] == "session1"
+        assert result["results"][0]["id"] == "session1"
+        assert result["results"][1]["id"] == "session2"
 
         # Test get recordings
         result = self.client.get(

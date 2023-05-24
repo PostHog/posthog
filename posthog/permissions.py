@@ -148,19 +148,6 @@ class OrganizationAdminWritePermissions(BasePermission):
         )
 
 
-class OrganizationAdminAnyPermissions(BasePermission):
-    """Require organization admin level to change and also read object."""
-
-    message = "Your organization access level is insufficient."
-
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        organization = extract_organization(object)
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
-        )
-
-
 class TeamMemberAccessPermission(BasePermission):
     """Require effective project membership for any access at all."""
 

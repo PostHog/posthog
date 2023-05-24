@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from './playerInspectorLogic'
 import { ItemConsoleLog } from './components/ItemConsoleLog'
 import { ItemEvent } from './components/ItemEvent'
@@ -51,21 +51,20 @@ const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
 function PlayerInspectorListItem({
     item,
     index,
-    logicProps,
     onLayout,
 }: {
     item: InspectorListItem
     index: number
-    logicProps: SessionRecordingPlayerLogicProps
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
-    const { tab, recordingTimeInfo, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { tab, durationMs, end, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
     const { timestampMode } = useValues(playerSettingsLogic)
 
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
     const showIcon = tab === SessionRecordingPlayerTab.ALL
-    const fixedUnits = recordingTimeInfo.duration / 1000 > 3600 ? 3 : 2
+    const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
 
     const isExpanded = expandedItems.includes(index)
 
@@ -107,6 +106,7 @@ function PlayerInspectorListItem({
                 // Style as we need it for the layout optimisation
                 marginTop: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
                 marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
+                zIndex: isExpanded ? 1 : 0,
             }}
         >
             {!isExpanded && (showIcon || windowNumber) && (
@@ -148,11 +148,11 @@ function PlayerInspectorListItem({
                     'flex-1 overflow-hidden rounded border',
                     isExpanded && 'border-primary',
                     item.highlightColor && `border-${item.highlightColor}-dark bg-${item.highlightColor}-highlight`,
-                    !item.highlightColor && 'bg-light'
+                    !item.highlightColor && 'bg-inverse'
                 )}
             >
                 {item.type === SessionRecordingPlayerTab.NETWORK ? (
-                    <ItemPerformanceEvent item={item.data} finalTimestamp={recordingTimeInfo.end} {...itemProps} />
+                    <ItemPerformanceEvent item={item.data} finalTimestamp={end} {...itemProps} />
                 ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
                     <ItemConsoleLog item={item} {...itemProps} />
                 ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
@@ -207,14 +207,76 @@ function PlayerInspectorListItem({
     )
 }
 
-export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
+function EmptyNetworkTab({
+    captureNetworkLogOptIn,
+    captureNetworkFeatureAvailable,
+}: {
+    captureNetworkLogOptIn: boolean
+    captureNetworkFeatureAvailable: boolean
+}): JSX.Element {
+    return !captureNetworkFeatureAvailable ? (
+        <div className="p-4">
+            <PayGatePage
+                featureKey={AvailableFeature.RECORDINGS_PERFORMANCE}
+                featureName="Network Performance"
+                header={
+                    <>
+                        Go deeper with <span className="highlight">Network Performance</span>!
+                    </>
+                }
+                caption="Understand what is happening with network requests during your recordings to identify slow pages, API errors and more."
+                docsLink="https://posthog.com/docs/user-guides/recordings"
+            />
+        </div>
+    ) : !captureNetworkLogOptIn ? (
+        <>
+            <div className="flex flex-col items-center">
+                <h4 className="text-xl font-medium">Performance events</h4>
+                <p className="text-muted text-center">
+                    Capture performance events like network requests during the browser recording to understand things
+                    like response times, page load times, and more.
+                </p>
+                <LemonButton type="primary" onClick={() => openSessionRecordingSettingsDialog()} targetBlank>
+                    Configure in settings
+                </LemonButton>
+            </div>
+        </>
+    ) : (
+        <>No results found in this recording.</>
+    )
+}
+
+function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: boolean }): JSX.Element {
+    return captureConsoleLogOptIn ? (
+        <>No results found in this recording.</>
+    ) : (
+        <>
+            <div className="flex flex-col items-center">
+                <h4 className="text-xl font-medium">Console logs</h4>
+                <p className="text-muted text-center">
+                    Capture all console logs during the browser recording to get technical information on what was
+                    occurring.
+                </p>
+                <LemonButton type="primary" onClick={() => openSessionRecordingSettingsDialog()} targetBlank>
+                    Configure in settings
+                </LemonButton>
+            </div>
+        </>
+    )
+}
+
+export function PlayerInspectorList(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
+
     const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollingPaused, tab } =
-        useValues(playerInspectorLogic(props))
-    const { setSyncScrollPaused } = useActions(playerInspectorLogic(props))
+        useValues(inspectorLogic)
+    const { setSyncScrollPaused } = useActions(inspectorLogic)
     const { syncScroll } = useValues(playerSettingsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const performanceEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
+    const performanceAvailable: boolean = hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
+    const performanceEnabled: boolean = currentTeam?.capture_performance_opt_in ?? false
 
     const cellMeasurerCache = useMemo(
         () =>
@@ -231,7 +293,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
     const mouseHoverRef = useRef<boolean>(false)
 
     // TRICKY: this is hacky but there is no other way to add a timestamp marker to the <List> component children
-    // We want this as otherwise we would have a tonne of unecessary re-rendering going on or poor scroll matching
+    // We want this as otherwise we would have a tonne of unnecessary re-rendering going on or poor scroll matching
     useEffect(() => {
         if (listRef.current) {
             if (document.getElementById('PlayerInspectorListMarker')) {
@@ -271,7 +333,6 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                             key={index}
                             item={items[index]}
                             index={index}
-                            logicProps={props}
                             onLayout={({ height }) => {
                                 // Optimization to ensure that we only call measure if the dimensions have actually changed
                                 if (height !== cellMeasurerCache.getHeight(index, 0)) {
@@ -308,7 +369,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                                 id="PlayerInspectorList"
                                 onScroll={() => {
                                     // TRICKY: There is no way to know for sure whether the scroll is directly from user input
-                                    // As such we only pause scrolling if we the last scroll triggered wasn't by the autoscroller
+                                    // As such we only pause scrolling if we the last scroll triggered wasn't by the auto-scroller
                                     // and the user is currently hovering over the list
                                     if (!scrolledByJsFlag.current && mouseHoverRef.current) {
                                         setSyncScrollPaused(true)
@@ -328,56 +389,13 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                 <div className="p-16 text-center text-muted-alt">No results matching your filters.</div>
             ) : (
                 <div className="p-16 text-center text-muted-alt">
-                    {tab === SessionRecordingPlayerTab.CONSOLE && !currentTeam?.capture_console_log_opt_in ? (
-                        <>
-                            <div className="flex flex-col items-center">
-                                <h4 className="text-xl font-medium">Console logs</h4>
-                                <p className="text-muted text-center">
-                                    Capture all console logs during the browser recording to get technical information
-                                    on what was occuring.
-                                </p>
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => openSessionRecordingSettingsDialog()}
-                                    targetBlank
-                                >
-                                    Configure in settings
-                                </LemonButton>
-                            </div>
-                        </>
+                    {tab === SessionRecordingPlayerTab.CONSOLE ? (
+                        <EmptyConsoleTab captureConsoleLogOptIn={currentTeam?.capture_console_log_opt_in || false} />
                     ) : tab === SessionRecordingPlayerTab.NETWORK ? (
-                        !performanceEnabled ? (
-                            <div className="p-4">
-                                <PayGatePage
-                                    featureKey={AvailableFeature.RECORDINGS_PERFORMANCE}
-                                    featureName="Network Performance"
-                                    header={
-                                        <>
-                                            Go deeper with <span className="highlight">Network Performance</span>!
-                                        </>
-                                    }
-                                    caption="Understand what is happening with network requests during your recordings to identify slow pages, API errors and more."
-                                    docsLink="https://posthog.com/docs/user-guides/recordings"
-                                />
-                            </div>
-                        ) : (
-                            <>
-                                <div className="flex flex-col items-center">
-                                    <h4 className="text-xl font-medium">Performance events</h4>
-                                    <p className="text-muted text-center">
-                                        Capture performance events like network requests during the browser recording to
-                                        understand things like response times, page load times, and more.
-                                    </p>
-                                    <LemonButton
-                                        type="primary"
-                                        onClick={() => openSessionRecordingSettingsDialog()}
-                                        targetBlank
-                                    >
-                                        Configure in settings
-                                    </LemonButton>
-                                </div>
-                            </>
-                        )
+                        <EmptyNetworkTab
+                            captureNetworkFeatureAvailable={performanceAvailable}
+                            captureNetworkLogOptIn={performanceEnabled}
+                        />
                     ) : (
                         'No results found in this recording.'
                     )}

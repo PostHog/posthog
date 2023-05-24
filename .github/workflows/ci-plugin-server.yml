@@ -33,6 +33,9 @@ env:
     OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings'
     OBJECT_STORAGE_BUCKET: 'posthog'
+    # set the max buffer size small enough that the functional tests behave the same in CI as when running locally
+    SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
+    SESSION_RECORDING_BLOB_PROCESSING_TEAMS: 'all'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -52,7 +55,7 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@v2
               with:
-                  version: 7.x.x
+                  version: 8.x.x
 
             - name: Set up Node.js
               uses: actions/setup-node@v3
@@ -124,7 +127,7 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@v2
               with:
-                  version: 7.x.x
+                  version: 8.x.x
 
             - name: Set up Node.js
               uses: actions/setup-node@v3
@@ -155,13 +158,14 @@ jobs:
               run: cd plugin-server && pnpm test -- --runInBand --forceExit tests/ --shard=${{matrix.shard}}
 
     functional-tests:
-        name: Functional tests (POE_EMBRACE_JOIN_FOR_TEAMS=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}})
+        name: Functional tests (POE_TEAMS=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}} BATCHING=${{matrix.INGESTION_PARALLEL_BATCHING_ENABLED}})
         runs-on: ubuntu-latest-8-cores
 
         strategy:
             fail-fast: false
             matrix:
                 POE_EMBRACE_JOIN_FOR_TEAMS: ['', '*']
+                INGESTION_PARALLEL_BATCHING_ENABLED: ['false', 'true']
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -170,6 +174,7 @@ jobs:
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             POE_EMBRACE_JOIN_FOR_TEAMS: ${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}}
+            INGESTION_PARALLEL_BATCHING_ENABLED: ${{matrix.INGESTION_PARALLEL_BATCHING_ENABLED}}
 
         steps:
             - name: Code check out
@@ -212,7 +217,7 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@v2
               with:
-                  version: 7.x.x
+                  version: 8.x.x
 
             - name: Set up Node.js
               uses: actions/setup-node@v3
@@ -309,7 +314,7 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@v2
               with:
-                  version: 7.x.x
+                  version: 8.x.x
 
             - name: Set up Node.js
               uses: actions/setup-node@v3

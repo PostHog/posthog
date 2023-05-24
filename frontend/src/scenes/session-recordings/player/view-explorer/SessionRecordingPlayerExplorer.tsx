@@ -1,4 +1,4 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useState } from 'react'
 import './SessionRecordingPlayerExplorer.scss'
@@ -28,13 +28,11 @@ export function SessionRecordingPlayerExplorer({
         <div className="SessionRecordingPlayerExplorer space-y-2">
             <div className="shrink-0 space-y-2">
                 <div className="flex items-center gap-2">
-                    <span className="flex-1 font-semibold">
-                        View Explorer <LemonTag>Experimental</LemonTag>
-                    </span>
-                    <LemonButton type="secondary" onClick={() => setIframeKey(iframeKey + 1)}>
+                    <span className="font-bold uppercase text-xs tracking-wide flex-1">View Explorer</span>
+                    <LemonButton type="secondary" onClick={() => setIframeKey(iframeKey + 1)} size="small">
                         Reset
                     </LemonButton>
-                    <LemonButton type="primary" onClick={onClose}>
+                    <LemonButton type="primary" onClick={onClose} size="small">
                         Close
                     </LemonButton>
                 </div>

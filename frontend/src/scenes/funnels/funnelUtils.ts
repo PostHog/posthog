@@ -25,6 +25,7 @@ import { FunnelsQuery } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
+import { Noun } from '~/models/groupsModel'
 
 /** Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
@@ -641,4 +642,14 @@ export const appendToCorrelationConfig = (
     teamLogic.actions.updateCurrentTeam({
         correlation_config: correlationConfig,
     })
+}
+
+export function aggregationLabelForHogQL(funnel_aggregate_by_hogql: string): Noun {
+    if (funnel_aggregate_by_hogql === 'person_id') {
+        return { singular: 'person', plural: 'persons' }
+    }
+    if (funnel_aggregate_by_hogql === 'properties.$session_id') {
+        return { singular: 'session', plural: 'sessions' }
+    }
+    return { singular: 'result', plural: 'results' }
 }

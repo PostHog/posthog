@@ -225,8 +225,14 @@ export function FunnelPropertyCorrelationTableComponent({
                                     }
                                 >
                                     <LemonButton size="small" onClick={() => setIsPropertiesOpen(true)}>
-                                        {propertyNames.length} propert{propertyNames.length === 1 ? 'y' : 'ies'}{' '}
-                                        selected
+                                        {propertyNames.length === 1 && propertyNames[0] === '$all' ? (
+                                            <>All properties selected</>
+                                        ) : (
+                                            <>
+                                                {propertyNames.length} propert{propertyNames.length === 1 ? 'y' : 'ies'}{' '}
+                                                selected
+                                            </>
+                                        )}
                                     </LemonButton>
                                 </Popover>
                             </>
@@ -283,8 +289,8 @@ export function FunnelPropertyCorrelationTableComponent({
                             <Empty />
                         ) : (
                             <p style={{ margin: 'auto', maxWidth: 500 }}>
-                                Correlated properties highlights properties users have that are likely to have affected
-                                their conversion rate within the funnel.{' '}
+                                Highlight properties which are likely to have affected the conversion rate within the
+                                funnel.{' '}
                                 <Link to="https://posthog.com/manual/correlation">
                                     Learn more about correlation analysis.
                                 </Link>

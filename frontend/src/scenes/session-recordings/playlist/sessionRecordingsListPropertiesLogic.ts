@@ -1,46 +1,34 @@
-import { connect, kea, key, props, path, selectors, propsChanged } from 'kea'
+import { connect, kea, path, reducers, actions, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
-import api, { PaginatedResponse } from 'lib/api'
-import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
+import api from 'lib/api'
+import { SessionRecordingPropertiesType } from '~/types'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { sessionRecordingsListPropertiesLogicType } from './sessionRecordingsListPropertiesLogicType'
-import equal from 'fast-deep-equal'
 
-export interface SessionRecordingsListPropertiesLogicProps {
-    key: string
-    sessionIds: SessionRecordingType['id'][]
-}
-
+// This logic is used to fetch properties for a list of recordings
+// It is used in a global way as the cached values can be re-used
 export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPropertiesLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListPropertiesLogic', key]),
-    props({} as SessionRecordingsListPropertiesLogicProps),
-    key((props) => props.key),
+    path(() => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListPropertiesLogic']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportRecordingsListPropertiesFetched']],
     })),
-    propsChanged(({ actions, props: { sessionIds } }, { sessionIds: oldSessionIds }) => {
-        if (!equal(sessionIds, oldSessionIds)) {
-            actions.getSessionRecordingsProperties(sessionIds ?? [])
-        }
+
+    actions({
+        loadPropertiesForSessions: (ids: string[]) => ({ ids }),
+        maybeLoadPropertiesForSessions: (ids: string[]) => ({ ids }),
     }),
+
     loaders(({ actions }) => ({
-        sessionRecordingsPropertiesResponse: [
+        recordingProperties: [
+            [] as SessionRecordingPropertiesType[],
             {
-                results: [],
-            } as PaginatedResponse<SessionRecordingPropertiesType>,
-            {
-                getSessionRecordingsProperties: async (sessionIds, breakpoint) => {
-                    if (sessionIds.length < 1) {
-                        return {
-                            results: [],
-                        }
-                    }
+                loadPropertiesForSessions: async ({ ids }, breakpoint) => {
                     const paramsDict = {
-                        session_ids: sessionIds,
+                        session_ids: ids,
                     }
                     const params = toParams(paramsDict)
-                    await breakpoint(100) // Debounce for lots of quick filter changes
+                    await breakpoint(100)
 
                     const startTime = performance.now()
                     const response = await api.recordings.listProperties(params)
@@ -49,19 +37,39 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     actions.reportRecordingsListPropertiesFetched(loadTimeMs)
 
                     breakpoint()
-                    return response
+                    return response.results
                 },
             },
         ],
     })),
-    selectors(() => ({
-        sessionRecordingIdToProperties: [
-            (s) => [s.sessionRecordingsPropertiesResponse],
-            (propertiesResponse: PaginatedResponse<SessionRecordingPropertiesType>) => {
-                return (
-                    Object.fromEntries(propertiesResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
-                )
+
+    listeners(({ actions, values }) => ({
+        maybeLoadPropertiesForSessions: ({ ids }) => {
+            // Check the cache store and only load if not already loaded
+            const newSessionIds = ids.filter((id) => !values.recordingPropertiesById[id])
+
+            if (newSessionIds.length > 0) {
+                actions.loadPropertiesForSessions(newSessionIds)
+            }
+        },
+    })),
+
+    reducers({
+        recordingPropertiesById: [
+            {} as Record<string, SessionRecordingPropertiesType['properties']>,
+            {
+                loadPropertiesForSessionsSuccess: (
+                    state,
+                    { recordingProperties }
+                ): Record<string, SessionRecordingPropertiesType['properties']> => {
+                    const newState = { ...state }
+                    recordingProperties.forEach((properties) => {
+                        newState[properties.id] = properties.properties
+                    })
+
+                    return newState
+                },
             },
         ],
-    })),
+    }),
 ])

@@ -1,15 +1,14 @@
 import { Dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
 import { kea, path, selectors, key, props, connect, listeners, actions, reducers } from 'kea'
 import { groupBy } from 'lib/utils'
-import { AnnotationScope, InsightLogicProps, InsightModel, IntervalType } from '~/types'
+import { AnnotationScope, DatedAnnotationType, InsightLogicProps, InsightModel, IntervalType } from '~/types'
 import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { Tick } from 'chart.js'
 
-export interface AnnotationsOverlayLogicProps {
-    dashboardItemId: InsightLogicProps['dashboardItemId']
+export interface AnnotationsOverlayLogicProps extends InsightLogicProps {
     insightNumericId: InsightModel['id'] | 'new'
     dates: string[]
     ticks: Tick[]
@@ -130,15 +129,18 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 // in the project. Right now this is true on Cloud, though some projects are getting close (400+).
                 // If we see the scale increasing, we might need to fetch annotations on a per-insight basis here.
                 // That would greatly increase the number of requests to the annotations endpoint though.
-                return dateRange
-                    ? annotations.filter(
-                          (annotation) =>
-                              (annotation.scope !== AnnotationScope.Insight ||
-                                  annotation.dashboard_item === insightNumericId) &&
-                              annotation.date_marker >= dateRange[0] &&
-                              annotation.date_marker < dateRange[1]
-                      )
-                    : []
+                return (
+                    dateRange
+                        ? annotations.filter(
+                              (annotation) =>
+                                  (annotation.scope !== AnnotationScope.Insight ||
+                                      annotation.dashboard_item === insightNumericId) &&
+                                  annotation.date_marker &&
+                                  annotation.date_marker >= dateRange[0] &&
+                                  annotation.date_marker < dateRange[1]
+                          )
+                        : []
+                ) as DatedAnnotationType[]
             },
         ],
         groupedAnnotations: [

@@ -23,10 +23,10 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
-from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
+from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
-from posthog.models.team.team import get_available_features_for_team
+from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -110,11 +110,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
 
     def validate_description(self, value: str) -> str:
-        available_features = get_available_features_for_team(self.context["team_id"])
-
-        if value and AvailableFeature.DASHBOARD_COLLABORATION not in (available_features or []):
+        if value and not check_is_feature_available_for_team(
+            self.context["team_id"], AvailableFeature.DASHBOARD_COLLABORATION
+        ):
             raise PermissionDenied("You must have paid for dashboard collaboration to set the dashboard description")
-
         return value
 
     def validate_filters(self, value) -> Dict:
@@ -126,13 +125,13 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team = Team.objects.get(id=self.context["team_id"])
+        team_id = self.context["team_id"]
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        dashboard = Dashboard.objects.create(team=team, **validated_data)
+        dashboard = Dashboard.objects.create(team_id=team_id, **validated_data)
 
         if use_template:
             try:
@@ -140,7 +139,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             except AttributeError as error:
                 logger.error(
                     "dashboard_create.create_from_template_failed",
-                    team_id=team.id,
+                    team_id=team_id,
                     template=use_template,
                     error=error,
                     exc_info=True,
@@ -149,7 +148,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         elif use_dashboard:
             try:
-                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
+                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team_id=team_id)
                 existing_tiles = (
                     DashboardTile.objects.filter(dashboard=existing_dashboard)
                     .exclude(deleted=True)
@@ -445,6 +444,18 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
             create_from_template(dashboard, dashboard_template)
+
+            report_user_action(
+                cast(User, request.user),
+                "dashboard created",
+                {
+                    **dashboard.get_analytics_metadata(),
+                    "from_template": True,
+                    "template_key": dashboard_template.template_name,
+                    "duplicated": False,
+                    "dashboard_id": dashboard.pk,
+                },
+            )
         except Exception as e:
             dashboard.delete()
             raise e

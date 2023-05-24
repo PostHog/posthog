@@ -20,7 +20,7 @@ export function MultiRecordingButton({ sessionRecordings, onOpenRecording }: Mul
      * When there's only one recording, clicking opens the recording.
      * When there are more recordings, clicking shows the dropdown.
      */
-    const ButtonWrapper: (props: { ref: MutableRefObject<HTMLElement | null>; children: ReactNode }) => JSX.Element =
+    const ButtonWrapper: (props: { ref?: MutableRefObject<HTMLElement | null>; children: ReactNode }) => JSX.Element =
         useCallback(
             ({ ref, children }) => {
                 return isSingleRecording ? (
@@ -74,18 +74,16 @@ export function MultiRecordingButton({ sessionRecordings, onOpenRecording }: Mul
                 setAreRecordingsShown(false)
             }}
         >
-            {({ ref }) => (
-                <ButtonWrapper ref={ref}>
-                    <Button
-                        className={'session-recordings-button'}
-                        data-attr="session-recordings-button"
-                        icon={<PlayCircleOutlined />}
-                    >
-                        Watch recording
-                        {isSingleRecording ? <ArrowRightOutlined /> : <DownOutlined />}
-                    </Button>
-                </ButtonWrapper>
-            )}
+            <ButtonWrapper>
+                <Button
+                    className={'session-recordings-button'}
+                    data-attr="session-recordings-button"
+                    icon={<PlayCircleOutlined />}
+                >
+                    Watch recording
+                    {isSingleRecording ? <ArrowRightOutlined /> : <DownOutlined />}
+                </Button>
+            </ButtonWrapper>
         </Popover>
     )
 }

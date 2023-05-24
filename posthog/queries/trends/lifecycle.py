@@ -81,7 +81,8 @@ class Lifecycle:
 
         from posthog.api.person import PersonSerializer
 
-        return PersonSerializer(people, many=True).data
+        serializer_context = {"get_team": lambda: team}
+        return PersonSerializer(people, context=serializer_context, many=True).data
 
     def _get_persons_urls(self, filter: Filter, entity: Entity, times: List[str], status) -> List[Dict[str, Any]]:
         persons_url = []

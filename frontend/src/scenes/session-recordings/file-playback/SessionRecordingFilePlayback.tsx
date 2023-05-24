@@ -36,7 +36,7 @@ export function SessionRecordingFilePlayback(): JSX.Element {
             {sessionRecordingLoading ? (
                 <SpinnerOverlay />
             ) : sessionRecording ? (
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2 h-screen pb-4">
                     <LemonBanner
                         type="info"
                         action={{
@@ -46,11 +46,7 @@ export function SessionRecordingFilePlayback(): JSX.Element {
                     >
                         You are viewing a recording loaded from a file.
                     </LemonBanner>
-                    <SessionRecordingPlayer
-                        sessionRecordingId=""
-                        sessionRecordingData={sessionRecording}
-                        playerKey={playerKey}
-                    />
+                    <SessionRecordingPlayer sessionRecordingId="" playerKey={playerKey} />
                 </div>
             ) : (
                 <Dragger

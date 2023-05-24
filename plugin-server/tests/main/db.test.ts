@@ -835,94 +835,6 @@ describe('DB', () => {
         })
     })
 
-    describe('person and group properties on events', () => {
-        async function clearCache() {
-            const redis = await hub.redisPool.acquire()
-            const keys = (await redis.keys('person_*')).concat(await redis.keys('group_*'))
-            const promises: Promise<number>[] = []
-            for (const key of keys) {
-                promises.push(redis.del(key))
-            }
-            await Promise.all(promises)
-            await hub.redisPool.release(redis)
-        }
-
-        beforeEach(async () => {
-            await clearCache()
-            db.PERSONS_AND_GROUPS_CACHE_TTL = 60 * 60 // 1h i.e. keys won't expire during the test
-        })
-
-        it('getPersonData works', async () => {
-            const uuid = new UUIDT().toString()
-            const distinctId = 'distinct_id1'
-            await db.createPerson(
-                TIMESTAMP,
-                { a: 12345, b: false, c: 'bbb' },
-                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
-                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
-                2,
-                null,
-                false,
-                uuid,
-                [distinctId]
-            )
-            const res = await db.getPersonData(2, distinctId)
-            expect(res?.uuid).toEqual(uuid)
-            expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
-            expect(res?.properties).toEqual({ a: 12345, b: false, c: 'bbb' })
-        })
-
-        it('getPersonData works not cached', async () => {
-            const uuid = new UUIDT().toString()
-            const distinctId = 'distinct_id1'
-            await db.createPerson(
-                TIMESTAMP,
-                { a: 123, b: false, c: 'bbb' },
-                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
-                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
-                2,
-                null,
-                false,
-                uuid,
-                [distinctId]
-            )
-            await clearCache()
-            const res = await db.getPersonData(2, distinctId)
-            expect(res?.uuid).toEqual(uuid)
-            expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
-            expect(res?.properties).toEqual({ a: 123, b: false, c: 'bbb' })
-        })
-
-        it('person props are cached and used from cache', async () => {
-            // manually update from the DB and check that we still get the right props, i.e. previous ones
-            const uuid = new UUIDT().toString()
-            const distinctId = 'distinct_id1'
-            await db.createPerson(
-                // cached
-                TIMESTAMP,
-                { a: 333, b: false, c: 'bbb' },
-                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
-                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
-                2,
-                null,
-                false,
-                uuid,
-                [distinctId]
-            )
-            await db.postgresQuery(
-                // not cached
-                `
-            UPDATE posthog_person SET properties = $3
-            WHERE team_id = $1 AND uuid = $2
-            `,
-                [2, uuid, JSON.stringify({ prop: 'val-that-isnt-cached' })],
-                'testGroupPropertiesOnEvents'
-            )
-            const res = await db.getPersonData(2, distinctId)
-            expect(res?.properties).toEqual({ a: 333, b: false, c: 'bbb' })
-        })
-    })
-
     describe('getPluginSource', () => {
         let team: Team
         let plugin: number
@@ -1157,19 +1069,19 @@ describe('DB', () => {
             })
             await hub.db.addPersonToCohort(cohort2.id, person.id, cohort.version)
 
-            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person)).toEqual(false)
+            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(false)
         })
 
         it('returns true if person belongs to cohort', async () => {
             await hub.db.addPersonToCohort(cohort.id, person.id, cohort.version)
 
-            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person)).toEqual(true)
+            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(true)
         })
 
         it('returns false if person does not belong to current version of the cohort', async () => {
             await hub.db.addPersonToCohort(cohort.id, person.id, -1)
 
-            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person)).toEqual(false)
+            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(false)
         })
 
         it('handles NULL version cohorts', async () => {
@@ -1179,10 +1091,10 @@ describe('DB', () => {
                 team_id: team.id,
                 version: null,
             })
-            expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person)).toEqual(false)
+            expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(false)
 
             await hub.db.addPersonToCohort(cohort2.id, person.id, null)
-            expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person)).toEqual(true)
+            expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(true)
         })
     })
 

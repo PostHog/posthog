@@ -1,22 +1,24 @@
-import { kea } from 'kea'
+import { kea, path, connect, selectors, events } from 'kea'
 import api from 'lib/api'
 import { GroupType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import type { groupsModelType } from './groupsModelType'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { subscriptions } from 'kea-subscriptions'
+import { loaders } from 'kea-loaders'
 
 export interface Noun {
     singular: string
     plural: string
 }
 
-export const groupsModel = kea<groupsModelType>({
-    path: ['models', 'groupsModel'],
-    connect: {
+export const groupsModel = kea<groupsModelType>([
+    path(['models', 'groupsModel']),
+    connect({
         values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
-    },
-    loaders: ({ values }) => ({
+    }),
+    loaders(({ values }) => ({
         groupTypes: [
             [] as Array<GroupType>,
             {
@@ -37,8 +39,8 @@ export const groupsModel = kea<groupsModelType>({
                 },
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         showGroupsOptions: [
             (s) => [s.groupsAccessStatus, s.groupsEnabled, s.groupTypes],
             (status, enabled, groupTypes) => status !== GroupsAccessStatus.Hidden || (enabled && groupTypes.length > 0),
@@ -80,8 +82,16 @@ export const groupsModel = kea<groupsModelType>({
                         : { singular: 'person', plural: 'persons' }
                 },
         ],
-    },
-    events: ({ actions }) => ({
-        afterMount: actions.loadAllGroupTypes,
     }),
-})
+    subscriptions(({ values }) => ({
+        groupsEnabled: (enabled) => {
+            // Load the groups types in the case of groups becoming an available feature after this logic is mounted
+            if (!values.groupTypesLoading && enabled) {
+                groupsModel.actions.loadAllGroupTypes()
+            }
+        },
+    })),
+    events(({ actions }) => ({
+        afterMount: actions.loadAllGroupTypes,
+    })),
+])

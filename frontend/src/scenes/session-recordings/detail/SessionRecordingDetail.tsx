@@ -15,7 +15,7 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 export const scene: SceneExport = {
     logic: sessionRecordingDetailLogic,
     component: SessionRecordingDetail,
-    paramsToProps: ({ params: { id } }): typeof sessionRecordingDetailLogic['props'] => ({
+    paramsToProps: ({ params: { id } }): (typeof sessionRecordingDetailLogic)['props'] => ({
         id,
     }),
 }
@@ -23,7 +23,7 @@ export const scene: SceneExport = {
 export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps = {}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     return (
-        <div>
+        <div className="flex flex-col overflow-hidden h-screen">
             <PageHeader title={<div>Recording</div>} />
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <div className="mb-4">
@@ -33,7 +33,7 @@ export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps 
                     </LemonBanner>
                 </div>
             ) : null}
-            <div className="mt-4">
+            <div className="mt-4 flex-1">
                 {id ? (
                     <SessionRecordingPlayer sessionRecordingId={id} playerKey={`${id}-detail`} />
                 ) : (

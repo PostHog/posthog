@@ -1,0 +1,15 @@
+.NotebookNode {
+    .NotebookNode__meta {
+        opacity: 0;
+        transition: 150ms ease-out;
+        transform: translateY(100%);
+    }
+
+    &:hover,
+    &--selected {
+        .NotebookNode__meta {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+}

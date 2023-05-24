@@ -15,7 +15,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
-import { AvailableFeature, InsightType } from '~/types'
+import { AvailableFeature, InsightType, TeamType } from '~/types'
 import { TeamMembers } from './TeamMembers'
 import { teamMembersLogic } from './teamMembersLogic'
 import { AccessControl } from './AccessControl'
@@ -234,7 +234,7 @@ export function ProjectSettings(): JSX.Element {
                 <LemonDivider className="my-6" />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
                     <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
-                        {user && <TeamMembers user={user} team={currentTeam} />}
+                        {user && <TeamMembers user={user} team={currentTeam as TeamType} />}
                         <LemonDivider className="my-6" />
                     </BindLogic>
                 )}

@@ -191,6 +191,53 @@ def test_decompress_ignores_if_not_enough_chunks(raw_snapshot_events):
     )
 
 
+def test_decompress_deduplicates_if_duplicate_chunks(raw_snapshot_events):
+    raw_snapshot_data = [event["properties"]["$snapshot_data"] for event in raw_snapshot_events]
+    snapshot_data_list = [
+        event["properties"]["$snapshot_data"] for event in compress_and_chunk_snapshots(raw_snapshot_events, 10)
+    ]  # makes 12 chunks
+    # take the first four chunks twice, then the remainder, and then again the first four chunks twice from snapshot_data_list
+    snapshot_data_list = (
+        snapshot_data_list[:4]
+        + snapshot_data_list[:4]
+        + snapshot_data_list[4:]
+        + snapshot_data_list[:4]
+        + snapshot_data_list[:4]
+    )
+
+    window_id = "abc123"
+    snapshot_list = []
+    for snapshot_data in snapshot_data_list:
+        snapshot_list.append(SnapshotDataTaggedWithWindowId(window_id=window_id, snapshot_data=snapshot_data))
+
+    assert (
+        decompress_chunked_snapshot_data(2, "someid", snapshot_list)["snapshot_data_by_window_id"][window_id]
+        == raw_snapshot_data
+    )
+
+
+def test_decompress_ignores_if_too_few_chunks_even_after_deduplication(raw_snapshot_events):
+    snapshot_data_list = [
+        event["properties"]["$snapshot_data"] for event in compress_and_chunk_snapshots(raw_snapshot_events, 10)
+    ]  # makes 12 chunks
+    # take the first four chunks four times, then not quite all the remainder
+    # leaves more than 12 chunks in total, but not enough to decompress
+    snapshot_data_list = (
+        snapshot_data_list[:4]
+        + snapshot_data_list[:4]
+        + snapshot_data_list[:4]
+        + snapshot_data_list[:4]
+        + snapshot_data_list[4:-1]
+    )
+
+    window_id = "abc123"
+    snapshot_list = []
+    for snapshot_data in snapshot_data_list:
+        snapshot_list.append(SnapshotDataTaggedWithWindowId(window_id=window_id, snapshot_data=snapshot_data))
+
+    assert decompress_chunked_snapshot_data(2, "someid", snapshot_list)["snapshot_data_by_window_id"][window_id] == []
+
+
 def test_paginate_decompression(chunked_and_compressed_snapshot_events):
     snapshot_data = [
         SnapshotDataTaggedWithWindowId(
@@ -478,9 +525,25 @@ def test_get_events_summary_from_snapshot_data():
                 },
             },
         },
+        # payload has iso string timestamp instead of number and is out of order by timestamp sort
+        # in https://posthog.sentry.io/issues/4089255349/?project=1899813&referrer=slack we saw a client
+        # send this event, which caused the backend sorting to fail because we treat the rrweb timestamp
+        # as if it is always a number
+        {
+            "type": 1,
+            "timestamp": "1987-04-28T17:17:17.590Z",
+            "data": {"source": 3},
+        },
+        # safely ignore string timestamps that aren't timestamps
+        {
+            "type": 1,
+            "timestamp": "it was about a hundred years ago, that I remember this happening",
+            "data": {"source": 3},
+        },
     ]
 
     assert get_events_summary_from_snapshot_data(snapshot_events) == [
+        {"data": {"source": 3}, "timestamp": 546628637590, "type": 1},
         {"timestamp": timestamp, "type": 2, "data": {}},
         {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
         {"timestamp": timestamp, "type": 1, "data": {"source": 3}},

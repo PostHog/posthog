@@ -1,8 +1,10 @@
-import { actions, kea, reducers, path, listeners } from 'kea'
+import { actions, kea, reducers, path, listeners, connect } from 'kea'
 import { NotebookNodeType } from '../Nodes/types'
 import { notebookLogic } from './notebookLogic'
 
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
+import { urlToAction } from 'kea-router'
+import { notebooksListLogic } from './notebooksListLogic'
 
 export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookSidebarLogic']),
@@ -10,26 +12,19 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         setNotebookSideBarShown: (shown: boolean) => ({ shown }),
         setFullScreen: (full: boolean) => ({ full }),
         addNodeToNotebook: (type: NotebookNodeType, properties: Record<string, any>) => ({ type, properties }),
-        createNotebook: (id: string) => ({ id }),
-        deleteNotebook: (id: string) => ({ id }),
-        renameNotebook: (id: string, name: string) => ({ id, name }),
         selectNotebook: (id: string) => ({ id }),
     }),
 
+    connect({
+        actions: [notebooksListLogic, ['createNotebookSuccess']],
+    }),
+
     reducers(() => ({
-        notebooks: [
-            ['scratchpad', 'RFC: Notebooks', 'Feature Flag overview', 'HoqQL examples'] as string[],
-            {
-                createNotebook: (state, { id }) => [...state, id],
-                deleteNotebook: (state, { id }) => state.filter((notebook) => notebook !== id),
-            },
-        ],
         selectedNotebook: [
             'scratchpad',
             { persist: true },
             {
                 selectNotebook: (_, { id }) => id,
-                createNotebook: (_, { id }) => id,
             },
         ],
         notebookSideBarShown: [
@@ -37,7 +32,6 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
             { persist: true },
             {
                 setNotebookSideBarShown: (_, { shown }) => shown,
-                setFullScreen: () => true,
             },
         ],
         fullScreen: [
@@ -54,18 +48,18 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
             notebookLogic({ id: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
 
             actions.setNotebookSideBarShown(true)
+        },
 
-            // if (!values.editor) {
-            //     return
-            // }
-            // values.editor
-            //     .chain()
-            //     .focus()
-            //     .insertContent({
-            //         type,
-            //         attrs: props,
-            //     })
-            //     .run()
+        createNotebookSuccess: ({ notebooks }) => {
+            // NOTE: This is temporary: We probably only want to select it if it is created from the sidebar
+            actions.selectNotebook(notebooks[notebooks.length - 1].short_id)
+        },
+    })),
+
+    urlToAction(({ actions }) => ({
+        '/*': () => {
+            // Any navigation should trigger exiting full screen
+            actions.setFullScreen(false)
         },
     })),
 ])

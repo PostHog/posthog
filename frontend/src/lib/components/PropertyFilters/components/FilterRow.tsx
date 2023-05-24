@@ -71,6 +71,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 onClick={() => onRemove(index)}
                                 size="small"
                                 className="ml-2"
+                                noPadding
                             />
                         )}
                     </>
@@ -95,6 +96,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 type="secondary"
                                 size="small"
                                 icon={<IconPlus />}
+                                sideIcon={null}
                             >
                                 {label}
                             </LemonButton>

@@ -10,8 +10,13 @@
     line-height: 1rem;
     white-space: nowrap;
 
+    &.primary {
+        background-color: var(--primary);
+        color: var(--inverse);
+    }
+
     &.highlight {
-        background-color: var(--yellow-lightest);
+        background-color: var(--mark-color);
     }
 
     &.warning {
@@ -20,17 +25,17 @@
 
     &.danger {
         background-color: var(--danger);
-        color: var(--light);
+        color: var(--inverse);
     }
 
     &.success {
         background-color: var(--success);
-        color: var(--light);
+        color: var(--inverse);
     }
 
     &.purple {
         background-color: #ebe3ed;
-        color: var(--indigo);
+        color: var(--purple);
     }
 
     &.caution {

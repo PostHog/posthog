@@ -20,8 +20,8 @@ describe('normalizeEvent()', () => {
         const event = { distinct_id: 'something' }
         expect(normalizeEvent(event as any).properties).toEqual({})
 
-        const event2 = { distinct_id: 'something', properties: { a: 1 } }
-        expect(normalizeEvent(event2 as any).properties).toEqual({ a: 1 })
+        const event2 = { distinct_id: 'something', properties: { a: 1 }, sent_at: '2020-02-23T02:15:00.000Z' }
+        expect(normalizeEvent(event2 as any).properties).toEqual({ a: 1, $sent_at: '2020-02-23T02:15:00.000Z' })
     })
 
     it('combines .properties $set and $set_once with top-level $set and $set_once', () => {
@@ -127,7 +127,7 @@ describe('formPipelineEvent()', () => {
             sent_at: '2020-02-23T02:15:00Z',
             token: 'phc_sometoken',
             event: 'some-event',
-            properties: { foo: 123, $set: {}, $set_once: {} },
+            properties: { foo: 123, $set: {}, $set_once: {}, $sent_at: '2020-02-23T02:15:00Z' },
             timestamp: '2020-02-24T02:15:00Z',
             offset: 0,
             $set: {},
@@ -178,7 +178,7 @@ describe('formPipelineEvent()', () => {
             sent_at: '2020-02-23T02:15:00Z',
             token: 'phc_sometoken',
             event: 'some-event',
-            properties: { foo: 123, $set: {}, $set_once: {} },
+            properties: { foo: 123, $set: {}, $set_once: {}, $sent_at: '2020-02-23T02:15:00Z' },
             timestamp: '2020-02-24T02:15:00Z',
             offset: 0,
             $set: {},

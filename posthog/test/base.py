@@ -13,10 +13,11 @@ import sqlparse
 from django.apps import apps
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
+from posthog import rate_limit
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
@@ -41,6 +42,11 @@ from posthog.models.session_recording_event.sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
+)
+from posthog.models.session_replay_event.sql import (
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -194,6 +200,9 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
 
         # Clear the cached "is_cloud" setting so that it's recalculated for each test
         TEST_clear_cloud_cache()
+        # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
@@ -322,14 +331,15 @@ class QueryMatchingTest:
             query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
             # feature flag conditions use primary keys as columns in queries, so replace those too
             query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
+            query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
             query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
 
         # hog ql checks team ids differently
         query = re.sub(
-            r"equals\(team_id, \d+\)",
-            "equals(team_id, 2)",
+            r"equals\(([^.]+\.)?team_id?, \d+\)",
+            r"equals(\1team_id, 2)",
             query,
         )
 
@@ -342,6 +352,13 @@ class QueryMatchingTest:
         query = re.sub(
             rf"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
+            query,
+        )
+
+        # Replace person id (when querying session recording replay events)
+        query = re.sub(
+            "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
+            r"and person_id = '00000000-0000-0000-0000-000000000000'",
             query,
         )
 
@@ -371,6 +388,14 @@ class QueryMatchingTest:
 
         # replace Savepoint numbers
         query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
+
+        # test_formula has some values that change on every run
+        query = re.sub(r"\SELECT \[\d+, \d+] as breakdown_value", "SELECT [1, 2] as breakdown_value", query)
+        query = re.sub(
+            r"SELECT distinct_id,[\n\r\s]+\d+ as value",
+            "SELECT distinct_id, 1 as value",
+            query,
+        )
 
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
@@ -575,10 +600,10 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH"))
+        return self.capture_queries(("SELECT", "WITH", "select", "with"))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
+    def capture_queries(self, query_prefixes: Union[str, Tuple[str, ...]]):
         queries = []
         original_get_client = ch_pool.get_client
 
@@ -652,6 +677,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 TRUNCATE_GROUPS_TABLE_SQL,
                 TRUNCATE_COHORTPEOPLE_TABLE_SQL,
                 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
@@ -659,10 +685,19 @@ class ClickhouseDestroyTablesMixin(BaseTest):
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                EVENTS_TABLE_SQL(),
+                PERSONS_TABLE_SQL(),
+                SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
         run_clickhouse_statement_in_parallel(
-            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                DISTRIBUTED_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
 
     def tearDown(self):
@@ -674,13 +709,24 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
+        )
+
+        run_clickhouse_statement_in_parallel(
+            [
+                EVENTS_TABLE_SQL(),
+                PERSONS_TABLE_SQL(),
+                SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
-        )
-        run_clickhouse_statement_in_parallel(
-            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                DISTRIBUTED_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
 
 
@@ -764,6 +810,18 @@ def also_test_with_different_timezones(fn):
     return fn
 
 
+def also_test_with_person_on_events_v2(fn):
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def fn_with_poe_v2(self, *args, **kwargs):
+        fn(self, *args, **kwargs)
+
+    # To add the test, we inspect the frame this function was called in and add the test there
+    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
+
+    return fn
+
+
 def _create_insight(
     team: Team, insight_filters: Dict[str, Any], dashboard_filters: Dict[str, Any]
 ) -> Tuple[Insight, Dashboard, DashboardTile]:
@@ -777,7 +835,9 @@ def _create_insight(
 # for a person with a given distinct ID `distinct_id_from` to a given distinct ID
 # `distinct_id_to` such that with person_on_events_mode set to V2_ENABLED these
 # persons will both count as 1
-def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_to: str, team_id: int):
+def create_person_id_override_by_distinct_id(
+    distinct_id_from: str, distinct_id_to: str, team_id: int, version: int = 0
+):
     person_ids_result = sync_execute(
         f"""
         SELECT distinct_id, person_id
@@ -792,7 +852,7 @@ def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_
 
     sync_execute(
         f"""
-        INSERT INTO person_overrides (team_id, old_person_id, override_person_id)
-        VALUES ({team_id}, '{person_id_from}', '{person_id_to}')
+        INSERT INTO person_overrides (team_id, old_person_id, override_person_id, version)
+        VALUES ({team_id}, '{person_id_from}', '{person_id_to}', {version})
     """
     )

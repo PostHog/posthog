@@ -78,7 +78,7 @@ export function PropertyGroupFilters({
                                                         }
                                                         value={group.type}
                                                     />
-                                                    <div className="flex-1 h-px mx-2 bg-dark-grey" />
+                                                    <LemonDivider />
                                                     <LemonButton
                                                         icon={<IconCopy />}
                                                         status="primary-alt"
@@ -94,7 +94,12 @@ export function PropertyGroupFilters({
                                                 </div>
                                                 <PropertyFilters
                                                     addButton={
-                                                        <LemonButton type="tertiary" noPadding icon={<IconPlusMini />}>
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            noPadding
+                                                            icon={<IconPlusMini />}
+                                                            sideIcon={null}
+                                                        >
                                                             Add filter
                                                         </LemonButton>
                                                     }
@@ -132,6 +137,7 @@ export function PropertyGroupFilters({
                 type="secondary"
                 onClick={addFilterGroup}
                 icon={<IconPlusMini color="var(--primary)" />}
+                sideIcon={null}
             >
                 Add filter group
             </LemonButton>

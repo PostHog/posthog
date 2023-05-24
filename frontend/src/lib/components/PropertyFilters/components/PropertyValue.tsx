@@ -147,7 +147,7 @@ export function PropertyValue({
                 selectClassName={clsx(className, 'property-filters-property-value', 'w-full')}
                 value={formattedValues}
                 mode="multiple-custom"
-                onChange={(nextVal) => {
+                onChange={(nextVal: string[]) => {
                     setValue(nextVal)
                 }}
                 onBlur={commonInputProps.handleBlur}

@@ -1,10 +1,10 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { experimentsLogic } from './experimentsLogic'
+import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Experiment, ExperimentsTabs, AvailableFeature, ExperimentStatus } from '~/types'
+import { Experiment, ExperimentsTabs, AvailableFeature, ProgressStatus } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -25,8 +25,7 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, getExperimentStatus, searchTerm } =
-        useValues(experimentsLogic)
+    const { filteredExperiments, experimentsLoading, tab, searchTerm } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -184,14 +183,14 @@ export function Experiments(): JSX.Element {
                             <LemonSelect
                                 onChange={(status) => {
                                     if (status) {
-                                        setSearchStatus(status as ExperimentStatus | 'all')
+                                        setSearchStatus(status as ProgressStatus | 'all')
                                     }
                                 }}
                                 options={[
                                     { label: 'All', value: 'all' },
-                                    { label: 'Draft', value: ExperimentStatus.Draft },
-                                    { label: 'Running', value: ExperimentStatus.Running },
-                                    { label: 'Complete', value: ExperimentStatus.Complete },
+                                    { label: 'Draft', value: ProgressStatus.Draft },
+                                    { label: 'Running', value: ProgressStatus.Running },
+                                    { label: 'Complete', value: ProgressStatus.Complete },
                                 ]}
                                 value="all"
                                 dropdownMaxContentWidth

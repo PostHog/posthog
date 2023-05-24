@@ -37,6 +37,9 @@ import {
     RecentPerformancePageView,
     DashboardTemplateType,
     DashboardTemplateEditorType,
+    EarlyAccessFeatureType,
+    NewEarlyAccessFeatureType,
+    Survey,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -50,7 +53,6 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
-import { CommunicationResponse } from 'scenes/events/CommunicationDetailsLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -168,10 +170,6 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
-    public personCommunications(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('person_communications')
-    }
-
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insights')
@@ -253,6 +251,10 @@ class ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('property_definitions')
             .addPathComponent(propertyDefinitionId)
+    }
+
+    public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
 
     // # Cohorts
@@ -383,6 +385,24 @@ class ApiRequest {
             return this.featureFlag(id, teamId).addPathComponent('activity')
         }
         return this.featureFlags(teamId).addPathComponent('activity')
+    }
+
+    // # Features
+    public earlyAccessFeatures(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('early_access_feature')
+    }
+
+    public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.earlyAccessFeatures(teamId).addPathComponent(id)
+    }
+
+    // # Surveys
+    public surveys(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('surveys')
+    }
+
+    public survey(id: Survey['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.surveys(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -540,6 +560,17 @@ const api = {
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
                     return new ApiRequest().pluginsActivity()
+                },
+                [ActivityScope.DATA_MANAGEMENT]: () => {
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.EVENT_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ event definitions?
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.PROPERTY_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ property definitions?
+                    return new ApiRequest().dataManagementActivity()
                 },
             }
 
@@ -1077,6 +1108,51 @@ const api = {
         },
     },
 
+    earlyAccessFeatures: {
+        async get(featureId: EarlyAccessFeatureType['id']): Promise<EarlyAccessFeatureType> {
+            return await new ApiRequest().earlyAccessFeature(featureId).get()
+        },
+        async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccessFeatureType> {
+            return await new ApiRequest().earlyAccessFeatures().create({ data })
+        },
+        async delete(featureId: EarlyAccessFeatureType['id']): Promise<void> {
+            await new ApiRequest().earlyAccessFeature(featureId).delete()
+        },
+        async update(
+            featureId: EarlyAccessFeatureType['id'],
+            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+        ): Promise<EarlyAccessFeatureType> {
+            return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
+        },
+        async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
+            return await new ApiRequest().earlyAccessFeatures().get()
+        },
+        async promote(featureId: EarlyAccessFeatureType['id']): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
+            return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
+        },
+    },
+
+    surveys: {
+        async list(): Promise<PaginatedResponse<Survey>> {
+            return await new ApiRequest().surveys().get()
+        },
+        async get(surveyId: Survey['id']): Promise<Survey> {
+            return await new ApiRequest().survey(surveyId).get()
+        },
+        async create(data: Partial<Survey>): Promise<Survey> {
+            return await new ApiRequest().surveys().create({ data })
+        },
+        async delete(surveyId: Survey['id']): Promise<void> {
+            await new ApiRequest().survey(surveyId).delete()
+        },
+        async update(
+            surveyId: Survey['id'],
+            data: Pick<Survey, 'name' | 'description' | 'linked_flag' | 'start_date' | 'end_date'>
+        ): Promise<Survey> {
+            return await new ApiRequest().survey(surveyId).update({ data })
+        },
+    },
+
     subscriptions: {
         async get(subscriptionId: SubscriptionType['id']): Promise<SubscriptionType> {
             return await new ApiRequest().subscription(subscriptionId).get()
@@ -1145,12 +1221,6 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
-        },
-    },
-
-    personCommunications: {
-        async list(params: any, teamId: TeamType['id'] = getCurrentTeamId()): Promise<CommunicationResponse> {
-            return new ApiRequest().personCommunications(teamId).withQueryString(toParams(params)).get()
         },
     },
 

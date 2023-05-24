@@ -3,7 +3,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export type PostHogFeatureProps = {
-    flag: typeof FEATURE_FLAGS[keyof typeof FEATURE_FLAGS]
+    flag: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     match?: string | boolean
     children: React.ReactNode | ((payload: any) => React.ReactNode)
 }

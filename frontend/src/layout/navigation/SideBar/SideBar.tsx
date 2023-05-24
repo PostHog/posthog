@@ -6,11 +6,11 @@ import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/Project
 import {
     IconApps,
     IconBarChart,
-    IconBugShield,
     IconCoffee,
     IconCohort,
     IconComment,
     IconExperiment,
+    IconFeedback,
     IconFlag,
     IconGauge,
     IconLive,
@@ -20,6 +20,7 @@ import {
     IconPinOutline,
     IconPlus,
     IconRecording,
+    IconRocketLaunch,
     IconSettings,
     IconTools,
     IconUnverifiedEvent,
@@ -30,7 +31,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
 import { canViewPlugins } from '~/scenes/plugins/access'
 import { Scene } from '~/scenes/sceneTypes'
-import { teamLogic } from '~/scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import { AvailableFeature } from '~/types'
 import './SideBar.scss'
@@ -51,7 +52,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
 import { NotebookSideBar } from '~/scenes/notebooks/Notebook/NotebookSideBar'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -73,7 +73,7 @@ function Pages(): JSX.Element {
             <div className="SideBar__heading">Project</div>
             <PageButton
                 title={
-                    currentTeam?.name ? (
+                    isAuthenticatedTeam(currentTeam) ? (
                         <>
                             <span>
                                 <ProjectName team={currentTeam} />
@@ -162,16 +162,7 @@ function Pages(): JSX.Element {
                             onClick: hideSideBarMobile,
                         }}
                     />
-                    <PageButton
-                        icon={<IconRecording />}
-                        identifier={Scene.SessionRecordings}
-                        to={urls.sessionRecordings()}
-                    />
-                    <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-                    {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
-                        !preflight?.instance_preferences?.disable_paid_fs) && (
-                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
-                    )}
+                    <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
                     {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                         <PageButton
                             icon={<IconCoffee />}
@@ -179,6 +170,34 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
+
+                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
+                        <div className="SideBar__heading">Feature Management</div>
+                    )}
+
+                    <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
+                    {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
+                        !preflight?.instance_preferences?.disable_paid_fs) && (
+                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
+                    )}
+                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
+                        <PageButton
+                            icon={<IconRocketLaunch />}
+                            identifier={Scene.EarlyAccessFeatures}
+                            title={'Early Access Management'}
+                            to={urls.earlyAccessFeatures()}
+                        />
+                    )}
+
+                    {featureFlags[FEATURE_FLAGS.SURVEYS] && (
+                        <PageButton
+                            icon={<IconFeedback />}
+                            identifier={Scene.Surveys}
+                            title={'Surveys'}
+                            to={urls.surveys()}
+                        />
+                    )}
+
                     <div className="SideBar__heading">Data</div>
 
                     <PageButton
@@ -217,9 +236,6 @@ function Pages(): JSX.Element {
                     {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
                     )}
-                    {featureFlags[FEATURE_FLAGS.ARUBUG] && (
-                        <PageButton icon={<IconBugShield />} identifier={Scene.Issues} to={urls.issues()} />
-                    )}
                     <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
@@ -254,26 +270,25 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
     const { hideSideBarMobile } = useActions(navigationLogic)
 
     return (
-        <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
+        <div className={clsx('SideBar', !isSideBarShown && 'SideBar--hidden')}>
             <div className="SideBar__slider">
-                <div className="SideBar__content">
+                <div className="SideBar__slider__content">
                     <Pages />
                     <DebugNotice />
                 </div>
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
-            {children}
+            <NotebookSideBar>
+                <div className="SideBar__content">{children}</div>
+            </NotebookSideBar>
             <ActivationSidebar />
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                <NotebookSideBar />
-            </FlaggedFeature>
         </div>
     )
 }
 
 function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state: boolean) => void }): JSX.Element {
     const { authorizedUrls, launchUrl, suggestionsLoading } = useValues(
-        authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS })
+        authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS, actionId: null })
     )
     return (
         <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">

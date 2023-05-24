@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
-from posthog.hogql.database import Database
+from posthog.hogql.database.database import Database
 from posthog.utils import PersonOnEventsMode
 
 

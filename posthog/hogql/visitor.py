@@ -327,6 +327,7 @@ class CloningVisitor(Visitor):
         )
 
     def visit_join_expr(self, node: ast.JoinExpr):
+        # :TRICKY: when adding new fields, also add them to visit_join_expr of resolver.py
         return ast.JoinExpr(
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
@@ -342,8 +343,8 @@ class CloningVisitor(Visitor):
         return ast.SelectQuery(
             type=None if self.clear_types else node.type,
             macros={key: expr for key, expr in node.macros.items()} if node.macros else None,  # to not traverse
+            select_from=self.visit(node.select_from),  # keep "select_from" before "select" to resolve tables first
             select=[self.visit(expr) for expr in node.select] if node.select else None,
-            select_from=self.visit(node.select_from),
             where=self.visit(node.where),
             prewhere=self.visit(node.prewhere),
             having=self.visit(node.having),

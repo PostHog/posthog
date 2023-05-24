@@ -50,14 +50,16 @@ def run_events_query(
     # columns & group_by
     select_input_raw = ["*"] if len(query.select) == 0 else query.select
     select_input: List[str] = []
-    for col in select_input_raw:
+    person_indices: List[int] = []
+    for index, col in enumerate(select_input_raw):
         # Selecting a "*" expands the list of columns, resulting in a table that's not what we asked for.
         # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
         if col == "*":
             select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
-        elif col == "person":
+        elif col.split("--")[0].strip() == "person":
             # This will be expanded into a followup query
             select_input.append("distinct_id")
+            person_indices.append(index)
         else:
             select_input.append(col)
 
@@ -99,11 +101,12 @@ def run_events_query(
 
     # limit to the last 24h by default
     after = query.after or "-24h"
-    try:
-        parsed_date = isoparse(after)
-    except ValueError:
-        parsed_date = relative_date_parse(after)
-    where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
+    if after != "all":
+        try:
+            parsed_date = isoparse(after)
+        except ValueError:
+            parsed_date = relative_date_parse(after)
+        where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
     # where & having
     where_list = [expr for expr in where_exprs if not has_aggregation(expr)]
@@ -136,7 +139,7 @@ def run_events_query(
         offset=ast.Constant(value=offset),
     )
 
-    query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.OFFLINE, query_type="EventsQuery")
+    query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.ONLINE, query_type="EventsQuery")
 
     # Convert star field from tuple to dict in each result
     if "*" in select_input_raw:
@@ -152,9 +155,9 @@ def run_events_query(
                 ).data
             query_result.results[index][star_idx] = new_result
 
-    if "person" in select_input_raw and len(query_result.results) > 0:
+    if len(person_indices) > 0 and len(query_result.results) > 0:
         # Make a query into postgres to fetch person
-        person_idx = select_input_raw.index("person")
+        person_idx = person_indices[0]
         distinct_ids = list(set(event[person_idx] for event in query_result.results))
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
         persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
@@ -165,9 +168,7 @@ def run_events_query(
                     distinct_to_person[person_distinct_id] = person
 
         # Loop over all columns in case there is more than one "person" column
-        for column_index, column in enumerate(select_input_raw):
-            if column != "person":
-                continue
+        for column_index in person_indices:
             for index, result in enumerate(query_result.results):
                 distinct_id: str = result[column_index]
                 query_result.results[index] = list(result)
