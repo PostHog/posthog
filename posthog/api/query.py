@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Dict
+from typing import Dict, Optional
 
 from dateutil.parser import isoparse
 from django.http import HttpResponse, JsonResponse
@@ -147,7 +147,7 @@ def _response_to_dict(response: BaseModel) -> Dict:
     return dict
 
 
-def process_query(team: Team, query_json: Dict) -> Dict:
+def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = None) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
     query_kind = query_json.get("kind")
@@ -156,11 +156,11 @@ def process_query(team: Team, query_json: Dict) -> Dict:
 
     if query_kind == "EventsQuery":
         events_query = EventsQuery.parse_obj(query_json)
-        response = run_events_query(query=events_query, team=team)
+        response = run_events_query(query=events_query, team=team, default_limit=default_limit)
         return _response_to_dict(response)
     elif query_kind == "HogQLQuery":
         hogql_query = HogQLQuery.parse_obj(query_json)
-        response = execute_hogql_query(query=hogql_query.query, team=team)
+        response = execute_hogql_query(query=hogql_query.query, team=team, default_limit=default_limit)
         return _response_to_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)

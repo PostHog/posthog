@@ -9,6 +9,7 @@ from statshog.defaults.django import statsd
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.api.query import process_query
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
@@ -174,7 +175,9 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
 
     if resource.get("source"):
         query = resource.get("source")
-        query_response = process_query(team=exported_asset.team, query_json=query)
+        query_response = process_query(
+            team=exported_asset.team, query_json=query, default_limit=MAX_SELECT_RETURNED_ROWS
+        )
         all_csv_rows = _convert_response_to_csv_data(query_response)
 
     else:

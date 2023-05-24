@@ -639,9 +639,10 @@ KEYWORDS = ["true", "false", "null"]
 # Keywords you can't alias to
 RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
 
-# Never return more rows than this in top level HogQL SELECT statements
+# Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
-MAX_SELECT_RETURNED_ROWS = 65535
+# Max limit for all SELECT queries, and the default for CSV exports.
+MAX_SELECT_RETURNED_ROWS = 100000
 
 # Settings applied on top of all HogQL queries.
 class HogQLSettings(BaseModel):

@@ -22,9 +22,6 @@ export function ExportWithConfirmation({
             title={
                 <>
                     Exporting by csv is limited to {limit} {actor}.
-                    <br />
-                    For larger, ad-hoc exports you can use{' '}
-                    <Link to={`https://posthog.com/docs/api/${actor}`}>the API</Link>.
                     {actor === 'events' && (
                         <>
                             <br />

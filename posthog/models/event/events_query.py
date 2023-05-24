@@ -39,12 +39,13 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 def run_events_query(
     team: Team,
     query: EventsQuery,
+    default_limit: Optional[int] = None,
 ) -> EventsQueryResponse:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
 
     # limit & offset
     # adding +1 to the limit to check if there's a "next page" after the requested results
-    limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else query.limit) + 1
+    limit = min(QUERY_MAXIMUM_LIMIT, default_limit or QUERY_DEFAULT_LIMIT if query.limit is None else query.limit) + 1
     offset = 0 if query.offset is None else query.offset
 
     # columns & group_by

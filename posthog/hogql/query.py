@@ -33,6 +33,7 @@ def execute_hogql_query(
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLSettings] = None,
+    default_limit: Optional[int] = None,
 ) -> HogQLQueryResponse:
     if isinstance(query, ast.SelectQuery):
         select_query = query
@@ -46,7 +47,8 @@ def execute_hogql_query(
         assert_no_placeholders(select_query)
 
     if select_query.limit is None:
-        select_query.limit = ast.Constant(value=DEFAULT_RETURNED_ROWS)
+        # One more "max" of MAX_SELECT_RETURNED_ROWS (100k) in applied in the query printer, overriding this if higher.
+        select_query.limit = ast.Constant(value=default_limit or DEFAULT_RETURNED_ROWS)
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     hogql_query_context = HogQLContext(
