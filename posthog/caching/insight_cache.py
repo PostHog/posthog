@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.utils.timezone import now
+from prometheus_client import Gauge
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
@@ -19,6 +20,8 @@ logger = structlog.get_logger(__name__)
 
 REQUEUE_DELAY = timedelta(hours=2)
 MAX_ATTEMPTS = 3
+
+gaugeInsightCacheWrite = Gauge("posthog_cloud_insight_cache_write", "A write to the redis insight cache")
 
 
 def schedule_cache_updates():
@@ -140,6 +143,7 @@ def update_cache(caching_state_id: UUID):
 
 def update_cached_state(team_id: int, cache_key: str, timestamp: datetime, result: Any, ttl: Optional[int] = None):
     cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
+    gaugeInsightCacheWrite.inc()
 
     # :TRICKY: We update _all_ states with same cache_key to avoid needless re-calculations and
     #   handle race conditions around cache_key changing.
