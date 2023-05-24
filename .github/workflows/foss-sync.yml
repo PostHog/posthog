@@ -12,19 +12,15 @@ jobs:
         if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-latest
         steps:
-            - name: Avoid HTTP/2 woes # See https://github.com/orgs/community/discussions/55820
-              run: |
-                  git config --global http.version HTTP/1.1
-                  git config --global http.postBuffer 157286400
             - name: Sync repositories 1 to 1 - master branch
-              uses: wei/git-sync@v3
+              uses: PostHog/git-sync@d088980
               with:
                   source_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog.git'
                   source_branch: 'master'
                   destination_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog-foss.git'
                   destination_branch: 'master'
             - name: Sync repositories 1 to 1 – tags
-              uses: wei/git-sync@v3
+              uses: PostHog/git-sync@d088980
               with:
                   source_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog.git'
                   source_branch: 'refs/tags/*'
