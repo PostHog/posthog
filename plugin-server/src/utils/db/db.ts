@@ -278,7 +278,7 @@ export class DB {
     public redisGet<T = unknown>(key: string, defaultValue: T, options: CacheOptions = {}): Promise<T | null> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery(this.statsd, 'query.regisGet', undefined, async () => {
+        return instrumentQuery(this.statsd, 'query.redisGet', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
             try {
@@ -679,7 +679,7 @@ export class DB {
                     continue
                 }
             } catch (error) {
-                captureException(error)
+                captureException(error, { tags: { team_id: teamId } })
             }
 
             this.statsd?.increment('group_info_cache.miss')
@@ -705,7 +705,7 @@ export class DB {
                         created_at: createdAt,
                     })
                 } catch (error) {
-                    captureException(error)
+                    captureException(error, { tags: { team_id: teamId } })
                 }
             } else {
                 // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
@@ -1275,9 +1275,17 @@ export class DB {
         })
 
         try {
-            await this.kafkaProducer.queueSingleJsonMessage(KAFKA_PLUGIN_LOG_ENTRIES, parsedEntry.id, parsedEntry)
+            await this.kafkaProducer.queueSingleJsonMessage(
+                KAFKA_PLUGIN_LOG_ENTRIES,
+                parsedEntry.id,
+                parsedEntry,
+                // For logs, we relax our durability requirements a little and
+                // do not wait for acks that Kafka has persisted the message to
+                // disk.
+                false
+            )
         } catch (e) {
-            captureException(e)
+            captureException(e, { tags: { team_id: entry.pluginConfig.team_id } })
             console.error('Failed to produce message', e, parsedEntry)
         }
     }

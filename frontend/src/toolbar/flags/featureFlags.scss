@@ -32,7 +32,7 @@
             }
         }
         .feature-flag-row-header.overridden {
-            background-color: #fdedc9;
+            background-color: var(--mark-color);
         }
 
         .variant-radio-group {
@@ -55,7 +55,7 @@
             }
         }
         .variant-radio-group.overridden {
-            border-left-color: #fdedc9;
+            border-left-color: var(--mark-color);
         }
     }
     .local-feature-flag-override-note {

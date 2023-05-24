@@ -4,7 +4,7 @@ import {
     FilterType,
     InsightShortId,
     PerformancePageView,
-    SessionRecordingsTabs,
+    ReplayTabs,
 } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
@@ -66,12 +66,12 @@ export const urls = {
         return `/web-performance/waterfall${queryParams}`
     },
 
-    sessionRecordings: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
-        combineUrl(tab ? `/recordings/${tab}` : '/recordings/recent', filters ? { filters } : {}).url,
-    sessionRecordingPlaylist: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/recordings/playlists/${id}`, filters ? { filters } : {}).url,
-    sessionRecording: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/recordings/${id}`, filters ? { filters } : {}).url,
+    replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
+        combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
+    replayPlaylist: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
+    replaySingle: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
     person: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',
@@ -149,4 +149,10 @@ export const urls = {
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
+    notebooks: (): string =>
+        combineUrl(urls.dashboards(), {
+            tab: 'notebooks',
+        }).url,
+    notebook: (id: string | number): string => `/notebooks/${id}`,
+    notebookEdit: (id: string | number): string => `/notebooks/${id}/edit`,
 }

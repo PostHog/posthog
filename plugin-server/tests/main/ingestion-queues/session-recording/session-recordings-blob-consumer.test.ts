@@ -58,7 +58,7 @@ describe('ingester', () => {
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)
         expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
-        await ingester.sessions.get('1-session_id_1')?.flush()
+        await ingester.sessions.get('1-session_id_1')?.flush('buffer_age')
         expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
     })
 })

@@ -1,4 +1,5 @@
 import { captureException } from '@sentry/node'
+import { DateTime } from 'luxon'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -13,6 +14,7 @@ import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
+import { eventDroppedCounter } from '../metrics'
 import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { IncomingRecordingMessage } from './blob-ingester/types'
@@ -25,6 +27,10 @@ const flushIntervalTimeoutMs = 30000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
+export const gaugeIngestionLag = new Gauge({
+    name: 'recording_blob_ingestion_lag',
+    help: 'A gauge of the number of milliseconds behind now for the timestamp of the latest message',
+})
 export const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
     help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
@@ -50,6 +56,12 @@ export const gaugeBytesBuffered = new Gauge({
     help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
 })
 
+export const gaugeLagMilliseconds = new Gauge({
+    name: 'recording_blob_ingestion_lag_in_milliseconds',
+    help: "A gauge of the lag in milliseconds, more useful than lag in messages since it affects how much work we'll be pushing to redis",
+    labelNames: ['partition'],
+})
+
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
     offsetManager?: OffsetManager
@@ -58,6 +70,7 @@ export class SessionRecordingBlobIngester {
     lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
     enabledTeams: number[] | null
+    latestKafkaMessageTimestamp: Record<number, number | null> = {}
 
     constructor(
         private teamManager: TeamManager,
@@ -96,7 +109,7 @@ export class SessionRecordingBlobIngester {
             )
 
             this.sessions.set(key, sessionManager)
-            status.info('📦', 'Blob ingestion consumer started session manager', {
+            status.debug('📦', 'Blob ingestion consumer started session manager', {
                 key,
                 partition,
                 topic,
@@ -104,7 +117,7 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        this.offsetManager?.addOffset(topic, partition, offset)
+        this.offsetManager?.addOffset(topic, partition, session_id, offset)
         await this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
@@ -125,6 +138,11 @@ export class SessionRecordingBlobIngester {
             // Typing says this can happen but in practice it shouldn't
             return statusWarn('message value or timestamp is empty')
         }
+
+        // track the latest message timestamp seen so, we can use it to calculate a reference "now"
+        // lag does not distribute evenly across partitions, so track timestamps per partition
+        this.latestKafkaMessageTimestamp[message.partition] = message.timestamp
+        gaugeLagMilliseconds.labels(message.partition.toString()).set(DateTime.now().toMillis() - message.timestamp)
 
         let messagePayload: RawEventMessage
         let event: PipelineEvent
@@ -165,6 +183,16 @@ export class SessionRecordingBlobIngester {
             return
         }
 
+        if (!team.session_recording_opt_in) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'disabled',
+                })
+                .inc()
+            return
+        }
+
         const $snapshot_data = event.properties?.$snapshot_data
 
         const recordingMessage: IncomingRecordingMessage = {
@@ -194,9 +222,17 @@ export class SessionRecordingBlobIngester {
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
+        let highestTimestamp = -Infinity
+
         for (const message of messages) {
+            if (!!message.timestamp && message.timestamp > highestTimestamp) {
+                highestTimestamp = message.timestamp
+            }
+
             await this.handleKafkaMessage(message)
         }
+
+        gaugeIngestionLag.set(DateTime.now().toMillis() - highestTimestamp)
     }
 
     public async start(): Promise<void> {
@@ -254,9 +290,6 @@ export class SessionRecordingBlobIngester {
                     return
                 }
 
-                status.info('⚖️', 'blob_ingester_consumer - assigned partitions', {
-                    assignedPartitions: assignedPartitions,
-                })
                 gaugePartitionsAssigned.set(assignedPartitions.length)
                 return
             }
@@ -272,21 +305,14 @@ export class SessionRecordingBlobIngester {
                     return
                 }
 
-                const currentPartitions = [...this.sessions.values()].map((session) => session.partition).sort()
-
                 const sessionsToDrop = [...this.sessions.entries()].filter(([_, sessionManager]) =>
                     revokedPartitions.includes(sessionManager.partition)
                 )
 
+                // any commit from this point is invalid, so we revoke immediately
                 this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
-
                 await this.destroySessions(sessionsToDrop)
 
-                status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
-                    currentPartitions: currentPartitions,
-                    revokedPartitions: revokedPartitions,
-                    droppedSessions: sessionsToDrop.map(([_, sessionManager]) => sessionManager.sessionId),
-                })
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
                 gaugePartitionsRevoked.set(revokedPartitions.length)
                 return
@@ -316,13 +342,22 @@ export class SessionRecordingBlobIngester {
         })
 
         // We trigger the flushes from this level to reduce the number of running timers
-        this.flushInterval = setInterval(() => {
-            let sessionManangerBufferSizes = 0
+        this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs)
+    }
 
-            this.sessions.forEach((sessionManager) => {
-                sessionManangerBufferSizes += sessionManager.buffer.size
+    private checkEachSession() {
+        let sessionManagerBufferSizes = 0
 
-                void sessionManager.flushIfSessionBufferIsOld().catch((err) => {
+        for (const [_, sessionManager] of this.sessions) {
+            sessionManagerBufferSizes += sessionManager.buffer.size
+
+            // in practice, we will always have a values for latestKaftaMessageTimestamp,
+            // but in case we get here before the first message, we use now
+            const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition] || DateTime.now().toMillis()
+
+            void sessionManager
+                .flushIfSessionBufferIsOld(kafkaNow, this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000)
+                .catch((err) => {
                     status.error(
                         '🚽',
                         'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
@@ -334,11 +369,13 @@ export class SessionRecordingBlobIngester {
                     captureException(err, { tags: { session_id: sessionManager.sessionId } })
                     throw err
                 })
-            })
+        }
 
-            gaugeSessionsHandled.set(this.sessions.size)
-            gaugeBytesBuffered.set(sessionManangerBufferSizes)
-        }, flushIntervalTimeoutMs)
+        gaugeSessionsHandled.set(this.sessions.size)
+        gaugeBytesBuffered.set(sessionManagerBufferSizes)
+
+        // Here we schedule the next process
+        this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {

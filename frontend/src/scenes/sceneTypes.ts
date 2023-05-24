@@ -20,9 +20,9 @@ export enum Scene {
     PropertyDefinition = 'PropertyDefinition',
     DataManagementHistory = 'DataManagementHistory',
     IngestionWarnings = 'IngestionWarnings',
-    SessionRecordings = 'SessionsRecordings',
-    SessionRecording = 'SessionRecording',
-    SessionRecordingPlaylist = 'SessionRecordingPlaylist',
+    Replay = 'Replay',
+    ReplaySingle = 'ReplaySingle',
+    ReplayPlaylist = 'ReplayPlaylist',
     Person = 'Person',
     Persons = 'Persons',
     Groups = 'Groups',
@@ -67,7 +67,7 @@ export enum Scene {
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
-    Issues = 'Issues',
+    Notebook = 'Notebook',
 }
 
 export type SceneProps = Record<string, any>

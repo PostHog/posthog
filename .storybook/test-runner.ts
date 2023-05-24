@@ -79,6 +79,7 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    // await page.setViewportSize(DEFAULT_PAGE_DIMENSIONS)
     const {
         waitForLoadersToDisappear = storyContext.parameters?.layout === 'fullscreen',
         excludeNavigationFromSnapshot = false,
@@ -125,6 +126,11 @@ async function expectStoryToMatchSceneSnapshot(
     context: TestContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    await page.evaluate(() => {
+        // The screenshot gets clipped by the overflow hidden of the sidebar
+        document.querySelector('.SideBar')?.setAttribute('style', 'overflow: visible;')
+    })
+
     await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
 }
 
@@ -135,13 +141,29 @@ async function expectStoryToMatchComponentSnapshot(
 ): Promise<void> {
     await page.evaluate(() => {
         const rootEl = document.getElementById('root')
-        if (rootEl) {
-            // don't expand the container element to limit the screenshot
-            // to the component's size
-            rootEl.style.display = 'inline-block'
+        if (!rootEl) {
+            throw new Error('Could not find root element')
         }
-        // make the body transparent to take the screenshot
-        // without background
+        // Make the root element (which is the screenshot reference) hug the component
+        rootEl.style.display = 'inline-block'
+        // If needed, expand the root element so that all popovers are visible in the screenshot
+        document.querySelectorAll('.Popover').forEach((popover) => {
+            const currentRootBoundingClientRect = rootEl.getBoundingClientRect()
+            const popoverBoundingClientRect = popover.getBoundingClientRect()
+            if (popoverBoundingClientRect.right > currentRootBoundingClientRect.right) {
+                rootEl.style.width = `${popoverBoundingClientRect.right}px`
+            }
+            if (popoverBoundingClientRect.bottom > currentRootBoundingClientRect.bottom) {
+                rootEl.style.height = `${popoverBoundingClientRect.bottom}px`
+            }
+            if (popoverBoundingClientRect.top < currentRootBoundingClientRect.top) {
+                rootEl.style.height = `${-popoverBoundingClientRect.top + currentRootBoundingClientRect.bottom}px`
+            }
+            if (popoverBoundingClientRect.left < currentRootBoundingClientRect.left) {
+                rootEl.style.width = `${-popoverBoundingClientRect.left + currentRootBoundingClientRect.right}px`
+            }
+        })
+        // Make the body transparent to take the screenshot without background
         document.body.style.background = 'transparent'
     })
 

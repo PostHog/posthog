@@ -356,7 +356,18 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
         """
         SELECT team_id, count(distinct session_id) as count
         FROM session_recording_events
-        WHERE timestamp between %(begin)s AND %(end)s
+        WHERE first_event_timestamp BETWEEN %(begin)s AND %(end)s
+        AND session_id NOT IN (
+            -- we want to exclude sessions that might have events with timestamps
+            -- before the period we are interested in
+            SELECT DISTINCT session_id
+            FROM session_recording_events
+            -- begin is the very first instant of the period we are interested in
+            -- we assume it is also the very first instant of a day
+            -- so we can to subtract 1 second to get the day before
+            WHERE toDate(first_event_timestamp) = toDate(%(begin)s) - INTERVAL 1 DAY
+            GROUP BY session_id
+        )
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},

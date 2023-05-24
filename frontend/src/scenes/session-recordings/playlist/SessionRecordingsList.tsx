@@ -14,6 +14,7 @@ import { useActions, useValues } from 'kea'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -36,6 +37,7 @@ export type SessionRecordingsListProps = {
     footer?: React.ReactNode
     onScrollToStart?: () => void
     onScrollToEnd?: () => void
+    draggableHref?: string
 }
 
 export function SessionRecordingsList({
@@ -57,6 +59,7 @@ export function SessionRecordingsList({
     onScrollToStart,
     onScrollToEnd,
     embedded = false,
+    draggableHref,
 }: SessionRecordingsListProps): JSX.Element {
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
     const lastScrollPositionRef = useRef(0)
@@ -107,23 +110,25 @@ export function SessionRecordingsList({
                 'overflow-hidden': recordings?.length,
             })}
         >
-            <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap">
-                {onCollapse ? (
-                    <LemonButton
-                        className="flex-1"
-                        status="stealth"
-                        icon={collapsed ? <IconUnfoldMore /> : <IconUnfoldLess />}
-                        size="small"
-                        onClick={() => setCollapsedWrapper(!collapsed)}
-                    >
-                        {titleContent}
-                    </LemonButton>
-                ) : (
-                    <span className="px-2 py-1">{titleContent}</span>
-                )}
-                {titleRight}
-                <LemonTableLoader loading={loading} />
-            </div>
+            <DraggableToNotebook href={draggableHref}>
+                <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap">
+                    {onCollapse ? (
+                        <LemonButton
+                            className="flex-1"
+                            status="stealth"
+                            icon={collapsed ? <IconUnfoldMore /> : <IconUnfoldLess />}
+                            size="small"
+                            onClick={() => setCollapsedWrapper(!collapsed)}
+                        >
+                            {titleContent}
+                        </LemonButton>
+                    ) : (
+                        <span className="px-2 py-1 flex-1">{titleContent}</span>
+                    )}
+                    {titleRight}
+                    <LemonTableLoader loading={loading} />
+                </div>
+            </DraggableToNotebook>
             {!collapsed ? (
                 recordings?.length ? (
                     <ul className="overflow-y-auto border-t" onScroll={handleScroll}>

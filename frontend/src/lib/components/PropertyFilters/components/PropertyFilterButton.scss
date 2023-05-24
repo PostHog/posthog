@@ -1,14 +1,15 @@
 .PropertyFilterButton {
     overflow: hidden;
     color: #2d2d2d;
-    border-color: var(--dark-grey);
-    background: var(--dark-grey);
+    border-color: transparent;
+    background: var(--border);
     display: inline-flex;
+    transition-duration: 200ms; // Shorten from Ant's 300ms
 
     &:hover,
     &:focus {
-        border-color: var(--dark-grey);
-        background: var(--dark-grey);
+        border-color: var(--border);
+        background: var(--border);
         color: #2d2d2d;
     }
 

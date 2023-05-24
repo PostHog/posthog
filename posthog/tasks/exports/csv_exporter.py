@@ -142,8 +142,8 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
         elif isinstance(first_result.get("data"), list):
             csv_rows = []
             # TRENDS LIKE
-            for item in items:
-                line = {"series": item["label"]}
+            for index, item in enumerate(items):
+                line = {"series": item.get("label", f"Series #{index + 1}")}
                 if item.get("action", {}).get("custom_name"):
                     line["custom name"] = item.get("action").get("custom_name")
                 if item.get("aggregated_value"):

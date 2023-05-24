@@ -331,6 +331,7 @@ class QueryMatchingTest:
             query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
             # feature flag conditions use primary keys as columns in queries, so replace those too
             query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
+            query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
             query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
@@ -351,6 +352,13 @@ class QueryMatchingTest:
         query = re.sub(
             rf"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
+            query,
+        )
+
+        # Replace person id (when querying session recording replay events)
+        query = re.sub(
+            "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
+            r"and person_id = '00000000-0000-0000-0000-000000000000'",
             query,
         )
 
@@ -592,10 +600,10 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH"))
+        return self.capture_queries(("SELECT", "WITH", "select", "with"))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
+    def capture_queries(self, query_prefixes: Union[str, Tuple[str, ...]]):
         queries = []
         original_get_client = ch_pool.get_client
 

@@ -69,6 +69,7 @@ from posthog.utils import is_json, is_valid_regex
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
+    *,
     hogql_context: HogQLContext,
     prepend: str = "global",
     table_name: str = "",
@@ -79,6 +80,7 @@ def parse_prop_grouped_clauses(
     group_properties_joined: bool = True,
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
+    """Translate the given property filter group into an SQL condition clause (+ SQL params)."""
     if not property_group or len(property_group.values) == 0:
         return "", {}
 
@@ -141,6 +143,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 def parse_prop_clauses(
     team_id: int,
     filters: List[Property],
+    *,
     hogql_context: Optional[HogQLContext],
     prepend: str = "global",
     table_name: str = "",
@@ -151,6 +154,7 @@ def parse_prop_clauses(
     group_properties_joined: bool = True,
     property_operator: PropertyOperatorType = PropertyOperatorType.AND,
 ) -> Tuple[str, Dict]:
+    """Translate the given property filter into an SQL condition clause (+ SQL params)."""
     final = []
     params: Dict[str, Any] = {}
 

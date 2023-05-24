@@ -6,7 +6,6 @@ import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/Project
 import {
     IconApps,
     IconBarChart,
-    IconBugShield,
     IconCoffee,
     IconCohort,
     IconComment,
@@ -52,7 +51,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
 import { NotebookSideBar } from '~/scenes/notebooks/Notebook/NotebookSideBar'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -163,12 +161,24 @@ function Pages(): JSX.Element {
                             onClick: hideSideBarMobile,
                         }}
                     />
-                    <PageButton
-                        icon={<IconRecording />}
-                        identifier={Scene.SessionRecordings}
-                        to={urls.sessionRecordings()}
-                    />
+                    <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
+                    {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
+                        <PageButton
+                            icon={<IconCoffee />}
+                            identifier={Scene.WebPerformance}
+                            to={urls.webPerformance()}
+                        />
+                    )}
+
+                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
+                        <div className="SideBar__heading">Feature Management</div>
+                    )}
+
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
+                    {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
+                        !preflight?.instance_preferences?.disable_paid_fs) && (
+                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
+                    )}
                     {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
                         <PageButton
                             icon={<IconRocketLaunch />}
@@ -177,17 +187,7 @@ function Pages(): JSX.Element {
                             to={urls.earlyAccessFeatures()}
                         />
                     )}
-                    {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
-                        !preflight?.instance_preferences?.disable_paid_fs) && (
-                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
-                    )}
-                    {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
-                        <PageButton
-                            icon={<IconCoffee />}
-                            identifier={Scene.WebPerformance}
-                            to={urls.webPerformance()}
-                        />
-                    )}
+
                     <div className="SideBar__heading">Data</div>
 
                     <PageButton
@@ -226,9 +226,6 @@ function Pages(): JSX.Element {
                     {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
                     )}
-                    {featureFlags[FEATURE_FLAGS.ARUBUG] && (
-                        <PageButton icon={<IconBugShield />} identifier={Scene.Issues} to={urls.issues()} />
-                    )}
                     <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
@@ -263,19 +260,18 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
     const { hideSideBarMobile } = useActions(navigationLogic)
 
     return (
-        <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
+        <div className={clsx('SideBar', !isSideBarShown && 'SideBar--hidden')}>
             <div className="SideBar__slider">
-                <div className="SideBar__content">
+                <div className="SideBar__slider__content">
                     <Pages />
                     <DebugNotice />
                 </div>
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
-            {children}
+            <NotebookSideBar>
+                <div className="SideBar__content">{children}</div>
+            </NotebookSideBar>
             <ActivationSidebar />
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                <NotebookSideBar />
-            </FlaggedFeature>
         </div>
     )
 }

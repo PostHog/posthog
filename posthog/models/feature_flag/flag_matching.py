@@ -35,7 +35,7 @@ logger = structlog.get_logger(__name__)
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
-FLAG_MATCHING_QUERY_TIMEOUT_MS = 1 * 1000  # 1 second. Any longer and we'll just error out.
+FLAG_MATCHING_QUERY_TIMEOUT_MS = 300  # 300 ms. Any longer and we'll just error out.
 
 FLAG_EVALUATION_ERROR_COUNTER = Counter(
     "flag_evaluation_error_total",
@@ -138,14 +138,12 @@ class FeatureFlagMatcher:
 
         # Match for boolean super condition first
         if feature_flag.filters.get("super_groups", None):
-            super_condition_value_is_set = self._super_condition_is_set(feature_flag)
-            super_condition_value = self._super_condition_matches(feature_flag)
-
-            if super_condition_value_is_set:
+            is_match, super_condition_value, evaluation_reason = self.is_super_condition_match(feature_flag)
+            if is_match:
                 payload = self.get_matching_payload(super_condition_value, None, feature_flag)
                 return FeatureFlagMatch(
                     match=super_condition_value,
-                    reason=FeatureFlagMatchReason.SUPER_CONDITION_VALUE,
+                    reason=evaluation_reason,
                     condition_index=0,
                     payload=payload,
                 )
@@ -175,12 +173,11 @@ class FeatureFlagMatcher:
                 highest_priority_evaluation_reason, highest_priority_index, evaluation_reason, index
             )
 
-        payload = None
         return FeatureFlagMatch(
             match=False,
             reason=highest_priority_evaluation_reason,
             condition_index=highest_priority_index,
-            payload=payload,
+            payload=None,
         )
 
     def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
@@ -231,6 +228,34 @@ class FeatureFlagMatcher:
                 return feature_flag.get_payload("true")
         else:
             return None
+
+    def is_super_condition_match(self, feature_flag: FeatureFlag) -> Tuple[bool, bool, FeatureFlagMatchReason]:
+        # TODO: Right now super conditions with property overrides bork when the database is down,
+        # because we're still going to the database in the line below. Ideally, we should not go to the database.
+        # Don't skip test: test_super_condition_with_override_properties_doesnt_make_database_requests when this is fixed.
+        # This also doesn't handle the case when the super condition has a property & a non-100 percentage rollout; but
+        # we don't support that with super conditions anyway.
+        super_condition_value_is_set = self._super_condition_is_set(feature_flag)
+        super_condition_value = self._super_condition_matches(feature_flag)
+
+        if super_condition_value_is_set:
+            return True, super_condition_value, FeatureFlagMatchReason.SUPER_CONDITION_VALUE
+
+        # Evaluate if properties are empty
+        if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
+            condition = feature_flag.super_conditions[0]
+
+            if not condition.get("properties"):
+                is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, 0)
+                return (
+                    True,
+                    is_match,
+                    FeatureFlagMatchReason.SUPER_CONDITION_VALUE
+                    if evaluation_reason == FeatureFlagMatchReason.CONDITION_MATCH
+                    else evaluation_reason,
+                )
+
+        return False, False, FeatureFlagMatchReason.NO_CONDITION_MATCH
 
     def is_condition_match(
         self, feature_flag: FeatureFlag, condition: Dict, condition_index: int
@@ -292,7 +317,9 @@ class FeatureFlagMatcher:
     @cached_property
     def query_conditions(self) -> Dict[str, bool]:
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+            # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
+            # and not just the database query.
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2):
                 all_conditions: Dict = {}
                 team_id = self.feature_flags[0].team_id
                 person_query: QuerySet = Person.objects.filter(
