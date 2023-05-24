@@ -61,9 +61,11 @@ export function HogQLEditor({
             >
                 {submitText ?? 'Update HogQL expression'}
             </LemonButton>
-            <div className="flex">
+            <div className="flex mt-1 gap-1">
                 {disablePersonProperties ? (
-                    <div className="flex-1 text-muted">NB: person.properties can't be used here.</div>
+                    <div className="flex-1 text-muted">
+                        Note: <code>person.properties</code> can't be used here.
+                    </div>
                 ) : null}
                 <div className={`${disablePersonProperties ? '' : 'w-full '}text-right ${CLICK_OUTSIDE_BLOCK_CLASS}`}>
                     <a href="https://posthog.com/manual/hogql" target={'_blank'}>
