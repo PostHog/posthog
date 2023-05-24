@@ -104,10 +104,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 <PureField label="Targeting">
                     <LemonDivider />
                     <Group name="conditions">
-                        <Field name="url" label="URL">
+                        <Field name="url" label="Url">
                             <LemonInput />
                         </Field>
-                        <Field name="selector" label="selector">
+                        <Field name="selector" label="Selector">
                             <LemonInput />
                         </Field>
                     </Group>
