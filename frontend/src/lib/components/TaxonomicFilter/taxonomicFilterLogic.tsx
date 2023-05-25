@@ -41,7 +41,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { InlineHogQLEditor } from '~/queries/QueryEditor/InlineHogQLEditor'
+import { InlineHogQLEditor } from './InlineHogQLEditor'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -159,11 +159,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         name: 'Events',
                         searchPlaceholder: 'events',
                         type: TaxonomicFilterGroupType.Events,
+                        options: [{ name: 'All events', value: null }].filter(
+                            (o) => !excludedProperties[TaxonomicFilterGroupType.Events]?.includes(o.value)
+                        ),
                         endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                         }).url,
-                        getName: (eventDefinition: EventDefinition) => eventDefinition.name,
-                        getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
+                        getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
+                        getValue: (eventDefinition: Record<string, any>) =>
+                            // Use the property's "name" when available, or "value" if a local option
+                            'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
                         ...eventTaxonomicGroupProps,
                     },
                     {
@@ -527,7 +532,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     },
     listeners: ({ actions, values, props }) => ({
         selectItem: ({ group, value, item }) => {
-            if (item && value) {
+            if (item) {
                 props.onChange?.(group, value, item)
             }
             actions.setSearchQuery('')

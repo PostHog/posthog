@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { RecordingFilters, SessionRecordingType } from '~/types'
+import { RecordingFilters, SessionRecordingType, ReplayTabs } from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
@@ -9,8 +9,8 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconChevronRight, IconFilter, IconPause, IconPlay, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -19,6 +19,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SessionRecordingsFiltersV2 } from '../filters/SessionRecordingsFiltersV2'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { urls } from 'scenes/urls'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -51,6 +53,8 @@ export function RecordingsLists({
     } = useValues(logic)
     const { setSelectedRecordingId, loadNext, loadPrev, setFilters, maybeLoadSessionRecordings, setShowFilters } =
         useActions(logic)
+    const { autoplayDirection } = useValues(playerSettingsLogic)
+    const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const infiniteScrollerEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
 
@@ -145,13 +149,43 @@ export function RecordingsLists({
                                             </>
                                         }
                                     >
-                                        <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                        <span>
+                                            <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                        </span>
                                     </Tooltip>
                                 ) : null
                             ) : (
                                 paginationControls
                             )}
 
+                            <Tooltip
+                                title={
+                                    <div className="text-center">
+                                        Autoplay next recording
+                                        <br />({!autoplayDirection ? 'disabled' : autoplayDirection})
+                                    </div>
+                                }
+                                placement="bottom"
+                            >
+                                <span>
+                                    <LemonSwitch
+                                        checked={!!autoplayDirection}
+                                        onChange={toggleAutoplayDirection}
+                                        handleContent={
+                                            <span
+                                                className={clsx(
+                                                    'transition-all flex items-center',
+                                                    !autoplayDirection && 'text-border text-sm',
+                                                    !!autoplayDirection && 'text-primary-highlight text-xs pl-px',
+                                                    autoplayDirection === 'newer' && 'rotate-180'
+                                                )}
+                                            >
+                                                {autoplayDirection ? <IconPlay /> : <IconPause />}
+                                            </span>
+                                        }
+                                    />
+                                </span>
+                            </Tooltip>
                             <LemonButton
                                 size="small"
                                 status={showFilters ? 'primary' : 'primary-alt'}
@@ -210,6 +244,7 @@ export function RecordingsLists({
                             </>
                         ) : null
                     }
+                    draggableHref={urls.replay(ReplayTabs.Recent, filters)}
                 />
             </div>
         </>
@@ -234,7 +269,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         updateSearchParams,
         onFiltersChange,
         autoPlay = true,
-        mode = 'standard',
     } = props
 
     const logicProps = {

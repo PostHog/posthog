@@ -1,17 +1,20 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { QueryEditorFilterProps } from '~/types'
-import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
-import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
-import { BreakdownFilter as BreakdownFilterType } from '~/queries/schema'
+import { TaxonomicBreakdownFilterComponent } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-export function Breakdown({ insightProps, query }: QueryEditorFilterProps): JSX.Element {
-    const { updateBreakdown } = useActions(insightVizDataLogic(insightProps))
+export function Breakdown({ insightProps }: QueryEditorFilterProps): JSX.Element {
+    const { breakdown, display, isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { updateBreakdown, updateDisplay } = useActions(insightVizDataLogic(insightProps))
 
-    // treat breakdown filter as black box for data exploration for now
-    const filters = queryNodeToFilter(query)
-    const setFilters = (breakdown: BreakdownFilterType): void => {
-        updateBreakdown(breakdown)
-    }
-    return <TaxonomicBreakdownFilter filters={filters} setFilters={setFilters} />
+    return (
+        <TaxonomicBreakdownFilterComponent
+            breakdownFilter={breakdown}
+            display={display}
+            isTrends={isTrends}
+            updateBreakdown={updateBreakdown}
+            updateDisplay={updateDisplay}
+            isDataExploration
+        />
+    )
 }

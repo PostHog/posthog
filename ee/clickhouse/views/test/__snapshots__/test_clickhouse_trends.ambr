@@ -258,7 +258,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+           UNION ALL SELECT count(DISTINCT person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             breakdown_value
            FROM
@@ -503,6 +503,12 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
+                    AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
@@ -574,6 +580,12 @@
                    (SELECT id
                     FROM person
                     WHERE team_id = 2
+                      AND id IN
+                        (SELECT id
+                         FROM person
+                         WHERE team_id = 2
+                           AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
+                                AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
                     GROUP BY id
                     HAVING max(is_deleted) = 0
                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
@@ -623,6 +635,12 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))))
+                    AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))

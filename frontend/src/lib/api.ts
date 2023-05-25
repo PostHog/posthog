@@ -37,8 +37,9 @@ import {
     RecentPerformancePageView,
     DashboardTemplateType,
     DashboardTemplateEditorType,
-    EarlyAccsesFeatureType,
+    EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
+    Survey,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -52,7 +53,6 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
-import { CommunicationResponse } from 'scenes/events/CommunicationDetailsLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -168,10 +168,6 @@ class ApiRequest {
 
     public projectsDetail(id: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.projects().addPathComponent(id)
-    }
-
-    public personCommunications(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('person_communications')
     }
 
     // # Insights
@@ -396,8 +392,17 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('early_access_feature')
     }
 
-    public earlyAccessFeature(id: EarlyAccsesFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
+    public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
+    }
+
+    // # Surveys
+    public surveys(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('surveys')
+    }
+
+    public survey(id: Survey['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.surveys(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -1104,20 +1109,47 @@ const api = {
     },
 
     earlyAccessFeatures: {
-        async get(featureId: EarlyAccsesFeatureType['id']): Promise<EarlyAccsesFeatureType> {
+        async get(featureId: EarlyAccessFeatureType['id']): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeature(featureId).get()
         },
-        async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccsesFeatureType> {
+        async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeatures().create({ data })
         },
+        async delete(featureId: EarlyAccessFeatureType['id']): Promise<void> {
+            await new ApiRequest().earlyAccessFeature(featureId).delete()
+        },
         async update(
-            featureId: EarlyAccsesFeatureType['id'],
-            data: Pick<EarlyAccsesFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
-        ): Promise<EarlyAccsesFeatureType> {
+            featureId: EarlyAccessFeatureType['id'],
+            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+        ): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<EarlyAccsesFeatureType>> {
+        async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
+        },
+        async promote(featureId: EarlyAccessFeatureType['id']): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
+            return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
+        },
+    },
+
+    surveys: {
+        async list(): Promise<PaginatedResponse<Survey>> {
+            return await new ApiRequest().surveys().get()
+        },
+        async get(surveyId: Survey['id']): Promise<Survey> {
+            return await new ApiRequest().survey(surveyId).get()
+        },
+        async create(data: Partial<Survey>): Promise<Survey> {
+            return await new ApiRequest().surveys().create({ data })
+        },
+        async delete(surveyId: Survey['id']): Promise<void> {
+            await new ApiRequest().survey(surveyId).delete()
+        },
+        async update(
+            surveyId: Survey['id'],
+            data: Pick<Survey, 'name' | 'description' | 'linked_flag' | 'start_date' | 'end_date'>
+        ): Promise<Survey> {
+            return await new ApiRequest().survey(surveyId).update({ data })
         },
     },
 
@@ -1189,12 +1221,6 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
-        },
-    },
-
-    personCommunications: {
-        async list(params: any, teamId: TeamType['id'] = getCurrentTeamId()): Promise<CommunicationResponse> {
-            return new ApiRequest().personCommunications(teamId).withQueryString(toParams(params)).get()
         },
     },
 

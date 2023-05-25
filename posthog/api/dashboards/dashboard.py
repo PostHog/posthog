@@ -444,6 +444,18 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
             create_from_template(dashboard, dashboard_template)
+
+            report_user_action(
+                cast(User, request.user),
+                "dashboard created",
+                {
+                    **dashboard.get_analytics_metadata(),
+                    "from_template": True,
+                    "template_key": dashboard_template.template_name,
+                    "duplicated": False,
+                    "dashboard_id": dashboard.pk,
+                },
+            )
         except Exception as e:
             dashboard.delete()
             raise e

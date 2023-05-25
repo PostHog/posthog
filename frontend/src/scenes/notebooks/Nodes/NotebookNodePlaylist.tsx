@@ -1,4 +1,4 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
@@ -6,14 +6,17 @@ import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { useJsonNodeState } from './utils'
+import { createUrlRegex, useJsonNodeState } from './utils'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { useRef } from 'react'
-import { uuid } from 'lib/utils'
+import { fromParamsGivenUrl, uuid } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
+
+const HEIGHT = 'calc(100vh - 10rem)'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const [filters, setFilters] = useJsonNodeState(props, 'filters')
@@ -54,8 +57,18 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 
     return (
-        <NodeWrapper {...props} className={NotebookNodeType.RecordingPlaylist} title="Playlist">
-            <div className="flex flex-row overflow-hidden gap-2 flex-1" style={{ height: 600 }} contentEditable={false}>
+        <NodeWrapper
+            {...props}
+            className={NotebookNodeType.RecordingPlaylist}
+            title="Playlist"
+            href={urls.replay(undefined, filters)}
+            heightEstimate={HEIGHT}
+        >
+            <div
+                className="flex flex-row overflow-hidden gap-2 flex-1"
+                style={{ height: HEIGHT }}
+                contentEditable={false}
+            >
                 {content}
             </div>
         </NodeWrapper>
@@ -71,7 +84,7 @@ export const NotebookNodePlaylist = Node.create({
     addAttributes() {
         return {
             filters: {
-                default: {},
+                default: '{}',
             },
         }
     },
@@ -90,5 +103,19 @@ export const NotebookNodePlaylist = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            nodePasteRule({
+                find: createUrlRegex(urls.replay() + '(.+)'),
+                type: this.type,
+                getAttributes: (match) => {
+                    const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
+
+                    return { filters: searchParams.filters }
+                },
+            }),
+        ]
     },
 })

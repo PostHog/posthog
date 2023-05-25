@@ -40,11 +40,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: null,
         KAFKA_SASL_PASSWORD: null,
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
-        KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
-        KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
+        KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 5_242_880,
+        KAFKA_CONSUMPTION_MAX_WAIT_MS: 500, // Down from the 5s default for kafkajs
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
+        KAFKA_PRODUCER_WAIT_FOR_ACK: true, // Turning it off can lead to dropped data
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
@@ -57,6 +58,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         WORKER_CONCURRENCY: 1,
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
+        INGESTION_CONCURRENCY: 10,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
@@ -80,7 +82,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         JOB_QUEUE_S3_BUCKET_NAME: '',
         JOB_QUEUE_S3_PREFIX: '',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
-        STALENESS_RESTART_SECONDS: 0,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
@@ -113,9 +114,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
 
-        SESSION_RECORDING_BLOB_PROCESSING_TEAMS: '', // TODO: BW Change this to 'all' when we release it fully
+        SESSION_RECORDING_BLOB_PROCESSING_TEAMS: '', // TODO: Change this to 'all' when we release it fully
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
-        SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10, // NOTE: 10 minutes
+        // NOTE: 10 minutes
+        SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
         SESSION_RECORDING_MAX_BUFFER_SIZE_KB: ['dev', 'test'].includes(process.env.NODE_ENV || 'undefined')
             ? 1024 // NOTE: ~1MB in dev or test, so that even with gzipped content we still flush pretty frequently
             : 1024 * 50, // ~50MB after compression in prod

@@ -52,7 +52,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                     {step.event === '$autocapture' && (
                         <AutocaptureFields step={step} sendStep={sendStep} actionId={actionId} />
                     )}
-                    {step.event != null && step.event !== '$autocapture' && step.event !== '$pageview' && (
+                    {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
                         <div className="space-y-1">
                             <LemonLabel>Event name</LemonLabel>
                             <LemonEventName
@@ -60,10 +60,11 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                 onChange={(value) =>
                                     sendStep({
                                         ...step,
-                                        event: value || '',
+                                        event: value,
                                     })
                                 }
-                                placeholder="Any event"
+                                placeholder="All events"
+                                allEventsOption="explicit"
                             />
 
                             <small>
@@ -282,7 +283,7 @@ function TypeSwitcher({
         if (type === '$autocapture') {
             sendStep({ ...step, event: '$autocapture' })
         } else if (type === 'event') {
-            sendStep({ ...step, event: '' })
+            sendStep({ ...step, event: null })
         } else if (type === '$pageview') {
             sendStep({
                 ...step,

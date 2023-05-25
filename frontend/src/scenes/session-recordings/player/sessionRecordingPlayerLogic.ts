@@ -421,8 +421,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
-            // TODO: We should only do this if we have once played (i.e. we should not base this on the underlying data)
-
             if (!values.currentTimestamp) {
                 actions.initializePlayerFromStart()
             }
@@ -502,7 +500,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             if (values.currentPlayerState === SessionPlayerState.READY) {
-                // We haven't started properly loading yet so nothigng to do
+                // We haven't started properly loading yet so nothing to do
             } else if (!values.sessionPlayerSnapshotDataLoading && segment?.kind === 'buffer') {
                 // If not currently loading anything and part of the recording hasn't loaded, set error state
                 values.player?.replayer?.pause()
@@ -679,9 +677,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 listLogic.actions.loadAllRecordings()
                 // Reset selected recording to first one in the list
                 listLogic.actions.setSelectedRecordingId(null)
-            } else if (router.values.location.pathname.includes('/recordings')) {
-                // On a page that displays a single recording `recordings/:id` that doesn't contain a list
-                router.actions.push(urls.sessionRecordings())
+            } else if (router.values.location.pathname.includes('/replay')) {
+                // On a page that displays a single recording `replay/:id` that doesn't contain a list
+                router.actions.push(urls.replay())
             } else {
                 // No-op a modal session recording. Delete icon is hidden in modal contexts since modals should be read only views.
             }

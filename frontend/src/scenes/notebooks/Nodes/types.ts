@@ -4,4 +4,6 @@ export enum NotebookNodeType {
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
+    Person = 'ph-person',
+    Link = 'ph-link',
 }

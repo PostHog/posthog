@@ -80,12 +80,10 @@ export function PlayerMeta(): JSX.Element {
         currentWindowIndex,
         startTime,
         sessionPlayerMetaDataLoading,
+        sessionProperties,
     } = useValues(playerMetaLogic(logicProps))
 
     const { isFullScreen } = useValues(playerSettingsLogic)
-    // NOTE: The optimised event listing broke this as we don't have all the properties we need
-    // const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
-    const iconProperties = sessionPerson?.properties
 
     const { ref, size } = useResizeBreakpoints({
         0: 'compact',
@@ -117,12 +115,12 @@ export function PlayerMeta(): JSX.Element {
             >
                 <div className="ph-no-capture">
                     {!sessionPerson ? (
-                        <LemonSkeleton.Circle className="w-10 h-10" />
+                        <LemonSkeleton.Circle className="w-8 h-8" />
                     ) : (
                         <ProfilePicture name={asDisplay(sessionPerson)} />
                     )}
                 </div>
-                <div className="overflow-hidden ph-no-capture">
+                <div className="overflow-hidden ph-no-capture flex-1">
                     <div className="font-bold">
                         {!sessionPerson || !startTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
@@ -144,10 +142,10 @@ export function PlayerMeta(): JSX.Element {
                     <div className="text-muted">
                         {sessionPlayerMetaDataLoading ? (
                             <LemonSkeleton className="w-1/4 my-1" />
-                        ) : iconProperties ? (
+                        ) : sessionProperties ? (
                             <SessionPropertyMeta
                                 fullScreen={isFullScreen}
-                                iconProperties={iconProperties}
+                                iconProperties={sessionProperties}
                                 predicate={(x) => !!x}
                             />
                         ) : null}

@@ -16,7 +16,6 @@ import { entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import {
@@ -29,11 +28,11 @@ import {
 } from 'scenes/trends/mathsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
@@ -118,7 +117,7 @@ export function ActionFilterRow({
     readOnly = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
-    const { selectedFilter, entityFilterVisible } = useValues(logic)
+    const { entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
         selectFilter,
@@ -158,22 +157,7 @@ export function ActionFilterRow({
         })
     }
 
-    const dropDownCondition = Boolean(
-        selectedFilter && selectedFilter?.type === filter.type && selectedFilter?.index === index
-    )
-
-    const onClick = (): void => {
-        if (dropDownCondition) {
-            selectFilter(null)
-        } else {
-            selectFilter({ ...filter, index })
-        }
-    }
-
-    if (filter.type === EntityTypes.NEW_ENTITY) {
-        name = null
-        value = null
-    } else if (filter.type === EntityTypes.ACTIONS) {
+    if (filter.type === EntityTypes.ACTIONS) {
         const action = actions.find((action) => action.id === filter.id)
         name = action?.name || filter.name
         value = action?.id || filter.id
@@ -191,46 +175,31 @@ export function ActionFilterRow({
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
     const filterElement = (
-        <LemonButtonWithDropdown
+        <TaxonomicPopover
             data-attr={'trend-element-subject-' + index}
             fullWidth
-            dropdown={{
-                overlay: (
-                    <TaxonomicFilter
-                        groupType={
-                            filter.type === EntityTypes.NEW_ENTITY
-                                ? TaxonomicFilterGroupType.Events
-                                : (filter.type as TaxonomicFilterGroupType)
-                        }
-                        value={
-                            filter.type === 'actions' && typeof value === 'string'
-                                ? parseInt(value)
-                                : value || undefined
-                        }
-                        onChange={(taxonomicGroup, changedValue, item) => {
-                            updateFilter({
-                                type: taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type) || undefined,
-                                id: `${changedValue}`,
-                                name: item?.name,
-                                index,
-                            })
-                        }}
-                        onClose={() => selectFilter(null)}
-                        taxonomicGroupTypes={actionsTaxonomicGroupTypes}
-                    />
-                ),
-                visible: dropDownCondition,
-                onClickOutside: () => selectFilter(null),
+            groupType={filter.type as TaxonomicFilterGroupType}
+            value={filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value || undefined}
+            onChange={(changedValue, taxonomicGroupType, item) => {
+                updateFilter({
+                    type: taxonomicFilterGroupTypeToEntityType(taxonomicGroupType) || undefined,
+                    id: changedValue ? String(changedValue) : null,
+                    name: item?.name ?? '',
+                    index,
+                })
             }}
+            renderValue={() => (
+                <span className="text-overflow max-w-full">
+                    <EntityFilterInfo filter={filter} />
+                </span>
+            )}
+            groupTypes={actionsTaxonomicGroupTypes}
             type="secondary"
             status="stealth"
-            onClick={onClick}
+            placeholder="All events"
+            placeholderClass=""
             disabled={disabled || readOnly}
-        >
-            <span className="truncate max-w-full">
-                <EntityFilterInfo filter={filter} />
-            </span>
-        </LemonButtonWithDropdown>
+        />
     )
 
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
@@ -342,7 +311,7 @@ export function ActionFilterRow({
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
-                                                dataAttr="math-property-select"
+                                                data-attr="math-property-select"
                                                 renderValue={(currentValue) => (
                                                     <Tooltip
                                                         title={

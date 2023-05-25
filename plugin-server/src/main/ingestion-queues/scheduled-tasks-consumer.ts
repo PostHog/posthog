@@ -6,12 +6,11 @@ import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/k
 import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
-import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
+import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'
 import { latestOffsetTimestampGauge } from './metrics'
 
 // The valid task types that can be scheduled.
-// TODO: not sure if there is another place that defines these but it would be
-// good to unify.
+// TODO: not sure if there is another place that defines these but it would be good to unify.
 const taskTypes = ['runEveryMinute', 'runEveryHour', 'runEveryDay'] as const
 
 export const startScheduledTasksConsumer = async ({
@@ -131,7 +130,7 @@ export const startScheduledTasksConsumer = async ({
     await consumer.run({
         partitionsConsumedConcurrently: partitionConcurrency,
         eachBatch: async (payload) => {
-            return await instrumentEachBatch(KAFKA_SCHEDULED_TASKS, eachBatch, payload, statsd)
+            return await instrumentEachBatchKafkaJS(KAFKA_SCHEDULED_TASKS, eachBatch, payload, statsd)
         },
     })
 

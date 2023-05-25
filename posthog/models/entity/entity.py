@@ -47,7 +47,7 @@ class Entity(PropertyMixin):
     This class just allows for stronger typing of this object.
     """
 
-    id: Union[int, str]
+    id: Union[int, str, None]
     type: Literal["events", "actions"]
     order: Optional[int]
     name: Optional[str]
@@ -136,6 +136,9 @@ class Entity(PropertyMixin):
         if self._action and not settings.TEST:
             return self._action
 
+        if self.id is None:
+            raise ValidationError("Action ID cannot be None!")
+
         try:
             self._action = Action.objects.get(id=self.id)
             return self._action
@@ -155,7 +158,6 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
         super().__init__(data)
 
     def to_dict(self) -> Dict[str, Any]:
-
         ret = super().to_dict()
 
         for _, func in inspect.getmembers(self, inspect.ismethod):

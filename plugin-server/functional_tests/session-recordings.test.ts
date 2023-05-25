@@ -25,7 +25,7 @@ beforeAll(async () => {
 
     dlq = []
     dlqConsumer = kafka.consumer({ groupId: 'session_recording_events_test' })
-    await dlqConsumer.subscribe({ topic: 'session_recording_events_dlq' })
+    await dlqConsumer.subscribe({ topic: 'session_recording_events_dlq', fromBeginning: true })
     await dlqConsumer.run({
         eachMessage: ({ message }) => {
             dlq.push(message)

@@ -7,7 +7,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { eventUsageLogic, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
-import { AvailableFeature, RecordingDurationFilter, SessionRecordingsTabs } from '~/types'
+import { AvailableFeature, RecordingDurationFilter, ReplayTabs } from '~/types'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { useActions, useValues } from 'kea'
@@ -36,7 +36,7 @@ export function SessionRecordingsPlaylistFilters({
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: SessionRecordingsTabs.Recent })
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({ filters }, true)

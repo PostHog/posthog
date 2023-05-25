@@ -1,7 +1,13 @@
 .Notebook {
-    padding: 1rem;
     height: 100%;
     flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.NotebookEditor {
+    flex: 1;
+    padding: 1rem 2rem;
 
     > :not(.react-renderer) {
         max-width: 1000px;
@@ -9,7 +15,6 @@
     }
 
     .react-renderer {
-        // max-width: 1200px;
         max-width: 1000px;
         margin: 0 auto;
     }
@@ -28,5 +33,13 @@
 
     &.ProseMirror-focused {
         outline: none;
+    }
+
+    .is-empty::before {
+        content: attr(data-placeholder);
+        float: left;
+        color: rgba(0, 0, 0, 0.2);
+        pointer-events: none;
+        height: 0;
     }
 }

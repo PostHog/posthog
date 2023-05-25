@@ -1,7 +1,7 @@
 import { convertKafkaJSHeadersToRdKafkaHeaders } from '../../src/utils/db/kafka-producer-wrapper'
 
 test('can convert from KafkaJS headers to rdkafka headers', () => {
-    expect(convertKafkaJSHeadersToRdKafkaHeaders()).toEqual([])
+    expect(convertKafkaJSHeadersToRdKafkaHeaders()).toEqual(undefined)
     expect(convertKafkaJSHeadersToRdKafkaHeaders({})).toEqual([])
     expect(convertKafkaJSHeadersToRdKafkaHeaders({ foo: 'bar' })).toEqual([{ foo: Buffer.from('bar') }])
     expect(convertKafkaJSHeadersToRdKafkaHeaders({ foo: ['bar', 'baz'] })).toEqual([

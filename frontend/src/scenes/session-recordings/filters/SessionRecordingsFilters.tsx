@@ -24,13 +24,12 @@ const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters
 
     return {
         actions: [],
-        events: [],
-        new_entity: [
+        events: [
             {
-                id: 'empty',
-                type: EntityTypes.NEW_ENTITY,
+                id: '$pageview',
+                type: EntityTypes.EVENTS,
                 order: 0,
-                name: 'empty',
+                name: '$pageview',
             },
         ],
     }
@@ -63,7 +62,7 @@ export function SessionRecordingsFilters({
 
     return (
         <>
-            <div className="border rounded p-4 bg-light">
+            <div className="border rounded p-4 bg-inverse">
                 <div className="space-y-2">
                     <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
                         Filter by events and actions

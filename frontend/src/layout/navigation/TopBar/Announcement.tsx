@@ -31,11 +31,7 @@ export function Announcement(): JSX.Element | null {
             <div>
                 <strong>Attention required!</strong> Your instance has uncompleted migrations that are required for the
                 next release.
-                <LemonButton
-                    to="/instance/async_migrations"
-                    className="NewFeatureAnnouncement__button"
-                    data-attr="site-banner-async-migrations"
-                >
+                <LemonButton to="/instance/async_migrations" data-attr="site-banner-async-migrations">
                     Click here to fix
                 </LemonButton>
             </div>

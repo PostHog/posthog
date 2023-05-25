@@ -1,8 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { captureException } from '@sentry/node'
 import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka-acosom'
 
 import {
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_PERFORMANCE_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS_DLQ,
@@ -14,7 +16,12 @@ import { createKafkaProducer, disconnectProducer, flushProducer, produce } from 
 import { PipelineEvent, RawEventMessage, Team } from '../../../types'
 import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
-import { createPerformanceEvent, createSessionRecordingEvent } from '../../../worker/ingestion/process-event'
+import {
+    createPerformanceEvent,
+    createSessionRecordingEvent,
+    createSessionReplayEvent,
+    SummarizedSessionRecordingEvent,
+} from '../../../worker/ingestion/process-event'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { parseEventTimestamp } from '../../../worker/ingestion/timestamps'
 import { eventDroppedCounter } from '../metrics'
@@ -59,7 +66,11 @@ export const startSessionRecordingEventsConsumer = async ({
 
     const connectionConfig = createRdConnectionConfigFromEnvVars(kafkaConfig)
     const producer = await createKafkaProducer(connectionConfig)
-    const eachBatchWithContext = eachBatch({ teamManager, producer })
+
+    const eachBatchWithContext = eachBatch({
+        teamManager,
+        producer,
+    })
 
     // Create a node-rdkafka consumer that fetches batches of messages, runs
     // eachBatchWithContext, then commits offsets for the batch.
@@ -252,7 +263,36 @@ const eachMessage =
                         event.properties || {}
                     )
 
-                    return [
+                    let replayRecord: null | SummarizedSessionRecordingEvent = null
+                    try {
+                        replayRecord = createSessionReplayEvent(
+                            messagePayload.uuid,
+                            team.id,
+                            messagePayload.distinct_id,
+                            event.ip,
+                            event.properties || {}
+                        )
+                    } catch (e) {
+                        status.warn('??', 'session_replay_summarizer_error', { error: e })
+                        captureException(e, {
+                            extra: {
+                                clickHouseRecord: {
+                                    uuid: clickHouseRecord.uuid,
+                                    timestamp: clickHouseRecord.timestamp,
+                                    snapshot_data: clickHouseRecord.snapshot_data,
+                                },
+                                replayRecord,
+                            },
+                            tags: {
+                                team: team.id,
+                                session_id: clickHouseRecord.session_id,
+                                chunk_index: event.properties?.['$snapshot_data']?.chunk_index || 'unknown',
+                                chunk_count: event.properties?.['$snapshot_data']?.chunk_count || 'unknown',
+                            },
+                        })
+                    }
+
+                    const producePromises = [
                         produce({
                             producer,
                             topic: KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
@@ -260,6 +300,18 @@ const eachMessage =
                             key: message.key ? Buffer.from(message.key) : null,
                         }),
                     ]
+
+                    if (replayRecord) {
+                        producePromises.push(
+                            produce({
+                                producer,
+                                topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+                                value: Buffer.from(JSON.stringify(replayRecord)),
+                                key: message.key ? Buffer.from(message.key) : null,
+                            })
+                        )
+                    }
+                    return producePromises
                 } else if (event.event === '$performance_event') {
                     const clickHouseRecord = createPerformanceEvent(
                         messagePayload.uuid,

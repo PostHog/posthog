@@ -16,3 +16,9 @@ export function useJsonNodeState(props: NodeViewProps, key: string): [any, (valu
 
     return [value, setValue]
 }
+
+export function createUrlRegex(path: string, origin?: string): RegExp {
+    origin = (origin || window.location.origin).replace('.', '\\.')
+
+    return new RegExp(origin + path, 'ig')
+}

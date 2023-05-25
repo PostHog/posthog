@@ -24,7 +24,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.8}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.4}
         restart: on-failure
         depends_on:
             - kafka
@@ -60,7 +60,7 @@ services:
         restart: on-failure
 
     worker: &worker
-        command: ./bin/start-worker
+        command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
         environment:
             DISABLE_SECURE_SSL_REDIRECT: 'true'

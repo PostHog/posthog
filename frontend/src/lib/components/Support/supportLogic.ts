@@ -1,14 +1,15 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
-import { uuid } from 'lib/utils'
-import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
-import { UserType } from '~/types'
+import { Region, UserType } from '~/types'
+import { uuid } from 'lib/utils'
+import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { captureException } from '@sentry/react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -16,8 +17,8 @@ function getSessionReplayLink(): string {
         Math.floor((new Date().getTime() - (posthog?.sessionManager?._sessionStartTimestamp || 0)) / 1000) - LOOK_BACK,
         0
     )
-    const link = `https://app.posthog.com/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
-    return `\nSession replay: ${link}`
+    const link = `https://app.posthog.com/replay/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
+    return `[Session replay](${link})`
 }
 
 function getDjangoAdminLink(user: UserType | null): string {
@@ -25,8 +26,15 @@ function getDjangoAdminLink(user: UserType | null): string {
         return ''
     }
     const link = `${window.location.origin}/admin/posthog/user/?q=${user.email}`
-    console.log(`\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`)
-    return `\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`
+    return `[Admin](${link}) (Organization: '${user.organization?.name}'; Project: ${user.team?.id}:'${user.team?.name}')`
+}
+
+function getSentryLinks(user: UserType | null, cloud: 'EU' | 'US'): string {
+    if (!user) {
+        return ''
+    }
+    const link = `http://go/sentry${cloud}/${user.team?.id}`
+    return `[Sentry](${link})`
 }
 
 export const TARGET_AREA_TO_NAME = {
@@ -43,8 +51,14 @@ export const TARGET_AREA_TO_NAME = {
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
 }
+
+export const SUPPORT_KIND_TO_SUBJECT = {
+    bug: 'Bug Report',
+    feedback: 'Feedback',
+    support: 'Support Ticket',
+}
 export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
-export type SupportTicketKind = 'bug' | 'feedback' | 'support'
+export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
 export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
     insights: 'analytics',
@@ -72,7 +86,7 @@ export function getURLPathToTargetArea(pathname: string): SupportTicketTargetAre
 export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], preflightLogic, ['preflight']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
@@ -83,11 +97,21 @@ export const supportLogic = kea<supportLogicType>([
             kind,
             target_area,
         }),
+        openSupportLoggedOutForm: (
+            name: string | null = null,
+            email: string | null = null,
+            kind: SupportTicketKind | null = null,
+            target_area: SupportTicketTargetArea | null = null
+        ) => ({ name, email, kind, target_area }),
         submitZendeskTicket: (
+            name: string,
+            email: string,
             kind: SupportTicketKind | null,
             target_area: SupportTicketTargetArea | null,
             message: string
         ) => ({
+            name,
+            email,
             kind,
             target_area,
             message,
@@ -98,6 +122,7 @@ export const supportLogic = kea<supportLogicType>([
             false,
             {
                 openSupportForm: () => true,
+                openSupportLoggedOutForm: () => true,
                 closeSupportForm: () => false,
             },
         ],
@@ -117,9 +142,34 @@ export const supportLogic = kea<supportLogicType>([
                 }
             },
             submit: async ({ kind, target_area, message }) => {
-                actions.submitZendeskTicket(kind, target_area, message)
+                const name = userLogic.values.user?.first_name
+                const email = userLogic.values.user?.email
+                actions.submitZendeskTicket(name || '', email || '', kind, target_area, message)
                 actions.closeSupportForm()
                 actions.resetSendSupportRequest()
+            },
+        },
+        sendSupportLoggedOutRequest: {
+            defaults: {} as unknown as {
+                name: string
+                email: string
+                kind: SupportTicketKind | null
+                target_area: SupportTicketTargetArea | null
+                message: string
+            },
+            errors: ({ name, email, message, kind, target_area }) => {
+                return {
+                    name: !name ? 'Please enter your name' : '',
+                    email: !email ? 'Please enter your email' : '',
+                    message: !message ? 'Please enter a message' : '',
+                    kind: !kind ? 'Please choose' : undefined,
+                    target_area: !target_area ? 'Please choose' : undefined,
+                }
+            },
+            submit: async ({ name, email, kind, target_area, message }) => {
+                actions.submitZendeskTicket(name || '', email || '', kind, target_area, message)
+                actions.closeSupportForm()
+                actions.resetSendSupportLoggedOutRequest()
             },
         },
     })),
@@ -131,24 +181,42 @@ export const supportLogic = kea<supportLogicType>([
                 message: '',
             })
         },
-        submitZendeskTicket: async ({ kind, target_area, message }) => {
-            const name = userLogic.values.user?.first_name
-            const email = userLogic.values.user?.email
-
+        openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
+            actions.resetSendSupportLoggedOutRequest({
+                name: name ? name : '',
+                email: email ? email : '',
+                kind: kind ? kind : null,
+                target_area: target_area ? target_area : null,
+                message: '',
+            })
+        },
+        submitZendeskTicket: async ({ name, email, kind, target_area, message }) => {
             const zendesk_ticket_uuid = uuid()
+            const subject =
+                SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
+                ': ' +
+                (target_area ? TARGET_AREA_TO_NAME[target_area] : 'General') +
+                ' (' +
+                zendesk_ticket_uuid +
+                ')'
+            const cloud = preflightLogic.values.preflight?.region === Region.EU ? 'EU' : 'US'
             const payload = {
                 request: {
                     requester: { name: name, email: email },
-                    subject: 'Help in-app',
+                    subject: subject,
                     comment: {
                         body:
                             message +
                             `\n\n-----` +
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
-                            `\nInternal link: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
+                            `\nInternal links: [Event](http://go/ticketByUUID/${zendesk_ticket_uuid})` +
+                            '\n' +
                             getSessionReplayLink() +
-                            getDjangoAdminLink(userLogic.values.user),
+                            '\n' +
+                            getDjangoAdminLink(userLogic.values.user) +
+                            '\n' +
+                            getSentryLinks(userLogic.values.user, cloud),
                     },
                 },
             }
@@ -187,7 +255,7 @@ export const supportLogic = kea<supportLogicType>([
                 const [kind, area] = (hashParams['supportModal'] || '').split(':')
 
                 actions.openSupportForm(
-                    ['bug', 'feedback'].includes(kind) ? kind : null,
+                    Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
                     Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
                 )
             }

@@ -6,6 +6,11 @@
     (SELECT id
      FROM person
      WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', ''))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))))
@@ -177,7 +182,7 @@
                       cohort_id,
                       team_id) cohort_persons ON cohort_persons.person_id = person.id
           WHERE team_id = 2
-            AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(person.properties, 'group'), '^"|"$', '')))) )
+            AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))))
@@ -266,6 +271,12 @@
     (SELECT id
      FROM person
      WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((has(['none'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', ''))
+                  OR has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((has(['none'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))
