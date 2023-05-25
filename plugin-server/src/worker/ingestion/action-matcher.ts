@@ -8,7 +8,6 @@ import RE2 from 're2'
 import {
     Action,
     ActionStep,
-    ActionStepUrlMatching,
     CohortPropertyFilter,
     Element,
     ElementPropertyFilter,
@@ -18,6 +17,7 @@ import {
     PropertyFilter,
     PropertyFilterWithOperator,
     PropertyOperator,
+    StringMatching,
 } from '../../types'
 import { DB } from '../../utils/db/db'
 import { extractElements } from '../../utils/db/elements-chain'
@@ -104,6 +104,25 @@ export function castingCompare(
         }
     }
     return false
+}
+
+export function matchString(actual: string, expected: string, matching: StringMatching): boolean {
+    switch (matching) {
+        case StringMatching.Regex:
+            // Using RE2 here because that's what ClickHouse uses for regex matching anyway
+            // It's also safer for user-provided patterns because of a few explicit limitations
+            try {
+                return new RE2(expected).test(actual)
+            } catch {
+                return false
+            }
+        case StringMatching.Exact:
+            return expected === actual
+        case StringMatching.Contains:
+            // Simulating SQL LIKE behavior (_ = any single character, % = any zero or more characters)
+            const adjustedRegExpString = escapeStringRegexp(expected).replace(/_/g, '.').replace(/%/g, '.*')
+            return new RegExp(adjustedRegExpString).test(actual)
+    }
 }
 
 export class ActionMatcher {
@@ -200,27 +219,7 @@ export class ActionMatcher {
             if (!eventUrl || typeof eventUrl !== 'string') {
                 return false // URL IS UNKNOWN
             }
-            let doesUrlMatch: boolean
-            switch (step.url_matching) {
-                case ActionStepUrlMatching.Regex:
-                    // Using RE2 here because that's what ClickHouse uses for regex matching anyway
-                    // It's also safer for user-provided patterns because of a few explicit limitations
-                    try {
-                        doesUrlMatch = new RE2(step.url).test(eventUrl)
-                    } catch {
-                        doesUrlMatch = false
-                    }
-                    break
-                case ActionStepUrlMatching.Exact:
-                    doesUrlMatch = step.url === eventUrl
-                    break
-                case ActionStepUrlMatching.Contains:
-                default:
-                    // Simulating SQL LIKE behavior (_ = any single character, % = any zero or more characters)
-                    const adjustedRegExpString = escapeStringRegexp(step.url).replace(/_/g, '.').replace(/%/g, '.*')
-                    doesUrlMatch = new RegExp(adjustedRegExpString).test(eventUrl)
-            }
-            if (!doesUrlMatch) {
+            if (!matchString(eventUrl, step.url, step.url_matching || StringMatching.Contains)) {
                 return false // URL IS A MISMATCH
             }
         }
@@ -239,13 +238,19 @@ export class ActionMatcher {
         if (step.href || step.tag_name || step.text) {
             if (
                 !elements.some((element) => {
-                    if (step.href && element.href !== step.href) {
+                    if (
+                        step.href &&
+                        !matchString(element.href || '', step.href, step.href_matching || StringMatching.Exact)
+                    ) {
                         return false // ELEMENT HREF IS A MISMATCH
                     }
                     if (step.tag_name && element.tag_name !== step.tag_name) {
                         return false // ELEMENT TAG NAME IS A MISMATCH
                     }
-                    if (step.text && element.text !== step.text) {
+                    if (
+                        step.text &&
+                        !matchString(element.text || '', step.text, step.text_matching || StringMatching.Exact)
+                    ) {
                         return false // ELEMENT TEXT IS A MISMATCH
                     }
                     return true
