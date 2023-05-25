@@ -145,8 +145,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('123')
-            expect(markdown).toBe('[123](http://localhost:8000/events/123)')
+            expect(text).toBe('$pageview')
+            expect(markdown).toBe('[$pageview](http://localhost:8000/events/123)')
         })
 
         test('event distinct_id', () => {
@@ -160,7 +160,7 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('distinct_id')
+            expect(text).toBe('WALL-E')
             expect(markdown).toBe('WALL-E')
         })
         test('person with just distinct ID', () => {
