@@ -1,5 +1,6 @@
 import datetime
 import json
+import time
 from typing import Dict, List, Optional
 from unittest.mock import call, patch
 
@@ -32,6 +33,7 @@ from posthog.test.base import (
     snapshot_postgres_queries_context,
 )
 from posthog.test.db_context_capturing import capture_db_queries
+from posthog.utils import is_postgres_connected_cached_check
 
 
 class TestFeatureFlag(APIBaseTest):
@@ -2625,6 +2627,12 @@ def slow_query(execute, sql, *args, **kwargs):
 
 
 class TestResiliency(TransactionTestCase, QueryMatchingTest):
+    def setUp(self) -> None:
+        # make sure we always have the connection check cached
+        is_postgres_connected_cached_check.cache_clear()
+        is_postgres_connected_cached_check(round(time.time() / 10))
+        return super().setUp()
+
     def test_feature_flags_v3_with_group_properties(self):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
@@ -2696,7 +2704,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
             # # now db is down, but decide was sent correct group property overrides
             with self.assertNumQueries(1):
-                # this query is "None", not executed
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
@@ -2710,7 +2717,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
             # # now db is down, but decide was sent different group property overrides
             with self.assertNumQueries(1):
-                # this query is "None", not executed
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "exam",
@@ -2809,6 +2815,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 mock_counter.labels.assert_not_called()
 
     def test_feature_flags_v3_with_a_working_slow_db(self):
+        is_postgres_connected_cached_check.cache_clear()
+
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -2852,9 +2860,10 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(2):
-            # 1 query to get person properties
+        with self.assertNumQueries(3):
+            # 1 query to check if db is up
             # 1 query to set statement timeout
+            # 1 query to get person properties
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue(all_flags["property-flag"])
