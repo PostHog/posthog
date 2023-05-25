@@ -392,7 +392,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "query": f"select event from events where distinct_id='{random_uuid}'",
                 },
             )
-            self.assertEqual(len(response.get("results")), 10)
+            self.assertEqual(len(response.get("results", [])), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     def test_full_events_query_limit(self, DEFAULT_RETURNED_ROWS=10):
@@ -407,7 +407,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 query_json={"kind": "EventsQuery", "select": ["event"], "where": [f"distinct_id = '{random_uuid}'"]},
             )
-            self.assertEqual(len(response.get("results")), 10)
+            self.assertEqual(len(response.get("results", [])), 10)
 
     def test_invalid_recent_performance_pageviews(self):
         api_response = self.client.post(
