@@ -60,7 +60,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
-        setResponse: (response: AnyResponseType) => response,
+        setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
         clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
