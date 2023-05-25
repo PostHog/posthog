@@ -52,7 +52,6 @@ def journeys_for(
             )
 
         for event in events:
-
             # Populate group properties as well
             group_mapping = {}
             for property_key, value in (event.get("properties") or {}).items():
@@ -188,7 +187,8 @@ def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):
         defaults={**kwargs, "team_id": team_id},
     )
     for distinct_id in distinct_ids:
-        PersonDistinctId.objects.update_or_create(
+        PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).delete()
+        PersonDistinctId.objects.create(
             distinct_id=distinct_id,
             team_id=person.team_id,
             defaults={"person_id": person.id, "team_id": team_id, "distinct_id": distinct_id},
