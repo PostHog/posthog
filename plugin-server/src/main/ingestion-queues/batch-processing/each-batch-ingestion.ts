@@ -11,7 +11,9 @@ import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
-import { eachBatch } from './each-batch'
+
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
 
 export enum IngestionOverflowMode {
     Disabled,
@@ -22,37 +24,6 @@ export enum IngestionOverflowMode {
 type IngestionSplitBatch = {
     toProcess: PipelineEvent[][]
     toOverflow: KafkaMessage[]
-}
-
-export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
-    const event = formPipelineEvent(message)
-    await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
-}
-
-export async function eachBatchIngestion(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
-    function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], batchSize: number): KafkaMessage[][] {
-        // Once we see a distinct ID we've already seen break up the batch
-        const batches = []
-        const seenIds: Set<string> = new Set()
-        let currentBatch: KafkaMessage[] = []
-        for (const message of kafkaMessages) {
-            const pluginEvent = formPipelineEvent(message)
-            const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
-            if (currentBatch.length === batchSize || seenIds.has(seenKey)) {
-                seenIds.clear()
-                batches.push(currentBatch)
-                currentBatch = []
-            }
-            seenIds.add(seenKey)
-            currentBatch.push(message)
-        }
-        if (currentBatch) {
-            batches.push(currentBatch)
-        }
-        return batches
-    }
-
-    await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
 }
 
 export async function eachBatchParallelIngestion(
