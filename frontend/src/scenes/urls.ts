@@ -87,6 +87,8 @@ export const urls = {
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
+    surveys: (): string => '/surveys',
+    survey: (id: ':id' | 'new' | string): string => `/survey/${id}`,
     annotations: (): string => '/annotations',
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
@@ -149,4 +151,10 @@ export const urls = {
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
+    notebooks: (): string =>
+        combineUrl(urls.dashboards(), {
+            tab: 'notebooks',
+        }).url,
+    notebook: (id: string | number): string => `/notebooks/${id}`,
+    notebookEdit: (id: string | number): string => `/notebooks/${id}/edit`,
 }

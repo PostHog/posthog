@@ -28,7 +28,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { LemonTaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -175,7 +175,7 @@ export function ActionFilterRow({
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
     const filterElement = (
-        <LemonTaxonomicPopover
+        <TaxonomicPopover
             data-attr={'trend-element-subject-' + index}
             fullWidth
             groupType={filter.type as TaxonomicFilterGroupType}
@@ -189,7 +189,7 @@ export function ActionFilterRow({
                 })
             }}
             renderValue={() => (
-                <span className="text-overflow" style={{ maxWidth: '100%' }}>
+                <span className="text-overflow max-w-full">
                     <EntityFilterInfo filter={filter} />
                 </span>
             )}
@@ -306,7 +306,7 @@ export function ActionFilterRow({
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
-                                                dataAttr="math-property-select"
+                                                data-attr="math-property-select"
                                                 renderValue={(currentValue) => (
                                                     <Tooltip
                                                         title={

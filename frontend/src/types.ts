@@ -459,7 +459,7 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
-export enum ExperimentStatus {
+export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
@@ -1977,6 +1977,54 @@ export interface SetInsightOptions {
     fromPersistentApi?: boolean
 }
 
+export interface Survey {
+    /** UUID */
+    id: string
+    name: string
+    description: string
+    type: SurveyType
+    linked_flag: FeatureFlagBasicType | null
+    targeting_flag: FeatureFlagBasicType | null
+    conditions: { url: string; selector: string } | null
+    appearance: SurveyAppearance
+    questions: SurveyQuestion[]
+    created_at: string
+    created_by: UserBasicType | null
+    start_date: string | null
+    end_date: string | null
+    archived: boolean
+}
+
+export enum SurveyType {
+    Popover = 'popover',
+    Button = 'button',
+    FullScreen = 'full_screen',
+    Email = 'email',
+}
+
+export interface SurveyAppearance {
+    background_color?: string
+    button_color?: string
+    text_color?: string
+}
+
+export interface SurveyQuestion {
+    type: SurveyQuestionType
+    question: string
+    required?: boolean
+    link?: string | null
+    choices?: string[] | null
+}
+
+export enum SurveyQuestionType {
+    Open = 'open',
+    MultipleChoiceSingle = 'multiple_single',
+    MultipleChoiceMulti = 'multiple_multi',
+    NPS = 'nps',
+    Rating = 'rating',
+    Link = 'link',
+}
+
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
@@ -2819,3 +2867,24 @@ export type PromptFlag = {
     locationCSS?: Partial<CSSStyleDeclaration>
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
+
+export type NotebookListItemType = {
+    // id: string
+    short_id: string
+    title?: string
+    created_at: string
+    created_by: UserBasicType | null
+    last_modified_at?: string
+    last_modified_by?: UserBasicType | null
+}
+
+export type NotebookType = NotebookListItemType & {
+    content: any // TODO: Type this better
+}
+
+export enum NotebookMode {
+    View = 'view',
+    Edit = 'edit',
+}
+
+export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
