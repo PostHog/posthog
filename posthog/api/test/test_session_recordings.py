@@ -10,6 +10,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
+from posthog.api.test.test_team import create_team
 from posthog.models import Organization, Person, SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
@@ -635,6 +636,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_get_via_sharing_token(self):
+        other_team = create_team(organization=self.organization)
+
         session_id = str(uuid.uuid4())
         with freeze_time("2023-01-01T12:00:00Z"):
             self.create_snapshot("user", session_id, now() - relativedelta(days=1), team_id=self.team.pk)
@@ -644,7 +647,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ).json()["access_token"]
 
         self.client.logout()
-        other_team_id = 1234
 
         # Unallowed routes
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/2?sharing_access_token={token}")
@@ -653,7 +655,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         response = self.client.get(f"/api/projects/12345/session_recordings?sharing_access_token={token}")
         response = self.client.get(
-            f"/api/projects/{other_team_id}/session_recordings/{session_id}?sharing_access_token={token}"
+            f"/api/projects/{other_team.id}/session_recordings/{session_id}?sharing_access_token={token}"
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
