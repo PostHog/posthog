@@ -39,6 +39,8 @@ declare module '@storybook/react' {
              * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
+            /** If taking a component snapshot, you can narrow it down by specifying the selector. */
+            snapshotTargetSelector?: string
         }
         mockDate?: string | number | Date
         msw?: {
@@ -85,7 +87,12 @@ async function expectStoryToMatchSnapshot(
         excludeNavigationFromSnapshot = false,
     } = storyContext.parameters?.testOptions ?? {}
 
-    let check: (page: Page, context: TestContext, browser: SupportedBrowserName) => Promise<void>
+    let check: (
+        page: Page,
+        context: TestContext,
+        browser: SupportedBrowserName,
+        targetSelector?: string
+    ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
         if (excludeNavigationFromSnapshot) {
             check = expectStoryToMatchSceneSnapshot
@@ -110,7 +117,7 @@ async function expectStoryToMatchSnapshot(
         }
     }
     await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
-    await check(page, context, browser)
+    await check(page, context, browser, storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
 async function expectStoryToMatchFullPageSnapshot(
@@ -137,14 +144,15 @@ async function expectStoryToMatchSceneSnapshot(
 async function expectStoryToMatchComponentSnapshot(
     page: Page,
     context: TestContext,
-    browser: SupportedBrowserName
+    browser: SupportedBrowserName,
+    targetSelector: string = '#root'
 ): Promise<void> {
     await page.evaluate(() => {
         const rootEl = document.getElementById('root')
         if (!rootEl) {
             throw new Error('Could not find root element')
         }
-        // Make the root element (which is the screenshot reference) hug the component
+        // Make the root element (which is the default screenshot reference) hug the component
         rootEl.style.display = 'inline-block'
         // If needed, expand the root element so that all popovers are visible in the screenshot
         document.querySelectorAll('.Popover').forEach((popover) => {
@@ -167,7 +175,7 @@ async function expectStoryToMatchComponentSnapshot(
         document.body.style.background = 'transparent'
     })
 
-    await expectLocatorToMatchStorySnapshot(page.locator('#root'), context, browser, { omitBackground: true })
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, { omitBackground: true })
 }
 
 async function expectLocatorToMatchStorySnapshot(

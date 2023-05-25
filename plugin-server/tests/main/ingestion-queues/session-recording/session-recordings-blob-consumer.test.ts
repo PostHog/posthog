@@ -4,6 +4,24 @@ import { Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { createIncomingRecordingMessage } from './fixtures'
 
+jest.mock('../../../../src/kafka/batch-consumer', () => {
+    return {
+        startBatchConsumer: jest.fn(() =>
+            Promise.resolve({
+                join: () => ({
+                    finally: jest.fn(),
+                }),
+                stop: jest.fn(),
+                consumer: {
+                    on: jest.fn(),
+                    commitSync: jest.fn(),
+                },
+            })
+        ),
+    }
+})
+
+const veryShortFlushInterval = 5
 describe('ingester', () => {
     let ingester: SessionRecordingBlobIngester
 
@@ -15,11 +33,18 @@ describe('ingester', () => {
     })
 
     afterEach(async () => {
+        await ingester.stop()
         await closeHub()
     })
 
-    beforeEach(() => {
-        ingester = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage)
+    beforeEach(async () => {
+        ingester = new SessionRecordingBlobIngester(
+            hub.teamManager,
+            defaultConfig,
+            hub.objectStorage,
+            veryShortFlushInterval
+        )
+        await ingester.start()
     })
 
     it('creates a new session manager if needed', async () => {
@@ -59,6 +84,9 @@ describe('ingester', () => {
         await ingester.consume(event)
         expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
         await ingester.sessions.get('1-session_id_1')?.flush('buffer_age')
+
+        await new Promise((resolve) => setTimeout(resolve, veryShortFlushInterval))
+
         expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
     })
 })
