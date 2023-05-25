@@ -105,12 +105,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightShortId={insight.short_id}
                         subscriptionId={subscriptionId}
                     />
-
                     <SharingModal
+                        title="Insight Sharing"
                         isOpen={insightMode === ItemMode.Sharing}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         insight={insight}
+                        previewIframe
                     />
                 </>
             )}
