@@ -79,6 +79,8 @@ class TestNotebooks(APIBaseTest):
             "id": response.json()["id"],
             "short_id": response.json()["short_id"],
             "content": content,
+            "title": None,
+            "version": 0,
             "created_at": mock.ANY,
             "created_by": response.json()["created_by"],
             "deleted": False,
@@ -108,7 +110,7 @@ class TestNotebooks(APIBaseTest):
         with freeze_time("2022-01-02"):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/notebooks/{short_id}",
-                {"content": {"some": "updated content"}},
+                {"content": {"some": "updated content"}, "version": response_json["version"]},
             )
 
         assert response.json()["short_id"] == short_id
@@ -130,6 +132,13 @@ class TestNotebooks(APIBaseTest):
                                 "field": "content",
                                 "type": "Notebook",
                             },
+                            {
+                                "action": "changed",
+                                "after": 1,
+                                "before": 0,
+                                "field": "version",
+                                "type": "Notebook",
+                            },
                         ],
                         "name": None,
                         "short_id": response.json()["short_id"],
@@ -144,15 +153,15 @@ class TestNotebooks(APIBaseTest):
         )
 
     def test_cannot_change_short_id(self) -> None:
-        short_id = self.client.post(f"/api/projects/{self.team.id}/notebooks/", data={}).json()["short_id"]
+        notebook = self.client.post(f"/api/projects/{self.team.id}/notebooks/", data={}).json()
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/notebooks/{short_id}",
-            {"short_id": "something else"},
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}",
+            {"short_id": "something else", "version": notebook["version"]},
         )
         # out of the box this is accepted _and_ ignored 🤷‍♀️
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["short_id"] == short_id
+        assert response.json()["short_id"] == notebook["short_id"]
 
     def test_filters_based_on_params(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
