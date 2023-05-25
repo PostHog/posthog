@@ -20,6 +20,9 @@ import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { IncomingRecordingMessage } from './blob-ingester/types'
 
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
+
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
@@ -277,6 +280,7 @@ export class SessionRecordingBlobIngester {
                  * The assign_partitions indicates that the consumer group has new assignments.
                  * We don't need to do anything, but it is useful to log for debugging.
                  */
+                return
             }
 
             if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
