@@ -16,8 +16,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
-from posthog.utils import is_postgres_connected_cached_check
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 class TestDecide(BaseTest, QueryMatchingTest):
@@ -28,11 +27,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def setUp(self):
         cache.clear()
-
-        # make sure we always have the connection check cached
-        is_postgres_connected_cached_check.cache_clear()
-        is_postgres_connected_cached_check(round(time.time() / 10))
-
         super().setUp()
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
@@ -1808,98 +1802,3 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
             self.assertEqual(response.status_code, 429)
-
-    def test_database_check_doesnt_interfere_with_regular_computation(self):
-        # remove any cached values
-        is_postgres_connected_cached_check.cache_clear()
-
-        self.client.logout()
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=[
-                "a",
-                "{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'}",
-                "{'x': 'y'}",
-                '{"x": "z"}',
-            ],
-            properties={"email": "tim@posthog.com", "realm": "cloud"},
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"rollout_percentage": 100}]},
-            name="This is a group-based flag",
-            key="random-flag",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
-            rollout_percentage=100,
-            name="Filter by property",
-            key="filer-by-property",
-            created_by=self.user,
-        )
-
-        # one extra query to select 1 to check db is alive
-        # one extra query to select team because not in cache
-        with self.assertNumQueries(6):
-            response = self._post_decide(api_version=2, distinct_id=12345)
-            self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
-
-        with self.assertNumQueries(4):
-            response = self._post_decide(
-                api_version=2,
-                distinct_id={
-                    "id": 33040,
-                    "shopify_domain": "xxx.myshopify.com",
-                    "shopify_token": "shpat_xxxx",
-                    "created_at": "2023-04-17T08:55:34.624Z",
-                    "updated_at": "2023-04-21T08:43:34.479",
-                },
-            )
-            self.assertEqual(response.json()["featureFlags"], {"random-flag": True, "filer-by-property": True})
-
-    def test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached(self):
-        ALL_TEAM_PARAMS_FOR_DECIDE = {
-            "session_recording_opt_in": True,
-            "capture_console_log_opt_in": True,
-            "inject_web_apps": True,
-            "recording_domains": ["https://*.example.com"],
-            "capture_performance_opt_in": True,
-        }
-        self._update_team(ALL_TEAM_PARAMS_FOR_DECIDE)
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
-            rollout_percentage=100,
-            name="Filter by property",
-            key="filer-by-property",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"properties": []},
-            rollout_percentage=100,
-            name="Filter by property",
-            key="no-props",
-            created_by=self.user,
-        )
-        # populate redis caches
-        self._post_decide(api_version=2, origin="https://random.example.com")
-
-        # remove database check cache values
-        is_postgres_connected_cached_check.cache_clear()
-
-        with connection.execute_wrapper(QueryTimeoutWrapper()), snapshot_postgres_queries_context(
-            self
-        ), self.assertNumQueries(2):
-            response = self._post_decide(api_version=2, origin="https://random.example.com").json()
-
-            self.assertEqual(
-                response["sessionRecording"],
-                {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": True},
-            )
-            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
-            self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
-            self.assertEqual(response["featureFlags"], {"no-props": True})

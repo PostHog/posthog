@@ -23,7 +23,6 @@ from posthog.models.property.property import Property
 from posthog.models.cohort import Cohort
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q
-from posthog.utils import is_postgres_connected_cached_check
 
 from .feature_flag import (
     FeatureFlag,
@@ -117,7 +116,7 @@ class FeatureFlagMatcher:
         hash_key_overrides: Dict[str, str] = {},
         property_value_overrides: Dict[str, Union[str, int]] = {},
         group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
-        skip_database_flags: bool = False,
+        skip_experience_continuity_flags: bool = False,
     ):
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
@@ -126,7 +125,7 @@ class FeatureFlagMatcher:
         self.hash_key_overrides = hash_key_overrides
         self.property_value_overrides = property_value_overrides
         self.group_property_value_overrides = group_property_value_overrides
-        self.skip_database_flags = skip_database_flags
+        self.skip_experience_continuity_flags = skip_experience_continuity_flags
         self.cohorts_cache: Dict[int, Cohort] = {}
 
     def get_match(self, feature_flag: FeatureFlag) -> FeatureFlagMatch:
@@ -187,11 +186,9 @@ class FeatureFlagMatcher:
         faced_error_computing_flags = False
         flag_payloads = {}
         for feature_flag in self.feature_flags:
-            if self.skip_database_flags:
-                # both group based and experience continuity based flags need a database connection
-                if feature_flag.ensure_experience_continuity or feature_flag.aggregation_group_type_index is not None:
-                    faced_error_computing_flags = True
-                    continue
+            if self.skip_experience_continuity_flags and feature_flag.ensure_experience_continuity:
+                faced_error_computing_flags = True
+                continue
             try:
                 flag_match = self.get_match(feature_flag)
                 if flag_match.match:
@@ -290,18 +287,19 @@ class FeatureFlagMatcher:
         return True, FeatureFlagMatchReason.CONDITION_MATCH
 
     def _super_condition_matches(self, feature_flag: FeatureFlag) -> bool:
-        return self._get_query_condition(f"flag_{feature_flag.pk}_super_condition")
+        if self.failed_to_fetch_conditions:
+            raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
+        return self.query_conditions.get(f"flag_{feature_flag.pk}_super_condition", False)
 
     def _super_condition_is_set(self, feature_flag: FeatureFlag) -> Optional[bool]:
-        return self._get_query_condition(f"flag_{feature_flag.pk}_super_condition_is_set")
+        if self.failed_to_fetch_conditions:
+            raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
+        return self.query_conditions.get(f"flag_{feature_flag.pk}_super_condition_is_set", False)
 
     def _condition_matches(self, feature_flag: FeatureFlag, condition_index: int) -> bool:
-        return self._get_query_condition(f"flag_{feature_flag.pk}_condition_{condition_index}")
-
-    def _get_query_condition(self, key: str) -> bool:
-        if self.failed_to_fetch_conditions or self.skip_database_flags:
+        if self.failed_to_fetch_conditions:
             raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
-        return self.query_conditions.get(key, False)
+        return self.query_conditions.get(f"flag_{feature_flag.pk}_condition_{condition_index}", False)
 
     # Define contiguous sub-domains within [0, 1].
     # By looking up a random hash value, you can find the associated variant key.
@@ -540,7 +538,7 @@ def _get_all_feature_flags(
     groups: Dict[GroupTypeName, str] = {},
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
-    skip_database_flags: bool = False,
+    skip_experience_continuity_flags: bool = False,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
     cache = FlagsMatcherCache(team_id)
 
@@ -553,7 +551,7 @@ def _get_all_feature_flags(
             person_overrides or {},
             property_value_overrides,
             group_property_value_overrides,
-            skip_database_flags,
+            skip_experience_continuity_flags,
         ).get_matches()
 
     return {}, {}, {}, False
@@ -577,10 +575,7 @@ def get_all_feature_flags(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
     )
 
-    # check every 10 seconds whether the database is alive or not
-    is_database_alive = is_postgres_connected_cached_check(round(time.time() / 10))
-
-    if not is_database_alive or not flags_have_experience_continuity_enabled:
+    if not flags_have_experience_continuity_enabled:
         return _get_all_feature_flags(
             all_feature_flags,
             team_id,
@@ -588,7 +583,6 @@ def get_all_feature_flags(
             groups=groups,
             property_value_overrides=property_value_overrides,
             group_property_value_overrides=group_property_value_overrides,
-            skip_database_flags=not is_database_alive,
         )
 
     # For flags with experience continuity enabled, we want a consistent distinct_id that doesn't change,
@@ -640,7 +634,7 @@ def get_all_feature_flags(
             groups=groups,
             property_value_overrides=property_value_overrides,
             group_property_value_overrides=group_property_value_overrides,
-            skip_database_flags=True,
+            skip_experience_continuity_flags=True,
         )
 
     return _get_all_feature_flags(
