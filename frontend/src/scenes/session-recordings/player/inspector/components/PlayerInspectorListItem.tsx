@@ -170,26 +170,28 @@ export function PlayerInspectorListItem({
                     </div>
                 ) : null}
             </span>
-            <LemonButton size="small" noPadding status="primary-alt" onClick={() => seekToEvent()}>
-                <span className="p-1 text-xs">
-                    {timestampMode === 'absolute' ? (
-                        <TZLabel time={item.timestamp} formatDate="DD, MMM" formatTime="HH:mm:ss" noStyles />
-                    ) : (
-                        <>
-                            {item.timeInRecording < 0 ? (
-                                <Tooltip
-                                    title="This event occured before the recording started, likely as the page was loading."
-                                    placement="left"
-                                >
-                                    {colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
-                                </Tooltip>
-                            ) : (
-                                colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)
-                            )}
-                        </>
-                    )}
-                </span>
-            </LemonButton>
+            {!isExpanded ? (
+                <LemonButton size="small" noPadding status="primary-alt" onClick={() => seekToEvent()}>
+                    <span className="p-1 text-xs">
+                        {timestampMode === 'absolute' ? (
+                            <TZLabel time={item.timestamp} formatDate="DD, MMM" formatTime="HH:mm:ss" noStyles />
+                        ) : (
+                            <>
+                                {item.timeInRecording < 0 ? (
+                                    <Tooltip
+                                        title="This event occured before the recording started, likely as the page was loading."
+                                        placement="left"
+                                    >
+                                        {colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
+                                    </Tooltip>
+                                ) : (
+                                    colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)
+                                )}
+                            </>
+                        )}
+                    </span>
+                </LemonButton>
+            ) : null}
         </div>
     )
 }
