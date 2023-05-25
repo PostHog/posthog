@@ -342,6 +342,7 @@ async function initPluginConfig(hub: Hub, pluginConfigId: number) {
         ...row,
         plugin: {
             id: row.plugin__id,
+            name: row.plugin__name,
             plugin_type: row.plugin__plugin_type,
             /** Cached source for plugin.json from a joined PluginSourceFile query */
             source__plugin_json: row.source__plugin_json,
