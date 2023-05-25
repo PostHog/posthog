@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0315_notebook"),
+        ("posthog", "0316_action_href_text_matching"),
     ]
 
     operations = [
