@@ -164,7 +164,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         <LemonDivider />
                         {canSort ? (
@@ -227,7 +226,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
@@ -252,7 +250,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         {columnsInQuery.filter((c) => c !== '*').length > 1 ? (
                             <>

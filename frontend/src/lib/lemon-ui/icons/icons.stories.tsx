@@ -1,36 +1,16 @@
 import * as React from 'react'
 import * as icons from './icons'
-import { Meta } from '@storybook/react'
+import { Meta, Story } from '@storybook/react'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { IconMagnifier } from './icons'
-import Fuse from 'fuse.js'
-import { useEffect } from 'react'
 
 const { IconGauge, IconWithCount } = icons
-
-interface IconDefinition {
-    name: string
-    icon: (...args: any[]) => JSX.Element
-}
-
-const allIcons: IconDefinition[] = Object.entries(icons)
-    .filter(([key]) => key !== 'IconWithCount')
-    .map(([key, Icon]) => ({ name: key, icon: Icon }))
-    .sort((a, b) => a.name.localeCompare(b.name))
-
-const fuse = new Fuse(allIcons, {
-    keys: ['name'],
-    threshold: 0.3,
-})
 
 export default {
     title: 'Lemon UI/Icons',
     parameters: {
         options: { showPanel: false },
-        testOptions: { skip: true }, // There are too many icons, the snapshots are huge in table form
         docs: {
             description: {
                 component: `
@@ -50,28 +30,28 @@ When adding new icons from Figma please make sure to:
     },
 } as Meta
 
-export function Library(): JSX.Element {
-    const [showBorder, setShowBorder] = React.useState(true)
-    const [search, setSearch] = React.useState('')
-    const [filteredIcons, setFilteredIcons] = React.useState(allIcons)
+interface IconDefinition {
+    name: string
+    icon: (...args: any[]) => JSX.Element
+}
 
-    useEffect(() => {
-        if (search.trim() !== '') {
-            setFilteredIcons(
-                fuse
-                    .search(search)
-                    .map((result) => result.item)
-                    .sort((a, b) => a.name.localeCompare(b.name))
-            )
-        }
-    }, [search])
+const allIcons: IconDefinition[] = Object.entries(icons)
+    .filter(([key]) => key !== 'IconWithCount')
+    .map(([key, Icon]) => ({ name: key, icon: Icon }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+const LibraryTemplate: Story<{ letter?: string | null }> = ({ letter }) => {
+    const [showBorder, setShowBorder] = React.useState(true)
+    const filteredIcons =
+        letter === undefined
+            ? allIcons
+            : letter !== null
+            ? allIcons.filter((icon) => icon.name.replace('Icon', '').toLowerCase().startsWith(letter))
+            : allIcons.filter((icon) => !icon.name.replace('Icon', '').toLowerCase().match(/[a-z]/))
 
     return (
         <div className="space-y-2">
-            <div className={'flex flex-row justify-between'}>
-                <LemonCheckbox bordered checked={showBorder} onChange={setShowBorder} label="Show border" />
-                <LemonInput value={search} onChange={setSearch} placeholder="Filter" prefix={<IconMagnifier />} />
-            </div>
+            <LemonCheckbox bordered checked={showBorder} onChange={setShowBorder} label="Show border" />
             <LemonTable
                 dataSource={filteredIcons}
                 columns={[
@@ -114,14 +94,103 @@ export function Library(): JSX.Element {
                         },
                     },
                 ]}
+                emptyState={letter ? `No icons start with the letter ${letter.toUpperCase()}` : 'No icons'}
             />
         </div>
     )
 }
 
+// This is for actual Storybook users
+export const Library = LibraryTemplate.bind({})
+Library.parameters = { testOptions: { skip: true } }
+
+// These are just for snapshots. As opposed to the full library, the stories below are segmented by the first letter
+// of the icon name, which greatly optimizes both the UX and storage aspects of diffing snapshots.
+export const ShelfA = LibraryTemplate.bind({})
+ShelfA.args = { letter: 'a' }
+ShelfA.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfB = LibraryTemplate.bind({})
+ShelfB.args = { letter: 'b' }
+ShelfB.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfC = LibraryTemplate.bind({})
+ShelfC.args = { letter: 'c' }
+ShelfC.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfD = LibraryTemplate.bind({})
+ShelfD.args = { letter: 'd' }
+ShelfD.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfE = LibraryTemplate.bind({})
+ShelfE.args = { letter: 'e' }
+ShelfE.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfF = LibraryTemplate.bind({})
+ShelfF.args = { letter: 'f' }
+ShelfF.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfG = LibraryTemplate.bind({})
+ShelfG.args = { letter: 'g' }
+ShelfG.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfH = LibraryTemplate.bind({})
+ShelfH.args = { letter: 'h' }
+ShelfH.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfI = LibraryTemplate.bind({})
+ShelfI.args = { letter: 'i' }
+ShelfI.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfJ = LibraryTemplate.bind({})
+ShelfJ.args = { letter: 'j' }
+ShelfJ.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfK = LibraryTemplate.bind({})
+ShelfK.args = { letter: 'k' }
+ShelfK.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfL = LibraryTemplate.bind({})
+ShelfL.args = { letter: 'l' }
+ShelfL.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfM = LibraryTemplate.bind({})
+ShelfM.args = { letter: 'm' }
+ShelfM.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfN = LibraryTemplate.bind({})
+ShelfN.args = { letter: 'n' }
+ShelfN.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfO = LibraryTemplate.bind({})
+ShelfO.args = { letter: 'o' }
+ShelfO.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfP = LibraryTemplate.bind({})
+ShelfP.args = { letter: 'p' }
+ShelfP.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfQ = LibraryTemplate.bind({})
+ShelfQ.args = { letter: 'q' }
+ShelfQ.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfR = LibraryTemplate.bind({})
+ShelfR.args = { letter: 'r' }
+ShelfR.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfS = LibraryTemplate.bind({})
+ShelfS.args = { letter: 's' }
+ShelfS.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfT = LibraryTemplate.bind({})
+ShelfT.args = { letter: 't' }
+ShelfT.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfU = LibraryTemplate.bind({})
+ShelfU.args = { letter: 'u' }
+ShelfU.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfV = LibraryTemplate.bind({})
+ShelfV.args = { letter: 'v' }
+ShelfV.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfW = LibraryTemplate.bind({})
+ShelfW.args = { letter: 'w' }
+ShelfW.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfX = LibraryTemplate.bind({})
+ShelfX.args = { letter: 'x' }
+ShelfX.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfY = LibraryTemplate.bind({})
+ShelfY.args = { letter: 'y' }
+ShelfY.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfZ = LibraryTemplate.bind({})
+ShelfZ.args = { letter: 'z' }
+ShelfZ.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfOther = LibraryTemplate.bind({})
+ShelfOther.args = { letter: null }
+ShelfOther.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+
 export function IconWithCountBubble(): JSX.Element {
     return (
-        <span className="inline-flex text-2xl border border-primary">
+        <span className="inline-flex text-2xl border border-primary p-1">
             <IconWithCount count={7}>
                 <IconGauge />
             </IconWithCount>
@@ -131,7 +200,7 @@ export function IconWithCountBubble(): JSX.Element {
 
 export function IconWithCountHidingZero(): JSX.Element {
     return (
-        <span className="inline-flex text-2xl border border-primary">
+        <span className="inline-flex text-2xl border border-primary p-1">
             <IconWithCount count={0} showZero={false}>
                 <IconGauge />
             </IconWithCount>
@@ -141,7 +210,7 @@ export function IconWithCountHidingZero(): JSX.Element {
 
 export function IconWithCountShowingZero(): JSX.Element {
     return (
-        <span className="inline-flex text-2xl border border-primary">
+        <span className="inline-flex text-2xl border border-primary p-1">
             <IconWithCount count={0} showZero={true}>
                 <IconGauge />
             </IconWithCount>
@@ -151,7 +220,7 @@ export function IconWithCountShowingZero(): JSX.Element {
 
 export function IconWithCountOverflowing(): JSX.Element {
     return (
-        <span className="inline-flex text-2xl border border-primary">
+        <span className="inline-flex text-2xl border border-primary p-1">
             <IconWithCount count={11} showZero={true}>
                 <IconGauge />
             </IconWithCount>

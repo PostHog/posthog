@@ -99,6 +99,13 @@ export class OffsetManager {
         }
         inFlightOffsets.sort((a, b) => a.offset - b.offset)
 
+        const logContext = {
+            partition,
+            blockingSession: !!inFlightOffsets.length ? inFlightOffsets[0].session_id : null,
+            lowestInflightOffset: !!inFlightOffsets.length ? inFlightOffsets[0].offset : null,
+            lowestOffsetToRemove: offsetsToRemove[0],
+        }
+
         offsetsToRemove.forEach((offset) => {
             // Remove from the list. If it is the lowest value - set it
             const offsetIndex = inFlightOffsets.findIndex((os) => os.offset === offset)
@@ -115,19 +122,13 @@ export class OffsetManager {
 
         this.offsetsByPartitionTopic.set(key, inFlightOffsets)
 
-        const logContext = {
-            offsetToCommit,
-            partition,
-            blockingSession: !!inFlightOffsets.length ? inFlightOffsets[0].session_id : null,
-            lowestInflightOffset: !!inFlightOffsets.length ? inFlightOffsets[0].offset : null,
-            lowestOffsetToRemove: offsetsToRemove[0],
-        }
-
         if (offsetToCommit !== undefined) {
-            this.consumer.commit({
+            this.consumer.commitSync({
                 topic,
                 partition,
-                offset: offsetToCommit,
+                // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
+                // for some reason you commit the next offset you expect to read and not the one you actually have
+                offset: offsetToCommit + 1,
             })
         }
 
@@ -136,8 +137,9 @@ export class OffsetManager {
             `offset_manager committing_offsets - ${
                 offsetToCommit !== undefined ? 'committed offset' : 'no offsets to commit'
             }`,
-            logContext
+            { ...logContext, offsetToCommit }
         )
+
         if (offsetToCommit !== undefined) {
             gaugeOffsetCommitted.inc()
         }

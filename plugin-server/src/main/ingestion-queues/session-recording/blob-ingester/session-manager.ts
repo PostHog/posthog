@@ -311,32 +311,31 @@ export class SessionManager {
             return
         }
 
-        if (this.buffer.count === 0) {
-            status.warn('⚠️', `blob_ingester_session_manager flush called but buffer is empty`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-                reason,
-            })
-            return
-        }
-
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
 
-        const eventsRange = this.flushBuffer.eventsRange
-        if (!eventsRange) {
-            status.warn('⚠️', `blob_ingester_session_manager flush called but eventsRange is null`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-                reason,
-            })
-            return
-        }
-
-        const { firstTimestamp, lastTimestamp } = eventsRange
-
         try {
+            if (this.flushBuffer.count === 0) {
+                status.warn('⚠️', `blob_ingester_session_manager flush called but buffer is empty`, {
+                    sessionId: this.sessionId,
+                    partition: this.partition,
+                    reason,
+                })
+                throw new Error("Can't flush empty buffer")
+            }
+
+            const eventsRange = this.flushBuffer.eventsRange
+            if (!eventsRange) {
+                status.warn('⚠️', `blob_ingester_session_manager flush called but eventsRange is null`, {
+                    sessionId: this.sessionId,
+                    partition: this.partition,
+                    reason,
+                })
+                throw new Error("Can't flush buffer due to missing eventRange")
+            }
+
+            const { firstTimestamp, lastTimestamp } = eventsRange
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
             const timeRange = `${firstTimestamp}-${lastTimestamp}`
             const dataKey = `${baseKey}/data/${timeRange}`
@@ -474,17 +473,7 @@ export class SessionManager {
     }
 
     private async processChunksToBuffer(chunks: IncomingRecordingMessage[], allOffsets: number[]): Promise<void> {
-        const offsets = new Set<number>()
-        // push all but the first offset from the chunks into the buffer
-        // the first offset is copied into the data passed to `addToBuffer`
-        // and will be added there
-        for (let i = 1; i < chunks.length; i++) {
-            offsets.add(chunks[i].metadata.offset)
-        }
-        // in order to complete the chunks, we may have thrown away messages
-        // their offsets still need including in the buffer
-        allOffsets.filter((ao) => ao !== chunks[0].metadata.offset).forEach((offset) => offsets.add(offset))
-        offsets.forEach((offset) => this.buffer.offsets.push(offset))
+        allOffsets.forEach((offset) => this.buffer.offsets.push(offset))
 
         await this.addToBuffer({
             ...chunks[0], // send the first chunk as the message, it should have the events summary

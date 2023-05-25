@@ -1084,6 +1084,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "type": "events",
                             "order": 0,
                             "properties": [],
+                            "math_hogql": None,
                             "math_property": None,
                         },
                         {
@@ -1093,6 +1094,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "type": "events",
                             "order": 2,
                             "properties": [],
+                            "math_hogql": None,
                             "math_property": None,
                         },
                     ],
