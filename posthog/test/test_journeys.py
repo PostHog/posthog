@@ -180,6 +180,9 @@ class InMemoryEvent:
     group4_created_at: datetime
 
 
+monotonic_id = 1
+
+
 def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):
     (person, _) = Person.objects.update_or_create(
         persondistinctid__distinct_id__in=distinct_ids,
@@ -187,9 +190,17 @@ def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):
         defaults={**kwargs, "team_id": team_id},
     )
     for distinct_id in distinct_ids:
-        PersonDistinctId.objects.update_or_create(
-            distinct_id=distinct_id,
-            team_id=person.team_id,
-            defaults={"person_id": person.id, "team_id": team_id, "distinct_id": distinct_id},
-        )
+        defaults = {**kwargs, "team_id": team_id, "distinct_id": distinct_id}
+        try:
+            obj = PersonDistinctId.objects.get(team_id=team_id, distinct_id=distinct_id)
+            for key, value in defaults.items():
+                setattr(obj, key, value)
+            obj.save()
+        except PersonDistinctId.DoesNotExist:
+            global monotonic_id
+            monotonic_id += 1
+            new_values = {"id": monotonic_id, "person_id": person.id}
+            new_values.update(defaults)
+            obj = PersonDistinctId(**new_values)
+            obj.save()
     return person
