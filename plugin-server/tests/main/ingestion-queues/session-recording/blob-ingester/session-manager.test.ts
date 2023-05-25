@@ -52,7 +52,7 @@ describe('session-manager', () => {
 
     const mockRealtimeManager: any = {
         clearAllMessages: jest.fn(),
-        onSubscriptionEvent: jest.fn(),
+        onSubscriptionEvent: jest.fn(() => jest.fn()),
         clearMessages: jest.fn(),
         addMessage: jest.fn(),
         addMessagesFromBuffer: jest.fn(),
