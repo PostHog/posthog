@@ -7,6 +7,7 @@ import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/Activity
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import clsx from 'clsx'
+import { ProductEmptyState } from '../ProductEmptyState/ProductEmptyState'
 
 export interface ActivityLogProps {
     scope: ActivityScope
@@ -21,21 +22,17 @@ const Empty = ({ scope, idExists }: { scope: string; idExists: boolean }): JSX.E
         .replace(/([A-Z])/g, ' $1')
         .trim()
         .toLowerCase()
+        .concat(idExists ? 's' : '')
 
     // KLUDGE: Appending 's' to the noun works with all values for ActivityScope at the moment, but might not make sense as more models are added
     return (
         <div className="empty">
-            {idExists ? (
-                <>
-                    <h1>There is no history for this {noun}</h1>
-                    <div>As changes are made to this {noun}, they'll show up here</div>
-                </>
-            ) : (
-                <>
-                    <h1>There is no history yet for {noun + 's'}</h1>
-                    <div>As changes are made to {noun + 's'}, they'll show up here</div>
-                </>
-            )}
+            <ProductEmptyState
+                productName={noun.toUpperCase()}
+                thingName={'history for ' + noun}
+                description={`History shows any changes that were made to ${noun}. As changes are made they'll show up here.`}
+                actionable={false}
+            />
         </div>
     )
 }

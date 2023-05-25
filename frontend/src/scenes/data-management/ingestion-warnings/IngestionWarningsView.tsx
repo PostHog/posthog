@@ -8,6 +8,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { WarningEventsGraph } from './WarningEventsGraph'
+import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
 
 export const scene: SceneExport = {
     component: IngestionWarningsView,
@@ -123,65 +124,75 @@ export function IngestionWarningsView(): JSX.Element {
                 tabbedPage
             />
             <DataManagementPageTabs tab={DataManagementTab.IngestionWarnings} />
-
-            <div className="mb-4">Data ingestion related warnings from past 30 days.</div>
-
-            <LemonTable
-                dataSource={data}
-                loading={dataLoading}
-                columns={[
-                    {
-                        title: 'Warning',
-                        dataIndex: 'type',
-                        render: function Render(_, summary: IngestionWarningSummary) {
-                            const type = WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type
-                            return (
-                                <>
-                                    {type} (
-                                    <Link
-                                        to={`https://posthog.com/manual/data-management#${type
-                                            .toLowerCase()
-                                            .replace(',', '')
-                                            .split(' ')
-                                            .join('-')}`}
-                                    >
-                                        {'docs'})
-                                    </Link>
-                                </>
-                            )
-                        },
-                    },
-                    {
-                        title: 'Graph',
-                        render: function Render(_, summary: IngestionWarningSummary) {
-                            return <WarningEventsGraph summary={summary} />
-                        },
-                    },
-                    {
-                        title: 'Events',
-                        dataIndex: 'count',
-                        align: 'right',
-                        sorter: (a, b) => a.count - b.count,
-                    },
-                    {
-                        title: 'Last Seen',
-                        dataIndex: 'lastSeen',
-                        render: function Render(_, summary: IngestionWarningSummary) {
-                            return <TZLabel time={summary.lastSeen} showSeconds />
-                        },
-                        align: 'right',
-                        sorter: (a, b) => (new Date(a.lastSeen) > new Date(b.lastSeen) ? 1 : -1),
-                    },
-                ]}
-                expandable={{
-                    expandedRowRender: RenderNestedWarnings,
-                }}
-                defaultSorting={{
-                    columnKey: 'lastSeen',
-                    order: -1,
-                }}
-                noSortingCancellation
-            />
+            {data.length > 0 || dataLoading ? (
+                <>
+                    <div className="mb-4">Data ingestion related warnings from past 30 days.</div>
+                    <LemonTable
+                        dataSource={data}
+                        loading={dataLoading}
+                        columns={[
+                            {
+                                title: 'Warning',
+                                dataIndex: 'type',
+                                render: function Render(_, summary: IngestionWarningSummary) {
+                                    const type = WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type
+                                    return (
+                                        <>
+                                            {type} (
+                                            <Link
+                                                to={`https://posthog.com/manual/data-management#${type
+                                                    .toLowerCase()
+                                                    .replace(',', '')
+                                                    .split(' ')
+                                                    .join('-')}`}
+                                            >
+                                                {'docs'})
+                                            </Link>
+                                        </>
+                                    )
+                                },
+                            },
+                            {
+                                title: 'Graph',
+                                render: function Render(_, summary: IngestionWarningSummary) {
+                                    return <WarningEventsGraph summary={summary} />
+                                },
+                            },
+                            {
+                                title: 'Events',
+                                dataIndex: 'count',
+                                align: 'right',
+                                sorter: (a, b) => a.count - b.count,
+                            },
+                            {
+                                title: 'Last Seen',
+                                dataIndex: 'lastSeen',
+                                render: function Render(_, summary: IngestionWarningSummary) {
+                                    return <TZLabel time={summary.lastSeen} showSeconds />
+                                },
+                                align: 'right',
+                                sorter: (a, b) => (new Date(a.lastSeen) > new Date(b.lastSeen) ? 1 : -1),
+                            },
+                        ]}
+                        expandable={{
+                            expandedRowRender: RenderNestedWarnings,
+                        }}
+                        defaultSorting={{
+                            columnKey: 'lastSeen',
+                            order: -1,
+                        }}
+                        noSortingCancellation
+                    />
+                </>
+            ) : (
+                <ProductEmptyState
+                    productName="Ingestion warnings"
+                    thingName="ingestion warning"
+                    description="Nice! You've had no ingestion warnings in the past 30 days. If we detect any issues with your data, we'll show them here."
+                    docsURL="https://posthog.com/docs/data/data-management#ingestion-warnings"
+                    actionable={false}
+                />
+            )}
         </div>
     )
 }
