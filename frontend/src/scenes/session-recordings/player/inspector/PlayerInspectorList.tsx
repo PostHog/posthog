@@ -266,7 +266,7 @@ function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: b
 }
 
 export function PlayerInspectorList(): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, fullLoad } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
     const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollingPaused, tab } =
@@ -348,7 +348,9 @@ export function PlayerInspectorList(): JSX.Element {
 
     return (
         <div className="flex flex-col bg-side flex-1 overflow-hidden relative">
-            {items.length ? (
+            {!fullLoad ? (
+                <div className="p-16 text-center text-muted-alt">Data will be shown once playback starts</div>
+            ) : items.length ? (
                 <div
                     className="absolute inset-0"
                     onMouseEnter={() => (mouseHoverRef.current = true)}

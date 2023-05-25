@@ -241,19 +241,6 @@ export function taxonomicFilterToHogQl(
     return null
 }
 
-export function hogQlToTaxonomicFilter(hogQl: string): [TaxonomicFilterGroupType, TaxonomicFilterValue] {
-    if (hogQl.startsWith('person.properties.')) {
-        return [TaxonomicFilterGroupType.PersonProperties, hogQl.substring(18)]
-    }
-    if (hogQl.startsWith('properties.$feature/')) {
-        return [TaxonomicFilterGroupType.EventFeatureFlags, hogQl.substring(11)]
-    }
-    if (hogQl.startsWith('properties.')) {
-        return [TaxonomicFilterGroupType.EventProperties, hogQl.substring(11)]
-    }
-    return [TaxonomicFilterGroupType.HogQLExpression, hogQl]
-}
-
 export function isHogQlAggregation(hogQl: string): boolean {
     return (
         hogQl.includes('count(') ||

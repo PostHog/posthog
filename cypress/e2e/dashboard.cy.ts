@@ -90,7 +90,7 @@ describe('Dashboard', () => {
             .then((c) => c.readText())
             .should('contain', '/embedded/')
 
-        cy.contains('Copy share link').should('be.visible')
+        cy.contains('Copy public link').should('be.visible')
         cy.get('[data-attr=sharing-link-button]').click()
         cy.window()
             .its('navigator.clipboard')
