@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { CompressionCodecs, CompressionTypes, Consumer, KafkaJSProtocolError } from 'kafkajs'
+import { Consumer, KafkaJSProtocolError } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
@@ -16,14 +17,15 @@ import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createPostgresPool, delay } from '../utils/utils'
 import { TeamManager } from '../worker/ingestion/team-manager'
-import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
+import { makePiscina as defaultMakePiscina } from '../worker/piscina'
+import Piscina from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
-import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
+import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
@@ -81,7 +83,8 @@ export async function startPluginsServer(
     //    listening.
     let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
     let analyticsEventsIngestionOverflowConsumer: IngestionConsumer | undefined
-    let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
+
+    let onEventHandlerConsumer: IngestionConsumer | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
