@@ -76,7 +76,7 @@ describe('the property definitions model', () => {
     describe('loading properties', () => {
         it('can load property definitions', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadPropertyDefinitions(['a string'])
+                logic.actions.loadPropertyDefinitions(['a string'], 'event')
             })
                 .toDispatchActions([
                     logic.actionCreators.updatePropertyDefinitions({ 'a string': PropertyDefinitionState.Pending }),
@@ -108,7 +108,7 @@ describe('the property definitions model', () => {
             // run twice to assure errors get retried
             for (let i = 0; i < 2; i++) {
                 await expectLogic(logic, () => {
-                    logic.actions.loadPropertyDefinitions(['network error'])
+                    logic.actions.loadPropertyDefinitions(['network error'], 'event')
                 })
                     .toDispatchActions([
                         logic.actionCreators.updatePropertyDefinitions({
@@ -127,7 +127,7 @@ describe('the property definitions model', () => {
 
         it('handles missing definitions', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadPropertyDefinitions(['this is not there'])
+                logic.actions.loadPropertyDefinitions(['this is not there'], 'event')
             })
                 .toDispatchActions([
                     logic.actionCreators.updatePropertyDefinitions({
@@ -145,7 +145,7 @@ describe('the property definitions model', () => {
 
         it('handles local definitions', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadPropertyDefinitions(['$session_duration'])
+                logic.actions.loadPropertyDefinitions(['$session_duration'], 'event')
             })
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['updatePropertyDefinitions'])
@@ -204,7 +204,7 @@ describe('the property definitions model', () => {
     describe('formatting properties', () => {
         beforeEach(async () => {
             await expectLogic(() => {
-                logic.actions.loadPropertyDefinitions(['a string', '$timestamp', 'no property type'])
+                logic.actions.loadPropertyDefinitions(['a string', '$timestamp', 'no property type'], 'event')
             }).toFinishAllListeners()
         })
 
