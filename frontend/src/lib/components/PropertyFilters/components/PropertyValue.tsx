@@ -55,7 +55,9 @@ export function PropertyValue({
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
-    const isDurationProperty = propertyKey && describeProperty(propertyKey) === PropertyType.Duration
+    console.log({ type })
+    const isDurationProperty =
+        propertyKey && describeProperty(propertyKey, type === 'person' ? 'person' : 'event') === PropertyType.Duration
 
     // update the input field if passed a new `value` prop
     useEffect(() => {

@@ -157,17 +157,17 @@ describe('the property definitions model', () => {
 
     describe('lazy loading', () => {
         it('lazy loads a property with getPropertyDefinition()', async () => {
-            expect(logic.values.getPropertyDefinition('$time')).toEqual(null)
+            expect(logic.values.getPropertyDefinition('$time', 'event')).toEqual(null)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.getPropertyDefinition('$time')).toEqual(
+            expect(logic.values.getPropertyDefinition('$time', 'event')).toEqual(
                 partial({ name: '$time', property_type: 'DateTime' })
             )
         })
 
         it('lazy loads a property with describeProperty()', async () => {
-            expect(logic.values.describeProperty('$time')).toEqual(null)
+            expect(logic.values.describeProperty('$time', 'event')).toEqual(null)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.describeProperty('$time')).toEqual('DateTime')
+            expect(logic.values.describeProperty('$time', 'event')).toEqual('DateTime')
         })
 
         it('lazy loads a property with formatPropertyValueForDisplay()', async () => {
@@ -177,7 +177,7 @@ describe('the property definitions model', () => {
         })
 
         it('does not refetch missing properties', async () => {
-            expect(logic.values.describeProperty('not a prop')).toEqual(null)
+            expect(logic.values.describeProperty('not a prop', 'event')).toEqual(null)
             await expectLogic(logic)
                 .delay(15)
                 .toFinishAllListeners()
@@ -190,7 +190,7 @@ describe('the property definitions model', () => {
                 .toMatchValues({
                     propertyDefinitionStorage: partial({ 'not a prop': PropertyDefinitionState.Missing }),
                 })
-            expect(logic.values.describeProperty('not a prop')).toEqual(null)
+            expect(logic.values.describeProperty('not a prop', 'event')).toEqual(null)
             await expectLogic(logic)
                 .delay(15)
                 .toFinishAllListeners()
@@ -210,16 +210,16 @@ describe('the property definitions model', () => {
 
         describe('formatting simple properties', () => {
             it('does not describe a property that has no server provided type', () => {
-                expect(logic.values.describeProperty('no property type')).toBeNull()
+                expect(logic.values.describeProperty('no property type', 'event')).toBeNull()
             })
 
             it('does not describe a property that has not yet been cached', () => {
-                expect(logic.values.describeProperty('not yet cached')).toBeNull()
+                expect(logic.values.describeProperty('not yet cached', 'event')).toBeNull()
             })
 
             it('does describe a property that has a server provided type', () => {
-                expect(logic.values.describeProperty('a string')).toEqual('String')
-                expect(logic.values.describeProperty('$timestamp')).toEqual('DateTime')
+                expect(logic.values.describeProperty('a string', 'event')).toEqual('String')
+                expect(logic.values.describeProperty('$timestamp', 'event')).toEqual('DateTime')
             })
 
             it('can format a property with no formatting needs for display', () => {

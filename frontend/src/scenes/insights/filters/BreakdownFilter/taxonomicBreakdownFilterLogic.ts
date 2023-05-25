@@ -93,7 +93,8 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     listeners(({ props, values }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
             const breakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
-            const isHistogramable = !!values.getPropertyDefinition(breakdown)?.is_numerical
+            const apiType = breakdownType === 'person' ? 'person' : 'event'
+            const isHistogramable = !!values.getPropertyDefinition(breakdown, apiType)?.is_numerical
 
             if (!props.updateBreakdown || !breakdownType) {
                 return
@@ -102,7 +103,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
             // For now, it is safe to fall back to `breakdown` instead of the property definition.
             const isNormalizeable = isURLNormalizeable(
-                values.getPropertyDefinition(breakdown)?.name || (breakdown as string)
+                values.getPropertyDefinition(breakdown, apiType)?.name || (breakdown as string)
             )
 
             props.updateBreakdown({

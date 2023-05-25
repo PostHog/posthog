@@ -718,6 +718,7 @@ const api = {
             excluded_properties?: string[]
             properties?: string[]
             filter_by_event_names?: boolean
+            type?: string
             limit?: number
             offset?: number
             teamId?: TeamType['id']
@@ -745,7 +746,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            type?: 'event' | 'person' | 'group'
+            type?: string
             group_type_index?: number
         }): string {
             return new ApiRequest()

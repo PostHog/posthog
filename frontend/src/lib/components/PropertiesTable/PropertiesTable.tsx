@@ -65,7 +65,7 @@ function ValueDisplay({
 
     let propertyType
     if (rootKey && useDetectedPropertyType) {
-        propertyType = describeProperty(rootKey)
+        propertyType = describeProperty(rootKey, 'event')
     }
     const valueType: Type = value === null ? 'null' : typeof value // typeof null returns 'object' ¯\_(ツ)_/¯
 

@@ -8,6 +8,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 
 export interface BreakdownTagLogicProps {
     breakdown: string | number
+    breakdownType: string
     isTrends: boolean
 }
 
@@ -31,8 +32,8 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     })),
     selectors({
         propertyDefinition: [
-            (s, p) => [s.getPropertyDefinition, p.breakdown],
-            (getPropertyDefinition, breakdown) => getPropertyDefinition(breakdown),
+            (s, p) => [s.getPropertyDefinition, p.breakdown, p.breakdownType],
+            (getPropertyDefinition, breakdown, breakdownType) => getPropertyDefinition(breakdown, breakdownType),
         ],
         propertyName: [
             (s, p) => [p.breakdown, s.cohortsById],
