@@ -1142,10 +1142,6 @@ export const insightLogic = kea<insightLogicType>([
         },
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
-            // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
-            if (!insight.result && !insight.query && values.filters) {
-                actions.loadResults()
-            }
         },
         toggleInsightLegend: () => {
             const newFilters: Partial<TrendsFilterType> = {
@@ -1183,8 +1179,6 @@ export const insightLogic = kea<insightLogicType>([
                 actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                 if (insight?.result) {
                     actions.reportInsightViewed(insight, insight.filters || {})
-                } else if (!insight.query) {
-                    actions.loadResults()
                 }
                 return
             }
