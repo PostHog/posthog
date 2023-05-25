@@ -279,6 +279,26 @@ describe('session-manager', () => {
         )
     })
 
+    it('flushes messages even if the buffer is empty', async () => {
+        // Create an event that ends up in the chunks rather than the buffer
+        const event = createIncomingRecordingMessage({
+            chunk_count: 2,
+        })
+        await sessionManager.add(event)
+        expect(sessionManager.buffer.count).toEqual(0)
+        expect(sessionManager.chunks.size).toEqual(1)
+
+        const afterResumeFlushPromise = sessionManager.flush('buffer_size')
+
+        expect(sessionManager.buffer.count).toEqual(0)
+        expect(sessionManager.flushBuffer?.count).toEqual(0)
+
+        await afterResumeFlushPromise
+
+        expect(sessionManager.flushBuffer).toEqual(undefined)
+        expect(mockFinish).toBeCalledTimes(1)
+    })
+
     it.each([
         [
             'incomplete and below threshold of 1000, we keep it in the chunks buffer',

@@ -1,7 +1,10 @@
+import { mkdirSync, rmSync } from 'node:fs'
+import path from 'path'
+
 import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingBlobIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
-import { Hub } from '../../../../src/types'
+import { Hub, PluginsServerConfig } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { createIncomingRecordingMessage } from './fixtures'
@@ -15,11 +18,20 @@ function assertIngesterHasExpectedPartitions(ingester: SessionRecordingBlobInges
 }
 
 describe('ingester rebalancing tests', () => {
+    const config: PluginsServerConfig = {
+        ...defaultConfig,
+        SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/test-session-recordings',
+    }
+
     let ingesterOne: SessionRecordingBlobIngester
     let ingesterTwo: SessionRecordingBlobIngester
 
     let hub: Hub
     let closeHub: () => Promise<void>
+
+    beforeAll(() => {
+        mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
+    })
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
@@ -31,8 +43,12 @@ describe('ingester rebalancing tests', () => {
         await closeHub()
     })
 
+    afterAll(() => {
+        rmSync(config.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
+    })
+
     it('rebalances partitions safely from one to two consumers', async () => {
-        ingesterOne = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage, hub.redisPool)
+        ingesterOne = new SessionRecordingBlobIngester(hub.teamManager, config, hub.objectStorage, hub.redisPool)
 
         await ingesterOne.start()
 
@@ -47,7 +63,7 @@ describe('ingester rebalancing tests', () => {
             assertIngesterHasExpectedPartitions(ingesterOne, [1])
         })
 
-        ingesterTwo = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage, hub.redisPool)
+        ingesterTwo = new SessionRecordingBlobIngester(hub.teamManager, config, hub.objectStorage, hub.redisPool)
         await ingesterTwo.start()
 
         await waitForExpect(() => {
