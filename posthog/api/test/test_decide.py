@@ -1816,6 +1816,8 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
     def setUp(self, *args):
         cache.clear()
 
+        is_postgres_connected_cached_check.cache_clear()
+
         super().setUp()
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
