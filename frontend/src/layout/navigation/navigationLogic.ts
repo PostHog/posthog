@@ -209,7 +209,7 @@ export const navigationLogic = kea<navigationLogicType>({
                     // Don't show this project-level warning in the PostHog demo environemnt though,
                     // as then Announcement is shown instance-wide
                     return ['demo_project', false]
-                } else if (!user?.is_email_verified && !user?.has_social_auth && preflight?.cloud) {
+                } else if (!user?.is_email_verified && !user?.has_social_auth && preflight?.email_service_available) {
                     return ['unverified_email', false]
                 } else if (
                     !projectNoticesAcknowledged['real_project_with_no_events'] &&

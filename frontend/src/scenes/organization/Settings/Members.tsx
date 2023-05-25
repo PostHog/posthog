@@ -168,14 +168,16 @@ export function Members({ user }: MembersProps): JSX.Element {
                 return (
                     <>
                         {member.user.email}
-                        {!member.user.is_email_verified && !member.has_social_auth && preflight?.cloud && (
-                            <>
-                                {' '}
-                                <LemonTag type={'highlight'} data-attr="pending-email-verification">
-                                    pending email verification
-                                </LemonTag>
-                            </>
-                        )}
+                        {!member.user.is_email_verified &&
+                            !member.has_social_auth &&
+                            preflight?.email_service_available && (
+                                <>
+                                    {' '}
+                                    <LemonTag type={'highlight'} data-attr="pending-email-verification">
+                                        pending email verification
+                                    </LemonTag>
+                                </>
+                            )}
                     </>
                 )
             },
