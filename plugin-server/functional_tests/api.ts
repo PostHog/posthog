@@ -108,6 +108,7 @@ export const capture = async ({
 
 export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
     return await insertRow(postgres, 'posthog_plugin', {
+        capabilities: {},
         ...plugin,
         config_schema: {},
         from_json: false,
