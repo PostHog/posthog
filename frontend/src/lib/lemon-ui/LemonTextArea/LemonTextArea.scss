@@ -10,6 +10,7 @@
     cursor: text;
     color: var(--default);
     border: 1px solid var(--border);
+    background-color: var(--bg-light);
     outline: none;
 
     &:not(:disabled):hover {

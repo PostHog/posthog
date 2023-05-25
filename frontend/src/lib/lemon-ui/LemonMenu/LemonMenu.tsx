@@ -1,4 +1,4 @@
-import React, { FunctionComponent, useMemo } from 'react'
+import React, { FunctionComponent, useCallback, useMemo } from 'react'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
@@ -83,21 +83,23 @@ export function LemonMenu({
         activeItemIndex
     )
 
+    const _onVisibilityChange = useCallback(
+        (visible) => {
+            onVisibilityChange?.(visible)
+            if (visible && activeItemIndex && activeItemIndex > -1) {
+                // Scroll the active item into view once the menu is open (i.e. in the next tick)
+                setTimeout(() => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }), 0)
+            }
+        },
+        [onVisibilityChange, activeItemIndex]
+    )
+
     return (
         <LemonDropdown
             overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} itemsRef={itemsRef} />}
             closeOnClickInside
             referenceRef={referenceRef}
-            onVisibilityChange={(visible) => {
-                onVisibilityChange?.(visible)
-                if (visible && activeItemIndex && activeItemIndex > -1) {
-                    // Scroll the active item into view once the menu is open (i.e. in the next tick)
-                    setTimeout(
-                        () => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }),
-                        0
-                    )
-                }
-            }}
+            onVisibilityChange={_onVisibilityChange}
             {...dropdownProps}
         />
     )

@@ -115,7 +115,9 @@ describe('offset-manager', () => {
         offsetManager.addOffset(TOPIC, 2, 'session_id', 2)
         offsetManager.addOffset(TOPIC, 3, 'session_id', 3)
 
+        expect(offsetManager.offsetsByPartitionTopic.has(`${TOPIC}-1`)).toEqual(true)
         offsetManager.revokePartitions(TOPIC, [1])
+        expect(offsetManager.offsetsByPartitionTopic.has(`${TOPIC}-1`)).toEqual(false)
 
         const resultOne = offsetManager.removeOffsets(TOPIC, 1, [1])
         expect(resultOne).toEqual(undefined)

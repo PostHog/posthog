@@ -220,7 +220,7 @@ interface FlagSelectorProps {
     onChange: (value: any) => void
 }
 
-function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Element {
+export function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
     const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))

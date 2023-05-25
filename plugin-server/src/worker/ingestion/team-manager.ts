@@ -4,7 +4,7 @@ import LRU from 'lru-cache'
 import { Client, Pool } from 'pg'
 
 import { ONE_MINUTE } from '../../config/constants'
-import { PluginsServerConfig, Team, TeamId } from '../../types'
+import { PipelineEvent, PluginsServerConfig, Team, TeamId } from '../../types'
 import { postgresQuery } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -31,6 +31,16 @@ export class TeamManager {
             updateAgeOnGet: false, // Make default behaviour explicit
         })
         this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
+    }
+
+    public async getTeamForEvent(event: PipelineEvent): Promise<Team | null> {
+        if (event.team_id) {
+            return this.fetchTeam(event.team_id)
+        } else if (event.token) {
+            return this.getTeamByToken(event.token)
+        } else {
+            return Promise.resolve(null)
+        }
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {

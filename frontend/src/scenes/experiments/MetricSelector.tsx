@@ -29,6 +29,7 @@ export function MetricSelector({
         insightLogic({
             dashboardItemId: previewInsightId as InsightShortId,
             syncWithUrl: false,
+            disableDataExploration: true,
         })
     )
     const { isStepsEmpty, filterSteps, filters: funnelsFilters } = useValues(funnelLogic(insightProps))

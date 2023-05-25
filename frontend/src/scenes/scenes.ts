@@ -93,7 +93,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Replay]: {
         projectBased: true,
-        name: 'Replay',
+        name: 'Session Replay',
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
@@ -137,6 +137,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
+    },
+    [Scene.Surveys]: {
+        projectBased: true,
+        name: 'Surveys',
+    },
+    [Scene.Survey]: {
+        projectBased: true,
+        name: 'Survey',
     },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
@@ -256,6 +264,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Feedback',
     },
+    [Scene.Notebook]: {
+        projectBased: true,
+        name: 'Notebook',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -341,6 +353,8 @@ export const routes: Record<string, Scene> = {
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
+    [urls.surveys()]: Scene.Surveys,
+    [urls.survey(':id')]: Scene.Survey,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
@@ -388,4 +402,6 @@ export const routes: Record<string, Scene> = {
     [urls.debugQuery()]: Scene.DebugQuery,
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
+    [urls.notebook(':id')]: Scene.Notebook,
+    [urls.notebookEdit(':id')]: Scene.Notebook,
 }

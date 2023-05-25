@@ -4,7 +4,8 @@ import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch
 import {
     eachBatchIngestion,
     eachBatchParallelIngestion,
-    groupByTeamDistinctId,
+    IngestionOverflowMode,
+    splitIngestionBatch,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
 import {
     ClickHouseTimestamp,
@@ -115,6 +116,7 @@ describe('eachBatchX', () => {
             pluginsServer: {
                 WORKER_CONCURRENCY: 1,
                 TASKS_PER_WORKER: 10,
+                INGESTION_CONCURRENCY: 4,
                 BUFFER_CONVERSION_SECONDS: 60,
                 statsd: {
                     timing: jest.fn(),
@@ -248,7 +250,7 @@ describe('eachBatchX', () => {
     describe('eachBatchParallelIngestion', () => {
         it('calls runEventPipeline', async () => {
             const batch = createBatch(captureEndpointEvent)
-            await eachBatchParallelIngestion(batch, queue)
+            await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
 
             expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({
                 distinct_id: 'id',
@@ -262,7 +264,7 @@ describe('eachBatchX', () => {
                 uuid: 'uuid1',
             })
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_ingestion',
+                'kafka_queue.each_batch_parallel_ingestion',
                 expect.any(Date)
             )
         })
@@ -283,7 +285,7 @@ describe('eachBatchX', () => {
                 { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
             ])
             const stats = new Map()
-            for (const group of groupByTeamDistinctId(batch.batch.messages)) {
+            for (const group of splitIngestionBatch(batch.batch.messages, IngestionOverflowMode.Disabled).toProcess) {
                 const key = `${group[0].team_id}:${group[0].token}:${group[0].distinct_id}`
                 for (const event of group) {
                     expect(`${event.team_id}:${event.token}:${event.distinct_id}`).toEqual(key)
@@ -322,7 +324,7 @@ describe('eachBatchX', () => {
                 { ...captureEndpointEvent, offset: 14, team_id: 5 }, // repeat
             ])
 
-            await eachBatchParallelIngestion(batch, queue)
+            await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
             expect(batch.resolveOffset).toBeCalledTimes(1)
             expect(batch.resolveOffset).toHaveBeenCalledWith(14)
             expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(14)

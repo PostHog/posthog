@@ -36,7 +36,7 @@ export function IconWindow({ value, className = '', size = 'medium' }: IconWindo
     return (
         <div
             className={clsx(
-                'flex justify-center items-center shrink-0 bg-muted-alt text-light rounded',
+                'flex justify-center items-center shrink-0 bg-muted-alt text-inverse rounded',
                 size === 'medium' && 'w-5 h-5',
                 size === 'small' && 'w-4 h-4',
                 className

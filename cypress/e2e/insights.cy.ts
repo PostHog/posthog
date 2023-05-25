@@ -88,15 +88,13 @@ describe('Insights', () => {
         })
 
         it('Can navigate away from unchanged saved insight without confirm()', () => {
-            insight.newInsight()
-            cy.log('Add series')
-            cy.get('[data-attr=add-action-event-button]').click()
-            cy.log('Save')
-            cy.get('[data-attr="insight-save-button"]').click()
-            cy.wait(200)
-            cy.log('Navigate away')
+            const insightName = randomString('to save and then navigate away from')
+            insight.create(insightName)
+
             cy.get('[data-attr="menu-item-annotations"]').click()
-            cy.log('We should be on the Annotations page now')
+
+            // the annotations API call is made before the annotations page loads, so we can't wait for it
+            cy.get('[data-attr="annotations-table"]').should('exist')
             cy.url().should('include', '/annotations')
         })
 
