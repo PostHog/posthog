@@ -149,7 +149,7 @@ export const FEATURE_FLAGS = {
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SESSION_RECORDING_INFINITE_LIST: 'session-recording-infinite-list', // owner: #team-monitoring
-    SESSION_RECORDING_INLINED_FILTERS: 'session-recording-inlined-filters', // owner: #team-monitoring
+    SESSION_RECORDING_SUMMARY_LISTING: 'session-recording-summary-listing', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
 }
 

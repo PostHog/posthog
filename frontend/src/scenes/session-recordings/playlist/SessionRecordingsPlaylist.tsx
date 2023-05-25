@@ -187,7 +187,8 @@ export function RecordingsLists({
                                 </span>
                             </Tooltip>
                             <LemonButton
-                                size="small"
+                                // size="small"
+                                noPadding
                                 status={showFilters ? 'primary' : 'primary-alt'}
                                 type={showFilters ? 'primary' : 'tertiary'}
                                 icon={
