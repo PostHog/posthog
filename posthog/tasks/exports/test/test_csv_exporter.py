@@ -20,7 +20,7 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import UnexpectedEmptyJsonResponse, add_query_params
-from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, _create_person
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from posthog.utils import absolute_uri
 
 TEST_PREFIX = "Test-Exports"
@@ -259,12 +259,29 @@ class TestCSVExporter(APIBaseTest):
         with pytest.raises(UnexpectedEmptyJsonResponse, match="JSON is None when calling API for data"):
             csv_exporter.export_csv(self._create_asset())
 
+    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_hogql_query(self, mocked_uuidt) -> None:
+    def test_csv_exporter_hogql_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
+        random_uuid = str(UUIDT())
+        for i in range(15):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i},
+            )
+        flush_persons_and_events()
+
         exported_asset = ExportedAsset(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
-            export_context={"source": {"kind": "HogQLQuery", "query": "select 10 as number, '20' as string"}},
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
         )
         exported_asset.save()
         mocked_uuidt.return_value = "a-guid"
@@ -278,26 +295,23 @@ class TestCSVExporter(APIBaseTest):
             )
 
             content = object_storage.read(exported_asset.content_location)
-            assert content == "number,string\r\n10,20\r\n"
+            assert (
+                content
+                == "event\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n"
+            )
 
             assert exported_asset.content is None
 
+    @patch("posthog.models.event.events_query.QUERY_MAXIMUM_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query(self, mocked_uuidt) -> None:
+    def test_csv_exporter_events_query(self, mocked_uuidt, QUERY_MAXIMUM_LIMIT=10) -> None:
         random_uuid = str(UUIDT())
-        _create_person(
-            properties={"mail": "vaarikas@posthog.com"},
-            team=self.team,
-            distinct_ids=[random_uuid],
-            is_identified=True,
-        )
-        timestamp = now() - relativedelta(hours=1)
-        for i in range(10):
+        for i in range(15):
             _create_event(
                 event="$pageview",
                 distinct_id=random_uuid,
                 team=self.team,
-                timestamp=timestamp,
+                timestamp=now() - relativedelta(hours=1),
                 properties={"prop": i},
             )
         flush_persons_and_events()
@@ -315,7 +329,7 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_csv(exported_asset)
             content = object_storage.read(exported_asset.content_location)
-            lines = content.split("\r\n")
+            lines = (content or "").split("\r\n")
             self.assertEqual(len(lines), 12)
             self.assertEqual(
                 lines[0],
