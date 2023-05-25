@@ -90,7 +90,11 @@ export class SessionRecordingBlobIngester {
         // track the latest message timestamp seen so, we can use it to calculate a reference "now"
         // lag does not distribute evenly across partitions, so track timestamps per partition
         this.latestKafkaMessageTimestamp[partition] = timestamp
-        gaugeLagMilliseconds.labels(partition.toString()).set(DateTime.now().toMillis() - timestamp)
+        gaugeLagMilliseconds
+            .labels({
+                partition: partition.toString(),
+            })
+            .set(DateTime.now().toMillis() - timestamp)
 
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
@@ -309,6 +313,9 @@ export class SessionRecordingBlobIngester {
 
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
                 gaugePartitionsRevoked.set(revokedPartitions.length)
+                revokedPartitions.forEach((partition) => {
+                    gaugeLagMilliseconds.remove({ partition: partition.toString() })
+                })
                 return
             }
 
