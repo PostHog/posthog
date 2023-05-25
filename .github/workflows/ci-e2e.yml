@@ -41,7 +41,6 @@ jobs:
                         - requirements-dev.txt
                         - mypy.ini
                         - pytest.ini
-                        - frontend/src/queries/schema.json # Used for generating schema.py
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-e2e.yml
                         # We use docker compose for tests, make sure we rerun on
