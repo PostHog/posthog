@@ -644,11 +644,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ).json()["access_token"]
 
         self.client.logout()
+        other_team_id = 1234
 
         # Unallowed routes
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/2?sharing_access_token={token}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(f"/api/projects/12345/session_recordings?sharing_access_token={token}")
+        response = self.client.get(
+            f"/api/projects/{other_team_id}/session_recordings/{session_id}?sharing_access_token={token}"
+        )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
         response = self.client.get(

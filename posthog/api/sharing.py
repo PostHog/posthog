@@ -73,11 +73,8 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
             except Insight.DoesNotExist:
                 raise NotFound("Insight not found.")
         if recording_id:
-            try:
-                # TODO: These are special as we create them on the fly...
-                context["recording"] = SessionRecording.get_or_build(recording_id, team=self.team)
-            except SessionRecording.DoesNotExist:
-                raise NotFound("Recording not found.")
+            # NOTE: Recordings are a special case as we don't want to query CH just for this.
+            context["recording"] = SessionRecording.get_or_build(recording_id, team=self.team)
 
         return context
 
