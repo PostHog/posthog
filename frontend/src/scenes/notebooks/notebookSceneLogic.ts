@@ -7,13 +7,13 @@ import { notebookLogic } from './Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
 
 export type NotebookSceneLogicProps = {
-    id: string | number
+    shortId: string
 }
 export const notebookSceneLogic = kea<notebookSceneLogicType>([
     path(['scenes', 'notebooks', 'notebookSceneLogic']),
     path((key) => ['scenes', 'notebooks', 'notebookSceneLogic', key]),
     props({} as NotebookSceneLogicProps),
-    key(({ id }) => id),
+    key(({ shortId }) => shortId),
     connect((props: NotebookSceneLogicProps) => ({
         values: [notebookLogic(props), ['notebook', 'notebookLoading']],
     })),
@@ -29,7 +29,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         ],
     }),
     selectors(() => ({
-        notebookId: [() => [(_, props) => props], (props): string => props.id],
+        notebookId: [() => [(_, props) => props], (props): string => props.shortId],
 
         breadcrumbs: [
             (s) => [s.notebook, s.notebookLoading],
@@ -49,7 +49,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         ],
     })),
     urlToAction(({ props, actions, values }) => ({
-        [`/notebooks/${props.id}(/:mode)`]: (
+        [`/notebooks/${props.shortId}(/:mode)`]: (
             { mode } // url params
         ) => {
             const newMode = mode === 'edit' ? NotebookMode.Edit : NotebookMode.View
@@ -62,7 +62,9 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     actionToUrl(({ values, props }) => {
         return {
             setNotebookMode: () => {
-                return values.mode === NotebookMode.View ? urls.notebook(props.id) : urls.notebookEdit(props.id)
+                return values.mode === NotebookMode.View
+                    ? urls.notebook(props.shortId)
+                    : urls.notebookEdit(props.shortId)
             },
         }
     }),

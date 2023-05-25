@@ -13,21 +13,21 @@ import { NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 
 interface NotebookSceneProps {
-    id?: string
+    shortId?: string
 }
 
 export const scene: SceneExport = {
     component: NotebookScene,
     logic: notebookSceneLogic,
-    paramsToProps: ({ params: { id } }: { params: NotebookSceneProps }): NotebookSceneLogicProps => ({
-        id: id || 'missing',
+    paramsToProps: ({ params: { shortId } }: { params: NotebookSceneProps }): NotebookSceneLogicProps => ({
+        shortId: shortId || 'missing',
     }),
 }
 
 export function NotebookScene(): JSX.Element {
     const { notebookId, mode } = useValues(notebookSceneLogic)
     const { setNotebookMode } = useActions(notebookSceneLogic)
-    const { notebook, notebookLoading } = useValues(notebookLogic({ id: notebookId }))
+    const { notebook, notebookLoading } = useValues(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setNotebookSideBarShown } = useActions(notebookSidebarLogic)
 
     if (!notebook && !notebookLoading) {
@@ -42,7 +42,7 @@ export function NotebookScene(): JSX.Element {
                 </div>
 
                 <div className="flex gap-2 items-center">
-                    <NotebookSyncInfo id={notebookId} />
+                    <NotebookSyncInfo shortId={notebookId} />
                     <LemonButton
                         type="secondary"
                         onClick={() => {
@@ -78,7 +78,7 @@ export function NotebookScene(): JSX.Element {
 
             <LemonDivider />
 
-            <Notebook key={notebookId} id={notebookId} editable={mode === NotebookMode.Edit} />
+            <Notebook key={notebookId} shortId={notebookId} editable={mode === NotebookMode.Edit} />
         </div>
     )
 }
