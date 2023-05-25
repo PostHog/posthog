@@ -158,6 +158,6 @@ export const urls = {
         combineUrl(urls.dashboards(), {
             tab: 'notebooks',
         }).url,
-    notebook: (id: string | number): string => `/notebooks/${id}`,
-    notebookEdit: (id: string | number): string => `/notebooks/${id}/edit`,
+    notebook: (shortId: string): string => `/notebooks/${shortId}`,
+    notebookEdit: (shortId: string): string => `/notebooks/${shortId}/edit`,
 }
