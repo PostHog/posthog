@@ -189,8 +189,6 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
-    // maximum allowed back off of SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS
-    SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -671,8 +669,6 @@ export interface Person extends BasePerson {
     created_at: DateTime
     version: number
 }
-
-export type IngestionPersonData = Pick<Person, 'id' | 'uuid' | 'team_id' | 'properties' | 'created_at'>
 
 /** Clickhouse Person model. */
 export interface ClickHousePerson {

@@ -34,6 +34,15 @@ dependencies:
   '@tiptap/core':
     specifier: 2.0.0-beta.220
     version: 2.0.0-beta.220(@tiptap/pm@2.0.0-beta.220)
+  '@tiptap/extension-document':
+    specifier: 2.0.0-beta.220
+    version: 2.0.0-beta.220(@tiptap/core@2.0.0-beta.220)
+  '@tiptap/extension-link':
+    specifier: 2.0.0-beta.220
+    version: 2.0.0-beta.220(@tiptap/core@2.0.0-beta.220)(@tiptap/pm@2.0.0-beta.220)
+  '@tiptap/extension-placeholder':
+    specifier: 2.0.0-beta.220
+    version: 2.0.0-beta.220(@tiptap/core@2.0.0-beta.220)(@tiptap/pm@2.0.0-beta.220)
   '@tiptap/pm':
     specifier: 2.0.0-beta.220
     version: 2.0.0-beta.220(@tiptap/core@2.0.0-beta.220)
@@ -170,8 +179,8 @@ dependencies:
     specifier: ^0.23.0
     version: 0.23.0
   posthog-js:
-    specifier: 1.57.2
-    version: 1.57.2
+    specifier: 1.57.4
+    version: 1.57.4
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -214,6 +223,9 @@ dependencies:
   react-input-autosize:
     specifier: ^3.0.0
     version: 3.0.0(react@16.14.0)
+  react-intersection-observer:
+    specifier: ^9.4.3
+    version: 9.4.3(react@16.14.0)
   react-json-view:
     specifier: ^1.21.3
     version: 1.21.3(@types/react@16.14.34)(react-dom@16.14.0)(react@16.14.0)
@@ -4969,6 +4981,17 @@ packages:
       '@tiptap/core': 2.0.0-beta.220(@tiptap/pm@2.0.0-beta.220)
     dev: false
 
+  /@tiptap/extension-link@2.0.0-beta.220(@tiptap/core@2.0.0-beta.220)(@tiptap/pm@2.0.0-beta.220):
+    resolution: {integrity: sha512-vjEA8cE37ZZVVgPHSpttw3kbJoClb+ya/BVukDtJ1h6C7mIR1rqzNxTgpbnXJuA8xww0JOjpa5dpzEgcs294fA==}
+    peerDependencies:
+      '@tiptap/core': ^2.0.0-beta.209
+      '@tiptap/pm': ^2.0.0-beta.209
+    dependencies:
+      '@tiptap/core': 2.0.0-beta.220(@tiptap/pm@2.0.0-beta.220)
+      '@tiptap/pm': 2.0.0-beta.220(@tiptap/core@2.0.0-beta.220)
+      linkifyjs: 4.1.1
+    dev: false
+
   /@tiptap/extension-list-item@2.0.0-beta.220(@tiptap/core@2.0.0-beta.220):
     resolution: {integrity: sha512-+O0ivwxPP2l/m9PAowb2ytDT/cM5kwu0s1W5MUsHPIqf+M6ahnl4ESjhWZfDHUzvjqPq6MTbqoQLHbB1KS/N7w==}
     peerDependencies:
@@ -4991,6 +5014,16 @@ packages:
       '@tiptap/core': ^2.0.0-beta.209
     dependencies:
       '@tiptap/core': 2.0.0-beta.220(@tiptap/pm@2.0.0-beta.220)
+    dev: false
+
+  /@tiptap/extension-placeholder@2.0.0-beta.220(@tiptap/core@2.0.0-beta.220)(@tiptap/pm@2.0.0-beta.220):
+    resolution: {integrity: sha512-Pq79BH/JqhjTNgxHkmbzcmwATsSJdRRSLHrnLx5upSmwEkQwCzqni9jL10rL2NM1ZyR+o25xC+r5loujx0aQ+Q==}
+    peerDependencies:
+      '@tiptap/core': ^2.0.0-beta.209
+      '@tiptap/pm': ^2.0.0-beta.209
+    dependencies:
+      '@tiptap/core': 2.0.0-beta.220(@tiptap/pm@2.0.0-beta.220)
+      '@tiptap/pm': 2.0.0-beta.220(@tiptap/core@2.0.0-beta.220)
     dev: false
 
   /@tiptap/extension-strike@2.0.0-beta.220(@tiptap/core@2.0.0-beta.220):
@@ -13565,6 +13598,10 @@ packages:
       uc.micro: 1.0.6
     dev: false
 
+  /linkifyjs@4.1.1:
+    resolution: {integrity: sha512-zFN/CTVmbcVef+WaDXT63dNzzkfRBKT1j464NJQkV7iSgJU0sLBus9W0HBwnXK13/hf168pbrx/V/bjEHOXNHA==}
+    dev: false
+
   /lint-staged@10.2.13:
     resolution: {integrity: sha512-conwlukNV6aL9SiMWjFtDp5exeDnTMekdNPDZsKGnpfQuHcO0E3L3Bbf58lcR+M7vk6LpCilxDAVks/DDVBYlA==}
     hasBin: true
@@ -15591,8 +15628,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.57.2:
-    resolution: {integrity: sha512-ER4gkYZasrd2Zwmt/yLeZ5G/nZJ6tpaYBCpx3CvocDx+3F16WdawJlYMT0IyLKHXDniC5+AsjzFd6fi8uyYlJA==}
+  /posthog-js@1.57.4:
+    resolution: {integrity: sha512-tD9F8AYQXKOD9Q1mUbT/KpAXqo0kp3W7sLC3qDb0ebV/5n7jUiJskLsRxM3NqzVCSd/Rk/DWlSHUHXq8if57iA==}
     dependencies:
       fflate: 0.4.8
       rrweb-snapshot: 1.1.14
@@ -16688,6 +16725,14 @@ packages:
       prop-types: 15.8.1
       react: 16.14.0
     dev: true
+
+  /react-intersection-observer@9.4.3(react@16.14.0):
+    resolution: {integrity: sha512-WNRqMQvKpupr6MzecAQI0Pj0+JQong307knLP4g/nBex7kYfIaZsPpXaIhKHR+oV8z+goUbH9e10j6lGRnTzlQ==}
+    peerDependencies:
+      react: ^15.0.0 || ^16.0.0 || ^17.0.0 || ^18.0.0
+    dependencies:
+      react: 16.14.0
+    dev: false
 
   /react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}

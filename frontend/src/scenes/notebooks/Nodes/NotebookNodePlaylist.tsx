@@ -16,6 +16,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
+const HEIGHT = 'calc(100vh - 10rem)'
+
 const Component = (props: NodeViewProps): JSX.Element => {
     const [filters, setFilters] = useJsonNodeState(props, 'filters')
 
@@ -60,8 +62,13 @@ const Component = (props: NodeViewProps): JSX.Element => {
             className={NotebookNodeType.RecordingPlaylist}
             title="Playlist"
             href={urls.replay(undefined, filters)}
+            heightEstimate={HEIGHT}
         >
-            <div className="flex flex-row overflow-hidden gap-2 flex-1" style={{ height: 600 }} contentEditable={false}>
+            <div
+                className="flex flex-row overflow-hidden gap-2 flex-1"
+                style={{ height: HEIGHT }}
+                contentEditable={false}
+            >
                 {content}
             </div>
         </NodeWrapper>

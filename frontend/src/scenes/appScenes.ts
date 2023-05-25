@@ -34,6 +34,8 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.EarlyAccessFeatures]: () => import('./early-access-features/EarlyAccessFeatures'),
     [Scene.EarlyAccessFeature]: () => import('./early-access-features/EarlyAccessFeature'),
+    [Scene.Surveys]: () => import('./surveys/Surveys'),
+    [Scene.Survey]: () => import('./surveys/Survey'),
     [Scene.OrganizationSettings]: () => import('./organization/Settings'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
@@ -65,4 +67,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.DebugQuery]: () => import('./query/QueryScene'),
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
     [Scene.Feedback]: () => import('./feedback/Feedback'),
+    [Scene.Notebook]: () => import('./notebooks/NotebookScene'),
 }

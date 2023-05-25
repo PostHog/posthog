@@ -459,7 +459,7 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
-export enum ExperimentStatus {
+export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
@@ -1782,6 +1782,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
+    math_hogql?: string
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
@@ -1810,7 +1811,7 @@ export interface TrendResult {
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
-    filter?: FilterType
+    filter?: TrendsFilterType
 }
 
 interface Person {
@@ -1986,6 +1987,54 @@ export interface SetInsightOptions {
     overrideFilter?: boolean
     /** calling with this updates the "last saved" filters */
     fromPersistentApi?: boolean
+}
+
+export interface Survey {
+    /** UUID */
+    id: string
+    name: string
+    description: string
+    type: SurveyType
+    linked_flag: FeatureFlagBasicType | null
+    targeting_flag: FeatureFlagBasicType | null
+    conditions: { url: string; selector: string } | null
+    appearance: SurveyAppearance
+    questions: SurveyQuestion[]
+    created_at: string
+    created_by: UserBasicType | null
+    start_date: string | null
+    end_date: string | null
+    archived: boolean
+}
+
+export enum SurveyType {
+    Popover = 'popover',
+    Button = 'button',
+    FullScreen = 'full_screen',
+    Email = 'email',
+}
+
+export interface SurveyAppearance {
+    background_color?: string
+    button_color?: string
+    text_color?: string
+}
+
+export interface SurveyQuestion {
+    type: SurveyQuestionType
+    question: string
+    required?: boolean
+    link?: string | null
+    choices?: string[] | null
+}
+
+export enum SurveyQuestionType {
+    Open = 'open',
+    MultipleChoiceSingle = 'multiple_single',
+    MultipleChoiceMulti = 'multiple_multi',
+    NPS = 'nps',
+    Rating = 'rating',
+    Link = 'link',
 }
 
 export interface FeatureFlagGroupType {
@@ -2293,10 +2342,17 @@ export interface Experiment {
     updated_at: string | null
 }
 
-export interface ExperimentVariant {
+export interface FunnelExperimentVariant {
     key: string
     success_count: number
     failure_count: number
+}
+
+export interface TrendExperimentVariant {
+    key: string
+    count: number
+    exposure: number
+    absolute_exposure: number
 }
 
 interface BaseExperimentResults {
@@ -2307,17 +2363,18 @@ interface BaseExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
-    variants: ExperimentVariant[]
 }
 
 export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
+    variants: TrendExperimentVariant[]
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
+    variants: FunnelExperimentVariant[]
 }
 
 export interface TrendsExperimentResults {
@@ -2567,6 +2624,9 @@ export enum CountPerActorMathType {
     P99 = 'p99_count_per_actor',
 }
 
+export enum HogQLMathType {
+    HogQL = 'hogql',
+}
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
@@ -2822,3 +2882,24 @@ export type PromptFlag = {
     locationCSS?: Partial<CSSStyleDeclaration>
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
+
+export type NotebookListItemType = {
+    // id: string
+    short_id: string
+    title?: string
+    created_at: string
+    created_by: UserBasicType | null
+    last_modified_at?: string
+    last_modified_by?: UserBasicType | null
+}
+
+export type NotebookType = NotebookListItemType & {
+    content: any // TODO: Type this better
+}
+
+export enum NotebookMode {
+    View = 'view',
+    Edit = 'edit',
+}
+
+export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'

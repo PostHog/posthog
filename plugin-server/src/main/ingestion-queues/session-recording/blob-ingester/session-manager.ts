@@ -1,5 +1,5 @@
 import { Upload } from '@aws-sdk/lib-storage'
-import { captureException } from '@sentry/node'
+import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
@@ -35,13 +35,6 @@ export const gaugeS3FilesBytesWritten = new Gauge({
 export const gaugeS3LinesWritten = new Gauge({
     name: 'recording_s3_lines_written',
     help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
-})
-
-export const gaugePendingChunksCompleted = new Gauge({
-    name: 'recording_pending_chunks_completed',
-    help: `Chunks can be duplicated or arrive as expected.
-        When flushing we need to check whether we have all chunks or should drop them.
-        This metric indicates a set of pending chunks were complete and could be added to the buffer`,
 })
 
 export const gaugePendingChunksDropped = new Gauge({
@@ -226,22 +219,39 @@ export class SessionManager {
 
             this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
 
-            if (this.chunks.size === 0) {
-                // return the promise and let the caller decide whether to await
-                status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
-                    ...logContext,
-                })
-                return this.flush('buffer_age')
-            } else {
+            if (this.chunks.size !== 0) {
                 gaugePendingChunksBlocking.inc()
+                const chunkStates: Record<string, any> = {}
+                for (const [key, chunk] of this.chunks.entries()) {
+                    chunkStates[key] = chunk.logContext
+                }
                 status.warn(
                     '🚽',
-                    `blob_ingester_session_manager would flush buffer due to age, but chunks are still pending`,
+                    `blob_ingester_session_manager flush buffer due to age, but chunks are still pending`,
                     {
                         ...logContext,
+                        chunks: chunkStates,
                     }
                 )
             }
+
+            // flush even though there may be incomplete chunks
+            // return the promise and let the caller decide whether to await
+            status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+                ...logContext,
+            })
+            return this.flush('buffer_age')
+        } else {
+            status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
+                bufferAge,
+                sessionId: this.sessionId,
+                partition: this.partition,
+                chunkSize: this.chunks.size,
+                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+                referenceTime: referenceNow,
+                flushThresholdMillis,
+                bufferedLines: this.buffer.count,
+            })
         }
     }
 
@@ -254,7 +264,7 @@ export class SessionManager {
         const updatedChunks = new Map<string, PendingChunks>()
 
         for (const [key, pendingChunks] of chunks) {
-            if (!pendingChunks.isComplete && pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
+            if (pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
                 // dropping these chunks, don't lose their offsets
                 pendingChunks.chunks.forEach((x) => {
                     // we want to make sure that the offsets for these messages we're ignoring
@@ -301,32 +311,31 @@ export class SessionManager {
             return
         }
 
-        if (this.buffer.count === 0) {
-            status.warn('⚠️', `blob_ingester_session_manager flush called but buffer is empty`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-                reason,
-            })
-            return
-        }
-
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
 
-        const eventsRange = this.flushBuffer.eventsRange
-        if (!eventsRange) {
-            status.warn('⚠️', `blob_ingester_session_manager flush called but eventsRange is null`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-                reason,
-            })
-            return
-        }
-
-        const { firstTimestamp, lastTimestamp } = eventsRange
-
         try {
+            if (this.flushBuffer.count === 0) {
+                status.warn('⚠️', `blob_ingester_session_manager flush called but buffer is empty`, {
+                    sessionId: this.sessionId,
+                    partition: this.partition,
+                    reason,
+                })
+                throw new Error("Can't flush empty buffer")
+            }
+
+            const eventsRange = this.flushBuffer.eventsRange
+            if (!eventsRange) {
+                status.warn('⚠️', `blob_ingester_session_manager flush called but eventsRange is null`, {
+                    sessionId: this.sessionId,
+                    partition: this.partition,
+                    reason,
+                })
+                throw new Error("Can't flush buffer due to missing eventRange")
+            }
+
+            const { firstTimestamp, lastTimestamp } = eventsRange
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
             const timeRange = `${firstTimestamp}-${lastTimestamp}`
             const dataKey = `${baseKey}/data/${timeRange}`
@@ -380,7 +389,7 @@ export class SessionManager {
             this.flushBuffer = undefined
 
             // TODO: Sync the last processed offset to redis
-            this.onFinish(offsets)
+            this.onFinish(offsets.sort((a, b) => a - b))
         }
     }
 
@@ -421,16 +430,7 @@ export class SessionManager {
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
         try {
             const messageData = convertToPersistedMessage(message)
-            this.buffer.eventsRange = {
-                firstTimestamp: Math.min(
-                    message.events_summary[0].timestamp,
-                    this.buffer.eventsRange?.firstTimestamp ?? Infinity
-                ),
-                lastTimestamp: Math.max(
-                    message.events_summary[message.events_summary.length - 1].timestamp,
-                    this.buffer.eventsRange?.lastTimestamp ?? 0
-                ),
-            }
+            this.setEventsRangeFrom(message)
 
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
@@ -467,30 +467,21 @@ export class SessionManager {
         if (pendingChunks && pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
-            gaugePendingChunksCompleted.inc()
-            await this.processChunksToBuffer(pendingChunks.completedChunks)
+            await this.processChunksToBuffer(pendingChunks.completedChunks, pendingChunks.allChunkOffsets)
             this.chunks.delete(message.chunk_id)
         }
     }
 
-    private async processChunksToBuffer(chunks: IncomingRecordingMessage[]) {
-        // push all but the last offset into the buffer
-        // the final offset was copied into the data passed to `addToBuffer`
-        for (let i = 0; i < chunks.length - 1; i++) {
-            const x = chunks[i]
-            this.buffer.offsets.push(x.metadata.offset)
-        }
+    private async processChunksToBuffer(chunks: IncomingRecordingMessage[], allOffsets: number[]): Promise<void> {
+        allOffsets.forEach((offset) => this.buffer.offsets.push(offset))
 
         await this.addToBuffer({
-            ...chunks[chunks.length - 1],
+            ...chunks[0], // send the first chunk as the message, it should have the events summary
             data: chunks
                 .sort((a, b) => a.chunk_index - b.chunk_index)
                 .map((c) => c.data)
                 .join(''),
         })
-
-        // chunk processing can leave the offsets out of order
-        this.buffer.offsets.sort((a, b) => a - b)
     }
 
     public async destroy(): Promise<void> {
@@ -515,5 +506,46 @@ export class SessionManager {
                 })
             )
         await Promise.allSettled(filePromises)
+    }
+
+    private getEventRangeForMessage(message: IncomingRecordingMessage): [number | null, number | null] {
+        try {
+            if (!message.events_summary || !message.events_summary.length) {
+                return [null, null]
+            }
+
+            return [
+                message.events_summary[0].timestamp,
+                message.events_summary[message.events_summary.length - 1].timestamp,
+            ]
+        } catch (e) {
+            captureException(e, { tags: { team_id: this.teamId, session_id: this.sessionId }, extra: { message } })
+            return [null, null]
+        }
+    }
+
+    private setEventsRangeFrom(message: IncomingRecordingMessage) {
+        const [start, end] = this.getEventRangeForMessage(message)
+
+        if (start === null) {
+            // if we don't have a start, then we can't have an end,
+            // and we can't set new values for range
+            captureMessage(
+                "blob_ingester_session_manager: can't set events range from message without events summary",
+                {
+                    extra: { message },
+                    tags: {
+                        team_id: this.teamId,
+                        session_id: this.sessionId,
+                    },
+                }
+            )
+            return
+        }
+
+        const firstTimestamp = Math.min(start, this.buffer.eventsRange?.firstTimestamp || Infinity)
+        const lastTimestamp = Math.max(end || start, this.buffer.eventsRange?.lastTimestamp || -Infinity)
+
+        this.buffer.eventsRange = { firstTimestamp, lastTimestamp }
     }
 }

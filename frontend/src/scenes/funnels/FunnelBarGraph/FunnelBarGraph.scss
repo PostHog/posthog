@@ -82,7 +82,7 @@ $glyph_height: 22px;
                 left: 0;
                 width: calc(#{$series_container_width} / 2 + 1px);
                 box-sizing: border-box;
-                border-right: 2px solid var(--bg-mid);
+                border-right: 2px solid var(--mid);
 
                 &.before {
                     top: 0;

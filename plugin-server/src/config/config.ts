@@ -40,8 +40,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: null,
         KAFKA_SASL_PASSWORD: null,
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
-        KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
-        KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
+        KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 5_242_880,
+        KAFKA_CONSUMPTION_MAX_WAIT_MS: 500, // Down from the 5s default for kafkajs
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
@@ -118,8 +118,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
-        // NOTE: 5x the max age, so that we don't flush too infrequently when backing off due to lag
-        SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER: 5,
         SESSION_RECORDING_MAX_BUFFER_SIZE_KB: ['dev', 'test'].includes(process.env.NODE_ENV || 'undefined')
             ? 1024 // NOTE: ~1MB in dev or test, so that even with gzipped content we still flush pretty frequently
             : 1024 * 50, // ~50MB after compression in prod

@@ -98,6 +98,10 @@ export function ActionsTable(): JSX.Element {
                                                             </>
                                                         )
                                                 }
+                                            case '':
+                                            case null:
+                                            case undefined:
+                                                return 'Any event'
                                             default:
                                                 return (
                                                     <>

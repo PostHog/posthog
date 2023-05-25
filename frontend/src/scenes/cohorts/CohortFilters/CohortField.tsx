@@ -5,7 +5,7 @@ import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { LemonTaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import {
     CohortPersonPropertiesValuesFieldProps,
     CohortFieldBaseProps,
@@ -115,7 +115,7 @@ export function CohortTaxonomicField({
     const groupType = criteria[groupTypeFieldKey] as TaxonomicFilterGroupType
 
     return (
-        <LemonTaxonomicPopover
+        <TaxonomicPopover
             className="CohortField"
             type="secondary"
             status="stealth"
