@@ -1720,7 +1720,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2012-01-01 03:20")
+    @freeze_time("2012-01-11 03:20")
     def test_event_exclusion_filters_with_wildcard_groups(self):
         # P1 for pageview event /2/bar/1/foo
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
