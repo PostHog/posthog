@@ -1977,8 +1977,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** If showing a shared insight/dashboard, we need the access token for refreshing. */
-    sharingAccessToken?: string
     /** Temporary hack to disable data exploration to enable result fetching. */
     disableDataExploration?: boolean
 }

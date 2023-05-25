@@ -11,7 +11,7 @@ import posthog.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0313_early_access_feature"),
+        ("posthog", "0314_sharingconfiguration_recording"),
     ]
 
     operations = [
