@@ -71,7 +71,6 @@ export function SessionRecordingsFilters({
                         bordered
                         filters={localFilters}
                         setFilters={(payload) => {
-                            // reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
                             setLocalFilters(payload)
                         }}
                         typeKey={'session-recordings'}

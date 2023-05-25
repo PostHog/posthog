@@ -158,6 +158,18 @@ export function RecordingsLists({
                                 paginationControls
                             )}
 
+                            <LemonButton
+                                noPadding
+                                status={showFilters ? 'primary' : 'primary-alt'}
+                                type={showFilters ? 'primary' : 'tertiary'}
+                                icon={
+                                    <IconWithCount count={totalFiltersCount}>
+                                        <IconFilter />
+                                    </IconWithCount>
+                                }
+                                onClick={() => setShowFilters(!showFilters)}
+                            />
+
                             <Tooltip
                                 title={
                                     <div className="text-center">
@@ -186,18 +198,6 @@ export function RecordingsLists({
                                     />
                                 </span>
                             </Tooltip>
-                            <LemonButton
-                                // size="small"
-                                noPadding
-                                status={showFilters ? 'primary' : 'primary-alt'}
-                                type={showFilters ? 'primary' : 'tertiary'}
-                                icon={
-                                    <IconWithCount count={totalFiltersCount}>
-                                        <IconFilter />
-                                    </IconWithCount>
-                                }
-                                onClick={() => setShowFilters(!showFilters)}
-                            />
                         </>
                     }
                     subheader={

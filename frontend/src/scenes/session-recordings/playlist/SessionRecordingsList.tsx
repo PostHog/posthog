@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { IconUnfoldLess, IconUnfoldMore, IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils'
-import React, { Fragment, useRef } from 'react'
+import React, { Fragment, useEffect, useRef } from 'react'
 import { SessionRecordingType } from '~/types'
 import {
     SessionRecordingPlaylistItem,
@@ -63,6 +63,7 @@ export function SessionRecordingsList({
 }: SessionRecordingsListProps): JSX.Element {
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
     const lastScrollPositionRef = useRef(0)
+    const contentRef = useRef<HTMLDivElement | null>(null)
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
 
     const titleContent = (
@@ -103,6 +104,12 @@ export function SessionRecordingsList({
               }
             : undefined
 
+    useEffect(() => {
+        if (subheader && contentRef.current) {
+            contentRef.current.scrollTop = 0
+        }
+    }, [!!subheader])
+
     return (
         <div
             className={clsx('flex flex-col w-full bg-white border rounded', className, {
@@ -135,9 +142,9 @@ export function SessionRecordingsList({
                         'border-dashed': !recordings?.length,
                     })}
                     onScroll={handleScroll}
+                    ref={contentRef}
                 >
                     {subheader}
-
                     {recordings?.length ? (
                         <ul>
                             {recordings.map((rec, i) => (
