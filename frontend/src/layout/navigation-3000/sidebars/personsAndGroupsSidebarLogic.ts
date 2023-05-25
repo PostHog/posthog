@@ -38,38 +38,8 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
     selectors(({ actions, values }) => ({
         isLoading: [(s) => [s.personsLoading], (personsLoading) => personsLoading],
         contents: [
-            (s) => [
-                s.persons,
-                s.personsLoading,
-                s.groupTypes,
-                groupsListLogic({ groupTypeIndex: 0 }).selectors.groups,
-                groupsListLogic({ groupTypeIndex: 0 }).selectors.groupsLoading,
-                groupsListLogic({ groupTypeIndex: 1 }).selectors.groups,
-                groupsListLogic({ groupTypeIndex: 1 }).selectors.groupsLoading,
-                groupsListLogic({ groupTypeIndex: 2 }).selectors.groups,
-                groupsListLogic({ groupTypeIndex: 2 }).selectors.groupsLoading,
-                groupsListLogic({ groupTypeIndex: 3 }).selectors.groups,
-                groupsListLogic({ groupTypeIndex: 3 }).selectors.groupsLoading,
-                groupsListLogic({ groupTypeIndex: 4 }).selectors.groups,
-                groupsListLogic({ groupTypeIndex: 4 }).selectors.groupsLoading,
-            ],
-            (
-                persons,
-                personsLoading,
-                groupTypes,
-                groups0,
-                groupsLoading0,
-                groups1,
-                groupsLoading1,
-                groups2,
-                groupsLoading2,
-                groups3,
-                groupsLoading3,
-                groups4,
-                groupsLoading4
-            ): Accordion[] => {
-                const groups = [groups0, groups1, groups2, groups3, groups4]
-                const groupsLoading = [groupsLoading0, groupsLoading1, groupsLoading2, groupsLoading3, groupsLoading4]
+            (s) => [s.persons, s.personsLoading, s.groupTypes, s.groups, s.groupsLoading],
+            (persons, personsLoading, groupTypes, groups, groupsLoading): Accordion[] => {
                 return [
                     {
                         key: 'persons',
@@ -108,6 +78,30 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                             } as Accordion)
                     ),
                 ]
+            },
+        ],
+        groups: [
+            () => [
+                groupsListLogic({ groupTypeIndex: 0 }).selectors.groups,
+                groupsListLogic({ groupTypeIndex: 1 }).selectors.groups,
+                groupsListLogic({ groupTypeIndex: 2 }).selectors.groups,
+                groupsListLogic({ groupTypeIndex: 3 }).selectors.groups,
+                groupsListLogic({ groupTypeIndex: 4 }).selectors.groups,
+            ],
+            (groups0, groups1, groups2, groups3, groups4) => {
+                return [groups0, groups1, groups2, groups3, groups4]
+            },
+        ],
+        groupsLoading: [
+            () => [
+                groupsListLogic({ groupTypeIndex: 0 }).selectors.groupsLoading,
+                groupsListLogic({ groupTypeIndex: 1 }).selectors.groupsLoading,
+                groupsListLogic({ groupTypeIndex: 2 }).selectors.groupsLoading,
+                groupsListLogic({ groupTypeIndex: 3 }).selectors.groupsLoading,
+                groupsListLogic({ groupTypeIndex: 4 }).selectors.groupsLoading,
+            ],
+            (groupsLoading0, groupsLoading1, groupsLoading2, groupsLoading3, groupsLoading4) => {
+                return [groupsLoading0, groupsLoading1, groupsLoading2, groupsLoading3, groupsLoading4]
             },
         ],
         activeListItemKey: [
