@@ -54,7 +54,7 @@ export const gaugeBytesBuffered = new Gauge({
     name: 'recording_blob_ingestion_bytes_buffered',
     help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
 })
-export const guageRealtimeSessions = new Gauge({
+export const gaugeRealtimeSessions = new Gauge({
     name: 'recording_realtime_sessions',
     help: 'Number of real time sessions being handled by this blob ingestion consumer',
 })
@@ -391,7 +391,7 @@ export class SessionRecordingBlobIngester {
 
             gaugeSessionsHandled.set(this.sessions.size)
             gaugeBytesBuffered.set(sessionManagerBufferSizes)
-            guageRealtimeSessions.set(
+            gaugeRealtimeSessions.set(
                 Array.from(this.sessions.values()).reduce(
                     (acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0),
                     0
@@ -422,6 +422,7 @@ export class SessionRecordingBlobIngester {
 
         await this.redisPool.drain()
         await this.redisPool.clear()
+        gaugeRealtimeSessions.set(0)
     }
 
     async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
