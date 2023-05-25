@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use axum::{routing::post, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use tower_http::trace::TraceLayer;
 
 use crate::{capture, sink, time::TimeSource};
@@ -9,6 +12,10 @@ use crate::{capture, sink, time::TimeSource};
 pub struct State {
     pub sink: Arc<dyn sink::EventSink + Send + Sync>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
+}
+
+async fn index() -> &'static str {
+    "capture"
 }
 
 pub fn router<
@@ -25,6 +32,7 @@ pub fn router<
 
     Router::new()
         // TODO: use NormalizePathLayer::trim_trailing_slash
+        .route("/", get(index))
         .route("/capture", post(capture::event))
         .route("/capture/", post(capture::event))
         .route("/batch", post(capture::event))
