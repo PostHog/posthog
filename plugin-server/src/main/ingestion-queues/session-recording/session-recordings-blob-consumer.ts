@@ -220,13 +220,15 @@ export class SessionRecordingBlobIngester {
     private async handleEachBatch(messages: Message[]): Promise<void> {
         const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
 
-        for (const message of messages) {
-            const childSpan = transaction.startChild({
-                op: 'handleKafkaMessage',
+        await Promise.all(
+            messages.map(async (message) => {
+                const childSpan = transaction.startChild({
+                    op: 'handleKafkaMessage',
+                })
+                await this.handleKafkaMessage(message, childSpan)
+                childSpan.finish()
             })
-            await this.handleKafkaMessage(message, childSpan)
-            childSpan.finish()
-        }
+        )
 
         transaction.finish()
     }
