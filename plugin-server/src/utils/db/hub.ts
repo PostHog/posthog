@@ -37,6 +37,7 @@ import { PersonManager } from '../../worker/ingestion/person-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
+import { teardownPluginConfig, teardownPluginConfigPromise } from '../../worker/plugins/teardown'
 import { status } from '../status'
 import { createPostgresPool, createRedis, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -219,8 +220,18 @@ export async function createHub(
         enqueuePluginJob,
         objectStorage: objectStorage,
 
-        pluginConfigs: new LRU<number, Promise<PluginConfig>>({ maxAge: 1000 * 60 * 10 }),
-        pluginConfigsPerTeam: new LRU<number, Promise<PluginConfig[]>>({ maxAge: 1000 * 60 * 10 }),
+        pluginConfigs: new LRU<number, Promise<PluginConfig>>({
+            maxAge: 1000 * 60 * 10,
+            dispose: async (_, promise) => {
+                await teardownPluginConfigPromise(hub as Hub, promise)
+            },
+        }),
+        pluginConfigsPerTeam: new LRU<number, Promise<PluginConfig[]>>({
+            maxAge: 1000 * 60 * 10,
+            dispose: async (_, promises) => {
+                ;(await promises).map((promise) => teardownPluginConfig(hub as Hub, promise))
+            },
+        }),
         pluginConfigSecrets: new Map(),
         pluginConfigSecretLookup: new Map(),
 

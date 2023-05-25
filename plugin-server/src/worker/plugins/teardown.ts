@@ -1,49 +1,58 @@
 import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../types'
 import { processError } from '../../utils/db/error'
 
-export async function teardownPlugins(server: Hub, pluginConfig?: PluginConfig): Promise<void> {
-    const pluginConfigs = pluginConfig ? [pluginConfig] : await Promise.all(server.pluginConfigs.values())
+export function teardownPlugins(server: Hub) {
+    server.pluginConfigs.reset()
+    server.pluginConfigsPerTeam.reset()
+}
 
-    const teardownPromises: Promise<void>[] = []
-    for (const pluginConfig of pluginConfigs) {
-        if (pluginConfig.vm) {
-            pluginConfig.vm.clearRetryTimeoutIfExists()
-            const teardownPlugin = await pluginConfig.vm.getTeardownPlugin()
-            if (teardownPlugin) {
-                teardownPromises.push(
-                    (async () => {
-                        try {
-                            await teardownPlugin()
-                            await server.db.queuePluginLogEntry({
-                                pluginConfig,
-                                source: PluginLogEntrySource.System,
-                                type: PluginLogEntryType.Debug,
-                                message: `Plugin unloaded (instance ID ${server.instanceId}).`,
-                                instanceId: server.instanceId,
-                            })
-                        } catch (error) {
-                            await processError(server, pluginConfig, error)
-                            await server.db.queuePluginLogEntry({
-                                pluginConfig,
-                                source: PluginLogEntrySource.System,
-                                type: PluginLogEntryType.Error,
-                                message: `Plugin failed to unload (instance ID ${server.instanceId}).`,
-                                instanceId: server.instanceId,
-                            })
-                        }
-                    })()
-                )
-            } else {
-                await server.db.queuePluginLogEntry({
-                    pluginConfig,
-                    source: PluginLogEntrySource.System,
-                    type: PluginLogEntryType.Debug,
-                    message: `Plugin unloaded (instance ID ${server.instanceId}).`,
-                    instanceId: server.instanceId,
-                })
-            }
+export async function teardownPluginConfig(
+    server: Hub,
+    pluginConfig: PluginConfig,
+    teardownPromises: Promise<void>[] = []
+) {
+    if (pluginConfig.vm) {
+        pluginConfig.vm.clearRetryTimeoutIfExists()
+        const teardownPlugin = await pluginConfig.vm.getTeardownPlugin()
+        if (teardownPlugin) {
+            teardownPromises.push(
+                (async () => {
+                    try {
+                        await teardownPlugin()
+                        await server.db.queuePluginLogEntry({
+                            pluginConfig,
+                            source: PluginLogEntrySource.System,
+                            type: PluginLogEntryType.Debug,
+                            message: `Plugin unloaded (instance ID ${server.instanceId}).`,
+                            instanceId: server.instanceId,
+                        })
+                    } catch (error) {
+                        await processError(server, pluginConfig, error)
+                        await server.db.queuePluginLogEntry({
+                            pluginConfig,
+                            source: PluginLogEntrySource.System,
+                            type: PluginLogEntryType.Error,
+                            message: `Plugin failed to unload (instance ID ${server.instanceId}).`,
+                            instanceId: server.instanceId,
+                        })
+                    }
+                })()
+            )
+        } else {
+            await server.db.queuePluginLogEntry({
+                pluginConfig,
+                source: PluginLogEntrySource.System,
+                type: PluginLogEntryType.Debug,
+                message: `Plugin unloaded (instance ID ${server.instanceId}).`,
+                instanceId: server.instanceId,
+            })
         }
     }
+}
 
-    await Promise.all(teardownPromises)
+export async function teardownPluginConfigPromise(server: Hub, pluginConfigPromise: Promise<PluginConfig | undefined>) {
+    const pluginConfig = await pluginConfigPromise
+    if (pluginConfig) {
+        await teardownPluginConfig(server, pluginConfig)
+    }
 }

@@ -47,8 +47,8 @@ export const workerTasks: Record<string, TaskRunner> = {
     dropAction: (hub, args: { teamId: Team['id']; actionId: Action['id'] }) => {
         return hub.actionManager.dropAction(args.teamId, args.actionId)
     },
-    teardownPlugins: async (hub) => {
-        await teardownPlugins(hub)
+    teardownPlugins: (hub) => {
+        teardownPlugins(hub)
     },
     flushKafkaMessages: async (hub) => {
         await hub.kafkaProducer.flush()

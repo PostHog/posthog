@@ -18,7 +18,6 @@ import {
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
-import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
 let clickHouseClient: ClickHouse
@@ -156,13 +155,8 @@ export const reloadPlugins = async () => await redis.publish('reload-plugins', '
 
 export const createAndReloadPluginConfig = async (teamId: number, pluginId: number) => {
     const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId })
-    await reloadPlugins()
     // We wait for some log entries for the plugin, to make sure it's ready to
     // process events.
-    await waitForExpect(async () => {
-        const logs = await fetchPluginLogEntries(pluginConfig.id)
-        expect(logs.length).toBeGreaterThan(0)
-    })
     return pluginConfig
 }
 

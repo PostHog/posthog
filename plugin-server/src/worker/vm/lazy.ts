@@ -18,7 +18,7 @@ import { instrument } from '../../utils/metrics'
 import { getNextRetryMs } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
-import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
+import { getVMPluginCapabilities } from '../vm/capabilities'
 import { createPluginConfigVM } from './vm'
 
 export const VM_INIT_MAX_RETRIES = 5
@@ -33,8 +33,6 @@ export class SetupPluginError extends Error {
 }
 
 export class LazyPluginVM {
-    initialize?: (indexJs: string, logInfo: string) => Promise<void>
-    failInitialization?: () => void
     resolveInternalVm!: Promise<PluginConfigVMResponse | null>
     totalInitAttemptsCounter: number
     initRetryTimeout: NodeJS.Timeout | null
@@ -52,7 +50,6 @@ export class LazyPluginVM {
         this.pluginConfig = pluginConfig
         this.hub = hub
         this.inErroredState = false
-        this.initVm()
     }
 
     public async getExportEvents(): Promise<PluginConfigVMResponse['methods']['exportEvents'] | null> {
@@ -124,57 +121,39 @@ export class LazyPluginVM {
         }
     }
 
-    private initVm() {
-        this.resolveInternalVm = new Promise((resolve) => {
-            this.initialize = async (indexJs: string, logInfo = '') => {
-                try {
-                    const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
-                    this.vmResponseVariable = vm.vmResponseVariable
+    async initialize(indexJs: string, logInfo = ''): Promise<PluginConfigVMResponse | null> {
+        console.error('Initializing plugin', logInfo)
+        try {
+            const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
+            this.vmResponseVariable = vm.vmResponseVariable
 
-                    if (!this.pluginConfig.plugin) {
-                        throw new Error(`'PluginConfig missing plugin: ${this.pluginConfig}`)
-                    }
-
-                    await this.updatePluginCapabilitiesIfNeeded(vm)
-
-                    const shouldSetupPlugin = shouldSetupPluginInServer(
-                        this.hub.capabilities,
-                        this.pluginConfig.plugin!.capabilities!
-                    )
-
-                    if (!shouldSetupPlugin) {
-                        resolve(null)
-                        return
-                    }
-
-                    const shouldSetupNow =
-                        (!this.ready && // harmless check used to skip setup in tests
-                            vm.tasks?.schedule &&
-                            Object.values(vm.tasks?.schedule).length > 0) ||
-                        (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
-
-                    if (shouldSetupNow) {
-                        await this._setupPlugin(vm.vm)
-                        this.ready = true
-                    }
-                    status.debug('🔌', `Loaded ${logInfo}.`)
-                    await this.createLogEntry(
-                        `Plugin loaded (instance ID ${this.hub.instanceId}).`,
-                        PluginLogEntryType.Debug
-                    )
-                    resolve(vm)
-                } catch (error) {
-                    status.warn('⚠️', `Failed to load ${logInfo}. ${error}`)
-                    if (!(error instanceof SetupPluginError)) {
-                        await this.processFatalVmSetupError(error, true)
-                    }
-                    resolve(null)
-                }
+            if (!this.pluginConfig.plugin) {
+                throw new Error(`'PluginConfig missing plugin: ${this.pluginConfig}`)
             }
-            this.failInitialization = () => {
-                resolve(null)
+
+            await this.updatePluginCapabilitiesIfNeeded(vm)
+
+            const shouldSetupNow =
+                (!this.ready && // harmless check used to skip setup in tests
+                    vm.tasks?.schedule &&
+                    Object.values(vm.tasks?.schedule).length > 0) ||
+                (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
+
+            if (shouldSetupNow) {
+                await this._setupPlugin(vm.vm)
+                this.ready = true
             }
-        })
+            status.debug('🔌', `Loaded ${logInfo}.`)
+            await this.createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`, PluginLogEntryType.Debug)
+            this.resolveInternalVm = Promise.resolve(vm)
+            return vm
+        } catch (error) {
+            status.warn('⚠️', `Failed to load ${logInfo}. ${error}`)
+            if (!(error instanceof SetupPluginError)) {
+                await this.processFatalVmSetupError(error, true)
+            }
+            throw error
+        }
     }
 
     public async setupPluginIfNeeded(): Promise<boolean> {

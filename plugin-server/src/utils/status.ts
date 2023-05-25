@@ -22,7 +22,7 @@ export class Status implements StatusBlueprint {
     constructor(mode?: string) {
         this.mode = mode
 
-        const logLevel: LogLevel = this.explicitLogLevel || LogLevel.Info
+        const logLevel: LogLevel = this.explicitLogLevel || LogLevel.Debug
         if (isProdEnv()) {
             this.logger = pino({
                 // By default pino will log the level number. So we can easily unify
