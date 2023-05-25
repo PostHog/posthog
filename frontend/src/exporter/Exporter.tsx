@@ -11,6 +11,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
+import { SharingAccessTokenContext } from 'scenes/insights/insightLogic'
 
 export function Exporter(props: ExportedData): JSX.Element {
     const { type, dashboard, insight, accessToken, ...exportOptions } = props
@@ -61,18 +62,19 @@ export function Exporter(props: ExportedData): JSX.Element {
                     </>
                 ) : null
             ) : null}
-            {insight ? (
-                <ExportedInsight type={type} insight={insight} exportOptions={exportOptions} />
-            ) : dashboard ? (
-                <Dashboard
-                    id={String(dashboard.id)}
-                    dashboard={dashboard}
-                    placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
-                    sharingAccessToken={accessToken}
-                />
-            ) : (
-                <h1 className="text-center p-4">Something went wrong...</h1>
-            )}
+            <SharingAccessTokenContext.Provider value={accessToken}>
+                {insight ? (
+                    <ExportedInsight type={type} insight={insight} exportOptions={exportOptions} />
+                ) : dashboard ? (
+                    <Dashboard
+                        id={String(dashboard.id)}
+                        dashboard={dashboard}
+                        placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
+                    />
+                ) : (
+                    <h1 className="text-center p-4">Something went wrong...</h1>
+                )}
+            </SharingAccessTokenContext.Provider>
             {!whitelabel && dashboard && (
                 <div className="text-center pb-4">
                     {type === ExportType.Image ? <FriendlyLogo className="text-lg" /> : null}

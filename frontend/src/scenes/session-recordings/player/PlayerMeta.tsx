@@ -80,12 +80,10 @@ export function PlayerMeta(): JSX.Element {
         currentWindowIndex,
         startTime,
         sessionPlayerMetaDataLoading,
+        sessionProperties,
     } = useValues(playerMetaLogic(logicProps))
 
     const { isFullScreen } = useValues(playerSettingsLogic)
-    // NOTE: The optimised event listing broke this as we don't have all the properties we need
-    // const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
-    const iconProperties = sessionPerson?.properties
 
     const { ref, size } = useResizeBreakpoints({
         0: 'compact',
@@ -117,12 +115,12 @@ export function PlayerMeta(): JSX.Element {
             >
                 <div className="ph-no-capture">
                     {!sessionPerson ? (
-                        <LemonSkeleton.Circle className="w-10 h-10" />
+                        <LemonSkeleton.Circle className="w-8 h-8" />
                     ) : (
                         <ProfilePicture name={asDisplay(sessionPerson)} />
                     )}
                 </div>
-                <div className="overflow-hidden ph-no-capture">
+                <div className="overflow-hidden ph-no-capture flex-1">
                     <div className="font-bold">
                         {!sessionPerson || !startTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
@@ -144,10 +142,10 @@ export function PlayerMeta(): JSX.Element {
                     <div className="text-muted">
                         {sessionPlayerMetaDataLoading ? (
                             <LemonSkeleton className="w-1/4 my-1" />
-                        ) : iconProperties ? (
+                        ) : sessionProperties ? (
                             <SessionPropertyMeta
                                 fullScreen={isFullScreen}
-                                iconProperties={iconProperties}
+                                iconProperties={sessionProperties}
                                 predicate={(x) => !!x}
                             />
                         ) : null}
@@ -157,17 +155,14 @@ export function PlayerMeta(): JSX.Element {
                 {sessionRecordingId ? <PlayerMetaLinks /> : null}
             </div>
             <div
-                className={clsx(
-                    'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
-                    {
-                        'p-2': !isFullScreen,
-                        'p-1 px-3 text-xs h-12': isFullScreen,
-                    }
-                )}
+                className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
+                    'p-2 h-10': !isFullScreen,
+                    'p-1 px-3 text-xs h-12': isFullScreen,
+                })}
             >
-                {sessionPlayerMetaDataLoading || currentWindowIndex === -1 ? (
+                {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3 my-1" />
-                ) : (
+                ) : currentWindowIndex >= 0 ? (
                     <>
                         <Tooltip
                             title={
@@ -213,7 +208,7 @@ export function PlayerMeta(): JSX.Element {
                             </span>
                         )}
                     </>
-                )}
+                ) : null}
                 <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
                 {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3" />

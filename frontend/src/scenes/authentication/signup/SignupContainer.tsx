@@ -70,7 +70,7 @@ export function SignupLeftContainer(): JSX.Element {
         {
             benefit: 'Join industry leaders that run on PostHog',
             description:
-                'ClickHouse, Airbus, Hasura, Y Combinator, and thousands more trust Posthog as their Product OS.',
+                'ClickHouse, Airbus, Hasura, Y Combinator, and thousands more trust PostHog as their Product OS.',
         },
     ]
 

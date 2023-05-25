@@ -29,12 +29,16 @@ from posthog.utils import get_can_create_org
 logger = structlog.get_logger(__name__)
 
 
-def verify_email_or_login(request: HttpRequest, user: User) -> None:
+def verify_email_or_login(request: HttpRequest, user: User, is_social_signup: Optional[bool] = False) -> None:
     require_verification_feature = (
-        posthoganalytics.get_feature_flag(
-            "require-email-verification", str(user.distinct_id), person_properties={"email": user.email}
+        False
+        if is_social_signup is True
+        else (
+            posthoganalytics.get_feature_flag(
+                "require-email-verification", str(user.distinct_id), person_properties={"email": user.email}
+            )
+            == "test"
         )
-        == "test"
     )
     if is_email_available() and require_verification_feature:
         EmailVerifier.create_token_and_send_email_verification(user)
@@ -124,7 +128,7 @@ class SignupSerializer(serializers.Serializer):
             referral_source=referral_source,
         )
 
-        verify_email_or_login(self.context["request"], user)
+        verify_email_or_login(self.context["request"], user, self.is_social_signup)
 
         return user
 
@@ -165,6 +169,9 @@ class InviteSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
     password: serializers.Field = serializers.CharField(required=False)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
+    role_at_organization: serializers.Field = serializers.CharField(
+        max_length=128, required=False, allow_blank=True, default=""
+    )
 
     def validate_password(self, value):
         password_validation.validate_password(value)
@@ -176,7 +183,6 @@ class InviteSignupSerializer(serializers.Serializer):
         return data
 
     def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
-
         if "request" not in self.context or not self.context["request"].user.is_authenticated:
             # If there's no authenticated user and we're creating a new one, attributes are required.
 
@@ -202,7 +208,7 @@ class InviteSignupSerializer(serializers.Serializer):
 
         try:
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
-        except (OrganizationInvite.DoesNotExist):
+        except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
         with transaction.atomic():

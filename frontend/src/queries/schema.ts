@@ -19,6 +19,7 @@ import {
     StickinessFilterType,
     LifecycleFilterType,
     LifecycleToggle,
+    HogQLMathType,
 } from '~/types'
 
 /**
@@ -124,8 +125,9 @@ export interface HogQLQuery extends DataNode {
 export interface EntityNode extends DataNode {
     name?: string
     custom_name?: string
-    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType
+    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
     math_property?: string
+    math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
@@ -178,7 +180,7 @@ export interface EventsQuery extends DataNode {
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
     /** Limit to events matching this string */
-    event?: string
+    event?: string | null
     /**
      * Number of rows to return
      * @asType integer
@@ -492,9 +494,8 @@ export interface BreakdownFilter {
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    aggregation_group_type_index?: number | undefined // Groups aggregation
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */

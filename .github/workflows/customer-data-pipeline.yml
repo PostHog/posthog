@@ -35,10 +35,15 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            - name: Lowercase GITHUB_REPOSITORY
+              id: lowercase
+              run: |
+                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
             - uses: docker/metadata-action@v4
               id: meta
               with:
-                  images: ghcr.io/${{ github.repository }}/cdp
+                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/cdp
 
             # Make the image tags used for docker cache. We use this rather than
             # ${{ github.repository }} directly because the repository
@@ -47,7 +52,7 @@ jobs:
             - uses: docker/metadata-action@v4
               id: meta-cache
               with:
-                  images: ghcr.io/${{ github.repository }}/cdp
+                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/cdp
                   tags: |
                       type=raw,value=cache
 
@@ -128,12 +133,17 @@ jobs:
                   # Run the functional tests.
                   pnpm jest
 
+            - name: Lowercase GITHUB_REPOSITORY
+              id: lowercase
+              run: |
+                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
             - name: Generate docker latest tag
               if: github.ref == 'refs/heads/master'
               uses: docker/metadata-action@v4
               id: meta
               with:
-                  images: ghcr.io/${{ github.repository }}/cdp
+                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/cdp
                   tags: |
                       type=raw,value=latest
 

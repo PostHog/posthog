@@ -17,7 +17,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import {
@@ -59,6 +59,7 @@ import { userLogic } from 'scenes/userLogic'
 import { globalInsightLogic } from './globalInsightLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import React from 'react'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
@@ -82,6 +83,9 @@ export const createEmptyInsight = (
     filters: filterTestAccounts ? { filter_test_accounts: true } : {},
     result: null,
 })
+
+/** Context for passing down the insight/dashboard sharing access token. */
+export const SharingAccessTokenContext = React.createContext<string | undefined>(undefined)
 
 export const insightLogic = kea<insightLogicType>([
     props({} as InsightLogicProps),
@@ -331,7 +335,15 @@ export const insightLogic = kea<insightLogicType>([
                         ) {
                             // Instead of making a search for filters, reload the insight via its id if possible.
                             // This makes sure we update the insight's cache key if we get new default filters.
-                            apiUrl = `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`
+                            apiUrl = combineUrl(
+                                `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
+                                {
+                                    refresh: true,
+                                    ...(props.sharingAccessToken
+                                        ? { sharing_access_token: props.sharingAccessToken }
+                                        : {}),
+                                }
+                            ).url
                             fetchResponse = await api.getResponse(apiUrl, methodOptions)
                         } else {
                             const params = {
@@ -870,7 +882,7 @@ export const insightLogic = kea<insightLogicType>([
 
             // (Re)load results when filters have changed or if there's no result yet
             if (backendFilterChanged || !values.insight?.result) {
-                if (!values.isUsingDataExploration && !values.insight?.query) {
+                if ((!values.isUsingDataExploration || props.disableDataExploration) && !values.insight?.query) {
                     actions.loadResults()
                 }
             }

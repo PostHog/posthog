@@ -12,6 +12,9 @@ import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 type DataSet = any
 
@@ -21,6 +24,8 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
     const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, labelGroupType } = useValues(logic)
+    const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     function updateData(): void {
         const _data = [...indexedResults]
@@ -32,7 +37,16 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
                 personsValues: _data.map((item) => item.persons),
-                breakdownValues: _data.map((item) => item.breakdown_value),
+                breakdownValues: _data.map((item) => {
+                    return formatBreakdownLabel(
+                        cohorts,
+                        formatPropertyValueForDisplay,
+                        item.breakdown_value,
+                        item.filter?.breakdown,
+                        item.filter?.breakdown_type,
+                        false
+                    )
+                }),
                 compareLabels: _data.map((item) => item.compare_label),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,

@@ -4,7 +4,6 @@ import * as nodeSchedule from 'node-schedule'
 import { startGraphileWorker } from '../src/main/graphile-worker/worker-setup'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
-import { killProcess } from '../src/utils/kill'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -56,38 +55,6 @@ describe('server', () => {
     `
         await resetTestDatabase(testCode)
         pluginsServer = await createPluginServer()
-    })
-
-    describe('plugin server staleness check', () => {
-        test('test if the server terminates', async () => {
-            const testCode = `
-            async function processEvent (event) {
-                return event
-            }
-        `
-            await resetTestDatabase(testCode)
-
-            pluginsServer = await createPluginServer({
-                STALENESS_RESTART_SECONDS: 5,
-            })
-
-            jest.advanceTimersByTime(10000)
-
-            expect(killProcess).toHaveBeenCalled()
-
-            expect(Sentry.captureMessage).toHaveBeenCalledWith(
-                `Plugin Server has not ingested events for over 5 seconds! Rebooting.`,
-                {
-                    extra: {
-                        instanceId: expect.any(String),
-                        lastActivity: expect.any(String),
-                        lastActivityType: 'serverStart',
-                        isServerStale: true,
-                        timeSinceLastActivity: expect.any(Number),
-                    },
-                }
-            )
-        })
     })
 
     test('starting and stopping node-schedule scheduled jobs', async () => {

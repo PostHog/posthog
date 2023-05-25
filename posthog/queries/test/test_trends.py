@@ -42,6 +42,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_different_timezones,
     also_test_with_materialized_columns,
+    also_test_with_person_on_events_v2,
     create_person_id_override_by_distinct_id,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
@@ -388,6 +389,34 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][-1], "6-Jan-2020")
         self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0])
 
+    @also_test_with_person_on_events_v2
+    @snapshot_clickhouse_queries
+    def test_trends_breakdown_cumulative(self):
+        self._create_events()
+        with freeze_time("2020-01-04T13:00:01Z"):
+
+            response = Trends().run(
+                Filter(
+                    data={
+                        "date_from": "-7d",
+                        "display": "ActionsLineGraphCumulative",
+                        "events": [{"id": "sign up", "math": "dau"}],
+                        "breakdown": "$some_property",
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "sign up - none")
+        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+
+        self.assertEqual(response[1]["label"], "sign up - other_value")
+        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+
+        self.assertEqual(response[2]["label"], "sign up - value")
+        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+
     def test_trends_single_aggregate_dau(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -643,6 +672,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
+    @also_test_with_person_on_events_v2
     @also_test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
     def test_trends_breakdown_single_aggregate_cohorts(self):
         _create_person(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
@@ -1205,18 +1235,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_any_event_total_count(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
-            response = Trends().run(
+            response1 = Trends().run(
                 Filter(
                     data={
                         "display": TRENDS_LINEAR,
                         "interval": "day",
-                        "events": [{"id": None, "math": "total"}, {"id": "sign up", "math": "total"}],
+                        "events": [{"id": None, "math": "total"}],
                     }
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["count"], 5)
-        self.assertEqual(response[1]["count"], 4)
+            response2 = Trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "interval": "day",
+                        "events": [{"id": "sign up", "math": "total"}],
+                    }
+                ),
+                self.team,
+            )
+        self.assertEqual(response1[0]["count"], 5)
+        self.assertEqual(response2[0]["count"], 4)
 
     @also_test_with_materialized_columns(["$math_prop", "$some_property"])
     def test_trends_breakdown_with_math_func(self):
@@ -1510,6 +1550,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1564,6 +1605,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1608,6 +1650,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1636,6 +1679,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1664,6 +1708,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1692,6 +1737,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1719,6 +1765,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1747,6 +1794,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1774,6 +1822,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1801,6 +1850,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1828,6 +1878,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1880,6 +1931,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1947,6 +1999,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1992,6 +2045,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2027,6 +2081,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2063,6 +2118,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2098,6 +2154,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2132,6 +2189,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2165,6 +2223,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2195,6 +2254,48 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][4], 1.0)
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 0)
+
+    @snapshot_clickhouse_queries
+    def test_trends_with_hogql_math(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["blabla", "anonymous_id"],
+            properties={"$some_prop": "some_val", "number": 8},
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$session_id": 1},
+            timestamp="2020-01-01 00:06:30",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$session_id": 5},
+            timestamp="2020-01-02 00:06:45",
+        )
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = Trends().run(
+                Filter(
+                    data={
+                        "interval": "week",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "math": "hogql",
+                                "math_hogql": "avg(toInt(properties.$session_id)) + 1000",
+                            }
+                        ],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+        self.assertCountEqual(response[0]["labels"], ["22-Dec-2019", "29-Dec-2019"])
+        self.assertCountEqual(response[0]["data"], [0, 1003])
 
     @snapshot_clickhouse_queries
     def test_trends_with_session_property_total_volume_math(self):
@@ -2542,6 +2643,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @also_test_with_person_on_events_v2
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_filter_events_by_cohort(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
@@ -2570,6 +2672,39 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[0]["data"][-1], 2)
+
+    @also_test_with_person_on_events_v2
+    @snapshot_clickhouse_queries
+    def test_filter_events_by_precalculated_cohort(self):
+        with freeze_time("2020-01-02"):
+            _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+            _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+
+            _create_event(event="event_name", team=self.team, distinct_id="person_1", properties={"$browser": "Safari"})
+            _create_event(event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Chrome"})
+            _create_event(event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Safari"})
+
+            cohort = _create_cohort(
+                team=self.team,
+                name="cohort1",
+                groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch(pending_version=0)
+
+            with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+                response = Trends().run(
+                    Filter(
+                        data={
+                            "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                            "events": [{"id": "event_name"}],
+                        },
+                        team=self.team,
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["count"], 2)
+            self.assertEqual(response[0]["data"][-1], 2)
 
     def test_response_empty_if_no_events(self):
         self._create_events()
@@ -2682,6 +2817,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEntityResponseEqual(action_response, event_response)
 
+    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_action_filtering_with_cohort(self):
         _create_person(
@@ -3063,6 +3199,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(event_response[0]["label"], "$pageview - all users")
         self.assertEqual(sum(event_response[0]["data"]), 1)
 
+    @also_test_with_person_on_events_v2
     @also_test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
     def test_breakdown_by_cohort(self):
         person1, person2, person3, person4 = self._create_multiple_people()
@@ -3555,6 +3692,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[0]["data"][-1], 2)
 
+    @also_test_with_person_on_events_v2
     def test_breakdown_filter_by_precalculated_cohort(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -3996,6 +4134,55 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         response = sorted(response, key=lambda x: x["label"])
         self.assertEqual(response, [])
 
+    @also_test_with_person_on_events_v2
+    @snapshot_clickhouse_queries
+    def test_mau_with_breakdown_filtering_and_prop_filter(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["blabla", "anonymous_id"],
+            properties={"$some_prop": "some_val", "filter_prop": "filter_val"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["blabla2"],
+            properties={"$some_prop": "some_val3", "filter_prop": "filter_val2"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["blabla3"],
+            properties={"$some_prop": "some_val2", "filter_prop": "filter_val"},
+        )
+        with freeze_time("2020-01-02T13:01:01Z"):
+            _create_event(team=self.team, event="sign up", distinct_id="blabla")
+            _create_event(team=self.team, event="sign up", distinct_id="blabla2")
+            _create_event(team=self.team, event="sign up", distinct_id="blabla3")
+        with freeze_time("2020-01-03T13:01:01Z"):
+            _create_event(team=self.team, event="sign up", distinct_id="blabla")
+            _create_event(team=self.team, event="sign up", distinct_id="blabla2")
+            _create_event(team=self.team, event="sign up", distinct_id="blabla3")
+        with freeze_time("2020-01-04T13:01:01Z"):
+            event_response = Trends().run(
+                Filter(
+                    data={
+                        "breakdown": "$some_prop",
+                        "breakdown_type": "person",
+                        "events": [{"id": "sign up", "math": "monthly_active"}],
+                        "properties": [{"key": "filter_prop", "value": "filter_val", "type": "person"}],
+                        "display": "ActionsLineGraph",
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(event_response[0]["label"], "sign up - some_val")
+        self.assertEqual(event_response[1]["label"], "sign up - some_val2")
+
+        self.assertEqual(sum(event_response[0]["data"]), 2)
+        self.assertEqual(event_response[0]["data"][5], 1)
+
+        self.assertEqual(sum(event_response[1]["data"]), 2)
+        self.assertEqual(event_response[1]["data"][5], 1)
+
     @also_test_with_materialized_columns(["$some_property"])
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()
@@ -4190,6 +4377,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(action_response[0]["count"], 0)
 
+    @also_test_with_person_on_events_v2
+    @snapshot_clickhouse_queries
     def test_person_filtering_in_cohort_in_action(self):
         # This caused some issues with SQL parsing
         sign_up_action, _ = self._create_events()
@@ -5201,7 +5390,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "entity_math": "dau",
                 "entity_type": "events",
                 "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
-                'up", "custom_name": null, "math": "dau", "math_property": null, '
+                'up", "custom_name": null, "math": "dau", "math_property": null, "math_hogql": null, '
                 '"math_group_type_index": null, "properties": {}}]',
                 "insight": "TRENDS",
                 "interval": "hour",
@@ -5718,6 +5907,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
+    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_trends_count_per_user_average_daily(self):
         self._create_event_count_per_actor_events()
@@ -5766,6 +5956,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert weekly_response[0]["days"] == ["2019-12-29", "2020-01-05"]
         assert weekly_response[0]["data"] == [1.3333333333333333, 2.0]
 
+    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_trends_count_per_user_average_aggregated(self):
         self._create_event_count_per_actor_events()

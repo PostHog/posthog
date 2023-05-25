@@ -19,6 +19,8 @@ import {
     FunnelStep,
     SecondaryExperimentMetric,
     SignificanceCode,
+    CountPerActorMathType,
+    ActionFilter as ActionFilterType,
 } from '~/types'
 import type { experimentLogicType } from './experimentLogicType'
 import { router, urlToAction } from 'kea-router'
@@ -596,6 +598,22 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experiment?.parameters?.feature_flag_variants || []
             },
         ],
+        experimentCountPerUserMath: [
+            (s) => [s.experiment],
+            (experiment): string | undefined => {
+                // Find out if we're using count per actor math aggregates averages per user
+                const mathValue = (
+                    [
+                        ...(experiment?.filters?.events || []),
+                        ...(experiment?.filters?.actions || []),
+                    ] as ActionFilterType[]
+                ).filter((entity) =>
+                    Object.values(CountPerActorMathType).includes(entity?.math as CountPerActorMathType)
+                )[0]?.math
+
+                return mathValue
+            },
+        ],
         taxonomicGroupTypesForSelection: [
             (s) => [s.experiment, s.groupsTaxonomicTypes],
             (newexperiment, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
@@ -751,8 +769,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         countDataForVariant: [
-            (s) => [s.experimentResults],
-            (experimentResults) =>
+            (s) => [s.experimentResults, s.experimentCountPerUserMath],
+            (experimentResults, experimentCountPerUserMath) =>
                 (variant: string): string => {
                     const errorResult = '--'
                     if (!experimentResults) {
@@ -764,7 +782,19 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (!variantResults) {
                         return errorResult
                     }
-                    return variantResults.count.toString()
+
+                    let result = variantResults.count
+
+                    if (experimentCountPerUserMath) {
+                        result = variantResults.count / variantResults.data.length
+                    }
+
+                    if (result % 1 !== 0) {
+                        // not an integer, so limit to 2 digits post decimal
+                        return result.toFixed(2)
+                    } else {
+                        return result.toString()
+                    }
                 },
         ],
         highestProbabilityVariant: [

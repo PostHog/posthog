@@ -28,6 +28,7 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
+from django.db import DEFAULT_DB_ALIAS, connections
 
 import lzstring
 import posthoganalytics
@@ -104,7 +105,11 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if provided_url.hostname and provided_url.scheme:
         site_url = urlparse(settings.SITE_URL)
         provided_url = provided_url
-        if site_url.hostname != provided_url.hostname:
+        if (
+            site_url.hostname != provided_url.hostname
+            or site_url.port != provided_url.port
+            or site_url.scheme != provided_url.scheme
+        ):
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
@@ -171,13 +176,13 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
         at,
         datetime.time.max,
         tzinfo=pytz.UTC,
-    )  # very end of the previous day
+    )  # very end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=pytz.UTC,
-    )  # very start of the previous day
+    )  # very start of the reference day
 
     return (period_start, period_end)
 
@@ -752,6 +757,22 @@ def compact_number(value: Union[int, float]) -> str:
         magnitude += 1
         value /= 1000.0
     return f"{value:f}".rstrip("0").rstrip(".") + ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
+
+
+@lru_cache(maxsize=1)
+def is_postgres_connected_cached_check(_ttl: int) -> bool:
+    """
+    The setting will change way less frequently than it will be called
+    _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
+    """
+    # Uses the same check as in the healthcheck
+    try:
+        with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
+            cursor.execute("SELECT 1")
+        return True
+    except Exception:
+        logger.exception("postgres_connection_failure")
+        return False
 
 
 def is_postgres_alive() -> bool:

@@ -1,7 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { Consumer, KafkaJSProtocolError } from 'kafkajs'
-import { CompressionCodecs, CompressionTypes } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes, Consumer, KafkaJSProtocolError } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
@@ -11,22 +10,20 @@ import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, KafkaConfig } from '../utils/db/hub'
-import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createPostgresPool, delay, stalenessCheck } from '../utils/utils'
+import { createPostgresPool, delay } from '../utils/utils'
 import { TeamManager } from '../worker/ingestion/team-manager'
-import { makePiscina as defaultMakePiscina } from '../worker/piscina'
-import Piscina from '../worker/piscina'
+import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
-import { IngestionConsumer } from './ingestion-queues/kafka-queue'
+import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
@@ -84,8 +81,7 @@ export async function startPluginsServer(
     //    listening.
     let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
     let analyticsEventsIngestionOverflowConsumer: IngestionConsumer | undefined
-
-    let onEventHandlerConsumer: IngestionConsumer | undefined
+    let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
@@ -153,6 +149,7 @@ export async function startPluginsServer(
 
     process.on('beforeExit', async () => {
         // This makes async exit possible with the process waiting until jobs are closed
+        status.info('👋', 'process handling beforeExit event. Closing jobs...')
         await closeJobs()
         process.exit(0)
     })
@@ -336,49 +333,11 @@ export async function startPluginsServer(
             schedule.scheduleJob('*/5 * * * *', async () => {
                 await piscina?.broadcastTask({ task: 'reloadAllActions' })
             })
-            // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
-            schedule.scheduleJob('*/5 * * * * *', async () => {
-                await hub!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
-                    jsonSerialize: false,
-                })
-                await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
-            })
+
+            startPreflightSchedules(hub)
 
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
-            }
-
-            if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
-                // check every 10 sec how long it has been since the last activity
-
-                let lastFoundActivity: number
-                lastActivityCheck = setInterval(() => {
-                    const stalenessCheckResult = stalenessCheck(hub, serverConfig.STALENESS_RESTART_SECONDS)
-
-                    if (
-                        hub?.lastActivity &&
-                        stalenessCheckResult.isServerStale &&
-                        lastFoundActivity !== hub?.lastActivity
-                    ) {
-                        lastFoundActivity = hub?.lastActivity
-                        const extra = {
-                            ...stalenessCheckResult,
-                        }
-                        Sentry.captureMessage(
-                            `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
-                            {
-                                extra,
-                            }
-                        )
-                        console.log(
-                            `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
-                            extra
-                        )
-                        hub?.statsd?.increment(`alerts.stale_plugin_server_restarted`)
-
-                        killProcess()
-                    }
-                }, Math.min(serverConfig.STALENESS_RESTART_SECONDS, 10000))
             }
 
             serverInstance.piscina = piscina
@@ -405,7 +364,6 @@ export async function startPluginsServer(
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
                 consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-                summaryIngestionEnabledTeams: serverConfig.SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS,
             })
             stopSessionRecordingEventsConsumer = stop
             joinSessionRecordingEventsConsumer = join
@@ -463,9 +421,21 @@ export async function startPluginsServer(
         Sentry.captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
+        status.error('💥', 'Exception while starting server, shutting down!', { error })
         await closeJobs()
         process.exit(1)
     }
+}
+
+const startPreflightSchedules = (hub: Hub) => {
+    // These are used by the preflight checks in the Django app to determine if
+    // the plugin-server is running.
+    schedule.scheduleJob('*/5 * * * * *', async () => {
+        await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
+            jsonSerialize: false,
+        })
+        await hub.db.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
+    })
 }
 
 export async function stopPiscina(piscina: Piscina): Promise<void> {

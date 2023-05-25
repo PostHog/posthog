@@ -55,7 +55,8 @@ describe('console extension', () => {
                             timestamp: expect.any(String),
                             message: expectedFinalMessage,
                             instance_id: hub.instanceId.toString(),
-                        }
+                        },
+                        false
                     )
                 })
             })

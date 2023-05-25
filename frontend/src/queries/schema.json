@@ -35,12 +35,18 @@
                         },
                         {
                             "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
                         }
                     ]
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
                     "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
                 },
                 "math_property": {
                     "type": "string"
@@ -133,9 +139,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -267,9 +270,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -409,9 +409,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -602,9 +599,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -767,9 +761,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -888,9 +879,6 @@
                                 }
                             ]
                         },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
-                        },
                         "breakdowns": {
                             "items": {
                                 "$ref": "#/definitions/Breakdown"
@@ -1001,9 +989,6 @@
                                     "type": "null"
                                 }
                             ]
-                        },
-                        "breakdown_value": {
-                            "type": ["string", "number"]
                         },
                         "breakdowns": {
                             "items": {
@@ -1147,14 +1132,14 @@
         "BreakdownFilter": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "type": "number"
-                },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "breakdown_group_type_index": {
                     "type": ["number", "null"]
+                },
+                "breakdown_histogram_bin_count": {
+                    "type": "number"
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -1168,9 +1153,6 @@
                             "type": "null"
                         }
                     ]
-                },
-                "breakdown_value": {
-                    "type": ["string", "number"]
                 },
                 "breakdowns": {
                     "items": {
@@ -1630,12 +1612,18 @@
                         },
                         {
                             "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
                         }
                     ]
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
                     "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
                 },
                 "math_property": {
                     "type": "string"
@@ -1695,7 +1683,7 @@
                 },
                 "event": {
                     "description": "Limit to events matching this string",
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
@@ -2058,6 +2046,10 @@
             "type": "object"
         },
         "HogQLExpression": {
+            "type": "string"
+        },
+        "HogQLMathType": {
+            "const": "hogql",
             "type": "string"
         },
         "HogQLPropertyFilter": {

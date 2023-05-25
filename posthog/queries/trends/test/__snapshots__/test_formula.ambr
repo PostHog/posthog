@@ -1,3 +1,23 @@
+# name: TestFormula.test_aggregated_one_without_events
+  '
+  SELECT '' as date,
+         arrayMap((A, B) -> B + A, [ifNull(sub_A.total, 0)], [ifNull(sub_B.total, 0)])
+  FROM
+    (SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'session start'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) as sub_A
+  CROSS JOIN
+    (SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session not here'), '^"|"$', ''))) AS total
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'session error'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) as sub_B
+  '
+---
 # name: TestFormula.test_breakdown
   '
   
@@ -165,7 +185,7 @@
 # name: TestFormula.test_breakdown_aggregated.2
   '
   SELECT '' as date,
-         arrayMap((A, B) -> A - B, [sub_A.total], [sub_B.total]) ,
+         arrayMap((A, B) -> A - B, [ifNull(sub_A.total, 0)], [ifNull(sub_B.total, 0)]) ,
          arrayFilter(x -> notEmpty(x), [replaceRegexpAll(sub_A.breakdown_value, '^"|"$', ''), replaceRegexpAll(sub_B.breakdown_value, '^"|"$', '')])[1]
   FROM
     (SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total,
@@ -240,6 +260,11 @@
                      (SELECT id
                       FROM person
                       WHERE team_id = 2
+                        AND id IN
+                          (SELECT id
+                           FROM person
+                           WHERE team_id = 2
+                             AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                       GROUP BY id
                       HAVING max(is_deleted) = 0
                       AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))))
@@ -304,6 +329,11 @@
                      (SELECT id
                       FROM person
                       WHERE team_id = 2
+                        AND id IN
+                          (SELECT id
+                           FROM person
+                           WHERE team_id = 2
+                             AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                       GROUP BY id
                       HAVING max(is_deleted) = 0
                       AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))))
@@ -332,7 +362,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT concat(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ' : ', replaceRegexpAll(JSONExtractRaw(events.properties, 'location'), '^"|"$', '')) AS value,
+    (SELECT concat(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, '$some_prop'), ''), 'null'), '^"|"$', ''), ' : ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')) AS value,
             sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
      FROM events e
      INNER JOIN
@@ -364,7 +394,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT concat(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ' : ', replaceRegexpAll(JSONExtractRaw(events.properties, 'location'), '^"|"$', '')) AS value,
+    (SELECT concat(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, '$some_prop'), ''), 'null'), '^"|"$', ''), ' : ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')) AS value,
             avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
      FROM events e
      INNER JOIN
@@ -424,7 +454,7 @@
                        day_start
               UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
                                toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                               concat(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ' : ', replaceRegexpAll(JSONExtractRaw(events.properties, 'location'), '^"|"$', '')) as breakdown_value
+                               concat(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, '$some_prop'), ''), 'null'), '^"|"$', ''), ' : ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')) as breakdown_value
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -444,7 +474,7 @@
                 AND event = 'session start'
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                AND concat(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ' : ', replaceRegexpAll(JSONExtractRaw(events.properties, 'location'), '^"|"$', '')) in (['some_val : London', 'some_val : Paris'])
+                AND concat(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, '$some_prop'), ''), 'null'), '^"|"$', ''), ' : ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')) in (['some_val : London', 'some_val : Paris'])
               GROUP BY day_start,
                        breakdown_value))
         GROUP BY day_start,
@@ -480,7 +510,7 @@
                        day_start
               UNION ALL SELECT avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
                                toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                               concat(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ' : ', replaceRegexpAll(JSONExtractRaw(events.properties, 'location'), '^"|"$', '')) as breakdown_value
+                               concat(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, '$some_prop'), ''), 'null'), '^"|"$', ''), ' : ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')) as breakdown_value
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -500,7 +530,7 @@
                 AND event = 'session start'
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                AND concat(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ' : ', replaceRegexpAll(JSONExtractRaw(events.properties, 'location'), '^"|"$', '')) in (['some_val : London', 'some_val : Paris'])
+                AND concat(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, '$some_prop'), ''), 'null'), '^"|"$', ''), ' : ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')) in (['some_val : London', 'some_val : Paris'])
               GROUP BY day_start,
                        breakdown_value))
         GROUP BY day_start,

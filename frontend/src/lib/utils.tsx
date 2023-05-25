@@ -155,7 +155,7 @@ export function fromParamsGivenUrl(url: string): Record<string, any> {
     return !url
         ? {}
         : url
-              .slice(1)
+              .replace(/^\?/, '')
               .split('&')
               .reduce((paramsObject, paramString) => {
                   const [key, value] = paramString.split('=')
@@ -388,6 +388,8 @@ export function formatPropertyLabel(
 export function formatLabel(label: string, action: ActionFilter): string {
     if (action.math === 'dau') {
         label += ` (Unique users) `
+    } else if (action.math === 'hogql') {
+        label += ` (${action.math_hogql})`
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
         label += ` (${action.math} of ${action.math_property}) `
     }

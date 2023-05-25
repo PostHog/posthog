@@ -238,7 +238,10 @@ class EventQuery(metaclass=ABCMeta):
         if not prop_group:
             return "", {}
 
-        if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+        if person_properties_mode not in [
+            PersonPropertiesMode.DIRECT_ON_EVENTS,
+            PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2,
+        ]:
             props_to_filter = self._column_optimizer.property_optimizer.parse_property_groups(prop_group).outer
         else:
             props_to_filter = prop_group

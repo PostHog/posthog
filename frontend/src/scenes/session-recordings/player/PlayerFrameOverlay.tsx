@@ -54,7 +54,7 @@ const PlayerFrameOverlayContent = ({
     if (currentPlayerState === SessionPlayerState.BUFFER) {
         content = <div className="text-4xl text-white">Buffering...</div>
     }
-    if (currentPlayerState === SessionPlayerState.PAUSE) {
+    if (currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY) {
         content = <IconPlay className="text-6xl text-white" />
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {

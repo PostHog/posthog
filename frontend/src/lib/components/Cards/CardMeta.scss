@@ -106,7 +106,7 @@
         background: var(--green);
     }
     &.black {
-        background: var(--default);
+        background: var(--black);
     }
 }
 
@@ -114,7 +114,6 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    overflow: auto;
     width: 100%;
     height: fit-content;
     min-height: 2rem;
@@ -126,7 +125,7 @@
 .CardMeta__top {
     align-self: stretch;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     height: 1.5rem;
 
@@ -138,7 +137,5 @@
 .CardMeta__controls {
     display: flex;
     align-items: center;
-    button:not(:last-child) {
-        margin-right: 0.5rem;
-    }
+    gap: 0.25rem;
 }

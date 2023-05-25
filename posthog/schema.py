@@ -470,12 +470,11 @@ class BreakdownFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    aggregation_group_type_index: Optional[float] = None
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
+    breakdown_histogram_bin_count: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
 
 
@@ -650,8 +649,9 @@ class EventsNode(BaseModel):
     )
     kind: str = Field("EventsNode", const=True)
     limit: Optional[float] = None
-    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str]] = None
+    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str, str]] = None
     math_group_type_index: Optional[MathGroupTypeIndex1] = None
+    math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[List[str]] = Field(None, description="Columns to order by")
@@ -825,8 +825,9 @@ class ActionsNode(BaseModel):
     )
     id: float
     kind: str = Field("ActionsNode", const=True)
-    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str]] = None
+    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str, str]] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
@@ -1020,7 +1021,6 @@ class AnyPartialFilterTypeItem(BaseModel):
     breakdown_histogram_bin_count: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     compare: Optional[bool] = None
     date_from: Optional[str] = None
@@ -1077,7 +1077,6 @@ class AnyPartialFilterTypeItem1(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     compare: Optional[bool] = None
     date_from: Optional[str] = None
@@ -1136,7 +1135,6 @@ class AnyPartialFilterTypeItem2(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1204,7 +1202,6 @@ class AnyPartialFilterTypeItem3(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1270,7 +1267,6 @@ class AnyPartialFilterTypeItem4(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1325,7 +1321,6 @@ class AnyPartialFilterTypeItem5(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -1377,7 +1372,6 @@ class AnyPartialFilterTypeItem6(BaseModel):
     breakdown_group_type_index: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
-    breakdown_value: Optional[Union[str, float]] = None
     breakdowns: Optional[List[Breakdown]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None

@@ -148,7 +148,7 @@ function PlayerInspectorListItem({
                     'flex-1 overflow-hidden rounded border',
                     isExpanded && 'border-primary',
                     item.highlightColor && `border-${item.highlightColor}-dark bg-${item.highlightColor}-highlight`,
-                    !item.highlightColor && 'bg-light'
+                    !item.highlightColor && 'bg-inverse'
                 )}
             >
                 {item.type === SessionRecordingPlayerTab.NETWORK ? (
