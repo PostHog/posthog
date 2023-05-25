@@ -91,6 +91,9 @@ class SignupSerializer(serializers.Serializer):
             password_validation.validate_password(value)
         return value
 
+    def is_email_auto_verified(self):
+        return self.is_social_signup
+
     def create(self, validated_data, **kwargs):
         if settings.DEMO:
             return self.enter_demo(validated_data)
@@ -106,7 +109,7 @@ class SignupSerializer(serializers.Serializer):
                 organization_name=organization_name,
                 create_team=self.create_team,
                 is_staff=is_instance_first_user,
-                is_email_verified=False,
+                is_email_verified=self.is_email_auto_verified(),
                 **validated_data,
             )
         except IntegrityError:

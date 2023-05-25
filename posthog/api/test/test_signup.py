@@ -43,7 +43,6 @@ class TestSignupAPI(APIBaseTest):
                 "organization_name": "Hedgehogs United, LLC",
                 "role_at_organization": "product",
                 "email_opt_in": False,
-                "is_email_verified": False,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -1151,7 +1150,10 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # Check the organization and user were created
         self.assertEqual(
-            User.objects.filter(email="test_api_social_invite_sign_up@posthog.com", first_name="Max").count(), 1
+            User.objects.filter(
+                email="test_api_social_invite_sign_up@posthog.com", first_name="Max", is_email_verified=True
+            ).count(),
+            1,
         )
         self.assertEqual(Organization.objects.filter(name="Org test_api_social_invite_sign_up").count(), 1)
 
