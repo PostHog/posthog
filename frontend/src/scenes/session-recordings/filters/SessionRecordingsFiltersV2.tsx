@@ -30,7 +30,7 @@ const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters
         new_entity: [
             {
                 id: 'empty',
-                type: EntityTypes.NEW_ENTITY,
+                type: EntityTypes.EVENTS,
                 order: 0,
                 name: 'empty',
             },
@@ -103,7 +103,6 @@ export function SessionRecordingsFiltersV2({
             <ActionFilter
                 filters={localFilters}
                 setFilters={(payload) => {
-                    // reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
                     setLocalFilters(payload)
                 }}
                 typeKey={'session-recordings-2'}
@@ -120,20 +119,27 @@ export function SessionRecordingsFiltersV2({
                     TaxonomicFilterGroupType.HogQLExpression,
                 ]}
                 propertyFiltersPopover
+                addFilterDefaultOptions={{
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: EntityTypes.EVENTS,
+                }}
             />
 
             <LemonLabel info="Show recordings by persons who match the set criteria">
                 Filter by persons and cohorts
             </LemonLabel>
 
-            <PropertyFilters
-                pageKey={'session-recordings'}
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
-                propertyFilters={filters.properties}
-                onChange={(properties) => {
-                    setFilters({ properties })
-                }}
-            />
+            {showPropertyFilters && (
+                <PropertyFilters
+                    pageKey={'session-recordings'}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    propertyFilters={filters.properties}
+                    onChange={(properties) => {
+                        setFilters({ properties })
+                    }}
+                />
+            )}
 
             {/* <div className="border rounded p-4 bg-light">
                 <div className="space-y-2">
@@ -163,26 +169,6 @@ export function SessionRecordingsFiltersV2({
                         propertyFiltersPopover
                     />
                 </div>
-                {showPropertyFilters && (
-                    <div className="mt-4 space-y-2">
-                        <LemonLabel info="Show recordings by persons who match the set criteria">
-                            Filter by persons and cohorts
-                        </LemonLabel>
-
-                        <PropertyFilters
-                            pageKey={'session-recordings'}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.Cohorts,
-                            ]}
-                            propertyFilters={filters.properties}
-                            onChange={(properties) => {
-                                // reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
-                                setFilters({ properties })
-                            }}
-                        />
-                    </div>
-                )}
             </div> */}
         </div>
     )

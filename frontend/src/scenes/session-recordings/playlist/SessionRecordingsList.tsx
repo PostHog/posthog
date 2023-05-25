@@ -59,7 +59,6 @@ export function SessionRecordingsList({
     subheader,
     onScrollToStart,
     onScrollToEnd,
-    embedded = false,
     draggableHref,
 }: SessionRecordingsListProps): JSX.Element {
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
@@ -84,7 +83,7 @@ export function SessionRecordingsList({
 
     const handleScroll =
         onScrollToEnd || onScrollToStart
-            ? (e: React.UIEvent<HTMLUListElement>): void => {
+            ? (e: React.UIEvent<HTMLDivElement>): void => {
                   // If we are scrolling down then check if we are at the bottom of the list
                   if (e.currentTarget.scrollTop > lastScrollPositionRef.current) {
                       const scrollPosition = e.currentTarget.scrollTop + e.currentTarget.clientHeight
@@ -131,37 +130,44 @@ export function SessionRecordingsList({
                 </div>
             </DraggableToNotebook>
             {!collapsed ? (
-                recordings?.length ? (
-                    <ul className="overflow-y-auto border-t" onScroll={handleScroll}>
-                        {subheader}
+                <div
+                    className={clsx('overflow-y-auto border-t ', {
+                        'border-dashed': !recordings?.length,
+                    })}
+                    onScroll={handleScroll}
+                >
+                    {subheader}
 
-                        {recordings.map((rec, i) => (
-                            <Fragment key={rec.id}>
-                                {i > 0 && <div className="border-t" />}
-                                <SessionRecordingPlaylistItem
-                                    recording={rec}
-                                    recordingProperties={recordingPropertiesById[rec.id]}
-                                    recordingPropertiesLoading={
-                                        !recordingPropertiesById[rec.id] && recordingPropertiesLoading
-                                    }
-                                    onClick={() => onRecordingClick(rec)}
-                                    onPropertyClick={onPropertyClick}
-                                    isActive={activeRecordingId === rec.id}
-                                />
-                            </Fragment>
-                        ))}
+                    {recordings?.length ? (
+                        <ul>
+                            {recordings.map((rec, i) => (
+                                <Fragment key={rec.id}>
+                                    {i > 0 && <div className="border-t" />}
+                                    <SessionRecordingPlaylistItem
+                                        recording={rec}
+                                        recordingProperties={recordingPropertiesById[rec.id]}
+                                        recordingPropertiesLoading={
+                                            !recordingPropertiesById[rec.id] && recordingPropertiesLoading
+                                        }
+                                        onClick={() => onRecordingClick(rec)}
+                                        onPropertyClick={onPropertyClick}
+                                        isActive={activeRecordingId === rec.id}
+                                    />
+                                </Fragment>
+                            ))}
 
-                        {footer}
-                    </ul>
-                ) : loading ? (
-                    <>
-                        {range(loadingSkeletonCount).map((i) => (
-                            <SessionRecordingPlaylistItemSkeleton key={i} />
-                        ))}
-                    </>
-                ) : (
-                    <div className="p-3 text-sm text-muted-alt border-t border-dashed">{empty || info}</div>
-                )
+                            {footer}
+                        </ul>
+                    ) : loading ? (
+                        <>
+                            {range(loadingSkeletonCount).map((i) => (
+                                <SessionRecordingPlaylistItemSkeleton key={i} />
+                            ))}
+                        </>
+                    ) : (
+                        <div className="p-3 text-sm text-muted-alt">{empty || info}</div>
+                    )}
+                </div>
             ) : null}
         </div>
     )
