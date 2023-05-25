@@ -29,7 +29,7 @@ export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.E
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: insightVizDataNodeKey(insightProps),
-        cachedResults: insightProps.cachedInsight?.result,
+        cachedResults: insightProps.cachedInsight?.result != null ? insightProps.cachedInsight : undefined,
     }
 
     const { insightMode } = useValues(insightSceneLogic)
