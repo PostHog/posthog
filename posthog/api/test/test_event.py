@@ -20,6 +20,7 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
+    override_settings,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -55,17 +56,20 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["results"][0]["elements"][0]["order"], 0)
         self.assertEqual(response["results"][0]["elements"][1]["order"], 1)
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_filter_events_by_event_name(self):
         _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
         _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         _create_event(event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
-        expected_queries = 9  # Django session, PostHog user, PostHog team, PostHog org membership, person and distinct id, 3x PoE check
 
-        with self.assertNumQueries(expected_queries):
+        # Django session, rate limit instance setting, PostHog user,
+        # PostHog team, PostHog org membership, person and distinct id, 4x PoE check
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
-        self.assertEqual(response["results"][0]["event"], "event_name")
+            self.assertEqual(response["results"][0]["event"], "event_name")
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_filter_events_by_properties(self):
         _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
         _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"})

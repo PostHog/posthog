@@ -12,7 +12,6 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        testOptions: { skip: true },
     },
     decorators: [
         mswDecorator({

@@ -76,6 +76,7 @@ export enum KafkaSaslMechanism {
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
+    INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     POSTHOG_DB_NAME: string | null
@@ -188,8 +189,6 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
-
-    SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -670,8 +669,6 @@ export interface Person extends BasePerson {
     created_at: DateTime
     version: number
 }
-
-export type IngestionPersonData = Pick<Person, 'id' | 'uuid' | 'team_id' | 'properties' | 'created_at'>
 
 /** Clickhouse Person model. */
 export interface ClickHousePerson {

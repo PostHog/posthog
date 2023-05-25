@@ -399,4 +399,95 @@ describe('can preselect selectors for editing', () => {
             },
         })
     })
+
+    /**
+     * regression test for the case where if all selectors match the pre-selctor will run for eternity
+     * see: https://posthoghelp.zendesk.com/agent/tickets/2945
+     * */
+    test('it does not run for eternity when all selectors match', () => {
+        const selector =
+            '.search-box__result-item:nth-child(1) .example-l-flex__item:nth-child(1) > .example-c-button-group .example-c-button'
+
+        expect(
+            preselect(
+                [
+                    {
+                        attributes: {
+                            class: 'example-o-stack__item',
+                        },
+                        tag_name: 'div',
+                    },
+                    {
+                        attributes: {
+                            class: 'search-box__result-item',
+                        },
+                        tag_name: 'div',
+                    },
+                    {
+                        attributes: {
+                            'data-testid': 'searchResultItem',
+                        },
+                        tag_name: 'div',
+                    },
+                    {
+                        attributes: {
+                            class: 'example-l-flex__item example-l-flex example-l-flex--gutter-none example-l-flex--direction-column@s-up example-l-flex--align-items-stretch@s-up example-l-flex--justify-content-flex-start@s-up example-l-flex--wrap-nowrap@s-up search-journal-item',
+                        },
+                        tag_name: 'div',
+                    },
+                    {
+                        attributes: {
+                            class: 'example-l-flex__item search-journal-item__social-bar',
+                        },
+                        tag_name: 'div',
+                    },
+                    {
+                        attributes: {
+                            class: 'example-l-flex__item example-l-flex example-l-flex--gutter-m example-l-flex--direction-row@s-up example-l-flex--align-items-center@s-up example-l-flex--justify-content-flex-start@s-up example-l-flex--wrap-wrap@s-up',
+                        },
+                        tag_name: 'div',
+                    },
+                    {
+                        attributes: {
+                            class: 'example-l-flex__item example-l-flex__item--grow',
+                        },
+                        tag_name: 'div',
+                    },
+                    {
+                        attributes: {
+                            class: 'example-c-button-group example-c-button-group--gutter-m example-c-button-group--orientation-horizontal example-c-button-group--width-auto',
+                        },
+                        tag_name: 'div',
+                    },
+                    {
+                        attributes: {
+                            class: 'example-c-button-group__item',
+                        },
+                        tag_name: 'div',
+                    },
+                    {
+                        attributes: {
+                            class: 'example-c-button example-c-button--align-center example-c-button--radius-full example-c-button--size-s example-c-button--color-blue example-c-button--theme-ghost',
+                        },
+                        tag_name: 'a',
+                        text: 'View',
+                    },
+                ],
+                selector
+            )
+        ).toEqual({
+            '1': {
+                class: ['search-box__result-item'],
+            },
+            '6': {
+                class: ['example-l-flex__item'],
+            },
+            '7': {
+                class: ['example-c-button-group'],
+            },
+            '8': {
+                class: ['example-c-button'],
+            },
+        })
+    })
 })

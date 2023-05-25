@@ -19,4 +19,12 @@ describe('compression', () => {
             `[{"type": 3, "data": {"source": 1, "positions": [{"x": 679, "y": 790, "id": 3, "timeOffset": 0}]}, "timestamp": 1679569492338}]`
         )
     })
+
+    it('decompress doubly base64 encoded string', () => {
+        const doublyEncoded: string = btoa(compressedData)
+        const decompressed = decompressFromString(doublyEncoded)
+        expect(decompressed).toEqual(
+            `[{"type": 3, "data": {"source": 1, "positions": [{"x": 679, "y": 790, "id": 3, "timeOffset": 0}]}, "timestamp": 1679569492338}]`
+        )
+    })
 })

@@ -1,5 +1,5 @@
 import React, { MouseEventHandler, useContext, useEffect, useState } from 'react'
-import { Popover, PopoverLevelContext, PopoverProps } from './Popover'
+import { Popover, PopoverOverlayContext, PopoverProps } from './Popover'
 
 export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'visible'> {
     visible?: boolean
@@ -33,7 +33,7 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
             },
             ref
         ) => {
-            const popoverLevel = useContext(PopoverLevelContext)
+            const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
             const [localVisible, setLocalVisible] = useState(false)
 
             const effectiveVisible = visible ?? localVisible
@@ -61,7 +61,7 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
                         onClick: (e: React.MouseEvent): void => {
                             setLocalVisible((state) => !state)
                             children.props.onClick?.(e)
-                            if (popoverLevel > 0) {
+                            if (parentPopoverLevel > -1) {
                                 // If this button is inside another popover, let's not propagate this event so that
                                 // the parent popover doesn't close
                                 e.stopPropagation()

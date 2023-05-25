@@ -12,7 +12,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonCheckbox } from '@posthog/lemon-ui'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -20,11 +19,11 @@ export function PlayerController(): JSX.Element {
     const { currentPlayerState } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, exportRecordingToFile, openExplorer } = useActions(sessionRecordingPlayerLogic)
 
-    const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
-    const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
+    const { speed, skipInactivitySetting, isFullScreen } = useValues(playerSettingsLogic)
+    const { setSpeed, setSkipInactivitySetting, setIsFullScreen } = useActions(playerSettingsLogic)
 
     return (
-        <div className="p-3 bg-light flex flex-col select-none">
+        <div className="p-3 bg-inverse flex flex-col select-none">
             <Seekbar />
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex-1" />
@@ -105,17 +104,6 @@ export function PlayerController(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    status="stealth"
-                                    onClick={() => setAutoplayEnabled(!autoplayEnabled)}
-                                    fullWidth
-                                    sideIcon={
-                                        <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
-                                    }
-                                >
-                                    Autoplay enabled
-                                </LemonButton>
-
                                 <LemonButton
                                     status="stealth"
                                     onClick={() => exportRecordingToFile()}

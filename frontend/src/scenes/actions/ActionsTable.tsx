@@ -98,6 +98,10 @@ export function ActionsTable(): JSX.Element {
                                                             </>
                                                         )
                                                 }
+                                            case '':
+                                            case null:
+                                            case undefined:
+                                                return 'Any event'
                                             default:
                                                 return (
                                                     <>
@@ -155,7 +159,7 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton
                                     status="stealth"
                                     to={
-                                        combineUrl(urls.sessionRecordings(), {
+                                        combineUrl(urls.replay(), {
                                             filters: {
                                                 actions: [
                                                     {

@@ -17,6 +17,7 @@ from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
@@ -194,7 +195,8 @@ def get_decide(request: HttpRequest):
             site_apps = []
             if team.inject_web_apps:
                 try:
-                    site_apps = get_decide_site_apps(team)
+                    with execute_with_timeout(200):
+                        site_apps = get_decide_site_apps(team)
                 except Exception:
                     pass
 

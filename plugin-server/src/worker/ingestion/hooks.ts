@@ -195,7 +195,9 @@ export class HookCommander {
             const webhookRequests = actionMatches
                 .filter((action) => action.post_to_slack)
                 .map((action) => this.postWebhook(webhookUrl, action, event))
-            await Promise.all(webhookRequests).catch((error) => captureException(error))
+            await Promise.all(webhookRequests).catch((error) =>
+                captureException(error, { tags: { team_id: event.teamId } })
+            )
         }
 
         if (await this.organizationManager.hasAvailableFeature(team.id, 'zapier')) {
@@ -203,7 +205,9 @@ export class HookCommander {
 
             if (restHooks.length > 0) {
                 const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event))
-                await Promise.all(restHookRequests).catch((error) => captureException(error))
+                await Promise.all(restHookRequests).catch((error) =>
+                    captureException(error, { tags: { team_id: event.teamId } })
+                )
 
                 this.statsd?.increment('zapier_hooks_fired', {
                     team_id: String(team.id),
