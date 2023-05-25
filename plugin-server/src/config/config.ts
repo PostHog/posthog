@@ -118,8 +118,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
-        // NOTE: 5x the max age, so that we don't flush too infrequently when backing off due to lag
-        SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER: 5,
         SESSION_RECORDING_MAX_BUFFER_SIZE_KB: ['dev', 'test'].includes(process.env.NODE_ENV || 'undefined')
             ? 1024 // NOTE: ~1MB in dev or test, so that even with gzipped content we still flush pretty frequently
             : 1024 * 50, // ~50MB after compression in prod

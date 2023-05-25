@@ -35,6 +35,8 @@ export enum Scene {
     FeatureFlag = 'FeatureFlag',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
     EarlyAccessFeature = 'EarlyAccessFeature',
+    Surveys = 'Surveys',
+    Survey = 'Survey',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
@@ -67,6 +69,7 @@ export enum Scene {
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
+    Notebook = 'Notebook',
 }
 
 export type SceneProps = Record<string, any>

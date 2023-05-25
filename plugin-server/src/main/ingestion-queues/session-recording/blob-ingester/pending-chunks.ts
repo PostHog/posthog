@@ -14,21 +14,41 @@ export class PendingChunks {
     }
 
     get isComplete() {
-        const fullSet = this.chunks.slice(0, this.expectedSize)
+        const fullSet = this.deduplicatedChunks()
+
         const expectedChunkIndexes = Array.from(Array(this.expectedSize).keys())
         return expectedChunkIndexes.every((x, i) => i < fullSet.length && fullSet[i].chunk_index === x)
+    }
+
+    private deduplicatedChunks() {
+        return Object.values(
+            // keep only one of each chunk_index, assumes any duplicates are ignorable duplicates
+            this.chunks.reduce((acc, curr) => {
+                // If the chunk_index doesn't exist in the accumulator or
+                // the existing object is older than the current one, update the accumulator
+                if (!acc[curr.chunk_index]) {
+                    acc[curr.chunk_index] = curr
+                }
+                return acc
+            }, {} as Record<number, IncomingRecordingMessage>)
+        ).slice(0, this.expectedSize)
     }
 
     get completedChunks() {
         if (!this.isComplete) {
             throw new Error('Cannot get completed chunks from incomplete set')
         }
-        return this.chunks.slice(0, this.expectedSize)
+        return this.deduplicatedChunks()
+    }
+
+    get allChunkOffsets(): number[] {
+        return this.chunks.map((x) => x.metadata.offset)
     }
 
     isIdle(referenceNow: number, idleThreshold: number) {
-        const lastChunk = this.chunks[this.chunks.length - 1]
-        return lastChunk.metadata.timestamp < referenceNow - idleThreshold
+        const lastChunk = this.chunks.sort((a, b) => a.metadata.timestamp - b.metadata.timestamp)[0]
+        const chunkAge = referenceNow - lastChunk.metadata.timestamp
+        return chunkAge >= idleThreshold
     }
 
     add(message: IncomingRecordingMessage) {
@@ -39,5 +59,17 @@ export class PendingChunks {
             }
             return a.chunk_index - b.chunk_index
         })
+    }
+
+    get logContext(): Record<string, any> {
+        const sortedChunks = this.chunks.sort((a, b) => a.metadata.timestamp - b.metadata.timestamp)
+
+        return {
+            chunk_count: this.expectedSize,
+            chunk_indexes: this.chunks.map((x) => x.chunk_index),
+            chunk_offsets_counts: this.chunks.length,
+            first_chunk_timestamp: sortedChunks[0].metadata.timestamp,
+            last_chunk_timestamp: sortedChunks[sortedChunks.length - 1].metadata.timestamp,
+        }
     }
 }

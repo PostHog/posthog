@@ -282,11 +282,11 @@
 .LemonButtonWithSideAction__spacer {
     height: 1.5rem;
     width: 1.5rem;
-    padding-left: 0.375rem;
     box-sizing: content-box;
 
     &.LemonButtonWithSideAction__spacer--divider {
         opacity: 0.17;
+        padding-left: 0.375rem;
         border-left: 1px solid currentColor;
     }
 

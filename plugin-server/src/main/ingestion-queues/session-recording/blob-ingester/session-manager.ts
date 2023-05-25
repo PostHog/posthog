@@ -1,6 +1,5 @@
 import { Upload } from '@aws-sdk/lib-storage'
-import { captureException } from '@sentry/node'
-import { captureMessage } from '@sentry/node'
+import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, readFile, unlink } from 'fs/promises'
@@ -37,13 +36,6 @@ export const gaugeS3FilesBytesWritten = new Gauge({
 export const gaugeS3LinesWritten = new Gauge({
     name: 'recording_s3_lines_written',
     help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
-})
-
-export const gaugePendingChunksCompleted = new Gauge({
-    name: 'recording_pending_chunks_completed',
-    help: `Chunks can be duplicated or arrive as expected.
-        When flushing we need to check whether we have all chunks or should drop them.
-        This metric indicates a set of pending chunks were complete and could be added to the buffer`,
 })
 
 export const gaugePendingChunksDropped = new Gauge({
@@ -244,27 +236,28 @@ export class SessionManager {
 
             this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
 
-            if (this.chunks.size === 0) {
-                // return the promise and let the caller decide whether to await
-                status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
-                    ...logContext,
-                })
-                return this.flush('buffer_age')
-            } else {
+            if (this.chunks.size !== 0) {
                 gaugePendingChunksBlocking.inc()
                 const chunkStates: Record<string, any> = {}
                 for (const [key, chunk] of this.chunks.entries()) {
-                    chunkStates[key] = { expected: chunk.expectedSize, received: chunk.chunks.length }
+                    chunkStates[key] = chunk.logContext
                 }
                 status.warn(
                     '🚽',
-                    `blob_ingester_session_manager would flush buffer due to age, but chunks are still pending`,
+                    `blob_ingester_session_manager flush buffer due to age, but chunks are still pending`,
                     {
                         ...logContext,
                         chunks: chunkStates,
                     }
                 )
             }
+
+            // flush even though there may be incomplete chunks
+            // return the promise and let the caller decide whether to await
+            status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+                ...logContext,
+            })
+            return this.flush('buffer_age')
         } else {
             status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
                 bufferAge,
@@ -274,6 +267,7 @@ export class SessionManager {
                 oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
                 referenceTime: referenceNow,
                 flushThresholdMillis,
+                bufferedLines: this.buffer.count,
             })
         }
     }
@@ -287,7 +281,7 @@ export class SessionManager {
         const updatedChunks = new Map<string, PendingChunks>()
 
         for (const [key, pendingChunks] of chunks) {
-            if (!pendingChunks.isComplete && pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
+            if (pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
                 // dropping these chunks, don't lose their offsets
                 pendingChunks.chunks.forEach((x) => {
                     // we want to make sure that the offsets for these messages we're ignoring
@@ -498,6 +492,9 @@ export class SessionManager {
     private async addToChunks(message: IncomingRecordingMessage): Promise<void> {
         // If it is a chunked message we add to the collected chunks
 
+        // NOTE: This is NOT what we want but to test if this is the source of our offset commit issues.
+        this.buffer.offsets.push(message.metadata.offset)
+
         if (!this.chunks.has(message.chunk_id)) {
             this.chunks.set(message.chunk_id, new PendingChunks(message))
         } else {
@@ -508,27 +505,14 @@ export class SessionManager {
         if (pendingChunks && pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
-            gaugePendingChunksCompleted.inc()
-            await this.processChunksToBuffer(pendingChunks.completedChunks)
+            await this.processChunksToBuffer(pendingChunks.completedChunks, pendingChunks.allChunkOffsets)
             this.chunks.delete(message.chunk_id)
-        } else {
-            status.info('🧩', 'blob_ingester_session_manager received incomplete chunk', {
-                chunk_id: message.chunk_id,
-                chunk_index: message.chunk_index,
-                chunk_count: message.chunk_count,
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
         }
     }
 
-    private async processChunksToBuffer(chunks: IncomingRecordingMessage[]) {
-        // push all but the first offset into the buffer
-        // the first offset is copied into the data passed to `addToBuffer`
-        for (let i = 0; i < chunks.length; i++) {
-            const x = chunks[i]
-            this.buffer.offsets.push(x.metadata.offset)
-        }
+    private async processChunksToBuffer(chunks: IncomingRecordingMessage[], _allOffsets: number[]): Promise<void> {
+        // NOTE: Uncomment this when we stop testing the offset issue
+        // allOffsets.forEach((offset) => this.buffer.offsets.push(offset))
 
         await this.addToBuffer({
             ...chunks[0], // send the first chunk as the message, it should have the events summary

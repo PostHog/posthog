@@ -24,8 +24,6 @@ const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
 
-const flushIntervalTimeoutMs = 30000
-
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
 export const gaugeIngestionLag = new Gauge({
@@ -82,7 +80,8 @@ export class SessionRecordingBlobIngester {
         private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
         private objectStorage: ObjectStorage,
-        private redisPool: RedisPool
+        private redisPool: RedisPool,
+        private flushIntervalTimeoutMs = 30000
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
@@ -95,7 +94,12 @@ export class SessionRecordingBlobIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const { partition, topic, offset } = event.metadata
+        const { partition, topic, offset, timestamp } = event.metadata
+
+        // track the latest message timestamp seen so, we can use it to calculate a reference "now"
+        // lag does not distribute evenly across partitions, so track timestamps per partition
+        this.latestKafkaMessageTimestamp[partition] = timestamp
+        gaugeLagMilliseconds.labels(partition.toString()).set(DateTime.now().toMillis() - timestamp)
 
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
@@ -110,11 +114,6 @@ export class SessionRecordingBlobIngester {
                 topic,
                 (offsets) => {
                     this.offsetManager?.removeOffsets(topic, partition, offsets)
-
-                    // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                    if (sessionManager.isEmpty) {
-                        this.sessions.delete(key)
-                    }
                 }
             )
 
@@ -148,11 +147,6 @@ export class SessionRecordingBlobIngester {
             // Typing says this can happen but in practice it shouldn't
             return statusWarn('message value or timestamp is empty')
         }
-
-        // track the latest message timestamp seen so, we can use it to calculate a reference "now"
-        // lag does not distribute evenly across partitions, so track timestamps per partition
-        this.latestKafkaMessageTimestamp[message.partition] = message.timestamp
-        gaugeLagMilliseconds.labels(message.partition.toString()).set(DateTime.now().toMillis() - message.timestamp)
 
         let messagePayload: RawEventMessage
         let event: PipelineEvent
@@ -354,64 +348,58 @@ export class SessionRecordingBlobIngester {
         })
 
         // We trigger the flushes from this level to reduce the number of running timers
-        this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs)
-    }
+        this.flushInterval = setInterval(() => {
+            status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
+            // It's unclear what happens if an exception occurs here so we try catch it just in case
+            let sessionManagerBufferSizes = 0
 
-    private checkEachSession() {
-        let sessionManagerBufferSizes = 0
+            for (const [key, sessionManager] of this.sessions) {
+                sessionManagerBufferSizes += sessionManager.buffer.size
 
-        for (const [_, sessionManager] of this.sessions) {
-            sessionManagerBufferSizes += sessionManager.buffer.size
+                // in practice, we will always have a values for latestKaftaMessageTimestamp,
+                // but in case we get here before the first message, we use now
+                const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition]
 
-            // in practice, we will always have a values for latestKaftaMessageTimestamp,
-            // but in case we get here before the first message, we use now
-            const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition] || DateTime.now().toMillis()
-            const flushThresholdMillis = this.flushThreshold(
-                kafkaNow,
-                DateTime.now().toMillis(),
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000,
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_MULTIPLIER
-            )
+                if (!kafkaNow) {
+                    throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
+                }
 
-            void sessionManager.flushIfSessionBufferIsOld(kafkaNow, flushThresholdMillis).catch((err) => {
-                status.error(
-                    '🚽',
-                    'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
-                    {
-                        err,
-                        session_id: sessionManager.sessionId,
-                    }
+                void sessionManager
+                    .flushIfSessionBufferIsOld(
+                        kafkaNow,
+                        this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+                    )
+                    .catch((err) => {
+                        status.error(
+                            '🚽',
+                            'blob_ingester_consumer - failed trying to flush on idle session: ' +
+                                sessionManager.sessionId,
+                            {
+                                err,
+                                session_id: sessionManager.sessionId,
+                            }
+                        )
+                        captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                        throw err
+                    })
+
+                // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+                if (sessionManager.isEmpty) {
+                    this.sessions.delete(key)
+                }
+            }
+
+            gaugeSessionsHandled.set(this.sessions.size)
+            gaugeBytesBuffered.set(sessionManagerBufferSizes)
+            guageRealtimeSessions.set(
+                Array.from(this.sessions.values()).reduce(
+                    (acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0),
+                    0
                 )
-                captureException(err, { tags: { session_id: sessionManager.sessionId } })
-                throw err
-            })
-        }
-
-        gaugeSessionsHandled.set(this.sessions.size)
-        gaugeBytesBuffered.set(sessionManagerBufferSizes)
-        guageRealtimeSessions.set(
-            Array.from(this.sessions.values()).reduce(
-                (acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0),
-                0
             )
-        )
 
-        // Here we schedule the next process
-        this.flushInterval = setTimeout(() => this.checkEachSession(), flushIntervalTimeoutMs)
-    }
-
-    flushThreshold(
-        kafkaNow: number,
-        serverNow: number,
-        configuredAgeToleranceMillis: number,
-        maxBufferAgeMultiplier = 5
-    ): number {
-        // return at least config milliseconds
-        // for every ten minutes of lag add the same amount again
-        const tenMinutesInMillis = 10 * 60 * 1000
-        const age = serverNow - kafkaNow
-        const steps = Math.min(maxBufferAgeMultiplier, Math.ceil(age / tenMinutesInMillis))
-        return steps ? configuredAgeToleranceMillis * steps : configuredAgeToleranceMillis
+            status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
+        }, this.flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {

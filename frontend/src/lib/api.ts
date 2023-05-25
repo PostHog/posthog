@@ -40,6 +40,7 @@ import {
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
     SessionRecordingSnapshotResponse,
+    Survey,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -395,6 +396,15 @@ class ApiRequest {
 
     public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
+    }
+
+    // # Surveys
+    public surveys(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('surveys')
+    }
+
+    public survey(id: Survey['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.surveys(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -1134,6 +1144,27 @@ const api = {
         },
         async promote(featureId: EarlyAccessFeatureType['id']): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
+        },
+    },
+
+    surveys: {
+        async list(): Promise<PaginatedResponse<Survey>> {
+            return await new ApiRequest().surveys().get()
+        },
+        async get(surveyId: Survey['id']): Promise<Survey> {
+            return await new ApiRequest().survey(surveyId).get()
+        },
+        async create(data: Partial<Survey>): Promise<Survey> {
+            return await new ApiRequest().surveys().create({ data })
+        },
+        async delete(surveyId: Survey['id']): Promise<void> {
+            await new ApiRequest().survey(surveyId).delete()
+        },
+        async update(
+            surveyId: Survey['id'],
+            data: Pick<Survey, 'name' | 'description' | 'linked_flag' | 'start_date' | 'end_date'>
+        ): Promise<Survey> {
+            return await new ApiRequest().survey(surveyId).update({ data })
         },
     },
 

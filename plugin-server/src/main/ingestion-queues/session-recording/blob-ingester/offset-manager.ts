@@ -99,6 +99,13 @@ export class OffsetManager {
         }
         inFlightOffsets.sort((a, b) => a.offset - b.offset)
 
+        const logContext = {
+            partition,
+            blockingSession: !!inFlightOffsets.length ? inFlightOffsets[0].session_id : null,
+            lowestInflightOffset: !!inFlightOffsets.length ? inFlightOffsets[0].offset : null,
+            lowestOffsetToRemove: offsetsToRemove[0],
+        }
+
         offsetsToRemove.forEach((offset) => {
             // Remove from the list. If it is the lowest value - set it
             const offsetIndex = inFlightOffsets.findIndex((os) => os.offset === offset)
@@ -115,14 +122,6 @@ export class OffsetManager {
 
         this.offsetsByPartitionTopic.set(key, inFlightOffsets)
 
-        const logContext = {
-            offsetToCommit,
-            partition,
-            blockingSession: !!inFlightOffsets.length ? inFlightOffsets[0].session_id : null,
-            lowestInflightOffset: !!inFlightOffsets.length ? inFlightOffsets[0].offset : null,
-            lowestOffsetToRemove: offsetsToRemove[0],
-        }
-
         if (offsetToCommit !== undefined) {
             this.consumer.commit({
                 topic,
@@ -136,8 +135,9 @@ export class OffsetManager {
             `offset_manager committing_offsets - ${
                 offsetToCommit !== undefined ? 'committed offset' : 'no offsets to commit'
             }`,
-            logContext
+            { ...logContext, offsetToCommit }
         )
+
         if (offsetToCommit !== undefined) {
             gaugeOffsetCommitted.inc()
         }
