@@ -3,7 +3,7 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
-import { formPipelineEvent } from '../../../utils/event'
+import { normalizeEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter, WarningLimiter } from '../../../utils/token-bucket'
 import { EventPipelineResult } from '../../../worker/ingestion/event-pipeline/runner'
@@ -34,7 +34,12 @@ type IngestResult = {
     promises?: Array<Promise<void>>
 }
 
-export async function eachBatchParallelIngestion(
+/**
+ * Legacy consumer loop that uses the kafkajs consumer, kept as a fallback while we iterate on
+ * eachBatchParallelIngestion and rdkafka.
+ * TODO: delete as soon as rdkafka is tuned and ready for prime time.
+ */
+export async function eachBatchLegacyIngestion(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
     queue: IngestionConsumer,
     overflowMode: IngestionOverflowMode
@@ -177,7 +182,7 @@ export async function eachBatchParallelIngestion(
     }
 }
 
-export async function ingestEvent(
+async function ingestEvent(
     server: Hub,
     workerMethods: WorkerMethods,
     event: PipelineEvent,
@@ -287,4 +292,16 @@ function countAndLogEvents(): void {
         messageCounter = 0
         messageLogDate = now
     }
+}
+
+function formPipelineEvent(message: KafkaMessage): PipelineEvent {
+    // TODO: inefficient to do this twice?
+    const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
+    const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }
+    const event: PipelineEvent = normalizeEvent({
+        ...combinedEvent,
+        site_url: combinedEvent.site_url || null,
+        ip: combinedEvent.ip || null,
+    })
+    return event
 }

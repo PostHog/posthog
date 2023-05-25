@@ -1,5 +1,4 @@
-import { EachBatchPayload } from 'kafkajs'
-import * as schedule from 'node-schedule'
+import { Message } from 'node-rdkafka-acosom'
 import { Counter } from 'prom-client'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
@@ -51,8 +50,8 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // enabling re-production of events to the OVERFLOW topic.
 
     const overflowMode = isIngestionOverflowEnabled() ? IngestionOverflowMode.Reroute : IngestionOverflowMode.Disabled
-    const batchHandler = async (payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> => {
-        await eachBatchParallelIngestion(payload, queue, overflowMode)
+    const batchHandler = async (messages: Message[], queue: IngestionConsumer): Promise<void> => {
+        await eachBatchParallelIngestion(messages, queue, overflowMode)
     }
 
     const queue = new IngestionConsumer(
@@ -63,41 +62,7 @@ export const startAnalyticsEventsIngestionConsumer = async ({
         batchHandler
     )
 
-    await queue.start()
-
-    schedule.scheduleJob('0 * * * * *', async () => {
-        await queue.emitConsumerGroupMetrics()
-    })
-
-    // Subscribe to the heatbeat event to track when the consumer has last
-    // successfully consumed a message. This is used to determine if the
-    // consumer is healthy.
-    const isHealthy = makeHealthCheck(queue)
+    const { isHealthy } = await queue.start()
 
     return { queue, isHealthy }
-}
-
-export function makeHealthCheck(queue: IngestionConsumer) {
-    const sessionTimeout = 30000
-    const { HEARTBEAT } = queue.consumer.events
-    let lastHeartbeat: number = Date.now()
-    queue.consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
-
-    const isHealthy = async () => {
-        // Consumer has heartbeat within the session timeout, so it is healthy.
-        if (Date.now() - lastHeartbeat < sessionTimeout) {
-            return true
-        }
-
-        // Consumer has not heartbeat, but maybe it's because the group is
-        // currently rebalancing.
-        try {
-            const { state } = await queue.consumer.describeGroup()
-
-            return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
-        } catch (error) {
-            return false
-        }
-    }
-    return isHealthy
 }
