@@ -15,7 +15,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
 const TabToIcon = {
@@ -34,12 +34,19 @@ export function PlayerInspectorControls(): JSX.Element {
     const { showOnlyMatching, timestampMode, miniFilters, syncScroll } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll } = useActions(playerSettingsLogic)
 
+    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+
     const tabs = [
         SessionRecordingPlayerTab.ALL,
         SessionRecordingPlayerTab.EVENTS,
         SessionRecordingPlayerTab.CONSOLE,
         SessionRecordingPlayerTab.NETWORK,
     ]
+
+    if (mode === SessionRecordingPlayerMode.Sharing) {
+        // Events can't be loaded in sharing mode
+        tabs.splice(1, 1)
+    }
 
     return (
         <div className="bg-side p-2 space-y-2 border-b">
