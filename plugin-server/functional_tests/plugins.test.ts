@@ -7,6 +7,7 @@ import {
     createAndReloadPluginConfig,
     createOrganization,
     createPlugin,
+    createPluginConfig,
     createTeam,
     fetchEvents,
     fetchPluginConsoleLogEntries,
@@ -523,6 +524,7 @@ test.concurrent(
             name: 'runEveryMinute plugin',
             plugin_type: 'source',
             is_global: false,
+            capabilities: { scheduled_tasks: ['runEveryMinute'] },
             source__index_ts: `
             export async function runEveryMinute() {
                 console.info(JSON.stringify(['runEveryMinute']))
@@ -531,7 +533,8 @@ test.concurrent(
         })
 
         const teamId = await createTeam(organizationId)
-        const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
+        const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id })
+        await reloadPlugins()
 
         await waitForExpect(
             async () => {

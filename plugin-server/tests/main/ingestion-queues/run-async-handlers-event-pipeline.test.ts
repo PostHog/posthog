@@ -26,8 +26,6 @@ import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import Piscina, { makePiscina } from '../../../src/worker/piscina'
-import { setupPlugins } from '../../../src/worker/plugins/setup'
-import { teardownPlugins } from '../../../src/worker/plugins/teardown'
 import { createTaskRunner } from '../../../src/worker/worker'
 import {
     createOrganization,
@@ -74,7 +72,6 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
 
     afterAll(async () => {
         await hub.redisPool.release(redis)
-        await teardownPlugins(hub)
         await closeHub()
     })
 
@@ -103,7 +100,6 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
 
         const teamId = await createTeam(hub.postgres, organizationId)
         await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
-        await setupPlugins(hub)
 
         const error = new LibrdKafkaError({
             name: 'Failed to produce',
@@ -154,7 +150,6 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
 
         const teamId = await createTeam(hub.postgres, organizationId)
         await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
-        await setupPlugins(hub)
 
         const event = {
             distinctId: 'asdf',

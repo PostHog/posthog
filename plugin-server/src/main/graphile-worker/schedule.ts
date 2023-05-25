@@ -12,6 +12,7 @@ export async function loadPluginSchedule(hub: Hub): Promise<Hub['pluginSchedule'
     // runEveryHour, runEveryDay) to a list of plugin config ids that are
     // registered as providing the task. We use the capabilities JSONB column to
     // filter on plugins that contain a `scheduled_task` key.
+    status.info('📅', 'loading_plugin_schedule')
     const schedules = await hub.db.postgresQuery<{
         id: number
         task_types: 'runEveryMinute' | 'runEveryHour' | 'runEveryDay'[]
@@ -19,7 +20,7 @@ export async function loadPluginSchedule(hub: Hub): Promise<Hub['pluginSchedule'
         `
             SELECT 
                 config.id AS id, 
-                plugin.capabilities->>'scheduled_task' AS task_types
+                plugin.capabilities->'scheduled_tasks' AS task_types
             FROM posthog_pluginconfig config
             JOIN posthog_plugin plugin
                 ON plugin.id = config.plugin_id
@@ -28,7 +29,7 @@ export async function loadPluginSchedule(hub: Hub): Promise<Hub['pluginSchedule'
             JOIN posthog_organization org
                 ON org.id = team.organization_id
             WHERE 
-                plugin.capabilities ? 'scheduled_task'
+                plugin.capabilities ? 'scheduled_tasks'
                 AND config.enabled = true
                 AND org.plugins_access_level > 0
         `,
@@ -37,13 +38,16 @@ export async function loadPluginSchedule(hub: Hub): Promise<Hub['pluginSchedule'
     )
 
     // Reduce the rows into a mapping from task type to plugin config ids.
-    return schedules.rows.reduce((acc, { id, task_types }) => {
+    const schedule = schedules.rows.reduce((acc, { id, task_types }) => {
         for (const taskType of task_types) {
             acc[taskType] = acc[taskType] || []
             acc[taskType].push(id)
         }
         return acc
     }, {} as { [taskType: string]: number[] })
+
+    status.info('📅', 'loaded_plugin_schedule', { schedule })
+    return schedule
 }
 
 export async function runScheduledTasks(

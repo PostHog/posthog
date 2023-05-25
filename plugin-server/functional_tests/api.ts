@@ -115,7 +115,6 @@ export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         is_preinstalled: false,
-        capabilities: {},
     })
 }
 
