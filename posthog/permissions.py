@@ -239,11 +239,11 @@ class SharingTokenPermission(BasePermission):
     Validates an authenticated SharingToken against the current request.
     """
 
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+    def has_object_permission(self, request, view, object) -> bool:
         sharing_config = cast(SharingConfiguration, request.sharing_configuration)
         return sharing_config.can_access_object(object)
 
-    def has_permission(self, request: Request, view: APIView) -> bool:
+    def has_permission(self, request, view) -> bool:
         assert hasattr(
             view, "sharing_enabled_actions"
         ), "this permission class requires the `sharing_enabled_actions` attribute to be set in the view."

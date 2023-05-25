@@ -121,6 +121,9 @@ export function PlayerMeta(): JSX.Element {
     ) : null
 
     if (mode === SessionRecordingPlayerMode.Sharing) {
+        if (whitelabel) {
+            return <></>
+        }
         return (
             <div className="PlayerMeta">
                 <div className="flex justify-between items-center m-2">

@@ -30,7 +30,7 @@ class SharingConfiguration(models.Model):
     )
 
     def can_access_object(self, obj: models.Model):
-        if obj.team_id != self.team_id:
+        if obj.team_id != self.team_id:  # type: ignore
             return False
 
         for comparison in [self.insight, self.dashboard, self.recording]:
