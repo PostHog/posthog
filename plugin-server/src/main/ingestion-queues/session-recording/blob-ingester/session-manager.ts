@@ -390,7 +390,13 @@ export class SessionManager {
             this.flushBuffer = undefined
 
             // TODO: Sync the last processed offset to redis
-            this.onFinish(offsets.sort((a, b) => a - b))
+            if (!this.destroying) {
+                // it is possible that destroy was called while we were flushing to S3
+                // if we are destroying then we don't want to call onFinish
+                // because any commit will fail
+                // the blob consumer must always revoke partitions when destroying session managers
+                this.onFinish(offsets.sort((a, b) => a - b))
+            }
         }
     }
 
