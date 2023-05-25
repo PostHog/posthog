@@ -23,6 +23,7 @@ class TestFilter(BaseTest):
             "returning_entity": {
                 "id": "$pageview",
                 "math": None,
+                "math_hogql": None,
                 "math_property": None,
                 "math_group_type_index": None,
                 "name": "$pageview",
@@ -34,6 +35,7 @@ class TestFilter(BaseTest):
             "target_entity": {
                 "id": "$pageview",
                 "math": None,
+                "math_hogql": None,
                 "math_property": None,
                 "math_group_type_index": None,
                 "name": "$pageview",
@@ -65,6 +67,7 @@ class TestFilter(BaseTest):
             "returning_entity": {
                 "id": "$pageview",
                 "math": None,
+                "math_hogql": None,
                 "math_property": None,
                 "math_group_type_index": None,
                 "name": "$pageview",
@@ -76,6 +79,7 @@ class TestFilter(BaseTest):
             "target_entity": {
                 "id": "$pageview",
                 "math": None,
+                "math_hogql": None,
                 "math_property": None,
                 "math_group_type_index": None,
                 "name": "$pageview",
