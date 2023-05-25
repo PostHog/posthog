@@ -135,18 +135,21 @@ export const urls = {
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
-    shared: (token: string, exportOptions?: ExportOptions): string =>
-        combineUrl(`/shared/${token}`, {
-            ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
-            ...(exportOptions?.legend ? { legend: null } : {}),
-            ...(exportOptions?.noHeader ? { legend: null } : {}),
-        }).url,
+    shared: (token: string, exportOptions: ExportOptions = {}): string =>
+        combineUrl(
+            `/shared/${token}`,
+            Object.entries(exportOptions)
+                .filter((x) => x[1])
+                .reduce(
+                    (acc, [key, val]) => ({
+                        ...acc,
+                        [key]: val === true ? null : val,
+                    }),
+                    {}
+                )
+        ).url,
     embedded: (token: string, exportOptions?: ExportOptions): string =>
-        combineUrl(`/embedded/${token}`, {
-            ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
-            ...(exportOptions?.legend ? { legend: null } : {}),
-            ...(exportOptions?.noHeader ? { noHeader: null } : {}),
-        }).url,
+        urls.shared(token, exportOptions).replace('/shared/', '/embedded/'),
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
@@ -155,6 +158,6 @@ export const urls = {
         combineUrl(urls.dashboards(), {
             tab: 'notebooks',
         }).url,
-    notebook: (id: string | number): string => `/notebooks/${id}`,
-    notebookEdit: (id: string | number): string => `/notebooks/${id}/edit`,
+    notebook: (shortId: string): string => `/notebooks/${shortId}`,
+    notebookEdit: (shortId: string): string => `/notebooks/${shortId}/edit`,
 }

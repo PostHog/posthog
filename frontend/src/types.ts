@@ -27,6 +27,7 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
 import { InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1787,6 +1788,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
+    math_hogql?: string
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
@@ -1980,8 +1982,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** If showing a shared insight/dashboard, we need the access token for refreshing. */
-    sharingAccessToken?: string
     /** Temporary hack to disable data exploration to enable result fetching. */
     disableDataExploration?: boolean
 }
@@ -2628,6 +2628,9 @@ export enum CountPerActorMathType {
     P99 = 'p99_count_per_actor',
 }
 
+export enum HogQLMathType {
+    HogQL = 'hogql',
+}
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
@@ -2895,7 +2898,8 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    content: any // TODO: Type this better
+    content: JSONContent // TODO: Type this better
+    version: number
 }
 
 export enum NotebookMode {
