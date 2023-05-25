@@ -4,7 +4,7 @@ from pydantic import BaseModel, Extra
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLSettings
+from posthog.hogql.constants import HogQLSettings
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
@@ -48,6 +48,8 @@ def execute_hogql_query(
 
     if select_query.limit is None:
         # One more "max" of MAX_SELECT_RETURNED_ROWS (100k) in applied in the query printer, overriding this if higher.
+        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
         select_query.limit = ast.Constant(value=default_limit or DEFAULT_RETURNED_ROWS)
 
     # Get printed HogQL query, and returned columns. Using a cloned query.

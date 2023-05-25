@@ -302,9 +302,9 @@ class TestCSVExporter(APIBaseTest):
 
             assert exported_asset.content is None
 
-    @patch("posthog.models.event.events_query.QUERY_MAXIMUM_LIMIT", 10)
+    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query(self, mocked_uuidt, QUERY_MAXIMUM_LIMIT=10) -> None:
+    def test_csv_exporter_events_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
         random_uuid = str(UUIDT())
         for i in range(15):
             _create_event(
