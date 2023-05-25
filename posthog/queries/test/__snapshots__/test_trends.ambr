@@ -4796,6 +4796,32 @@
   ORDER BY breakdown_value
   '
 ---
+# name: TestTrends.test_trends_with_hogql_math
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'))
+        UNION ALL SELECT plus(avg(toInt64OrNull(nullIf(nullIf(events.`$session_id`, ''), 'null'))), 1000) AS total,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
   '
   

@@ -35,12 +35,18 @@
                         },
                         {
                             "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
                         }
                     ]
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
                     "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
                 },
                 "math_property": {
                     "type": "string"
@@ -1606,12 +1612,18 @@
                         },
                         {
                             "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
                         }
                     ]
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
                     "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
                 },
                 "math_property": {
                     "type": "string"
@@ -2034,6 +2046,10 @@
             "type": "object"
         },
         "HogQLExpression": {
+            "type": "string"
+        },
+        "HogQLMathType": {
+            "const": "hogql",
             "type": "string"
         },
         "HogQLPropertyFilter": {

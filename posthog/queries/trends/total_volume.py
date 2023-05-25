@@ -60,7 +60,11 @@ class TrendsTotalVolume:
             person_id_alias = "person_id"
 
         aggregate_operation, join_condition, math_params = process_math(
-            entity, team, event_table_alias=TrendsEventQuery.EVENT_TABLE_ALIAS, person_id_alias=person_id_alias
+            entity,
+            team,
+            filter=filter,
+            event_table_alias=TrendsEventQuery.EVENT_TABLE_ALIAS,
+            person_id_alias=person_id_alias,
         )
 
         trend_event_query = TrendsEventQuery(
@@ -109,7 +113,10 @@ class TrendsTotalVolume:
                     aggregator=determine_aggregator(entity, team),
                 )
             else:
-                tag_queries(trend_volume_type="volume_aggregate")
+                if entity.math == "hogql":
+                    tag_queries(trend_volume_type="hogql")
+                else:
+                    tag_queries(trend_volume_type="volume_aggregate")
                 content_sql = VOLUME_AGGREGATE_SQL.format(event_query_base=event_query_base, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
@@ -158,7 +165,10 @@ class TrendsTotalVolume:
                     **content_sql_params,
                 )
             else:
-                tag_queries(trend_volume_type="volume")
+                if entity.math == "hogql":
+                    tag_queries(trend_volume_type="hogql")
+                else:
+                    tag_queries(trend_volume_type="volume")
                 content_sql = VOLUME_SQL.format(
                     timestamp_column="timestamp",
                     event_query_base=event_query_base,

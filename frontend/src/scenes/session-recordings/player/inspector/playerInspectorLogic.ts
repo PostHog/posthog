@@ -626,28 +626,32 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 logs,
                 performanceEvents
             ): Record<SessionRecordingPlayerTab, 'loading' | 'ready' | 'empty'> => {
-                return {
-                    [SessionRecordingPlayerTab.ALL]: 'ready',
-                    [SessionRecordingPlayerTab.EVENTS]: sessionEventsDataLoading
+                const tabEventsState = sessionEventsDataLoading ? 'loading' : events?.length ? 'ready' : 'empty'
+                const tabConsoleState =
+                    sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !logs
                         ? 'loading'
-                        : events?.length
+                        : logs.length
                         ? 'ready'
-                        : 'empty',
-                    [SessionRecordingPlayerTab.CONSOLE]:
-                        sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !logs
-                            ? 'loading'
-                            : logs.length
-                            ? 'ready'
-                            : 'empty',
-                    [SessionRecordingPlayerTab.NETWORK]:
-                        sessionPlayerMetaDataLoading ||
-                        sessionPlayerSnapshotDataLoading ||
-                        performanceEventsLoading ||
-                        !performanceEvents
-                            ? 'loading'
-                            : performanceEvents.length
-                            ? 'ready'
-                            : 'empty',
+                        : 'empty'
+                const tabNetworkState =
+                    sessionPlayerMetaDataLoading ||
+                    sessionPlayerSnapshotDataLoading ||
+                    performanceEventsLoading ||
+                    !performanceEvents
+                        ? 'loading'
+                        : performanceEvents.length
+                        ? 'ready'
+                        : 'empty'
+
+                return {
+                    [SessionRecordingPlayerTab.ALL]: [tabEventsState, tabConsoleState, tabNetworkState].every(
+                        (x) => x === 'loading'
+                    )
+                        ? 'loading'
+                        : 'ready',
+                    [SessionRecordingPlayerTab.EVENTS]: tabEventsState,
+                    [SessionRecordingPlayerTab.CONSOLE]: tabConsoleState,
+                    [SessionRecordingPlayerTab.NETWORK]: tabNetworkState,
                 }
             },
         ],
