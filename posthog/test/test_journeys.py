@@ -187,12 +187,9 @@ def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):
         defaults={**kwargs, "team_id": team_id},
     )
     for distinct_id in distinct_ids:
-        if PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).exists():
-            PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).update(person_id=person.id)
-        else:
-            PersonDistinctId.objects.create(
-                distinct_id=distinct_id,
-                team_id=person.team_id,
-                defaults={"person_id": person.id, "team_id": team_id, "distinct_id": distinct_id},
-            )
+        PersonDistinctId.objects.update_or_create(
+            distinct_id=distinct_id,
+            team_id=person.team_id,
+            defaults={"person_id": person.id, "team_id": team_id, "distinct_id": distinct_id},
+        )
     return person
