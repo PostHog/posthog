@@ -320,6 +320,15 @@ class TestPrinter(BaseTest):
         # Some aliases are funny, but that's what the antlr syntax permits, and ClickHouse doesn't complain either
         self.assertEqual(self._expr("event makes little sense"), "((events.event AS makes) AS little) AS sense")
 
+    def test_case_when(self):
+        self.assertEqual(self._expr("case when 1 then 2 else 3 end"), "multiIf(1, 2, 3)")
+
+    def test_case_when_many(self):
+        self.assertEqual(self._expr("case when 1 then 2 when 3 then 4 else 5 end"), "multiIf(1, 2, 3, 4, 5)")
+
+    def test_case_when_case(self):
+        self.assertEqual(self._expr("case 0 when 1 then 2 when 3 then 4 else 5 end"), "transform(0, [1, 3], [2, 4], 5)")
+
     def test_select(self):
         self.assertEqual(self._select("select 1"), "SELECT 1 LIMIT 65535")
         self.assertEqual(self._select("select 1 + 2"), "SELECT plus(1, 2) LIMIT 65535")

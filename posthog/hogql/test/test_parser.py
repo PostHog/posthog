@@ -956,3 +956,38 @@ class TestParser(BaseTest):
                 select_from=ast.JoinExpr(table=ast.Field(chain=["final"])),
             ),
         )
+
+    def test_case_when(self):
+        self.assertEqual(
+            parse_expr("case when 1 then 2 else 3 end"),
+            ast.Call(name="multiIf", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+        )
+
+    def test_case_when_many(self):
+        self.assertEqual(
+            parse_expr("case when 1 then 2 when 3 then 4 else 5 end"),
+            ast.Call(
+                name="multiIf",
+                args=[
+                    ast.Constant(value=1),
+                    ast.Constant(value=2),
+                    ast.Constant(value=3),
+                    ast.Constant(value=4),
+                    ast.Constant(value=5),
+                ],
+            ),
+        )
+
+    def test_case_when_case(self):
+        self.assertEqual(
+            parse_expr("case 0 when 1 then 2 when 3 then 4 else 5 end"),
+            ast.Call(
+                name="transform",
+                args=[
+                    ast.Constant(value=0),
+                    ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=3)]),
+                    ast.Array(exprs=[ast.Constant(value=2), ast.Constant(value=4)]),
+                    ast.Constant(value=5),
+                ],
+            ),
+        )
