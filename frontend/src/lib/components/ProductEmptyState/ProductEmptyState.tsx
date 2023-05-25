@@ -40,7 +40,7 @@ export const ProductEmptyState = ({
                     )}
                     {action && (
                         <LemonButton type="primary" sideIcon={<IconPlus />} onClick={action}>
-                            Create a {thingName}
+                            Create {thingName}
                         </LemonButton>
                     )}
                     {actionOverride && actionOverride}
