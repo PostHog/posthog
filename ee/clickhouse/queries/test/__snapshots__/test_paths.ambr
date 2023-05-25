@@ -3704,7 +3704,7 @@
                    AND (event = '$pageview')
                    AND NOT path_item IN ['/bar/*/foo']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-01 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-11 23:59:59', 'UTC')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -3784,7 +3784,7 @@
                    AND (event = '$pageview')
                    AND NOT path_item IN ['/bar/*/foo']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-01 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-11 23:59:59', 'UTC')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
