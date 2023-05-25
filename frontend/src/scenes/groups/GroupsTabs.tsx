@@ -22,13 +22,14 @@ export function GroupsTabs({ activeGroupTypeIndex }: { activeGroupTypeIndex: num
                 {
                     key: -1,
                     label: 'Persons',
-                    to: urls.persons(),
+                    link: urls.persons(),
                 },
                 ...(showGroupsIntroductionPage
                     ? [
                           {
                               key: 0,
                               label: 'Groups',
+                              link: urls.groups(0),
                           },
                       ]
                     : groupTypes.map(
@@ -36,7 +37,7 @@ export function GroupsTabs({ activeGroupTypeIndex }: { activeGroupTypeIndex: num
                               ({
                                   label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                                   key: groupType.group_type_index,
-                                  to: urls.groups(groupType.group_type_index),
+                                  link: urls.groups(groupType.group_type_index),
                               } as LemonTab<number>)
                       )),
             ]}
