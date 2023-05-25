@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTablePayload } from 'scenes/retention/types'
 import { InsightLogicProps } from '~/types'
@@ -12,94 +11,58 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
-// this logic disambiguates between data exploration "queries" and
-// regular "filters" for the purposes of feature flag `data-exploration-insights`
 export const abstractRetentionLogic = kea<abstractRetentionLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'abstractRetentionLogic', key],
     connect: (props: InsightLogicProps) => ({
         values: [
-            insightLogic(props),
-            ['isUsingDataExploration'],
             retentionLogic(props),
             ['filters', 'results as retentionResults', 'resultsLoading as retentionResultsLoading'],
             insightVizDataLogic(props),
             [
-                'querySource as dataExplorationQuerySource',
+                'querySource',
                 'retentionFilter as dataExplorationRetentionFilter',
-                'breakdown as dataExplorationBreakdown',
                 'dateRange as dataExplorationDateRange',
+                'breakdown as dataExplorationBreakdown',
             ],
         ],
     }),
     selectors: {
         apiFilters: [
-            (s) => [s.isUsingDataExploration, s.filters, s.dataExplorationQuerySource],
-            (isUsingDataExploration, filters, dataExplorationQuerySource) => {
-                if (isUsingDataExploration && dataExplorationQuerySource) {
-                    return queryNodeToFilter(dataExplorationQuerySource)
+            (s) => [s.filters, s.querySource],
+            (filters, querySource) => {
+                if (querySource) {
+                    return queryNodeToFilter(querySource)
                 }
 
                 return filters
             },
         ],
         retentionFilter: [
-            (s) => [s.isUsingDataExploration, s.filters, s.dataExplorationRetentionFilter],
-            (isUsingDataExploration, filters, dataExplorationRetentionFilter): RetentionFilter => {
-                if (isUsingDataExploration) {
-                    return dataExplorationRetentionFilter || {}
-                }
-
-                return {
-                    retention_type: filters.retention_type,
-                    retention_reference: filters.retention_reference,
-                    total_intervals: filters.total_intervals,
-                    target_entity: filters.target_entity,
-                    returning_entity: filters.returning_entity,
-                    period: filters.period,
-                }
+            (s) => [s.filters, s.dataExplorationRetentionFilter],
+            (dataExplorationRetentionFilter): RetentionFilter => {
+                return dataExplorationRetentionFilter || {}
             },
         ],
         dateRange: [
-            (s) => [s.isUsingDataExploration, s.filters, s.dataExplorationDateRange],
-            (isUsingDataExploration, filters, dataExplorationDateRange): DateRange => {
-                if (isUsingDataExploration) {
-                    return dataExplorationDateRange || {}
-                }
-
-                return {
-                    date_to: filters.date_to,
-                    date_from: filters.date_from,
-                }
+            (s) => [s.filters, s.dataExplorationDateRange],
+            (dataExplorationDateRange): DateRange => {
+                return dataExplorationDateRange || {}
             },
         ],
         breakdown: [
-            (s) => [s.isUsingDataExploration, s.filters, s.dataExplorationBreakdown],
-            (isUsingDataExploration, filters, dataExplorationBreakdown): BreakdownFilter => {
-                if (isUsingDataExploration) {
-                    return dataExplorationBreakdown || {}
-                }
-
-                return {
-                    breakdown_type: filters.breakdown_type,
-                    breakdown: filters.breakdown,
-                    breakdown_normalize_url: filters.breakdown_normalize_url,
-                    breakdowns: filters.breakdowns,
-                    breakdown_group_type_index: filters.breakdown_group_type_index,
-                }
+            (s) => [s.filters, s.dataExplorationBreakdown],
+            (dataExplorationBreakdown): BreakdownFilter => {
+                return dataExplorationBreakdown || {}
             },
         ],
         aggregation: [
-            (s) => [s.isUsingDataExploration, s.filters, s.dataExplorationQuerySource],
-            (
-                isUsingDataExploration,
-                filters,
-                dataExplorationQuerySource
-            ): { aggregation_group_type_index?: number } => {
-                if (isUsingDataExploration && dataExplorationQuerySource) {
+            (s) => [s.filters, s.querySource],
+            (filters, querySource): { aggregation_group_type_index?: number } => {
+                if (querySource) {
                     return {
-                        aggregation_group_type_index: dataExplorationQuerySource.aggregation_group_type_index,
+                        aggregation_group_type_index: querySource.aggregation_group_type_index,
                     }
                 }
 
