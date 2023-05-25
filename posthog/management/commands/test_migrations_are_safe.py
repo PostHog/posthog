@@ -66,9 +66,12 @@ class Command(BaseCommand):
                         )
                         sys.exit(1)
                     if "CONSTRAINT" in operation_sql and (
-                        table_being_altered not in tables_created_so_far
-                        or self._get_table("ALTER TABLE", operation_sql) not in new_tables
-                    ):  # Ignore for brand new tables
+                        "-- existing-table-constraint-ignore" not in operation_sql
+                        or (
+                            table_being_altered not in tables_created_so_far
+                            or self._get_table("ALTER TABLE", operation_sql) not in new_tables
+                        )  # Ignore for brand-new tables
+                    ):
                         print(
                             f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables.\nSource: `{operation_sql}`"
                         )
