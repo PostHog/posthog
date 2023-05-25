@@ -9,8 +9,6 @@ import { createRedis } from '../../../../utils/utils'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
-const SESSION_TTL_SECONDS = 60 * 60 // 1 hour
-
 const Keys = {
     snapshots(teamId: number, suffix: string): string {
         return `@posthog/replay/snapshots/team-${teamId}/${suffix}`
@@ -25,9 +23,14 @@ const Keys = {
  */
 export class RealtimeManager extends EventEmitter {
     private pubsubRedis: Redis | undefined
+    private ttlSeconds: number
 
     constructor(private redisPool: RedisPool, private serverConfig: PluginsServerConfig) {
         super()
+
+        // We TTL for double than the buffer age seconds to allow for
+        // things like redploys or persistance timing
+        this.ttlSeconds = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 5
     }
 
     private emitSubscriptionEvent(teamId: number, sessionId: string): void {
@@ -81,7 +84,7 @@ export class RealtimeManager extends EventEmitter {
             await this.run(`addMessage ${key} `, async (client) => {
                 const pipeline = client.pipeline()
                 pipeline.zadd(key, message.metadata.timestamp, JSON.stringify(convertToPersistedMessage(message)))
-                pipeline.expire(key, SESSION_TTL_SECONDS)
+                pipeline.expire(key, this.ttlSeconds)
                 return pipeline.exec()
             })
         } catch (error) {
@@ -104,7 +107,7 @@ export class RealtimeManager extends EventEmitter {
             await this.run(`addMessage ${key} `, async (client) => {
                 const pipeline = client.pipeline()
                 pipeline.zadd(key, timestamp, messages)
-                pipeline.expire(key, SESSION_TTL_SECONDS)
+                pipeline.expire(key, this.ttlSeconds)
                 return pipeline.exec()
             })
         } catch (error) {
