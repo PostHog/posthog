@@ -24,6 +24,7 @@ import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -216,7 +217,7 @@ export function OverViewTab({
         },
     ]
 
-    return (
+    return (searchedFeatureFlags && searchedFeatureFlags?.length > 0) || featureFlagsLoading || searchTerm ? (
         <>
             <div>
                 <div className="flex justify-between mb-4">
@@ -313,8 +314,17 @@ export function OverViewTab({
                 pagination={{ pageSize: 100 }}
                 nouns={nouns}
                 data-attr="feature-flag-table"
+                emptyState="No results. Create a new flag?"
             />
         </>
+    ) : (
+        <ProductEmptyState
+            productName="Feature flags"
+            thingName="feature flag"
+            description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
+            docsURL="https://posthog.com/docs/feature-flags/manual"
+            action={() => router.actions.push(urls.featureFlag('new'))}
+        />
     )
 }
 

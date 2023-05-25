@@ -269,7 +269,7 @@ export function ActionsTable(): JSX.Element {
                             columnKey: 'created_by',
                             order: -1,
                         }}
-                        emptyState="The first step to standardized analytics is creating your first action."
+                        emptyState="No results. Create a new action?"
                     />
                 </>
             ) : (
