@@ -1,5 +1,9 @@
 import { SearchMatch } from '../types'
 
+/**
+ * Return a search match with instances of the search term highlighted in the string.
+ * This provides highlighting for server-side search, which does not return data on how the search term was matched.
+ */
 export function findSearchTermInItemName(name: string, searchTerm: string): SearchMatch | null {
     if (!searchTerm) {
         return null
