@@ -64,7 +64,9 @@ export function PlayerInspectorListItem({
     const itemProps = {
         setExpanded: () => {
             setItemExpanded(index, !isExpanded)
-            seekToEvent()
+            if (!isExpanded) {
+                seekToEvent()
+            }
         },
         expanded: isExpanded,
     }
