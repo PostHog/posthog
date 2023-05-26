@@ -45,13 +45,6 @@ export const gaugePendingChunksDropped = new Gauge({
         were blocking ingestion, and were dropped`,
 })
 
-export const gaugePendingChunksBlocking = new Gauge({
-    name: 'recording_pending_chunks_blocking',
-    help: `Chunks can be duplicated or arrive as expected.
-        When flushing we need to check whether we have all chunks or should drop them.
-        If we can't drop them then the write to S3 will be blocked until we have all chunks.`,
-})
-
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
 interface EventsRange {
@@ -94,18 +87,9 @@ export class SessionManager {
     private async deleteFile(file: string, context: string) {
         try {
             await unlink(file)
-            status.debug('🗑️', `blob_ingester_session_manager deleted file ${context}`, { file, context })
         } catch (err) {
             if (err && err.code === 'ENOENT') {
-                status.warn(
-                    '🤷‍♀️',
-                    `blob_ingester_session_manager failed deleting file ${context} path: ${file}, file not found. That's probably fine 🤷‍♀️`,
-                    {
-                        err,
-                        file,
-                        context,
-                    }
-                )
+                // could not delete file because it doesn't exist, so what?!
                 return
             }
             status.error('🧨', `blob_ingester_session_manager failed deleting file ${context}path: ${file}`, {
@@ -120,11 +104,6 @@ export class SessionManager {
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
-            status.debug('⚠️', `blob_ingester_session_manager add called after destroy`, {
-                message,
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             return
         }
 
@@ -151,10 +130,6 @@ export class SessionManager {
 
     public async flushIfBufferExceedsCapacity(): Promise<void> {
         if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager flush on buffer size called after destroy`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             return
         }
 
@@ -164,35 +139,28 @@ export class SessionManager {
 
         // even if the buffer is over-size we can't flush if we have unfinished chunks
         if (gzippedCapacity > 1) {
-            if (this.chunks.size === 0) {
-                // return the promise and let the caller decide whether to await
-                status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
-                    gzippedCapacity,
-                    gzipSizeKb,
-                    sessionId: this.sessionId,
-                })
-                return this.flush('buffer_size')
-            } else {
-                status.warn(
-                    '🚽',
-                    `blob_ingester_session_manager would flush buffer due to size, but chunks are still pending`,
-                    {
-                        gzippedCapacity,
-                        sessionId: this.sessionId,
-                        partition: this.partition,
-                        chunks: this.chunks.size,
-                    }
-                )
+            const logContext: Record<string, any> = {
+                gzippedCapacity,
+                gzipSizeKb,
+                sessionId: this.sessionId,
             }
+
+            if (this.chunks.size !== 0) {
+                const chunkStates: Record<string, any> = {}
+                for (const [key, chunk] of this.chunks.entries()) {
+                    chunkStates[key] = chunk.logContext
+                }
+                logContext['chunkStates'] = chunkStates
+            }
+
+            status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, logContext)
+            // return the promise and let the caller decide whether to await
+            return this.flush('buffer_size')
         }
     }
 
     public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
         if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             return
         }
 
@@ -207,7 +175,7 @@ export class SessionManager {
         const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
 
         if (bufferAge >= flushThresholdMillis) {
-            const logContext = {
+            const logContext: Record<string, any> = {
                 bufferAge,
                 sessionId: this.sessionId,
                 partition: this.partition,
@@ -220,38 +188,18 @@ export class SessionManager {
             this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
 
             if (this.chunks.size !== 0) {
-                gaugePendingChunksBlocking.inc()
                 const chunkStates: Record<string, any> = {}
                 for (const [key, chunk] of this.chunks.entries()) {
                     chunkStates[key] = chunk.logContext
                 }
-                status.warn(
-                    '🚽',
-                    `blob_ingester_session_manager flush buffer due to age, but chunks are still pending`,
-                    {
-                        ...logContext,
-                        chunks: chunkStates,
-                    }
-                )
+                logContext['chunkStates'] = chunkStates
             }
 
-            // flush even though there may be incomplete chunks
-            // return the promise and let the caller decide whether to await
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 ...logContext,
             })
+            // return the promise and let the caller decide whether to await
             return this.flush('buffer_age')
-        } else {
-            status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
-                bufferAge,
-                sessionId: this.sessionId,
-                partition: this.partition,
-                chunkSize: this.chunks.size,
-                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
-                referenceTime: referenceNow,
-                flushThresholdMillis,
-                bufferedLines: this.buffer.count,
-            })
         }
     }
 
@@ -294,20 +242,10 @@ export class SessionManager {
      */
     public async flush(reason: 'buffer_size' | 'buffer_age'): Promise<void> {
         if (this.flushBuffer) {
-            status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing", {
-                sessionId: this.sessionId,
-                partition: this.partition,
-                reason,
-            })
             return
         }
 
         if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager flush somehow called after destroy`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-                reason,
-            })
             return
         }
 
@@ -317,21 +255,11 @@ export class SessionManager {
 
         try {
             if (this.flushBuffer.count === 0) {
-                status.warn('⚠️', `blob_ingester_session_manager flush called but buffer is empty`, {
-                    sessionId: this.sessionId,
-                    partition: this.partition,
-                    reason,
-                })
                 throw new Error("Can't flush empty buffer")
             }
 
             const eventsRange = this.flushBuffer.eventsRange
             if (!eventsRange) {
-                status.warn('⚠️', `blob_ingester_session_manager flush called but eventsRange is null`, {
-                    sessionId: this.sessionId,
-                    partition: this.partition,
-                    reason,
-                })
                 throw new Error("Can't flush buffer due to missing eventRange")
             }
 
@@ -358,14 +286,6 @@ export class SessionManager {
             counterS3FilesWritten.labels(reason).inc(1)
             gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
             gaugeS3LinesWritten.set(this.flushBuffer.count)
-            status.info('🚽', `blob_ingester_session_manager - flushed buffer to S3`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-                flushedSize: this.flushBuffer.size,
-                flushedAge: this.flushBuffer.oldestKafkaTimestamp,
-                flushedCount: this.flushBuffer.count,
-                reason,
-            })
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected
@@ -414,11 +334,6 @@ export class SessionManager {
 
             return buffer
         } catch (error) {
-            status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', {
-                error,
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
         }
@@ -439,11 +354,6 @@ export class SessionManager {
 
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (error) {
-            status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', {
-                error,
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
         }
@@ -496,11 +406,6 @@ export class SessionManager {
             .filter((x): x is string => x !== undefined)
             .map((x) =>
                 this.deleteFile(x, 'on destroy').catch((error) => {
-                    status.error('🧨', 'blob_ingester_session_manager failed deleting session recording buffer', {
-                        error,
-                        sessionId: this.sessionId,
-                        partition: this.partition,
-                    })
                     captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
                     throw error
                 })
