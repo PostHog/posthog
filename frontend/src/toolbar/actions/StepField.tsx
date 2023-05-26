@@ -1,7 +1,7 @@
 import { Checkbox, Form, Input } from 'antd'
 import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { cssEscape } from 'lib/utils/cssEscape'
-import { UrlMatchingToggle } from '~/toolbar/actions/UrlMatchingToggle'
+import { StringMatchingToggle } from '~/toolbar/actions/StringMatchingToggle'
 import { ActionStepForm } from '~/toolbar/types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 
@@ -33,12 +33,12 @@ export function StepField({ field, step, item, label, caption }: StepFieldProps)
                 </Form.Item>
                 {caption && <div className="action-field-caption">{caption}</div>}
             </Form.Item>
-            {item === 'url' ? (
+            {['url', 'href', 'text'].includes(item) ? (
                 <Form.Item
                     name={[field.name, `${item}_matching`]}
                     fieldKey={[field.fieldKey, `${item}_matching`] as unknown as number}
                 >
-                    <UrlMatchingToggle style={fieldStyle} />
+                    <StringMatchingToggle style={fieldStyle} />
                 </Form.Item>
             ) : null}
             <Form.Item name={[field.name, item]} fieldKey={[field.fieldKey, item] as unknown as number}>

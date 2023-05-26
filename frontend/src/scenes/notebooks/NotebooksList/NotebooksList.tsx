@@ -26,7 +26,7 @@ export function NotebooksTable(): JSX.Element {
             width: '40%',
             render: function Render(title, { short_id }) {
                 return (
-                    <Link data-attr="notebook-title" to={urls.notebook(short_id)}>
+                    <Link data-attr="notebook-title" to={urls.notebook(short_id)} className="font-semibold">
                         {title || 'Untitled'}
                     </Link>
                 )

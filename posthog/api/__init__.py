@@ -19,6 +19,7 @@ from . import (
     instance_status,
     integration,
     kafka_inspector,
+    notebook,
     organization,
     organization_domain,
     organization_invite,
@@ -249,4 +250,11 @@ project_session_recordings_router.register(
     sharing.SharingConfigurationViewSet,
     "project_recording_sharing",
     ["team_id", "recording_id"],
+)
+
+projects_router.register(
+    r"notebooks",
+    notebook.NotebookViewSet,
+    "project_notebooks",
+    ["team_id"],
 )

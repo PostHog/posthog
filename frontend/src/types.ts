@@ -27,6 +27,7 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
 import { InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -355,7 +356,7 @@ export interface ActionType {
 }
 
 /** Sync with plugin-server/src/types.ts */
-export enum ActionStepUrlMatching {
+export enum StringMatching {
     Contains = 'contains',
     Regex = 'regex',
     Exact = 'exact',
@@ -363,15 +364,20 @@ export enum ActionStepUrlMatching {
 
 export interface ActionStepType {
     event?: string | null
-    href?: string | null
     id?: number
     name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
     tag_name?: string
     text?: string | null
+    /** @default StringMatching.Exact */
+    text_matching?: StringMatching | null
+    href?: string | null
+    /** @default StringMatching.Exact */
+    href_matching?: StringMatching | null
     url?: string | null
-    url_matching?: ActionStepUrlMatching
+    /** @default StringMatching.Contains */
+    url_matching?: StringMatching | null
     isNew?: string
 }
 
@@ -2892,7 +2898,8 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    content: any // TODO: Type this better
+    content: JSONContent // TODO: Type this better
+    version: number
 }
 
 export enum NotebookMode {
