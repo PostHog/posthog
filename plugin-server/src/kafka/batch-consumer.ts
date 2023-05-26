@@ -147,10 +147,14 @@ export const startBatchConsumer = async ({
 
                 status.debug('🔁', 'main_loop_consuming')
                 const messages = await consumeMessages(consumer, fetchBatchSize)
-                status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
+                if (!messages) {
+                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
+                    continue
+                }
 
+                status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
                 if (!messages.length) {
-                    // For now
+                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
                     continue
                 }
 

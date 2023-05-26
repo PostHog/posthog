@@ -53,7 +53,7 @@ export function TaxonomicFilter({
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
-    const { searchQuery, searchPlaceholder } = useValues(logic)
+    const { searchQuery, searchPlaceholder, activeTab } = useValues(logic)
     const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(logic)
 
     useEffect(() => {
@@ -78,61 +78,63 @@ export function TaxonomicFilter({
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
             >
-                <div className="relative">
-                    <LemonInput
-                        data-attr="taxonomic-filter-searchfield"
-                        type="search"
-                        fullWidth
-                        placeholder={`Search ${searchPlaceholder}`}
-                        value={searchQuery}
-                        suffix={
-                            <Tooltip
-                                title={
-                                    <>
-                                        You can easily navigate between tabs with your keyboard.{' '}
-                                        <div>
-                                            Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
-                                        </div>
-                                        <div>
-                                            Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
-                                        </div>
-                                    </>
+                {activeTab !== TaxonomicFilterGroupType.HogQLExpression || taxonomicGroupTypes.length > 1 ? (
+                    <div className="relative">
+                        <LemonInput
+                            data-attr="taxonomic-filter-searchfield"
+                            type="search"
+                            fullWidth
+                            placeholder={`Search ${searchPlaceholder}`}
+                            value={searchQuery}
+                            suffix={
+                                <Tooltip
+                                    title={
+                                        <>
+                                            You can easily navigate between tabs with your keyboard.{' '}
+                                            <div>
+                                                Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
+                                            </div>
+                                            <div>
+                                                Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
+                                            </div>
+                                        </>
+                                    }
+                                >
+                                    <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-muted-alt" />
+                                </Tooltip>
+                            }
+                            onKeyDown={(e) => {
+                                if (e.key === 'ArrowUp') {
+                                    e.preventDefault()
+                                    moveUp()
                                 }
-                            >
-                                <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-muted-alt" />
-                            </Tooltip>
-                        }
-                        onKeyDown={(e) => {
-                            if (e.key === 'ArrowUp') {
-                                e.preventDefault()
-                                moveUp()
-                            }
-                            if (e.key === 'ArrowDown') {
-                                e.preventDefault()
-                                moveDown()
-                            }
-                            if (e.key === 'Tab') {
-                                e.preventDefault()
-                                if (e.shiftKey) {
-                                    tabLeft()
-                                } else {
-                                    tabRight()
+                                if (e.key === 'ArrowDown') {
+                                    e.preventDefault()
+                                    moveDown()
                                 }
-                            }
+                                if (e.key === 'Tab') {
+                                    e.preventDefault()
+                                    if (e.shiftKey) {
+                                        tabLeft()
+                                    } else {
+                                        tabRight()
+                                    }
+                                }
 
-                            if (e.key === 'Enter') {
-                                e.preventDefault()
-                                selectSelected()
-                            }
-                            if (e.key === 'Escape') {
-                                e.preventDefault()
-                                onClose?.()
-                            }
-                        }}
-                        ref={searchInputRef}
-                        onChange={(newValue) => setSearchQuery(newValue)}
-                    />
-                </div>
+                                if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    selectSelected()
+                                }
+                                if (e.key === 'Escape') {
+                                    e.preventDefault()
+                                    onClose?.()
+                                }
+                            }}
+                            ref={searchInputRef}
+                            onChange={(newValue) => setSearchQuery(newValue)}
+                        />
+                    </div>
+                ) : null}
                 <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
             </div>
         </BindLogic>

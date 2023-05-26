@@ -628,8 +628,9 @@ class EventsNode(BaseModel):
     )
     kind: str = Field("EventsNode", const=True)
     limit: Optional[float] = None
-    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str]] = None
+    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str, str]] = None
     math_group_type_index: Optional[MathGroupTypeIndex1] = None
+    math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[List[str]] = Field(None, description="Columns to order by")
@@ -803,8 +804,9 @@ class ActionsNode(BaseModel):
     )
     id: float
     kind: str = Field("ActionsNode", const=True)
-    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str]] = None
+    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str, str]] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
