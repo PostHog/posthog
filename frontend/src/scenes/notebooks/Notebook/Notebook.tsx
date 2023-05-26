@@ -5,9 +5,6 @@ import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import { useEffect, useMemo } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import MonacoEditor from '@monaco-editor/react'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import './Notebook.scss'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
@@ -20,10 +17,10 @@ import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import { sampleOne } from 'lib/utils'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { NotFound } from 'lib/components/NotFound'
+import clsx from 'clsx'
 
 export type NotebookProps = {
     shortId: string
-    sourceMode?: boolean
     editable?: boolean
 }
 
@@ -33,9 +30,9 @@ const CustomDocument = ExtensionDocument.extend({
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({ shortId, sourceMode, editable = false }: NotebookProps): JSX.Element {
+export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading } = useValues(logic)
+    const { notebook, content, notebookLoading, expanded } = useValues(logic)
     const { setEditorRef, onEditorUpdate } = useActions(logic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
@@ -128,7 +125,7 @@ export function Notebook({ shortId, sourceMode, editable = false }: NotebookProp
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div className="Notebook">
+            <div className={clsx('Notebook', !expanded && 'Notebook--compact')}>
                 {/* {editor && (
                 <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex items-center gap-2">
                     <LemonButton
@@ -169,29 +166,8 @@ export function Notebook({ shortId, sourceMode, editable = false }: NotebookProp
                     </div>
                 ) : !notebook ? (
                     <NotFound object={'recording'} />
-                ) : !sourceMode ? (
-                    <EditorContent editor={editor} className="flex flex-col flex-1 overflow-y-auto" />
                 ) : (
-                    <AutoSizer disableWidth>
-                        {({ height }) => (
-                            <MonacoEditor
-                                theme="vs-light"
-                                language="json"
-                                value={JSON.stringify(editor?.getJSON(), null, 2) ?? ''}
-                                height={height}
-                                loading={<Spinner />}
-                                onChange={(value) => {
-                                    if (value) {
-                                        try {
-                                            editor?.chain().setContent(JSON.parse(value)).run()
-                                        } catch (e) {
-                                            console.error(e)
-                                        }
-                                    }
-                                }}
-                            />
-                        )}
-                    </AutoSizer>
+                    <EditorContent editor={editor} />
                 )}
             </div>
         </BindLogic>

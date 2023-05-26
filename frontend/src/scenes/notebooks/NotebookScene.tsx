@@ -11,6 +11,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -27,7 +28,8 @@ export const scene: SceneExport = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, mode } = useValues(notebookSceneLogic)
     const { setNotebookMode } = useActions(notebookSceneLogic)
-    const { notebook, notebookLoading } = useValues(notebookLogic({ shortId: notebookId }))
+    const { notebook, notebookLoading, expanded } = useValues(notebookLogic({ shortId: notebookId }))
+    const { setExpanded } = useActions(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setNotebookSideBarShown } = useActions(notebookSidebarLogic)
 
     if (!notebook && !notebookLoading) {
@@ -43,6 +45,13 @@ export function NotebookScene(): JSX.Element {
 
                 <div className="flex gap-2 items-center">
                     <NotebookSyncInfo shortId={notebookId} />
+
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => setExpanded(!expanded)}
+                        icon={<IconDocumentExpand mode={expanded ? 'expand' : 'collapse'} />}
+                    />
+
                     <LemonButton
                         type="secondary"
                         onClick={() => {
@@ -60,6 +69,7 @@ export function NotebookScene(): JSX.Element {
                     >
                         Pin to side
                     </LemonButton>
+
                     {mode === NotebookMode.Edit ? (
                         <>
                             <LemonButton type="primary" onClick={() => setNotebookMode(NotebookMode.View)}>

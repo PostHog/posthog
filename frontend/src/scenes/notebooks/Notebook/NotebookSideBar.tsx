@@ -21,7 +21,6 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
     const { createNotebook } = useActions(notebooksListLogic)
 
     const [isEditable, setIsEditable] = useState(true)
-    const [showCode, setShowCode] = useState(false)
 
     // NOTE: This doesn't work for some reason, possibly due to the way the editor is rendered
     useKeyboardHotkeys(
@@ -74,15 +73,6 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                     >
                                         <div className="m-1">{!isEditable ? <IconLock /> : <IconLockOpen />}</div>
                                     </LemonButton>
-                                    <LemonButton
-                                        size="small"
-                                        onClick={() => setShowCode(!showCode)}
-                                        status="primary-alt"
-                                        type={showCode ? 'primary' : undefined}
-                                        noPadding
-                                    >
-                                        <div className="m-1 font-mono">{'{}'}</div>
-                                    </LemonButton>
 
                                     <LemonButton
                                         size="small"
@@ -103,12 +93,9 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                     </LemonButton>
                                 </span>
                             </header>
-                            <Notebook
-                                key={selectedNotebook}
-                                shortId={selectedNotebook}
-                                editable={isEditable}
-                                sourceMode={showCode}
-                            />
+                            <div className="flex-1 overflow-y-auto p-4">
+                                <Notebook key={selectedNotebook} shortId={selectedNotebook} editable={isEditable} />
+                            </div>
                         </div>
                     </div>
                 </CSSTransition>
