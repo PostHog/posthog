@@ -24,6 +24,7 @@ ActivityScope = Literal[
     "SessionRecordingPlaylist",
     "EventDefinition",
     "PropertyDefinition",
+    "Notebook",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -98,6 +99,7 @@ class ActivityLog(UUIDModel):
 
 
 field_exclusions: Dict[ActivityScope, List[str]] = {
+    "Notebook": ["id", "last_modified_at", "last_modified_by", "created_at", "created_by"],
     "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
     "Person": [
         "id",
@@ -202,7 +204,7 @@ def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist"],
+    model_type: Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist", "Notebook"],
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> List[Change]:

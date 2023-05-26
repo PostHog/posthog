@@ -8,7 +8,7 @@ NEGATIVE_SEQUENCE_PERSON_DISTINCTID_SQL = (
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0313_early_access_feature"),
+        ("posthog", "0316_action_href_text_matching"),
     ]
 
     operations = [

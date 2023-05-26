@@ -3704,7 +3704,11 @@
                    AND (event = '$pageview')
                    AND NOT path_item IN ['/bar/*/foo']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -3784,7 +3788,11 @@
                    AND (event = '$pageview')
                    AND NOT path_item IN ['/bar/*/foo']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -3863,7 +3871,11 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -3942,7 +3954,11 @@
                  WHERE team_id = 2
                    AND (event = '$screen')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -4021,7 +4037,11 @@
                  WHERE team_id = 2
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -4100,7 +4120,11 @@
                  WHERE team_id = 2
                    AND (event IN ['/custom1', '/custom2'])
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -4179,7 +4203,11 @@
                  WHERE team_id = 2
                    AND (event IN ['/custom3', 'blah'])
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -4260,7 +4288,11 @@
                         OR event = '$screen'
                         OR NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -4342,7 +4374,11 @@
                         OR NOT event LIKE '$%')
                    AND NOT path_item IN ['/custom1', '/1', '/2', '/3']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -7954,7 +7990,11 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -8752,7 +8792,11 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -9983,7 +10027,11 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -10300,7 +10348,11 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+<<<<<<< HEAD
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-25 23:59:59', 'UTC')
+=======
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
+>>>>>>> master
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY

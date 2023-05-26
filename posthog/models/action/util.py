@@ -1,8 +1,6 @@
 from collections import Counter
-from typing import Counter as TCounter
+from typing import Counter as TCounter, Literal, Optional
 from typing import Dict, List, Tuple
-
-from django.forms.models import model_to_dict
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.hogql.hogql import HogQLContext
@@ -10,6 +8,7 @@ from posthog.models import Entity, Filter
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.property import Property, PropertyIdentifier
+from posthog.models.property.property import OperatorType
 from posthog.queries.util import PersonPropertiesMode
 
 
@@ -38,14 +37,44 @@ def format_action_filter(
         if step.event == AUTOCAPTURE_EVENT:
             from posthog.models.property.util import filter_element  # prevent circular import
 
-            el_condition, element_params = filter_element(model_to_dict(step), prepend=f"{action.pk}_{index}{prepend}")
-            params = {**params, **element_params}
-            if len(el_condition) > 0:
-                conditions.append(el_condition)
+            if step.selector:
+                element_condition, element_params = filter_element(
+                    "selector", step.selector, prepend=f"{action.pk}_{index}{prepend}"
+                )
+                if element_condition:
+                    conditions.append(element_condition)
+                    params.update(element_params)
+            if step.tag_name:
+                element_condition, element_params = filter_element(
+                    "tag_name", step.tag_name, prepend=f"{action.pk}_{index}{prepend}"
+                )
+                if element_condition:
+                    conditions.append(element_condition)
+                    params.update(element_params)
+            if step.href:
+                element_condition, element_params = filter_element(
+                    "href",
+                    step.href,
+                    operator=string_matching_to_operator(step.href_matching, "exact"),
+                    prepend=f"{action.pk}_{index}{prepend}",
+                )
+                if element_condition:
+                    conditions.append(element_condition)
+                    params.update(element_params)
+            if step.text:
+                element_condition, element_params = filter_element(
+                    "text",
+                    step.text,
+                    operator=string_matching_to_operator(step.text_matching, "exact"),
+                    prepend=f"{action.pk}_{index}{prepend}",
+                )
+                if element_condition:
+                    conditions.append(element_condition)
+                    params.update(element_params)
 
         # filter event conditions (ie URL)
         event_conditions, event_params = filter_event(step, f"{action.pk}_{index}{prepend}", index, table_name)
-        params = {**params, **event_params}
+        params.update(event_params)
         conditions += event_conditions
 
         if step.properties:
@@ -61,7 +90,7 @@ def format_action_filter(
                 hogql_context=hogql_context,
             )
             conditions.append(prop_query.replace("AND", "", 1))
-            params = {**params, **prop_params}
+            params.update(prop_params)
 
         if len(conditions) > 0:
             or_queries.append(" AND ".join(conditions))
@@ -158,3 +187,11 @@ def uses_elements_chain(action: Action) -> bool:
         if any(getattr(action_step, attribute) is not None for attribute in ["selector", "tag_name", "href", "text"]):
             return True
     return False
+
+
+def string_matching_to_operator(
+    matching: Optional[Literal["exact", "contains", "regex"]], default: OperatorType
+) -> OperatorType:
+    if matching == "contains":
+        return "icontains"
+    return matching or default
