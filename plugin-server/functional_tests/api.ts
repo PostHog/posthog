@@ -1,4 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
+import { makeWorkerUtils, WorkerUtils } from 'graphile-worker'
 import Redis from 'ioredis'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { Pool } from 'pg'
@@ -24,14 +25,18 @@ import { produce } from './kafka'
 let clickHouseClient: ClickHouse
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let redis: Redis.Redis
+let graphileWorker: WorkerUtils
 
-beforeAll(() => {
+beforeAll(async () => {
     // Setup connections to kafka, clickhouse, and postgres
     postgres = new Pool({
         connectionString: defaultConfig.DATABASE_URL!,
         // We use a pool only for typings sake, but we don't actually need to,
         // so set max connections to 1.
         max: 1,
+    })
+    graphileWorker = await makeWorkerUtils({
+        pgPool: postgres,
     })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
@@ -107,6 +112,34 @@ export const capture = async ({
     })
 }
 
+export const createPluginAttachment = async ({
+    teamId,
+    pluginConfigId,
+    fileSize,
+    contentType,
+    fileName,
+    key,
+    contents,
+}: {
+    teamId: number
+    pluginConfigId: number
+    fileSize: number
+    contentType: string
+    fileName: string
+    key: string
+    contents: string
+}) => {
+    return await insertRow(postgres, 'posthog_pluginattachment', {
+        team_id: teamId,
+        plugin_config_id: pluginConfigId,
+        key: key,
+        content_type: contentType,
+        file_name: fileName,
+        file_size: fileSize,
+        contents: contents,
+    })
+}
+
 export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
     return await insertRow(postgres, 'posthog_plugin', {
         ...plugin,
@@ -154,16 +187,56 @@ export const updatePluginConfig = async (
 
 export const reloadPlugins = async () => await redis.publish('reload-plugins', '')
 
+export const waitForPluginToLoad = (pluginConfig: any) => {
+    return waitForExpect(async () => {
+        const logEntries = await fetchPluginLogEntries(pluginConfig.id)
+        const setUp = logEntries.filter(({ message }) => message.includes('Plugin loaded'))
+        expect(setUp.length).toBeGreaterThan(0)
+    })
+}
+
 export const createAndReloadPluginConfig = async (teamId: number, pluginId: number) => {
     const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId })
     await reloadPlugins()
     // We wait for some log entries for the plugin, to make sure it's ready to
     // process events.
-    await waitForExpect(async () => {
-        const logs = await fetchPluginLogEntries(pluginConfig.id)
-        expect(logs.length).toBeGreaterThan(0)
-    })
+    await waitForPluginToLoad(pluginConfig)
     return pluginConfig
+}
+
+export const disablePluginConfig = async (teamId: number, pluginConfigId: number) => {
+    await postgres.query(`UPDATE posthog_pluginconfig SET enabled = false WHERE id = $1 AND team_id = $2`, [
+        pluginConfigId,
+        teamId,
+    ])
+}
+
+export const enablePluginConfig = async (teamId: number, pluginConfigId: number) => {
+    await postgres.query(`UPDATE posthog_pluginconfig SET enabled = true WHERE id = $1 AND team_id = $2`, [
+        pluginConfigId,
+        teamId,
+    ])
+}
+
+export const schedulePluginJob = async ({
+    teamId,
+    pluginConfigId,
+    type,
+    taskType,
+    payload,
+}: {
+    teamId: number
+    pluginConfigId: number
+    type: string
+    taskType: string
+    payload: any
+}) => {
+    return await graphileWorker.addJob(taskType, { teamId, pluginConfigId, type, payload })
+}
+
+export const getScheduledPluginJob = async (jobId: string) => {
+    const result = await postgres.query(`SELECT * FROM graphile_worker.jobs WHERE id = $1`, [jobId])
+    return result.rows[0]
 }
 
 export const reloadAction = async (teamId: number, actionId: number) => {
