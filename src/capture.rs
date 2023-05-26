@@ -125,7 +125,7 @@ pub async fn process_events(
             return Err(String::from("Failed to send event to sink"));
         }
     } else {
-        let sent = sink.send_batch(&events).await;
+        let sent = sink.send_batch(events).await;
 
         if let Err(e) = sent {
             tracing::error!("Failed to send batch events to sink: {:?}", e);

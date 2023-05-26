@@ -56,7 +56,7 @@ impl EventSink for MemorySink {
         Ok(())
     }
 
-    async fn send_batch(&self, events: &[ProcessedEvent]) -> anyhow::Result<()> {
+    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> anyhow::Result<()> {
         self.events.lock().unwrap().extend_from_slice(&events);
         Ok(())
     }

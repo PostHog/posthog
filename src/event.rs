@@ -82,6 +82,12 @@ pub struct ProcessedEvent {
     pub token: String,
 }
 
+impl ProcessedEvent {
+    pub fn key(&self) -> String {
+        format!("{}:{}", self.token, self.distinct_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Compression;
