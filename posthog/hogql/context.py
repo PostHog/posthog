@@ -29,5 +29,5 @@ class HogQLContext:
     person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.V1_ENABLED
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
-    # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=100000 to the topmost select query?
+    # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
