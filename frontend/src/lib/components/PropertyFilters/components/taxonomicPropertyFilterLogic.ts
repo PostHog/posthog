@@ -4,20 +4,18 @@ import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     HogQLPropertyFilter,
+    PropertyDefinitionType,
     PropertyFilterType,
     PropertyOperator,
     PropertyType,
 } from '~/types'
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
-import {
-    TaxonomicFilterGroup,
-    TaxonomicFilterGroupType,
-    TaxonomicFilterValue,
-} from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import {
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
+    propertyFilterTypeToPropertyDefinitionType,
     propertyFilterTypeToTaxonomicFilterType,
     sanitizePropertyFilter,
     taxonomicFilterTypeToPropertyFilterType,
@@ -109,7 +107,9 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, hogQLProperty)
                 } else {
                     const apiType =
-                        taxonomicGroup.type === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
+                        propertyFilterTypeToPropertyDefinitionType(
+                            taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+                        ) ?? PropertyDefinitionType.Event
                     const propertyValueType = values.describeProperty(propertyKey, apiType)
                     const property_name_to_default_operator_override = {
                         $active_feature_flags: PropertyOperator.IContains,

@@ -4,6 +4,7 @@ import {
     BreakdownKeyType,
     PropertyDefinition,
     PropertyDefinitionState,
+    PropertyDefinitionType,
     PropertyFilterValue,
     PropertyType,
 } from '~/types'
@@ -12,7 +13,7 @@ import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { colonDelimitedDuration } from 'lib/utils'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
-import { teamLogic } from '../scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
 
@@ -32,7 +33,7 @@ const localProperties: PropertyDefinitionStorage = {
 export type FormatPropertyValueForDisplayFunction = (
     propertyName?: BreakdownKeyType,
     valueToFormat?: PropertyFilterValue,
-    type?: string
+    type?: PropertyDefinitionType
 ) => string | string[] | null
 
 /** Update cached property definition metadata */
@@ -55,7 +56,7 @@ export type Option = {
 /** Schedules an immediate background task, that fetches property definitions after a 10ms debounce. Returns the property sync if already found. */
 const checkOrLoadPropertyDefinition = (
     propertyName: BreakdownKeyType | undefined,
-    definitionType: string,
+    definitionType: PropertyDefinitionType,
     propertyDefinitionStorage: PropertyDefinitionStorage
 ): PropertyDefinition | null => {
     // first time we see this, schedule a fetch
@@ -78,14 +79,14 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     path(['models', 'propertyDefinitionsModel']),
     actions({
         // public
-        loadPropertyDefinitions: (propertyKeys: string[], type: string) => ({ propertyKeys, type }),
+        loadPropertyDefinitions: (propertyKeys: string[], type: PropertyDefinitionType) => ({ propertyKeys, type }),
         updatePropertyDefinitions: (propertyDefinitions: PropertyDefinitionStorage) => ({
             propertyDefinitions,
         }),
         // PropertyValue
         loadPropertyValues: (payload: {
             endpoint: string | undefined
-            type: string
+            type: PropertyDefinitionType
             newInput: string | undefined
             propertyKey: string
             eventNames?: string[]
@@ -153,11 +154,15 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
             // take the first 50 pending properties to avoid the 4k query param length limit
             const allPending = values.pendingProperties.slice(0, 50)
-            const pendingByType: Record<string, string[]> = {}
+            const pendingByType: Record<PropertyDefinitionType, string[]> = {
+                event: [],
+                person: [],
+                group: [],
+            }
             for (const key of allPending) {
                 const [type, ...rest] = key.split('/')
                 if (!(type in pendingByType)) {
-                    pendingByType[type] = []
+                    throw new Error(`Unknown property definition type: ${type}`)
                 }
                 pendingByType[type].push(rest.join('/'))
             }
@@ -175,7 +180,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     // and then fetch them
                     const propertyDefinitions = await api.propertyDefinitions.list({
                         properties: pending,
-                        type: type as string,
+                        type: type as PropertyDefinitionType,
                     })
 
                     for (const propertyDefinition of propertyDefinitions.results) {
@@ -283,8 +288,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         ],
         getPropertyDefinition: [
             (s) => [s.propertyDefinitionStorage],
-            (propertyDefinitionStorage): ((s: TaxonomicFilterValue, type: string) => PropertyDefinition | null) =>
-                (propertyName: TaxonomicFilterValue, type: string): PropertyDefinition | null => {
+            (
+                    propertyDefinitionStorage
+                ): ((s: TaxonomicFilterValue, type: PropertyDefinitionType) => PropertyDefinition | null) =>
+                (propertyName: TaxonomicFilterValue, type: PropertyDefinitionType): PropertyDefinition | null => {
                     if (!propertyName) {
                         return null
                     }
@@ -293,8 +300,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         ],
         describeProperty: [
             (s) => [s.propertyDefinitionStorage],
-            (propertyDefinitionStorage): ((s: TaxonomicFilterValue, type: string) => string | null) =>
-                (propertyName: TaxonomicFilterValue, type: string) => {
+            (propertyDefinitionStorage): ((s: TaxonomicFilterValue, type: PropertyDefinitionType) => string | null) =>
+                (propertyName: TaxonomicFilterValue, type: PropertyDefinitionType) => {
                     if (!propertyName) {
                         return null
                     }
@@ -310,14 +317,14 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 return (
                     propertyName?: BreakdownKeyType,
                     valueToFormat?: PropertyFilterValue | undefined,
-                    type?: string
+                    type?: PropertyDefinitionType
                 ) => {
                     if (valueToFormat === null || valueToFormat === undefined) {
                         return null
                     }
                     const propertyDefinition: PropertyDefinition | null = checkOrLoadPropertyDefinition(
                         propertyName,
-                        type ?? 'event',
+                        type ?? PropertyDefinitionType.Event,
                         propertyDefinitionStorage
                     )
                     const arrayOfPropertyValues = Array.isArray(valueToFormat) ? valueToFormat : [valueToFormat]

@@ -1,7 +1,7 @@
 import { initKeaTests } from '~/test/init'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic, partial } from 'kea-test-utils'
-import { PropertyDefinition, PropertyDefinitionState, PropertyType } from '~/types'
+import { PropertyDefinition, PropertyDefinitionState, PropertyDefinitionType, PropertyType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 
@@ -12,7 +12,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         description: 'a description',
         volume_30_day: null,
         query_usage_30_day: null,
-        type: 'event',
+        type: PropertyDefinitionType.Event,
     },
     {
         id: 'an id',
@@ -21,7 +21,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         volume_30_day: null,
         query_usage_30_day: null,
         property_type: PropertyType.String,
-        type: 'event',
+        type: PropertyDefinitionType.Event,
     },
     {
         id: 'an id',
@@ -30,7 +30,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         volume_30_day: null,
         query_usage_30_day: null,
         property_type: PropertyType.DateTime,
-        type: 'event',
+        type: PropertyDefinitionType.Event,
     },
     {
         id: 'an id',
@@ -39,7 +39,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         volume_30_day: null,
         query_usage_30_day: null,
         property_type: PropertyType.DateTime,
-        type: 'event',
+        type: PropertyDefinitionType.Event,
     },
 ]
 
@@ -80,7 +80,7 @@ describe('the property definitions model', () => {
     describe('loading properties', () => {
         it('can load property definitions', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadPropertyDefinitions(['a string'], 'event')
+                logic.actions.loadPropertyDefinitions(['a string'], PropertyDefinitionType.Event)
             })
                 .toDispatchActions([
                     logic.actionCreators.updatePropertyDefinitions({
@@ -118,7 +118,7 @@ describe('the property definitions model', () => {
             // run twice to assure errors get retried
             for (let i = 0; i < 2; i++) {
                 await expectLogic(logic, () => {
-                    logic.actions.loadPropertyDefinitions(['network error'], 'event')
+                    logic.actions.loadPropertyDefinitions(['network error'], PropertyDefinitionType.Event)
                 })
                     .toDispatchActions([
                         logic.actionCreators.updatePropertyDefinitions({
@@ -137,7 +137,7 @@ describe('the property definitions model', () => {
 
         it('handles missing definitions', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadPropertyDefinitions(['this is not there'], 'event')
+                logic.actions.loadPropertyDefinitions(['this is not there'], PropertyDefinitionType.Event)
             })
                 .toDispatchActions([
                     logic.actionCreators.updatePropertyDefinitions({
@@ -155,7 +155,7 @@ describe('the property definitions model', () => {
 
         it('handles local definitions', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadPropertyDefinitions(['$session_duration'], 'event')
+                logic.actions.loadPropertyDefinitions(['$session_duration'], PropertyDefinitionType.Event)
             })
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['updatePropertyDefinitions'])
@@ -167,17 +167,17 @@ describe('the property definitions model', () => {
 
     describe('lazy loading', () => {
         it('lazy loads a property with getPropertyDefinition()', async () => {
-            expect(logic.values.getPropertyDefinition('$time', 'event')).toEqual(null)
+            expect(logic.values.getPropertyDefinition('$time', PropertyDefinitionType.Event)).toEqual(null)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.getPropertyDefinition('$time', 'event')).toEqual(
+            expect(logic.values.getPropertyDefinition('$time', PropertyDefinitionType.Event)).toEqual(
                 partial({ name: '$time', property_type: 'DateTime' })
             )
         })
 
         it('lazy loads a property with describeProperty()', async () => {
-            expect(logic.values.describeProperty('$time', 'event')).toEqual(null)
+            expect(logic.values.describeProperty('$time', PropertyDefinitionType.Event)).toEqual(null)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.describeProperty('$time', 'event')).toEqual('DateTime')
+            expect(logic.values.describeProperty('$time', PropertyDefinitionType.Event)).toEqual('DateTime')
         })
 
         it('lazy loads a property with formatPropertyValueForDisplay()', async () => {
@@ -187,7 +187,7 @@ describe('the property definitions model', () => {
         })
 
         it('does not refetch missing properties', async () => {
-            expect(logic.values.describeProperty('not a prop', 'event')).toEqual(null)
+            expect(logic.values.describeProperty('not a prop', PropertyDefinitionType.Event)).toEqual(null)
             await expectLogic(logic)
                 .delay(15)
                 .toFinishAllListeners()
@@ -200,7 +200,7 @@ describe('the property definitions model', () => {
                 .toMatchValues({
                     propertyDefinitionStorage: partial({ 'event/not a prop': PropertyDefinitionState.Missing }),
                 })
-            expect(logic.values.describeProperty('not a prop', 'event')).toEqual(null)
+            expect(logic.values.describeProperty('not a prop', PropertyDefinitionType.Event)).toEqual(null)
             await expectLogic(logic)
                 .delay(15)
                 .toFinishAllListeners()
@@ -211,14 +211,14 @@ describe('the property definitions model', () => {
         })
 
         it('works with different types', async () => {
-            expect(logic.values.describeProperty('not a prop', 'event')).toEqual(null)
+            expect(logic.values.describeProperty('not a prop', PropertyDefinitionType.Event)).toEqual(null)
             await expectLogic(logic)
                 .delay(15)
                 .toFinishAllListeners()
                 .toMatchValues({
                     propertyDefinitionStorage: partial({ 'event/not a prop': PropertyDefinitionState.Missing }),
                 })
-            expect(logic.values.describeProperty('$time', 'person')).toEqual(null)
+            expect(logic.values.describeProperty('$time', PropertyDefinitionType.Person)).toEqual(null)
             await expectLogic(logic)
                 .delay(15)
                 .toFinishAllListeners()
@@ -234,22 +234,25 @@ describe('the property definitions model', () => {
     describe('formatting properties', () => {
         beforeEach(async () => {
             await expectLogic(() => {
-                logic.actions.loadPropertyDefinitions(['a string', '$timestamp', 'no property type'], 'event')
+                logic.actions.loadPropertyDefinitions(
+                    ['a string', '$timestamp', 'no property type'],
+                    PropertyDefinitionType.Event
+                )
             }).toFinishAllListeners()
         })
 
         describe('formatting simple properties', () => {
             it('does not describe a property that has no server provided type', () => {
-                expect(logic.values.describeProperty('no property type', 'event')).toBeNull()
+                expect(logic.values.describeProperty('no property type', PropertyDefinitionType.Event)).toBeNull()
             })
 
             it('does not describe a property that has not yet been cached', () => {
-                expect(logic.values.describeProperty('not yet cached', 'event')).toBeNull()
+                expect(logic.values.describeProperty('not yet cached', PropertyDefinitionType.Event)).toBeNull()
             })
 
             it('does describe a property that has a server provided type', () => {
-                expect(logic.values.describeProperty('a string', 'event')).toEqual('String')
-                expect(logic.values.describeProperty('$timestamp', 'event')).toEqual('DateTime')
+                expect(logic.values.describeProperty('a string', PropertyDefinitionType.Event)).toEqual('String')
+                expect(logic.values.describeProperty('$timestamp', PropertyDefinitionType.Event)).toEqual('DateTime')
             })
 
             it('can format a property with no formatting needs for display', () => {

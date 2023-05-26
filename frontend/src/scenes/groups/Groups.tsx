@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Group } from '~/types'
+import { Group, PropertyDefinitionType } from '~/types'
 import { groupsListLogic } from './groupsListLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PersonPageHeader } from 'scenes/persons/PersonPageHeader'
@@ -86,7 +86,7 @@ export function Groups(): JSX.Element {
                 dataSource={groups.results}
                 expandable={{
                     expandedRowRender: function RenderPropertiesTable({ group_properties }) {
-                        return <PropertiesTable properties={group_properties} />
+                        return <PropertiesTable type={PropertyDefinitionType.Group} properties={group_properties} />
                     },
                     rowExpandable: ({ group_properties }) =>
                         !!group_properties && Object.keys(group_properties).length > 0,

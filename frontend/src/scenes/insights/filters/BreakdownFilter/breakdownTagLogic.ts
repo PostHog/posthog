@@ -5,6 +5,7 @@ import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 import { isAllCohort, isCohort, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
+import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 
 export interface BreakdownTagLogicProps {
     breakdown: string | number
@@ -33,7 +34,8 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     selectors({
         propertyDefinition: [
             (s, p) => [s.getPropertyDefinition, p.breakdown, p.breakdownType],
-            (getPropertyDefinition, breakdown, breakdownType) => getPropertyDefinition(breakdown, breakdownType),
+            (getPropertyDefinition, breakdown, breakdownType) =>
+                getPropertyDefinition(breakdown, propertyFilterTypeToPropertyDefinitionType(breakdownType)),
         ],
         propertyName: [
             (s, p) => [p.breakdown, s.cohortsById],

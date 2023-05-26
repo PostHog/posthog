@@ -41,6 +41,7 @@ import {
     NewEarlyAccessFeatureType,
     Survey,
     NotebookType,
+    PropertyDefinitionType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -751,7 +752,7 @@ const api = {
             excluded_properties?: string[]
             properties?: string[]
             filter_by_event_names?: boolean
-            type?: string
+            type?: PropertyDefinitionType
             limit?: number
             offset?: number
             teamId?: TeamType['id']
@@ -779,7 +780,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            type?: string
+            type?: PropertyDefinitionType
             group_type_index?: number
         }): string {
             return new ApiRequest()
