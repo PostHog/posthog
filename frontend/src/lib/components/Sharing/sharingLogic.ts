@@ -122,6 +122,7 @@ export const sharingLogic = kea<sharingLogicType>([
                 width,
                 height,
                 frameBorder: 0,
+                allowfullscreen: true,
                 src: embedLink,
             }),
         ],
@@ -129,7 +130,12 @@ export const sharingLogic = kea<sharingLogicType>([
             (s) => [s.iframeProperties],
             (iframeProperties) =>
                 `<iframe ${Object.entries(iframeProperties)
-                    .map(([key, value]) => `${key.toLowerCase()}="${String(value).split('"').join('')}"`)
+                    .map(([key, value]) => {
+                        if (value === true) {
+                            return key.toLowerCase()
+                        }
+                        return `${key.toLowerCase()}="${String(value).split('"').join('')}"`
+                    })
                     .join(' ')}></iframe>`,
         ],
     }),
