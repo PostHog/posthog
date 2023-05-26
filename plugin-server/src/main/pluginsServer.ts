@@ -256,6 +256,7 @@ export async function startPluginsServer(
                     producer: hub.kafkaProducer,
                     graphileWorker: graphileWorker,
                     statsd: hub.statsd,
+                    skipPluginConfigIds: hub.JOB_QUEUE_SKIP_PLUGINCONFIG_IDS,
                 })
             }
         }

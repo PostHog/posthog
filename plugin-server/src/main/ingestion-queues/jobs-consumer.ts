@@ -25,11 +25,13 @@ export const startJobsConsumer = async ({
     producer,
     graphileWorker,
     statsd,
+    skipPluginConfigIds,
 }: {
     kafka: Kafka
     producer: KafkaProducerWrapper
     graphileWorker: GraphileWorker
     statsd?: StatsD
+    skipPluginConfigIds: string
 }) => {
     /*
         Consumes from the jobs buffer topic, and enqueues the jobs for execution
@@ -40,7 +42,11 @@ export const startJobsConsumer = async ({
     const consumer = kafka.consumer({ groupId })
     setupEventHandlers(consumer)
 
-    status.info('🔁', 'Starting jobs consumer')
+    const skippedPluginConfigIds = skipPluginConfigIds.split(',')
+
+    status.info('🔁', 'Starting jobs consumer', {
+        skippedPluginConfigIds: skippedPluginConfigIds,
+    })
 
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
@@ -71,6 +77,17 @@ export const startJobsConsumer = async ({
                     topic: KAFKA_JOBS_DLQ,
                     messages: [{ value: message.value, key: message.key }],
                 })
+                resolveOffset(message.offset)
+                continue
+            }
+
+            if (skippedPluginConfigIds.includes(job.pluginConfigId.toString())) {
+                status.info('⬆️', 'Skipping plugin job because of config', {
+                    type: job.type,
+                    pluginConfigId: job.pluginConfigId,
+                    pluginConfigTeam: job.pluginConfigTeam,
+                })
+                statsd?.increment('jobs_consumer.skipped')
                 resolveOffset(message.offset)
                 continue
             }

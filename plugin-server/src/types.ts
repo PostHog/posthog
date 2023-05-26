@@ -140,6 +140,7 @@ export interface PluginsServerConfig {
     JOB_QUEUE_S3_AWS_REGION: string
     JOB_QUEUE_S3_BUCKET_NAME: string
     JOB_QUEUE_S3_PREFIX: string // S3 filename prefix for the S3 job queue
+    JOB_QUEUE_SKIP_PLUGINCONFIG_IDS: string // coma-separated list of pluginconfig to drop when queuing graphile jobs from kafka
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     PISCINA_USE_ATOMICS: boolean // corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)

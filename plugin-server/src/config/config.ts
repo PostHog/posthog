@@ -81,6 +81,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         JOB_QUEUE_S3_AWS_REGION: 'us-west-1',
         JOB_QUEUE_S3_BUCKET_NAME: '',
         JOB_QUEUE_S3_PREFIX: '',
+        JOB_QUEUE_SKIP_PLUGINCONFIG_IDS: '',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         PISCINA_USE_ATOMICS: true,
