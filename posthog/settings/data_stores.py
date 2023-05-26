@@ -210,8 +210,6 @@ if not REDIS_URL:
 # ElastiCache manages updating which nodes are used if a replica is failed-over to primary
 # so that we don't have to worry about changing config.
 REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
-if TEST or DEBUG or IS_COLLECT_STATIC:
-    REDIS_READER_URL = os.getenv("REDIS_URL", "redis://localhost:6380/")
 
 CACHES = {
     "default": {
