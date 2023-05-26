@@ -287,17 +287,13 @@ export class SessionManager {
                     sessionId: this.sessionId,
                     partition: this.partition,
                     reason,
+                    instanceId: this.instanceId,
                 })
                 throw new Error("Can't flush empty buffer")
             }
 
             const eventsRange = this.flushBuffer.eventsRange
             if (!eventsRange) {
-                status.warn('⚠️', `blob_ingester_session_manager flush called but eventsRange is null`, {
-                    sessionId: this.sessionId,
-                    partition: this.partition,
-                    reason,
-                })
                 throw new Error("Can't flush buffer due to missing eventRange")
             }
 
@@ -331,6 +327,7 @@ export class SessionManager {
                 flushedAge: this.flushBuffer.oldestKafkaTimestamp,
                 flushedCount: this.flushBuffer.count,
                 reason,
+                instanceId: this.instanceId,
             })
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
