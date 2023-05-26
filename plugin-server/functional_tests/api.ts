@@ -112,6 +112,34 @@ export const capture = async ({
     })
 }
 
+export const createPluginAttachment = async ({
+    teamId,
+    pluginConfigId,
+    fileSize,
+    contentType,
+    fileName,
+    key,
+    contents,
+}: {
+    teamId: number
+    pluginConfigId: number
+    fileSize: number
+    contentType: string
+    fileName: string
+    key: string
+    contents: string
+}) => {
+    return await insertRow(postgres, 'posthog_pluginattachment', {
+        team_id: teamId,
+        plugin_config_id: pluginConfigId,
+        key: key,
+        content_type: contentType,
+        file_name: fileName,
+        file_size: fileSize,
+        contents: contents,
+    })
+}
+
 export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
     return await insertRow(postgres, 'posthog_plugin', {
         ...plugin,
@@ -159,15 +187,20 @@ export const updatePluginConfig = async (
 
 export const reloadPlugins = async () => await redis.publish('reload-plugins', '')
 
+export const waitForPluginToLoad = (pluginConfig: any) => {
+    return waitForExpect(async () => {
+        const logEntries = await fetchPluginLogEntries(pluginConfig.id)
+        const setUp = logEntries.filter(({ message }) => message.includes('Plugin loaded'))
+        expect(setUp.length).toBeGreaterThan(0)
+    })
+}
+
 export const createAndReloadPluginConfig = async (teamId: number, pluginId: number) => {
     const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId })
     await reloadPlugins()
     // We wait for some log entries for the plugin, to make sure it's ready to
     // process events.
-    await waitForExpect(async () => {
-        const logs = await fetchPluginLogEntries(pluginConfig.id)
-        expect(logs.length).toBeGreaterThan(0)
-    })
+    await waitForPluginToLoad(pluginConfig)
     return pluginConfig
 }
 
