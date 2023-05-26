@@ -41,6 +41,7 @@ export const notebookLogic = kea<notebookLogicType>([
         addNodeToNotebook: (type: NotebookNodeType, props: Record<string, any>) => ({ type, props }),
         onEditorUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
+        clearLocalContent: true,
         setReady: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
@@ -51,18 +52,7 @@ export const notebookLogic = kea<notebookLogicType>([
             { persist: true },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
-                loadNotebookSuccess: (state, { notebook }) => {
-                    if (state === notebook?.content) {
-                        return null
-                    }
-                    return state
-                },
-                saveNotebookSuccess: (state, { notebook }) => {
-                    if (state === notebook?.content) {
-                        return null
-                    }
-                    return state
-                },
+                clearLocalContent: () => null,
             },
         ],
         editor: [
@@ -79,7 +69,7 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         notebook: [
             undefined as NotebookType | undefined,
             {
@@ -110,14 +100,20 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
 
                 saveNotebook: async ({ notebook }) => {
-                    if (!values.notebook) {
+                    if (!values.notebook || values.notebookLoading) {
                         return
                     }
+
                     const response = await api.notebooks.update(values.notebook.short_id, {
                         version: values.notebook.version,
                         content: notebook.content,
                         title: notebook.title,
                     })
+
+                    // If the object is identical then no edits were made, so we can safely clear the local changes
+                    if (notebook.content === values.localContent) {
+                        actions.clearLocalContent()
+                    }
 
                     return response
                 },
