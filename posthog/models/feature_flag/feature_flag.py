@@ -20,7 +20,7 @@ FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
 class FeatureFlag(models.Model):
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
+        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique survey for team")]
 
     key: models.CharField = models.CharField(max_length=400)
     name: models.TextField = models.TextField(
