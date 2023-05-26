@@ -19,6 +19,7 @@ import {
     StickinessFilterType,
     LifecycleFilterType,
     LifecycleToggle,
+    HogQLMathType,
 } from '~/types'
 
 /**
@@ -124,8 +125,9 @@ export interface HogQLQuery extends DataNode {
 export interface EntityNode extends DataNode {
     name?: string
     custom_name?: string
-    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType
+    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
     math_property?: string
+    math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]

@@ -54,6 +54,7 @@ export const actionsAndEventsToSeries = ({
                 properties: f.properties,
                 math: f.math || 'total',
                 math_property: f.math_property,
+                math_hogql: f.math_hogql,
                 math_group_type_index: f.math_group_type_index,
             })
             if (f.type === 'actions') {
