@@ -34,7 +34,7 @@
  *
  */
 
-import { captureException } from '@sentry/react'
+import { captureException } from '@sentry/node'
 import { KafkaConsumer } from 'node-rdkafka-acosom'
 import { Gauge } from 'prom-client'
 
