@@ -26,6 +26,7 @@ export const startBatchConsumer = async ({
     consumerMaxBytesPerPartition,
     consumerMaxBytes,
     consumerMaxWaitMs,
+    consumerErrorBackoffMs,
     fetchBatchSize,
     batchingTimeoutMs,
     eachBatch,
@@ -38,6 +39,7 @@ export const startBatchConsumer = async ({
     consumerMaxBytesPerPartition: number
     consumerMaxBytes: number
     consumerMaxWaitMs: number
+    consumerErrorBackoffMs: number
     fetchBatchSize: number
     batchingTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
@@ -73,6 +75,7 @@ export const startBatchConsumer = async ({
         'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
         'fetch.message.max.bytes': consumerMaxBytes,
         'fetch.wait.max.ms': consumerMaxWaitMs,
+        'fetch.error.backoff.ms': consumerErrorBackoffMs,
         'enable.partition.eof': true,
         'queued.min.messages': 100000, // 100000 is the default
         'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.

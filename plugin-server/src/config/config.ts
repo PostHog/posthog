@@ -42,6 +42,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 5_242_880,
         KAFKA_CONSUMPTION_MAX_WAIT_MS: 500, // Timeout on PER PARTITION reads into the prefetch buffer
+        KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: 500, // Timeout when a partition read fails (possibly because empty)
         KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: 500, // Timeout on reads from the prefetch buffer before running consumer loops
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,

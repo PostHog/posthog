@@ -105,7 +105,8 @@ export interface PluginsServerConfig {
     KAFKA_SASL_PASSWORD: string | null
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
-    KAFKA_CONSUMPTION_MAX_WAIT_MS: number
+    KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
+    KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: number // fetch.error.backoff.ms rdkafka parameter
     KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
