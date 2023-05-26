@@ -9,10 +9,8 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { notebookSidebarLogic } from './Notebook/notebookSidebarLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { NotebookSyncInfo } from './Notebook/NotebookMeta'
+import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconDocumentExpand } from 'lib/lemon-ui/icons'
-import { notebookSettingsLogic } from './Notebook/notebookSettingsLogic'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -32,9 +30,6 @@ export function NotebookScene(): JSX.Element {
     const { notebook, notebookLoading } = useValues(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setNotebookSideBarShown } = useActions(notebookSidebarLogic)
 
-    const { isExpanded } = useValues(notebookSettingsLogic)
-    const { setIsExpanded } = useActions(notebookSettingsLogic)
-
     if (!notebook && !notebookLoading) {
         return <NotFound object="notebook" />
     }
@@ -49,11 +44,7 @@ export function NotebookScene(): JSX.Element {
                 <div className="flex gap-2 items-center">
                     <NotebookSyncInfo shortId={notebookId} />
 
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => setIsExpanded(!isExpanded)}
-                        icon={<IconDocumentExpand mode={isExpanded ? 'expand' : 'collapse'} />}
-                    />
+                    <NotebookExpandButton status="primary-alt" size="small" noPadding />
 
                     <LemonButton
                         type="secondary"

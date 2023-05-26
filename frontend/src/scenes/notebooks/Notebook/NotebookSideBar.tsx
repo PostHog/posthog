@@ -13,7 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import React from 'react'
 import { NotebookListMini } from './NotebookListMini'
 import { notebooksListLogic } from './notebooksListLogic'
-import { NotebookSyncInfo } from './NotebookMeta'
+import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
 
 export function NotebookSideBar({ children }: { children: React.ReactElement<any> }): JSX.Element {
     const { notebookSideBarShown, fullScreen, selectedNotebook } = useValues(notebookSidebarLogic)
@@ -63,6 +63,8 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                 </span>
                                 <span className="flex items-center gap-1 px-1">
                                     {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
+
+                                    <NotebookExpandButton status="primary-alt" size="small" noPadding />
 
                                     <LemonButton
                                         size="small"
