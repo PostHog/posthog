@@ -1,4 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
+import { makeWorkerUtils, WorkerUtils } from 'graphile-worker'
 import Redis from 'ioredis'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { Pool } from 'pg'
@@ -24,14 +25,18 @@ import { produce } from './kafka'
 let clickHouseClient: ClickHouse
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let redis: Redis.Redis
+let graphileWorker: WorkerUtils
 
-beforeAll(() => {
+beforeAll(async () => {
     // Setup connections to kafka, clickhouse, and postgres
     postgres = new Pool({
         connectionString: defaultConfig.DATABASE_URL!,
         // We use a pool only for typings sake, but we don't actually need to,
         // so set max connections to 1.
         max: 1,
+    })
+    graphileWorker = await makeWorkerUtils({
+        pgPool: postgres,
     })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
@@ -164,6 +169,41 @@ export const createAndReloadPluginConfig = async (teamId: number, pluginId: numb
         expect(logs.length).toBeGreaterThan(0)
     })
     return pluginConfig
+}
+
+export const disablePluginConfig = async (teamId: number, pluginConfigId: number) => {
+    await postgres.query(`UPDATE posthog_pluginconfig SET enabled = false WHERE id = $1 AND team_id = $2`, [
+        pluginConfigId,
+        teamId,
+    ])
+}
+
+export const enablePluginConfig = async (teamId: number, pluginConfigId: number) => {
+    await postgres.query(`UPDATE posthog_pluginconfig SET enabled = true WHERE id = $1 AND team_id = $2`, [
+        pluginConfigId,
+        teamId,
+    ])
+}
+
+export const schedulePluginJob = async ({
+    teamId,
+    pluginConfigId,
+    type,
+    taskType,
+    payload,
+}: {
+    teamId: number
+    pluginConfigId: number
+    type: string
+    taskType: string
+    payload: any
+}) => {
+    return await graphileWorker.addJob(taskType, { teamId, pluginConfigId, type, payload })
+}
+
+export const getScheduledPluginJob = async (jobId: string) => {
+    const result = await postgres.query(`SELECT * FROM graphile_worker.jobs WHERE id = $1`, [jobId])
+    return result.rows[0]
 }
 
 export const reloadAction = async (teamId: number, actionId: number) => {
