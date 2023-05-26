@@ -2,7 +2,7 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionDocument from '@tiptap/extension-document'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import './Notebook.scss'
@@ -40,6 +40,12 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
+    // Whenever our content changes, we want to ignore the next update (which is caused by the editor itself)
+    const ignoreUpdateRef = useRef(true)
+    useEffect(() => {
+        ignoreUpdateRef.current = true
+    }, [content])
+
     const editor = useEditor({
         extensions: [
             CustomDocument,
@@ -71,7 +77,6 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
             // Ensure this is last as a fallback for all PostHog links
             // LinkExtension.configure({}),
         ],
-        // This is only the default content. It is not reactive
         content,
         editorProps: {
             attributes: {
@@ -110,6 +115,10 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
             },
         },
         onUpdate: ({}) => {
+            if (ignoreUpdateRef.current) {
+                ignoreUpdateRef.current = false
+                return
+            }
             onEditorUpdate()
         },
     })
@@ -170,7 +179,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                 ) : !notebook ? (
                     <NotFound object={'recording'} />
                 ) : (
-                    <EditorContent editor={editor} />
+                    <EditorContent editor={editor} className="flex flex-col flex-1" />
                 )}
             </div>
         </BindLogic>

@@ -95,7 +95,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                     </LemonButton>
                                 </span>
                             </header>
-                            <div className="flex-1 overflow-y-auto p-4">
+                            <div className="flex flex-col flex-1 overflow-y-auto p-4">
                                 <Notebook key={selectedNotebook} shortId={selectedNotebook} editable={isEditable} />
                             </div>
                         </div>

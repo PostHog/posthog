@@ -100,8 +100,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
 
                 saveNotebook: async ({ notebook }) => {
-                    if (!values.notebook || values.notebookLoading) {
-                        return
+                    if (!values.notebook) {
+                        return values.notebook
                     }
 
                     const response = await api.notebooks.update(values.notebook.short_id, {
@@ -156,7 +156,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     }),
     sharedListeners(({ values, actions }) => ({
-        updateNotebooksList: () => {
+        onNotebookChange: () => {
             // Keep the list logic up to date with any changes
             if (values.notebook) {
                 actions.receiveNotebookUpdate(values.notebook)
@@ -181,7 +181,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
-            if (!values.isLocalOnly && values.content) {
+            if (!values.isLocalOnly && values.content && !values.notebookLoading) {
                 actions.saveNotebook({
                     content: values.content,
                     title: values.title,
@@ -193,16 +193,12 @@ export const notebookLogic = kea<notebookLogicType>([
             if (!values.editor || !values.notebook) {
                 return
             }
-
             const jsonContent = values.editor.getJSON()
-            // TODO: We might want a more efficient comparison here
-            if (JSON.stringify(jsonContent) !== JSON.stringify(values.content)) {
-                actions.setLocalContent(jsonContent)
-            }
+            actions.setLocalContent(jsonContent)
         },
 
-        saveNotebookSuccess: sharedListeners.updateNotebooksList,
-        loadNotebookSuccess: sharedListeners.updateNotebooksList,
+        saveNotebookSuccess: sharedListeners.onNotebookChange,
+        loadNotebookSuccess: sharedListeners.onNotebookChange,
     })),
 
     afterMount(({ actions }) => {
