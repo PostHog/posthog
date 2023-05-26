@@ -185,6 +185,18 @@ export function splitIngestionBatch(
         toProcess: [],
         toOverflow: [],
     }
+
+    if (overflowMode === IngestionOverflowMode.Consume) {
+        /**
+         * Grouping by distinct_id is inefficient here, because only a few ones are overflowing
+         * at a time. When messages are sent to overflow, we already give away the ordering guarantee,
+         * so we just return batches of one to increase concurrency.
+         * TODO: add a PipelineEvent[] field to IngestionSplitBatch for batches of 1
+         */
+        output.toProcess = kafkaMessages.map((m) => new Array(formPipelineEvent(m)))
+        return output
+    }
+
     const batches: Map<string, PipelineEvent[]> = new Map()
     for (const message of kafkaMessages) {
         if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {

@@ -77,6 +77,7 @@ export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
+    INGESTION_BATCH_SIZE: number // kafka consumer batch size
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     POSTHOG_DB_NAME: string | null
@@ -104,7 +105,9 @@ export interface PluginsServerConfig {
     KAFKA_SASL_PASSWORD: string | null
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
-    KAFKA_CONSUMPTION_MAX_WAIT_MS: number
+    KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
+    KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: number // fetch.error.backoff.ms rdkafka parameter
+    KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
