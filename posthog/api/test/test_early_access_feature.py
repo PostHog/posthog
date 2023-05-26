@@ -490,6 +490,8 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(2):
             response = self._get_features()
             self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get("access-control-allow-origin"), "http://127.0.0.1:8000")
+
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
                 [
