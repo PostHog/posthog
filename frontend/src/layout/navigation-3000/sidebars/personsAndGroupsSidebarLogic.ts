@@ -113,7 +113,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                 }
                 if (activeScene === Scene.Group) {
                     const { groupKey, groupTypeIndex } = sceneParams.params
-                    return groupKey ? [`groups-${groupTypeIndex}`, groupKey as string] : null
+                    return groupKey ? [`groups-${groupTypeIndex}`, decodeURIComponent(groupKey as string)] : null
                 }
                 return null
             },
