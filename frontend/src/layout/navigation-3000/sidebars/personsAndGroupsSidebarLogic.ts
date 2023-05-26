@@ -10,7 +10,7 @@ import { asDisplay, asLink, urls } from '@posthog/apps-common'
 import { findSearchTermInItemName } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { groupsListLogic } from 'scenes/groups/groupsListLogic'
+import { GroupsPaginatedResponse, groupsListLogic } from 'scenes/groups/groupsListLogic'
 
 const SEARCH_DEBOUNCE_MS = 200
 
@@ -81,26 +81,42 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
             },
         ],
         groups: [
-            () => [
-                groupsListLogic({ groupTypeIndex: 0 }).selectors.groups,
-                groupsListLogic({ groupTypeIndex: 1 }).selectors.groups,
-                groupsListLogic({ groupTypeIndex: 2 }).selectors.groups,
-                groupsListLogic({ groupTypeIndex: 3 }).selectors.groups,
-                groupsListLogic({ groupTypeIndex: 4 }).selectors.groups,
-            ],
-            (groups0, groups1, groups2, groups3, groups4) => {
+            (s) =>
+                Array(5)
+                    .fill(null)
+                    .map((_, groupTypeIndex) => (state) => {
+                        if (s.groupTypes(state).length > groupTypeIndex) {
+                            groupsListLogic({ groupTypeIndex }).mount()
+                            return groupsListLogic({ groupTypeIndex }).selectors.groups(state)
+                        }
+                    }),
+            (
+                groups0: GroupsPaginatedResponse,
+                groups1: GroupsPaginatedResponse,
+                groups2: GroupsPaginatedResponse,
+                groups3: GroupsPaginatedResponse,
+                groups4: GroupsPaginatedResponse
+            ) => {
                 return [groups0, groups1, groups2, groups3, groups4]
             },
         ],
         groupsLoading: [
-            () => [
-                groupsListLogic({ groupTypeIndex: 0 }).selectors.groupsLoading,
-                groupsListLogic({ groupTypeIndex: 1 }).selectors.groupsLoading,
-                groupsListLogic({ groupTypeIndex: 2 }).selectors.groupsLoading,
-                groupsListLogic({ groupTypeIndex: 3 }).selectors.groupsLoading,
-                groupsListLogic({ groupTypeIndex: 4 }).selectors.groupsLoading,
-            ],
-            (groupsLoading0, groupsLoading1, groupsLoading2, groupsLoading3, groupsLoading4) => {
+            (s) =>
+                Array(5)
+                    .fill(null)
+                    .map((_, groupTypeIndex) => (state) => {
+                        if (s.groupTypes(state).length > groupTypeIndex) {
+                            groupsListLogic({ groupTypeIndex }).mount()
+                            return groupsListLogic({ groupTypeIndex }).selectors.groupsLoading(state)
+                        }
+                    }),
+            (
+                groupsLoading0: boolean,
+                groupsLoading1: boolean,
+                groupsLoading2: boolean,
+                groupsLoading3: boolean,
+                groupsLoading4: boolean
+            ) => {
                 return [groupsLoading0, groupsLoading1, groupsLoading2, groupsLoading3, groupsLoading4]
             },
         ],
