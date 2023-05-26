@@ -44,7 +44,7 @@ export function NotebookScene(): JSX.Element {
                 <div className="flex gap-2 items-center">
                     <NotebookSyncInfo shortId={notebookId} />
 
-                    <NotebookExpandButton status="primary-alt" size="small" noPadding />
+                    <NotebookExpandButton type="secondary" />
 
                     <LemonButton
                         type="secondary"
@@ -80,7 +80,7 @@ export function NotebookScene(): JSX.Element {
                 </div>
             </div>
 
-            <LemonDivider />
+            <LemonDivider className="mt-2 mb-6" />
 
             <Notebook key={notebookId} shortId={notebookId} editable={mode === NotebookMode.Edit} />
         </div>
