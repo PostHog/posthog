@@ -88,6 +88,7 @@ export const startJobsConsumer = async ({
                     pluginConfigTeam: job.pluginConfigTeam,
                 })
                 statsd?.increment('jobs_consumer.skipped')
+                tasksDroppedCounter.inc()
                 resolveOffset(message.offset)
                 continue
             }
@@ -102,11 +103,12 @@ export const startJobsConsumer = async ({
                 await graphileWorker.enqueue(JobName.PLUGIN_JOB, job)
                 jobsConsumerSuccessCounter.inc()
                 statsd?.increment('jobs_consumer.enqueued')
+                tasksQueuedCounter.inc()
             } catch (error) {
                 status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
                 jobsConsumerFailuresCounter.inc()
                 statsd?.increment('jobs_consumer.enqueue_error')
-
+                tasksQueueErrorsCounter.inc()
                 throw error
             }
 
@@ -142,3 +144,17 @@ export const startJobsConsumer = async ({
         },
     }
 }
+
+const tasksQueuedCounter = new Counter({
+    name: 'jobs_consumer_tasks_queued_total',
+    help: 'Count of tasks queued into graphile by the job consumer.',
+})
+
+const tasksQueueErrorsCounter = new Counter({
+    name: 'jobs_consumer_tasks_queue_errors_total',
+    help: 'Count of errors trying to queue into graphile.',
+})
+const tasksDroppedCounter = new Counter({
+    name: 'jobs_consumer_tasks_dropped_total',
+    help: 'Count of tasks dropped by the job consumer because of pluginconfig ID filtering.',
+})

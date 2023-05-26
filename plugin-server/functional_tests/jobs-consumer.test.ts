@@ -57,11 +57,11 @@ describe('dlq handling', () => {
         })
     })
 
-    test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+    test.concurrent('consumer updates prometheus metrics', async () => {
         // NOTE: it may be another event other than the one we emit here that causes
         // the gauge to increase, but pushing this event through should at least
         // ensure that the gauge is updated.
-        const metricBefore = await getMetric({
+        const timestampBefore = await getMetric({
             name: 'latest_processed_timestamp_ms',
             type: 'GAUGE',
             labels: { topic: 'jobs', partition: '0', groupId: 'jobs-inserter' },
@@ -75,7 +75,7 @@ describe('dlq handling', () => {
                 type: 'GAUGE',
                 labels: { topic: 'jobs', partition: '0', groupId: 'jobs-inserter' },
             })
-            expect(metricAfter).toBeGreaterThan(metricBefore)
+            expect(metricAfter).toBeGreaterThan(timestampBefore)
             expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
             expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
         }, 10_000)
