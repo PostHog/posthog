@@ -17,8 +17,8 @@ from sentry_sdk import capture_exception
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 from posthog.models import Element, Filter, Person
-from posthog.models.event.events_query import QUERY_DEFAULT_EXPORT_LIMIT, QUERY_DEFAULT_LIMIT, QUERY_MAXIMUM_LIMIT
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
@@ -29,6 +29,8 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.property_values import get_property_values_for_key
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import convert_property_value, flatten
+
+QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -106,9 +108,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             elif is_csv_request:
                 limit = QUERY_DEFAULT_EXPORT_LIMIT
             else:
-                limit = QUERY_DEFAULT_LIMIT
+                limit = DEFAULT_RETURNED_ROWS
 
-            limit = min(limit, QUERY_MAXIMUM_LIMIT)
+            limit = min(limit, MAX_SELECT_RETURNED_ROWS)
 
             try:
                 offset = int(request.GET["offset"]) if request.GET.get("offset") else 0

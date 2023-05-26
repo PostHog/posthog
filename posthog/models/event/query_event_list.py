@@ -6,10 +6,10 @@ from django.utils.timezone import now
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
-from posthog.models.event.events_query import QUERY_DEFAULT_LIMIT
 from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
@@ -60,7 +60,7 @@ def query_events_list(
     order_by: List[str],
     action_id: Optional[str],
     unbounded_date_from: bool = False,
-    limit: int = QUERY_DEFAULT_LIMIT,
+    limit: int = DEFAULT_RETURNED_ROWS,
     offset: int = 0,
 ) -> List:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
