@@ -28,15 +28,44 @@ export function determineWebhookType(url: string): WebhookType {
     return WebhookType.Teams
 }
 
+// https://api.slack.com/reference/surfaces/formatting#escaping
+function escapeSlack(text: string): string {
+    return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+}
+
+function escapeMarkdown(text: string): string {
+    const markdownChars: string[] = ['\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '#', '+', '-', '.', '!']
+
+    let escapedText = ''
+
+    for (const char of text) {
+        if (markdownChars.includes(char)) {
+            escapedText += '\\' + char
+        } else {
+            escapedText += char
+        }
+    }
+
+    return escapedText
+}
+
+export function webhookEscape(text: string, webhookType: WebhookType): string {
+    if (webhookType === WebhookType.Slack) {
+        return escapeSlack(stringify(text))
+    }
+    return escapeMarkdown(stringify(text))
+}
+
 export function toWebhookLink(text: string | null, url: string, webhookType: WebhookType): [string, string] {
     const name = stringify(text)
-    let markdown: string
     if (webhookType === WebhookType.Slack) {
-        markdown = `<${url}|${name}>`
+        return [escapeSlack(name), `<${escapeSlack(url)}|${escapeSlack(name)}>`]
     } else {
-        markdown = `[${name}](${url})`
+        return [
+            webhookEscape(name, webhookType),
+            `[${webhookEscape(name, webhookType)}](${webhookEscape(url, webhookType)})`,
+        ]
     }
-    return [name, markdown]
 }
 
 export function getUserDetails(event: PostIngestionEvent, siteUrl: string, webhookType: WebhookType): [string, string] {
@@ -90,8 +119,7 @@ export function getValueOfToken(
         } else {
             const propertyName = `$${tokenParts[1]}`
             const property = event.properties?.[propertyName]
-            text = stringify(property)
-            markdown = text
+            markdown = text = webhookEscape(property, webhookType)
         }
     } else if (tokenParts[0] === 'person') {
         if (tokenParts.length === 1) {
@@ -99,8 +127,7 @@ export function getValueOfToken(
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
             const propertyName = tokenParts[2]
             const property = event.person_properties?.[propertyName]
-            text = stringify(property)
-            markdown = text
+            markdown = text = webhookEscape(property, webhookType)
         }
     } else if (tokenParts[0] === 'action') {
         if (tokenParts[1] === 'name') {
@@ -108,21 +135,17 @@ export function getValueOfToken(
         }
     } else if (tokenParts[0] === 'event') {
         if (tokenParts[1] === 'uuid') {
-            text = stringify(event.eventUuid)
-            markdown = text
+            markdown = text = webhookEscape(event.eventUuid, webhookType)
         } else if (tokenParts[1] === 'name') {
-            text = stringify(event.event)
-            markdown = text
+            markdown = text = webhookEscape(event.event, webhookType)
         } else if (tokenParts[1] === 'event') {
             ;[text, markdown] = getEventDetails(event, siteUrl, webhookType)
         } else if (tokenParts[1] === 'distinct_id') {
-            text = stringify(event.distinctId)
-            markdown = text
+            markdown = text = webhookEscape(event.distinctId, webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
             const propertyName = tokenParts[2]
             const property = event.properties?.[propertyName]
-            text = stringify(property)
-            markdown = text
+            markdown = text = webhookEscape(property, webhookType)
         }
     } else {
         throw new Error()
