@@ -16,7 +16,6 @@ import {
     getPluginConfig,
     reloadPlugins,
     updatePluginConfig,
-    waitForPluginToLoad,
 } from './api'
 import { waitForExpect } from './expectations'
 
@@ -587,9 +586,6 @@ test.concurrent('plugins can use attachements', async () => {
 
     await reloadPlugins()
 
-    // Wait for plugin setupPlugin to have run
-    await waitForPluginToLoad(pluginConfig)
-
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
 
@@ -673,15 +669,12 @@ test.concurrent('plugins can use config variables', async () => {
         source__plugin_json: JSON.stringify(pluginJson),
     })
 
-    const pluginConfig = await createPluginConfig({
+    await createPluginConfig({
         team_id: teamId,
         plugin_id: plugin.id,
         config: { secretVariable: 'super secret', normalVariable: 'look at me' },
     })
     await reloadPlugins()
-
-    // Wait for plugin setupPlugin to have run
-    await waitForPluginToLoad(pluginConfig)
 
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()

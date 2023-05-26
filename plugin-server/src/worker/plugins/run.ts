@@ -318,6 +318,12 @@ async function initPluginConfig(hub: Hub, pluginConfigId: number) {
             plugin.capabilities as plugin__capabilities,
             plugin.is_stateless as plugin__is_stateless,
             plugin.log_level as plugin__log_level,
+
+            attachment.key as attachment__key,
+            attachment.file_name as attachment__file_name,
+            attachment.file_size as attachment__file_size,
+            attachment.content_type as attachment__content_type,
+            attachment.contents as attachment__contents,
             
             psf__plugin_json.source as source__plugin_json,
             psf__index_ts.source as source__index_ts,
@@ -349,6 +355,16 @@ async function initPluginConfig(hub: Hub, pluginConfigId: number) {
     const row = result.rows[0]
     const pluginConfig: PluginConfig & { plugin: Plugin } = {
         ...row,
+        attachments: Object.fromEntries(
+            result.rows.map((attachmentRow) => [
+                attachmentRow.attachment__key,
+                {
+                    file_name: attachmentRow.attachment__file_name,
+                    content_type: attachmentRow.attachment__content_type,
+                    contents: attachmentRow.attachment__contents,
+                },
+            ])
+        ),
         plugin: {
             id: row.plugin__id,
             name: row.plugin__name,
