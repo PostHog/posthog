@@ -9,7 +9,7 @@ import { getPersonsEndpoint } from '~/queries/query'
 import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 
 const EXPORT_LIMIT_PERSONS = 10000
-const EXPORT_LIMIT_HOGQL = 100000
+const EXPORT_LIMIT_HOGQL = 10000
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
     const exportContext = isPersonsNode(query.source)
