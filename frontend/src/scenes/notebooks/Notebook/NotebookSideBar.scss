@@ -25,36 +25,36 @@ $sidebar-width: 40rem;
 
     width: $sidebar-width;
 
-    &--enter {
-        width: 0;
-        .NotebookSidebar__content {
-            transform: translateX(100%);
-        }
-    }
+    // &--enter {
+    //     width: 0;
+    //     .NotebookSidebar__content {
+    //         transform: translateX(100%);
+    //     }
+    // }
 
-    &--enter-active,
-    &--enter-done {
-        width: $sidebar-width;
-        .NotebookSidebar__content {
-            transition: 200ms ease transform;
-            transform: translateX(0%);
-        }
-    }
+    // &--enter-active,
+    // &--enter-done {
+    //     width: $sidebar-width;
+    //     .NotebookSidebar__content {
+    //         transition: 200ms ease transform;
+    //         transform: translateX(0%);
+    //     }
+    // }
 
-    &--exit {
-        width: $sidebar-width;
-        .NotebookSidebar__content {
-            transition: 200ms ease transform;
-            transform: translateX(0%);
-        }
-    }
+    // &--exit {
+    //     width: $sidebar-width;
+    //     .NotebookSidebar__content {
+    //         transition: 200ms ease transform;
+    //         transform: translateX(0%);
+    //     }
+    // }
 
-    &--exit-active {
-        width: 0;
-        .NotebookSidebar__content {
-            transform: translateX(100%);
-        }
-    }
+    // &--exit-active {
+    //     width: 0;
+    //     .NotebookSidebar__content {
+    //         transform: translateX(100%);
+    //     }
+    // }
 
     &--full-screen {
         width: auto;

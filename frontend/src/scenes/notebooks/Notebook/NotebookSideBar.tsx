@@ -46,7 +46,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
             <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
                 <CSSTransition
                     in={notebookSideBarShown}
-                    timeout={200}
+                    timeout={0} // Disabled this for now until we can agree on style / performance
                     mountOnEnter
                     unmountOnExit
                     classNames="NotebookSidebar-"

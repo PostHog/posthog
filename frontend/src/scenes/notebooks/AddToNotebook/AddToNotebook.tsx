@@ -22,29 +22,32 @@ export function AddToNotebook({
 }: AddToNotebookProps): JSX.Element {
     const { addNodeToNotebook } = useActions(notebookSidebarLogic)
 
+    // TODO: This is a temporary fix to prevent the button from showing up as it doesn't work yet...
+    return <></>
+
     return (
-        <LemonButton
-            data-attr="add-to-notebook"
-            onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                addNodeToNotebook(node, properties)
-            }}
-            tooltip="Add to notebook"
-            icon={icon}
-            {...buttonProps}
-        >
-            {children}
-        </LemonButton>
+        <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+            <LemonButton
+                data-attr="add-to-notebook"
+                onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    addNodeToNotebook(node, properties)
+                }}
+                tooltip="Add to notebook"
+                icon={icon}
+                {...buttonProps}
+            >
+                {children}
+            </LemonButton>
+        </FlaggedFeature>
     )
 }
 
 export function AddToNotebookWrapper({ children, ...props }: AddToNotebookProps): JSX.Element {
     return (
         <div className="AddToNotebookWrapper">
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                <AddToNotebook {...props}>Add to notebook</AddToNotebook>
-            </FlaggedFeature>
+            <AddToNotebook {...props}>Add to notebook</AddToNotebook>
             {children}
         </div>
     )

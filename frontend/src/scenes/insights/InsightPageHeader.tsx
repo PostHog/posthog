@@ -298,15 +298,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
 
-                        {insightMode !== ItemMode.Edit &&
-                            hasDashboardItemId &&
-                            featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                                <AddToNotebook
-                                    node={NotebookNodeType.Insight}
-                                    properties={{ id: insight.short_id }}
-                                    type="secondary"
-                                />
-                            )}
+                        {insightMode !== ItemMode.Edit && hasDashboardItemId && (
+                            <AddToNotebook
+                                node={NotebookNodeType.Insight}
+                                properties={{ id: insight.short_id }}
+                                type="secondary"
+                            />
+                        )}
 
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
