@@ -198,7 +198,6 @@ export const waitForPluginToLoad = (pluginConfig: any) => {
 export const createAndReloadPluginConfig = async (teamId: number, pluginId: number) => {
     const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId, config: {} })
     await reloadPlugins()
-    await waitForPluginToLoad(pluginConfig)
     return pluginConfig
 }
 
@@ -272,7 +271,8 @@ export const fetchPostgresPersons = async (teamId: number) => {
 
 export const fetchSessionRecordingsEvents = async (teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(
-        `SELECT * FROM session_recording_events WHERE team_id = ${teamId} ${uuid ? ` AND uuid = '${uuid}'` : ''
+        `SELECT * FROM session_recording_events WHERE team_id = ${teamId} ${
+            uuid ? ` AND uuid = '${uuid}'` : ''
         } ORDER BY timestamp ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<RawSessionRecordingEvent>
     return queryResult.data.map((event) => {
