@@ -21,7 +21,7 @@ export function ExportWithConfirmation({
             placement={placement}
             title={
                 <>
-                    Exporting by csv is limited to {limit} {actor}.
+                    CSV export is limited to {limit} {actor}.
                     {actor === 'events' && (
                         <>
                             <br />
