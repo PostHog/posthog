@@ -12,6 +12,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         description: 'a description',
         volume_30_day: null,
         query_usage_30_day: null,
+        type: 'event',
     },
     {
         id: 'an id',
@@ -20,6 +21,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         volume_30_day: null,
         query_usage_30_day: null,
         property_type: PropertyType.String,
+        type: 'event',
     },
     {
         id: 'an id',
@@ -28,6 +30,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         volume_30_day: null,
         query_usage_30_day: null,
         property_type: PropertyType.DateTime,
+        type: 'event',
     },
     {
         id: 'an id',
@@ -36,6 +39,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         volume_30_day: null,
         query_usage_30_day: null,
         property_type: PropertyType.DateTime,
+        type: 'event',
     },
 ]
 
@@ -203,6 +207,26 @@ describe('the property definitions model', () => {
                 .toNotHaveDispatchedActions(['loadPropertyDefinitions'])
                 .toMatchValues({
                     propertyDefinitionStorage: partial({ 'event/not a prop': PropertyDefinitionState.Missing }),
+                })
+        })
+
+        it('works with different types', async () => {
+            expect(logic.values.describeProperty('not a prop', 'event')).toEqual(null)
+            await expectLogic(logic)
+                .delay(15)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    propertyDefinitionStorage: partial({ 'event/not a prop': PropertyDefinitionState.Missing }),
+                })
+            expect(logic.values.describeProperty('$time', 'person')).toEqual(null)
+            await expectLogic(logic)
+                .delay(15)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    propertyDefinitionStorage: partial({
+                        'event/not a prop': PropertyDefinitionState.Missing,
+                        'person/$time': partial({ name: '$time', property_type: 'DateTime' }),
+                    }),
                 })
         })
     })
