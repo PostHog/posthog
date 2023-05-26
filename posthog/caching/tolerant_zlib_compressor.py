@@ -1,5 +1,6 @@
 import zlib
-from django_redis.compressors.zlib import ZlibCompressor
+
+from django_redis.compressors.base import BaseCompressor
 
 from django.conf import settings
 
@@ -8,13 +9,13 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
-class TolerantZlibCompressor(ZlibCompressor):
+class TolerantZlibCompressor(BaseCompressor):
     """
     If the compressor is turned on then values written to the cache will be compressed using zlib.
-    If it is then turned off or removed we can't read those values anymore.
-    This compressor is a tolerant reader and will return the original value if it can't be decompressed.
+    If it is subsequently turned off we still want to be able to read compressed values from the cache.
+    Even while we no longer write compressed values to the cache.
 
-    The underlying zlib compressor doesn't compress every value it sends so, we're safe to have mixed values.
+    This compressor is a tolerant reader and will return the original value if it can't be decompressed.
     """
 
     min_length = 15
