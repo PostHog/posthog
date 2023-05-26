@@ -1,4 +1,16 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 import type { notebookLogicType } from './notebookLogicType'
@@ -147,7 +159,15 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => ({
+    sharedListeners(({ values, actions }) => ({
+        updateNotebooksList: () => {
+            // Keep the list logic up to date with any changes
+            if (values.notebook) {
+                actions.receiveNotebookUpdate(values.notebook)
+            }
+        },
+    })),
+    listeners(({ values, actions, sharedListeners }) => ({
         addNodeToNotebook: ({ type, props }) => {
             if (!values.editor) {
                 return
@@ -185,11 +205,8 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
 
-        saveNotebookSuccess: ({ notebook }) => {
-            if (notebook) {
-                actions.receiveNotebookUpdate(notebook)
-            }
-        },
+        saveNotebookSuccess: sharedListeners.updateNotebooksList,
+        loadNotebookSuccess: sharedListeners.updateNotebooksList,
     })),
 
     afterMount(({ actions }) => {
