@@ -203,13 +203,18 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+# Controls whether the TolerantZlibCompressor is used for Redis compression when writing to Redis.
+# The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
+# can cope with compressed and uncompressed reading at the same time
+USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", False, type_cast=str_to_bool)
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",
+            "COMPRESSOR": "posthog.caching.tolerant_zlib_compressor.TolerantZlibCompressor",
         },
         "KEY_PREFIX": "posthog",
     }
