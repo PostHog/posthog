@@ -160,8 +160,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('WALL-E')
-            expect(markdown).toBe('WALL-E')
+            expect(text).toBe('WALL\\-E')
+            expect(markdown).toBe('WALL\\-E')
         })
         test('person with just distinct ID', () => {
             const tokenUserName = ['person']
@@ -174,8 +174,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('WALL-E')
-            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
+            expect(text).toBe('WALL\\-E')
+            expect(markdown).toBe('[WALL\\-E](http://localhost:8000/person/WALL\\-E)')
         })
 
         test('person with email', () => {
@@ -189,8 +189,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('wall-e@buynlarge.com')
-            expect(markdown).toBe('[wall-e@buynlarge.com](http://localhost:8000/person/WALL-E)')
+            expect(text).toBe('wall\\-e@buynlarge\\.com')
+            expect(markdown).toBe('[wall\\-e@buynlarge\\.com](http://localhost:8000/person/WALL\\-E)')
         })
 
         test('person prop', () => {
@@ -219,8 +219,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('WALL-E')
-            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
+            expect(text).toBe('WALL\\-E')
+            expect(markdown).toBe('[WALL\\-E](http://localhost:8000/person/WALL\\-E)')
         })
 
         test('user prop (actually event prop)', () => {
@@ -251,6 +251,32 @@ describe('hooks', () => {
 
             expect(text).toBe('undefined')
             expect(markdown).toBe('undefined')
+        })
+
+        test('escapes slack', () => {
+            const [text, markdown] = getValueOfToken(
+                action,
+                { ...event, eventUuid: '**>)', event: 'text><new link' },
+                'http://localhost:8000',
+                WebhookType.Slack,
+                ['event', 'event']
+            )
+
+            expect(text).toBe('text&gt;&lt;new link')
+            expect(markdown).toBe('<http://localhost:8000/events/**&gt;)|text&gt;&lt;new link>')
+        })
+
+        test('escapes teams', () => {
+            const [text, markdown] = getValueOfToken(
+                action,
+                { ...event, eventUuid: '**)', event: 'text](yes!), [new link' },
+                'http://localhost:8000',
+                WebhookType.Teams,
+                ['event', 'event']
+            )
+
+            expect(text).toBe('text\\]\\(yes\\!\\), \\[new link')
+            expect(markdown).toBe('[text\\]\\(yes\\!\\), \\[new link](http://localhost:8000/events/\\*\\*\\))')
         })
     })
 
