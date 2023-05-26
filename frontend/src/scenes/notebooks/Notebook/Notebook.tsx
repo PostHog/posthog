@@ -130,7 +130,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
     }, [editor])
 
     useEffect(() => {
-        editor?.setEditable(editable && !!notebook)
+        editor?.setEditable(editable && !!notebook, false)
     }, [editable, editor, notebook])
 
     // TODO - Render a special state if the notebook is empty
