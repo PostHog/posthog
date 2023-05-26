@@ -18,16 +18,16 @@ import {
 
 type LemonSelectOptionBase = Omit<LemonMenuItemBase, 'active' | 'status'> // Select handles active state internally
 
+type LemonSelectCustomControl<T> = ({ onSelect }: { onSelect: OnSelect<T> }) => JSX.Element
 export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
     value: T
-    /** Extra element shown next to the label in the select menu. */
-    labelInMenuExtra?: React.ReactElement
     /**
-     * If you really need something more advanced than a button, you can provide a custom control component.
-     * This will be displayed instead of the label in the select menu.
-     * Can be for example a textarea with a "Use custom expression" button hooked up to `onSelect`.
+     * Label for display inside the dropdown menu.
+     *
+     * If you really need something more advanced than a button, this also allows providing a custom control component,
+     * which takes an `onSelect` prop. Can be for example a textarea with an "Apply value" button. Use this sparingly!
      */
-    CustomControl?: ({ onSelect }: { onSelect: OnSelect<T> }) => JSX.Element
+    labelInMenu?: JSX.Element | LemonSelectCustomControl<T>
 }
 
 export interface LemonSelectOptionNode<T> extends LemonSelectOptionBase {
@@ -201,21 +201,21 @@ function convertToMenuSingle<T>(
         } as LemonMenuItemNode
     } else {
         acc.push(option)
-        const { value, label, labelInMenuExtra, CustomControl, ...leaf } = option
+        const { value, label, labelInMenu, ...leaf } = option
+        let CustomControl: LemonSelectCustomControl<T> | undefined
+        if (typeof labelInMenu === 'function') {
+            CustomControl = labelInMenu
+        }
         return {
             ...leaf,
-            label: CustomControl ? (
-                function LabelWrapped() {
-                    return <CustomControl onSelect={onSelect} />
-                }
-            ) : labelInMenuExtra ? (
-                <>
-                    {label}
-                    {labelInMenuExtra}
-                </>
-            ) : (
-                label
-            ),
+            label: CustomControl
+                ? function LabelWrapped() {
+                      if (!CustomControl) {
+                          throw new Error('CustomControl became undefined')
+                      }
+                      return <CustomControl onSelect={onSelect} />
+                  }
+                : labelInMenu || label,
             active: value === activeValue,
             onClick: () => onSelect(value),
         } as LemonMenuItemLeaf

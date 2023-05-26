@@ -49,23 +49,28 @@ export function AttributionComponent({
                     ? { value: BreakdownAttributionType.Step, label: 'Any step' }
                     : {
                           value: BreakdownAttributionType.Step,
-                          label: 'Specific step',
-                          labelInMenuExtra: (
-                              <LemonSelect
-                                  className="ml-2"
-                                  onChange={(value) => {
-                                      if (value !== null) {
-                                          setFilters({
-                                              breakdown_attribution_type: BreakdownAttributionType.Step,
-                                              breakdown_attribution_value: value,
-                                          })
-                                      }
-                                  }}
-                                  placeholder={`Step ${
-                                      breakdown_attribution_value ? breakdown_attribution_value + 1 : 1
-                                  }`}
-                                  options={steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` }))}
-                              />
+                          label: breakdown_attribution_value
+                              ? `Step ${breakdown_attribution_value + 1}`
+                              : 'Specific step',
+                          labelInMenu: (
+                              <>
+                                  Specific step:
+                                  <LemonSelect
+                                      className="ml-2"
+                                      onChange={(value) => {
+                                          if (value !== null) {
+                                              setFilters({
+                                                  breakdown_attribution_type: BreakdownAttributionType.Step,
+                                                  breakdown_attribution_value: value,
+                                              })
+                                          }
+                                      }}
+                                      placeholder={`Step ${
+                                          breakdown_attribution_value ? breakdown_attribution_value + 1 : 1
+                                      }`}
+                                      options={steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` }))}
+                                  />
+                              </>
                           ),
                       },
             ]}
