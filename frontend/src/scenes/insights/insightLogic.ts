@@ -1132,6 +1132,10 @@ export const insightLogic = kea<insightLogicType>([
         },
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
+            // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
+            if (props.disableDataExploration && !insight.result && !insight.query && values.filters) {
+                actions.loadResults()
+            }
         },
         toggleInsightLegend: () => {
             const newFilters: Partial<TrendsFilterType> = {
