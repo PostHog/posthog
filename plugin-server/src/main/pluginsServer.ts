@@ -364,6 +364,8 @@ export async function startPluginsServer(
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
                 consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+                consumerErrorBackoffMs: serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
+                batchingTimeoutMs: serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             })
             stopSessionRecordingEventsConsumer = stop
             joinSessionRecordingEventsConsumer = join
