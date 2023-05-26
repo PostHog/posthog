@@ -16,6 +16,7 @@
  * track everything in this single process
  */
 
+import { captureException } from '@sentry/react'
 import { KafkaConsumer } from 'node-rdkafka-acosom'
 import { Gauge } from 'prom-client'
 
@@ -94,9 +95,12 @@ export class OffsetManager {
 
         if (!inFlightOffsets) {
             gaugeOffsetRemovalImpossible.inc()
-            status.warn('💾', `offset_manager - no inflight offsets found to remove`, { partition })
-            return
+            status.error('💾', `offset_manager - no inflight offsets found to remove`, { partition })
+            const e = new Error(`No in-flight offsets found for partition ${partition}`)
+            captureException(e, { extra: { offsets, inFlightOffsets }, tags: { topic, partition } })
+            throw e
         }
+
         inFlightOffsets.sort((a, b) => a.offset - b.offset)
 
         const logContext = {

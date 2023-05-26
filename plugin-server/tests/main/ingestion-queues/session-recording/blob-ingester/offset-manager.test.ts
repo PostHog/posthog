@@ -110,29 +110,104 @@ describe('offset-manager', () => {
         ;[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((offset) => {
             offsetManager.addOffset(TOPIC, 1, 'session_id', offset)
         })
+        expect(offsetManager.offsetsByPartitionTopic.size).toEqual(1)
+        expect(offsetManager.offsetsByPartitionTopic.get(`${TOPIC}-1`)).toEqual([
+            { offset: 1, session_id: 'session_id' },
+            { offset: 2, session_id: 'session_id' },
+            { offset: 3, session_id: 'session_id' },
+            { offset: 4, session_id: 'session_id' },
+            { offset: 5, session_id: 'session_id' },
+            { offset: 6, session_id: 'session_id' },
+            { offset: 7, session_id: 'session_id' },
+            { offset: 8, session_id: 'session_id' },
+            { offset: 9, session_id: 'session_id' },
+            { offset: 10, session_id: 'session_id' },
+        ])
 
         offsetManager.addOffset(TOPIC, 1, 'session_id', 1)
+
+        expect(offsetManager.offsetsByPartitionTopic.get(`${TOPIC}-1`)).toEqual([
+            { offset: 1, session_id: 'session_id' },
+            { offset: 2, session_id: 'session_id' },
+            { offset: 3, session_id: 'session_id' },
+            { offset: 4, session_id: 'session_id' },
+            { offset: 5, session_id: 'session_id' },
+            { offset: 6, session_id: 'session_id' },
+            { offset: 7, session_id: 'session_id' },
+            { offset: 8, session_id: 'session_id' },
+            { offset: 9, session_id: 'session_id' },
+            { offset: 10, session_id: 'session_id' },
+            { offset: 1, session_id: 'session_id' },
+        ])
+
         offsetManager.addOffset(TOPIC, 2, 'session_id', 2)
+
+        expect(offsetManager.offsetsByPartitionTopic.size).toEqual(2)
+        expect(offsetManager.offsetsByPartitionTopic.get(`${TOPIC}-1`)).toEqual([
+            { offset: 1, session_id: 'session_id' },
+            { offset: 2, session_id: 'session_id' },
+            { offset: 3, session_id: 'session_id' },
+            { offset: 4, session_id: 'session_id' },
+            { offset: 5, session_id: 'session_id' },
+            { offset: 6, session_id: 'session_id' },
+            { offset: 7, session_id: 'session_id' },
+            { offset: 8, session_id: 'session_id' },
+            { offset: 9, session_id: 'session_id' },
+            { offset: 10, session_id: 'session_id' },
+            { offset: 1, session_id: 'session_id' },
+        ])
+        expect(offsetManager.offsetsByPartitionTopic.get(`${TOPIC}-2`)).toEqual([
+            { offset: 2, session_id: 'session_id' },
+        ])
+
         offsetManager.addOffset(TOPIC, 3, 'session_id', 3)
+
+        expect(offsetManager.offsetsByPartitionTopic.size).toEqual(3)
+        expect(offsetManager.offsetsByPartitionTopic.get(`${TOPIC}-1`)).toEqual([
+            { offset: 1, session_id: 'session_id' },
+            { offset: 2, session_id: 'session_id' },
+            { offset: 3, session_id: 'session_id' },
+            { offset: 4, session_id: 'session_id' },
+            { offset: 5, session_id: 'session_id' },
+            { offset: 6, session_id: 'session_id' },
+            { offset: 7, session_id: 'session_id' },
+            { offset: 8, session_id: 'session_id' },
+            { offset: 9, session_id: 'session_id' },
+            { offset: 10, session_id: 'session_id' },
+            { offset: 1, session_id: 'session_id' },
+        ])
+        expect(offsetManager.offsetsByPartitionTopic.get(`${TOPIC}-2`)).toEqual([
+            { offset: 2, session_id: 'session_id' },
+        ])
+        expect(offsetManager.offsetsByPartitionTopic.get(`${TOPIC}-3`)).toEqual([
+            { offset: 3, session_id: 'session_id' },
+        ])
 
         expect(offsetManager.offsetsByPartitionTopic.has(`${TOPIC}-1`)).toEqual(true)
         offsetManager.revokePartitions(TOPIC, [1])
         expect(offsetManager.offsetsByPartitionTopic.has(`${TOPIC}-1`)).toEqual(false)
 
-        const resultOne = offsetManager.removeOffsets(TOPIC, 1, [1])
-        expect(resultOne).toEqual(undefined)
+        expect(() => offsetManager.removeOffsets(TOPIC, 1, [1])).toThrow('No in-flight offsets found for partition 1')
         expect(mockConsumer.commitSync).toHaveBeenCalledTimes(0)
 
         mockConsumer.commitSync.mockClear()
 
         const resultTwo = offsetManager.removeOffsets(TOPIC, 2, [2])
         expect(resultTwo).toEqual(2)
-        expect(mockConsumer.commitSync).toHaveBeenCalledTimes(1)
+        expect(mockConsumer.commitSync).toHaveBeenCalledWith({
+            offset: 3,
+            partition: 2,
+            topic: 'test-session-recordings',
+        })
 
         mockConsumer.commitSync.mockClear()
 
         const resultThree = offsetManager.removeOffsets(TOPIC, 3, [3])
         expect(resultThree).toEqual(3)
-        expect(mockConsumer.commitSync).toHaveBeenCalledTimes(1)
+        expect(mockConsumer.commitSync).toHaveBeenCalledWith({
+            offset: 4,
+            partition: 3,
+            topic: 'test-session-recordings',
+        })
     })
 })
