@@ -275,20 +275,10 @@ export class SessionManager {
      */
     public async flush(reason: 'buffer_size' | 'buffer_age'): Promise<void> {
         if (this.flushBuffer) {
-            status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing", {
-                sessionId: this.sessionId,
-                partition: this.partition,
-                reason,
-            })
             return
         }
 
         if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager flush somehow called after destroy`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-                reason,
-            })
             return
         }
 
