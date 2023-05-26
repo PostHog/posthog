@@ -24,8 +24,24 @@ services:
         extends:
             file: docker-compose.base.yml
             service: redis
+        container_name: primary
         ports:
             - '6379:6379'
+        networks:
+            - redis-replication
+
+    redis-replica:
+        extends:
+            file: docker-compose.base.yml
+            service: redis
+        container_name: replica
+        ports:
+            - '6380:6379'
+        command: redis-server --replicaof primary 6379
+        depends_on:
+            - redis
+        networks:
+            - redis-replication
 
     clickhouse:
         extends:
@@ -93,3 +109,7 @@ services:
             service: temporal-ui
         ports:
             - 8081:8080
+
+networks:
+    redis-replication:
+        driver: bridge

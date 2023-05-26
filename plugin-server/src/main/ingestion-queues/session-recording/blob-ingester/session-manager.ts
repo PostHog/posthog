@@ -3,6 +3,7 @@ import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
+import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter, Gauge } from 'prom-client'
 import * as zlib from 'zlib'
@@ -84,7 +85,8 @@ export class SessionManager {
         public readonly sessionId: string,
         public readonly partition: number,
         public readonly topic: string,
-        private readonly onFinish: (offsetsToRemove: number[]) => void
+        private readonly onFinish: (offsetsToRemove: number[]) => void,
+        private readonly instanceId: string = randomUUID()
     ) {
         this.buffer = this.createBuffer()
 
@@ -120,11 +122,6 @@ export class SessionManager {
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
-            status.debug('⚠️', `blob_ingester_session_manager add called after destroy`, {
-                message,
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             return
         }
 
@@ -151,10 +148,6 @@ export class SessionManager {
 
     public async flushIfBufferExceedsCapacity(): Promise<void> {
         if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager flush on buffer size called after destroy`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             return
         }
 
@@ -170,6 +163,7 @@ export class SessionManager {
                     gzippedCapacity,
                     gzipSizeKb,
                     sessionId: this.sessionId,
+                    instanceId: this.instanceId,
                 })
                 return this.flush('buffer_size')
             } else {
@@ -181,6 +175,7 @@ export class SessionManager {
                         sessionId: this.sessionId,
                         partition: this.partition,
                         chunks: this.chunks.size,
+                        instanceId: this.instanceId,
                     }
                 )
             }
@@ -189,10 +184,6 @@ export class SessionManager {
 
     public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
         if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             return
         }
 
@@ -206,33 +197,30 @@ export class SessionManager {
 
         const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
 
-        if (bufferAge >= flushThresholdMillis) {
-            const logContext = {
-                bufferAge,
-                sessionId: this.sessionId,
-                partition: this.partition,
-                chunkSize: this.chunks.size,
-                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
-                referenceTime: referenceNow,
-                flushThresholdMillis,
-            }
+        const chunkStates: Record<string, any> = {}
+        for (const [key, chunk] of this.chunks.entries()) {
+            chunkStates[key] = chunk.logContext
+        }
 
+        const logContext = {
+            bufferAge,
+            instanceId: this.instanceId,
+            sessionId: this.sessionId,
+            partition: this.partition,
+            chunkSize: this.chunks.size,
+            bufferedLines: this.buffer.count,
+            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+            humanOldestKakfaTimestamp: DateTime.fromMillis(this.buffer.oldestKafkaTimestamp).toISO(),
+            referenceTime: referenceNow,
+            humanReferenceTime: DateTime.fromMillis(referenceNow).toISO(),
+            flushThresholdMillis,
+        }
+
+        if (bufferAge >= flushThresholdMillis) {
             this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
 
             if (this.chunks.size !== 0) {
                 gaugePendingChunksBlocking.inc()
-                const chunkStates: Record<string, any> = {}
-                for (const [key, chunk] of this.chunks.entries()) {
-                    chunkStates[key] = chunk.logContext
-                }
-                status.warn(
-                    '🚽',
-                    `blob_ingester_session_manager flush buffer due to age, but chunks are still pending`,
-                    {
-                        ...logContext,
-                        chunks: chunkStates,
-                    }
-                )
             }
 
             // flush even though there may be incomplete chunks
@@ -243,14 +231,7 @@ export class SessionManager {
             return this.flush('buffer_age')
         } else {
             status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
-                bufferAge,
-                sessionId: this.sessionId,
-                partition: this.partition,
-                chunkSize: this.chunks.size,
-                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
-                referenceTime: referenceNow,
-                flushThresholdMillis,
-                bufferedLines: this.buffer.count,
+                ...logContext,
             })
         }
     }
