@@ -26,36 +26,40 @@ export const ProductEmptyState = ({
     customHog?: JSX.Element
 }): JSX.Element => {
     return (
-        <div className="border-2 border-dashed border-border-light w-full p-8 flex justify-center rounded-md mt-6">
-            <div className="max-w-160 text-center">
-                <div className="w-40 mx-auto mb-6">
-                    {customHog ? (
-                        { customHog }
-                    ) : actionable ? (
-                        <BuilderHog3 className="w-full h-full" />
-                    ) : (
-                        <DetectiveHog className="w-full h-full" />
-                    )}
+        <div className="border-2 border-dashed border-border-light w-full p-8 flex rounded-md mt-6">
+            <div className="max-w-180 flex items-center gap-x-8">
+                <div>
+                    <div className="w-40 mx-auto mb-4">
+                        {customHog ? (
+                            { customHog }
+                        ) : actionable ? (
+                            <BuilderHog3 className="w-full h-full" />
+                        ) : (
+                            <DetectiveHog className="w-full h-full" />
+                        )}
+                    </div>
                 </div>
-                <h2>{actionable ? `Create your first ${thingName}` : `No ${thingName}s yet`}</h2>
-                <p>{description}</p>
-                <div className="flex justify-center items-center gap-x-4 mt-6">
-                    {docsURL && (
-                        <LemonButton
-                            type="tertiary"
-                            status="muted-alt"
-                            sideIcon={<IconOpenInNew className="w-4 h-4" />}
-                            to={docsURL}
-                        >
-                            Learn more about {productName}
-                        </LemonButton>
-                    )}
-                    {action && (
-                        <LemonButton type="primary" sideIcon={<IconPlus />} onClick={action}>
-                            Create {thingName}
-                        </LemonButton>
-                    )}
-                    {actionOverride && actionOverride}
+                <div className="flex-shrink">
+                    <h2>{actionable ? `Create your first ${thingName}` : `No ${thingName}s yet`}</h2>
+                    <p className="ml-0">{description}</p>
+                    <div className="flex items-center gap-x-4 mt-6">
+                        {action && (
+                            <LemonButton type="primary" sideIcon={<IconPlus />} onClick={action}>
+                                Create {thingName}
+                            </LemonButton>
+                        )}
+                        {docsURL && (
+                            <LemonButton
+                                type="tertiary"
+                                status="muted-alt"
+                                sideIcon={<IconOpenInNew className="w-4 h-4" />}
+                                to={docsURL}
+                            >
+                                Learn more about {productName}
+                            </LemonButton>
+                        )}
+                        {actionOverride && actionOverride}
+                    </div>
                 </div>
             </div>
         </div>
