@@ -1,5 +1,6 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 
 export const ProductEmptyState = ({
     productName,
@@ -9,6 +10,7 @@ export const ProductEmptyState = ({
     action,
     actionOverride,
     docsURL,
+    customHog,
 }: {
     // The name of the product, e.g. "Cohorts"
     productName: string
@@ -21,10 +23,20 @@ export const ProductEmptyState = ({
     // If you want to provide a custom action button instead of using the default one
     actionOverride?: JSX.Element
     docsURL?: string
+    customHog?: JSX.Element
 }): JSX.Element => {
     return (
-        <div className="border-2 border-dashed border-border-light w-full p-8 flex justify-center rounded-md mt-8">
+        <div className="border-2 border-dashed border-border-light w-full p-8 flex justify-center rounded-md mt-6">
             <div className="max-w-160 text-center">
+                <div className="w-40 mx-auto mb-6">
+                    {customHog ? (
+                        { customHog }
+                    ) : actionable ? (
+                        <BuilderHog3 className="w-full h-full" />
+                    ) : (
+                        <DetectiveHog className="w-full h-full" />
+                    )}
+                </div>
                 <h2>{actionable ? `Create your first ${thingName}` : `No ${thingName}s yet`}</h2>
                 <p>{description}</p>
                 <div className="flex justify-center items-center gap-x-4 mt-6">
