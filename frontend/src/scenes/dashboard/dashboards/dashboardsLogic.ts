@@ -62,6 +62,14 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     }),
 
     selectors({
+        isFiltering: [
+            (s) => [s.filters],
+            (filters) => {
+                return Object.keys(filters).some(
+                    (key) => filters[key as keyof DashboardsFilters] !== DEFAULT_FILTERS[key]
+                )
+            },
+        ],
         dashboards: [
             (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse],
             (dashboards, filters, fuse) => {
