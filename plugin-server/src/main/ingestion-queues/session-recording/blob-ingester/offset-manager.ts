@@ -14,6 +14,24 @@
  *
  * This all works based on the idea that there is only one consumer (Orchestrator) per partition, allowing us to
  * track everything in this single process
+ *
+ * The expected lifecycle for a partition on the offset manager is
+ *
+ * 1. `assignPartition` - called when a partition is assigned to this consumer
+ *      - it doesn't actually matter that this is called first,
+ *      as it only checks if the manager is already tracking the partition as revoked
+ * 2. `addOffset` - called when a message is received from Kafka
+ *      - it should be impossible for a consumer to process a message without first adding it here
+ * 3. `removeOffset`
+ *      - called when a message is written to S3
+ *      if it is called for a partition that is not being tracked and has not been revoked then something is wrong in a weird way
+ * 4. `revokePartition`
+ *      - called when a partition is revoked from this consumer
+ * 5. `removeOffset`
+ *      - this could be called after revoke if we were processing messages for that partition as it was revoked
+ *      these messages can be safely ignored
+ *
+ *
  */
 
 import { captureException } from '@sentry/react'
@@ -30,6 +48,13 @@ export const gaugeOffsetCommitted = new Gauge({
 export const gaugeOffsetRemovalImpossible = new Gauge({
     name: 'offset_manager_offset_removal_impossible',
     help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed. That should always match an offset being managed',
+    labelNames: ['partition'],
+})
+
+export const gaugeOffsetRemovalAfterRevoke = new Gauge({
+    name: 'offset_manager_offset_removal_after_revoke',
+    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed. This could come after a rebalance, so we track that here',
+    labelNames: ['partition'],
 })
 
 interface SessionOffset {
@@ -42,6 +67,9 @@ export class OffsetManager {
     // as we add them we keep track of the session id so that if an ingester gets blocked
     // we can track that back to the session id for debugging
     offsetsByPartitionTopic: Map<string, SessionOffset[]> = new Map()
+    // when a rebalance occurs we may have ongoing processing that subsequently calls into the offset manager
+    // we want to know when this happens as it is safe to ignore
+    revokedPartitions: Record<string, Set<number>> = {}
 
     constructor(private consumer: KafkaConsumer) {}
 
@@ -57,12 +85,32 @@ export class OffsetManager {
         this.offsetsByPartitionTopic.set(key, current)
     }
 
+    assignPartition(topic: string, partitions: number[]) {
+        // a partition that was revoked from this consumer, could then be reassigned to it
+        // on a subsequent rebalance.
+        status.info('💾', 'offset_manager - checking if partitions were reassigned to this manager', {
+            topic,
+            partitions,
+            revokedPartitions: this.revokedPartitions,
+        })
+        for (const p of partitions) {
+            this.revokedPartitions[topic]?.delete(p)
+        }
+    }
+
     /**
      * When a rebalance occurs we need to remove all in-flight offsets for partitions that are no longer
      * assigned to this consumer.
      */
     public revokePartitions(topic: string, revokedPartitions: number[]): void {
-        const assignedKeys = revokedPartitions.map((partition) => `${topic}-${partition}`)
+        const assignedKeys = []
+        for (const partition of revokedPartitions) {
+            assignedKeys.push(`${topic}-${partition}`)
+            if (!this.revokedPartitions[topic]) {
+                this.revokedPartitions[topic] = new Set()
+            }
+            this.revokedPartitions[topic].add(partition)
+        }
 
         const keysToDelete = new Set<string>()
         for (const [key] of this.offsetsByPartitionTopic) {
@@ -94,7 +142,13 @@ export class OffsetManager {
         const inFlightOffsets = this.offsetsByPartitionTopic.get(key)
 
         if (!inFlightOffsets) {
-            gaugeOffsetRemovalImpossible.inc()
+            if (this.revokedPartitions[topic]?.has(partition)) {
+                // This is safe to ignore. We may have a session that is still processing after a rebalance
+                // but, we don't want to commit its offsets to kafka, we no longer own it
+                gaugeOffsetRemovalAfterRevoke.inc({ partition })
+                return
+            }
+            gaugeOffsetRemovalImpossible.inc({ partition })
             status.error('💾', `offset_manager - no inflight offsets found to remove`, { partition })
             const e = new Error(`No in-flight offsets found for partition ${partition}`)
             captureException(e, { extra: { offsets, inFlightOffsets }, tags: { topic, partition } })

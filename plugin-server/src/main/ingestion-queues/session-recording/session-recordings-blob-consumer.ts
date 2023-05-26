@@ -280,8 +280,10 @@ export class SessionRecordingBlobIngester {
             if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
                 /**
                  * The assign_partitions indicates that the consumer group has new assignments.
-                 * We don't need to do anything, but it is useful to log for debugging.
+                 * We explicitly ensire the offset manager is not treating these partitions as revoked
                  */
+                const assignedPartitions = topicPartitions.map((x) => x.partition)
+                this.offsetManager?.assignPartition(KAFKA_SESSION_RECORDING_EVENTS, assignedPartitions)
                 return
             }
 

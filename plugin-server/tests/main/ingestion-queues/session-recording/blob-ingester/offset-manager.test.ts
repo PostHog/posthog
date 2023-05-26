@@ -187,7 +187,9 @@ describe('offset-manager', () => {
         offsetManager.revokePartitions(TOPIC, [1])
         expect(offsetManager.offsetsByPartitionTopic.has(`${TOPIC}-1`)).toEqual(false)
 
-        expect(() => offsetManager.removeOffsets(TOPIC, 1, [1])).toThrow('No in-flight offsets found for partition 1')
+        expect(() => offsetManager.removeOffsets(TOPIC, 1, [1])).not.toThrow(
+            'No in-flight offsets found for partition 1'
+        )
         expect(mockConsumer.commitSync).toHaveBeenCalledTimes(0)
 
         mockConsumer.commitSync.mockClear()
@@ -208,6 +210,51 @@ describe('offset-manager', () => {
             offset: 4,
             partition: 3,
             topic: 'test-session-recordings',
+        })
+    })
+
+    it('if a partition was not revoked, then it must have offsets when they are requested for removal ', () => {
+        ;[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((offset) => {
+            offsetManager.addOffset(TOPIC, 1, 'session_id', offset)
+        })
+
+        expect(offsetManager.offsetsByPartitionTopic.get(`${TOPIC}-1`)?.length).toEqual(10)
+        expect(offsetManager.offsetsByPartitionTopic.has(`${TOPIC}-1`)).toEqual(true)
+
+        // revoke partition 1 - as if a rebalance has happened
+        offsetManager.revokePartitions(TOPIC, [1])
+        expect(offsetManager.offsetsByPartitionTopic.has(`${TOPIC}-1`)).toEqual(false)
+
+        // reassign partition 1 - as if a rebalance has happened
+        offsetManager.assignPartition(TOPIC, [1])
+
+        expect(() => offsetManager.removeOffsets(TOPIC, 1, [1])).toThrow('No in-flight offsets found for partition 1')
+        expect(mockConsumer.commitSync).toHaveBeenCalledTimes(0)
+    })
+
+    it('keeps track of revoked partitions', () => {
+        // we see session managers try to remove partitions for untracked partitions but don't know why
+        ;[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((partition) => {
+            offsetManager.addOffset(TOPIC, partition, 'session_id', partition * 2)
+        })
+
+        offsetManager.revokePartitions(TOPIC, [1, 2, 3, 4])
+        expect(Array.from(offsetManager.offsetsByPartitionTopic.keys())).toEqual([
+            `${TOPIC}-5`,
+            `${TOPIC}-6`,
+            `${TOPIC}-7`,
+            `${TOPIC}-8`,
+            `${TOPIC}-9`,
+            `${TOPIC}-10`,
+        ])
+
+        expect(offsetManager.revokedPartitions).toEqual({
+            [TOPIC]: new Set([1, 2, 3, 4]),
+        })
+
+        offsetManager.assignPartition(TOPIC, [1, 4])
+        expect(offsetManager.revokedPartitions).toEqual({
+            [TOPIC]: new Set([2, 3]),
         })
     })
 })
