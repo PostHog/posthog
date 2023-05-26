@@ -321,7 +321,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("event makes little sense"), "((events.event AS makes) AS little) AS sense")
 
     def test_case_when(self):
-        self.assertEqual(self._expr("case when 1 then 2 else 3 end"), "multiIf(1, 2, 3)")
+        self.assertEqual(self._expr("case when 1 then 2 else 3 end"), "if(1, 2, 3)")
 
     def test_case_when_many(self):
         self.assertEqual(self._expr("case when 1 then 2 when 3 then 4 else 5 end"), "multiIf(1, 2, 3, 4, 5)")

@@ -960,7 +960,7 @@ class TestParser(BaseTest):
     def test_case_when(self):
         self.assertEqual(
             parse_expr("case when 1 then 2 else 3 end"),
-            ast.Call(name="multiIf", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+            ast.Call(name="if", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
         )
 
     def test_case_when_many(self):

@@ -546,6 +546,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 if 0 < index < len(columns) - 1:
                     args[((index - 1) % 2) + 1].exprs.append(column)
             return ast.Call(name="transform", args=args)
+        elif len(columns) == 3:
+            return ast.Call(name="if", args=columns)
         else:
             return ast.Call(name="multiIf", args=columns)
 
