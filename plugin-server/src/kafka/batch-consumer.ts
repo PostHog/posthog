@@ -27,6 +27,7 @@ export const startBatchConsumer = async ({
     consumerMaxBytes,
     consumerMaxWaitMs,
     fetchBatchSize,
+    batchingTimeoutMs,
     eachBatch,
     autoCommit = true,
 }: {
@@ -38,6 +39,7 @@ export const startBatchConsumer = async ({
     consumerMaxBytes: number
     consumerMaxWaitMs: number
     fetchBatchSize: number
+    batchingTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     autoCommit?: boolean
 }): Promise<BatchConsumer> => {
@@ -112,7 +114,13 @@ export const startBatchConsumer = async ({
     await ensureTopicExists(adminClient, topic)
     adminClient.disconnect()
 
-    consumer.setDefaultConsumeTimeout(consumerMaxWaitMs)
+    // The consumer has an internal pre-fetching queue that sequentially pools
+    // each partition, with the consumerMaxWaitMs timeout. We want to read big
+    // batches from this queue, but guarantee we are still running (with smaller
+    // batches) if the queue is not full enough. batchingTimeoutMs is that
+    // timeout, to return messages even if fetchBatchSize is not reached.
+    consumer.setDefaultConsumeTimeout(batchingTimeoutMs)
+
     consumer.subscribe([topic])
 
     const startConsuming = async () => {
