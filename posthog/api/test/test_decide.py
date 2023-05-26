@@ -1894,12 +1894,12 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         # one extra query to select 1 to check db is alive
         # one extra query to select team because not in cache
         with self.assertNumQueries(6):
-            response = self._post_decide(api_version=2, distinct_id=12345)
-            self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
+            response = self._post_decide(api_version=3, distinct_id=12345)
+            self.assertEqual(response.json()["featureFlags"], {"random-flag": True, "filer-by-property": False})
 
         with self.assertNumQueries(4):
             response = self._post_decide(
-                api_version=2,
+                api_version=3,
                 distinct_id={
                     "id": 33040,
                     "shopify_domain": "xxx.myshopify.com",
@@ -1936,15 +1936,20 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
         # populate redis caches
-        self._post_decide(api_version=2, origin="https://random.example.com")
+        self._post_decide(api_version=3, origin="https://random.example.com")
 
         # remove database check cache values
         is_postgres_connected_cached_check.cache_clear()
 
         with connection.execute_wrapper(QueryTimeoutWrapper()), snapshot_postgres_queries_context(
             self
-        ), self.assertNumQueries(2):
-            response = self._post_decide(api_version=2, origin="https://random.example.com").json()
+        ), self.assertNumQueries(4):
+            response = self._post_decide(api_version=3, origin="https://random.example.com").json()
+            response = self._post_decide(api_version=3, origin="https://random.example.com").json()
+            response = self._post_decide(api_version=3, origin="https://random.example.com").json()
+
+            self.assertEqual(is_postgres_connected_cached_check.cache_info().hits, 2)
+            self.assertEqual(is_postgres_connected_cached_check.cache_info().misses, 1)
 
             self.assertEqual(
                 response["sessionRecording"],
@@ -1954,3 +1959,4 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)
             self.assertEqual(response["featureFlags"], {"no-props": True})
+            self.assertEqual(response["errorsWhileComputingFlags"], True)
