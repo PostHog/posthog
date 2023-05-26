@@ -154,15 +154,15 @@ export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
 }
 
 export const createPluginConfig = async (
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'has_error'>
 ) => {
     return await insertRow(postgres, 'posthog_pluginconfig', {
         ...pluginConfig,
+        config: pluginConfig.config ?? {},
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         enabled: true,
         order: 0,
-        config: {},
     })
 }
 
@@ -196,7 +196,7 @@ export const waitForPluginToLoad = (pluginConfig: any) => {
 }
 
 export const createAndReloadPluginConfig = async (teamId: number, pluginId: number) => {
-    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId })
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId, config: {} })
     await reloadPlugins()
     // We wait for some log entries for the plugin, to make sure it's ready to
     // process events.
