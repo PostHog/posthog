@@ -79,16 +79,22 @@ describe('the property definitions model', () => {
                 logic.actions.loadPropertyDefinitions(['a string'], 'event')
             })
                 .toDispatchActions([
-                    logic.actionCreators.updatePropertyDefinitions({ 'a string': PropertyDefinitionState.Pending }),
-                    logic.actionCreators.fetchAllPendingDefinitions(),
-                    logic.actionCreators.updatePropertyDefinitions({ 'a string': PropertyDefinitionState.Loading }),
                     logic.actionCreators.updatePropertyDefinitions({
-                        'a string': propertyDefinitions.find(({ name }) => name === 'a string') as PropertyDefinition,
+                        'event/a string': PropertyDefinitionState.Pending,
+                    }),
+                    logic.actionCreators.fetchAllPendingDefinitions(),
+                    logic.actionCreators.updatePropertyDefinitions({
+                        'event/a string': PropertyDefinitionState.Loading,
+                    }),
+                    logic.actionCreators.updatePropertyDefinitions({
+                        'event/a string': propertyDefinitions.find(
+                            ({ name }) => name === 'a string'
+                        ) as PropertyDefinition,
                     }),
                 ])
                 .toMatchValues({
                     propertyDefinitionStorage: partial({
-                        'a string': propertyDefinitions.find(({ name }) => name === 'a string'),
+                        'event/a string': propertyDefinitions.find(({ name }) => name === 'a string'),
                     }),
                     propertyDefinitions: [
                         {
@@ -112,15 +118,15 @@ describe('the property definitions model', () => {
                 })
                     .toDispatchActions([
                         logic.actionCreators.updatePropertyDefinitions({
-                            'network error': PropertyDefinitionState.Pending,
+                            'event/network error': PropertyDefinitionState.Pending,
                         }),
                         logic.actionCreators.fetchAllPendingDefinitions(),
                         logic.actionCreators.updatePropertyDefinitions({
-                            'network error': PropertyDefinitionState.Error,
+                            'event/network error': PropertyDefinitionState.Error,
                         }),
                     ])
                     .toMatchValues({
-                        propertyDefinitionStorage: partial({ 'network error': PropertyDefinitionState.Error }),
+                        propertyDefinitionStorage: partial({ 'event/network error': PropertyDefinitionState.Error }),
                     })
             }
         })
@@ -131,15 +137,15 @@ describe('the property definitions model', () => {
             })
                 .toDispatchActions([
                     logic.actionCreators.updatePropertyDefinitions({
-                        'this is not there': PropertyDefinitionState.Pending,
+                        'event/this is not there': PropertyDefinitionState.Pending,
                     }),
                     logic.actionCreators.fetchAllPendingDefinitions(),
                     logic.actionCreators.updatePropertyDefinitions({
-                        'this is not there': PropertyDefinitionState.Missing,
+                        'event/this is not there': PropertyDefinitionState.Missing,
                     }),
                 ])
                 .toMatchValues({
-                    propertyDefinitionStorage: partial({ 'this is not there': PropertyDefinitionState.Missing }),
+                    propertyDefinitionStorage: partial({ 'event/this is not there': PropertyDefinitionState.Missing }),
                 })
         })
 
@@ -150,7 +156,7 @@ describe('the property definitions model', () => {
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['updatePropertyDefinitions'])
                 .toMatchValues({
-                    propertyDefinitionStorage: { $session_duration: partial({ name: '$session_duration' }) },
+                    propertyDefinitionStorage: { 'event/$session_duration': partial({ name: '$session_duration' }) },
                 })
         })
     })
@@ -188,7 +194,7 @@ describe('the property definitions model', () => {
                     'updatePropertyDefinitions',
                 ])
                 .toMatchValues({
-                    propertyDefinitionStorage: partial({ 'not a prop': PropertyDefinitionState.Missing }),
+                    propertyDefinitionStorage: partial({ 'event/not a prop': PropertyDefinitionState.Missing }),
                 })
             expect(logic.values.describeProperty('not a prop', 'event')).toEqual(null)
             await expectLogic(logic)
@@ -196,7 +202,7 @@ describe('the property definitions model', () => {
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['loadPropertyDefinitions'])
                 .toMatchValues({
-                    propertyDefinitionStorage: partial({ 'not a prop': PropertyDefinitionState.Missing }),
+                    propertyDefinitionStorage: partial({ 'event/not a prop': PropertyDefinitionState.Missing }),
                 })
         })
     })

@@ -59,14 +59,15 @@ const checkOrLoadPropertyDefinition = (
     propertyDefinitionStorage: PropertyDefinitionStorage
 ): PropertyDefinition | null => {
     // first time we see this, schedule a fetch
-    if (typeof propertyName === 'string' && !(propertyName in propertyDefinitionStorage)) {
+    const key = `${definitionType}/${propertyName}`
+    if (typeof propertyName === 'string' && !(key in propertyDefinitionStorage)) {
         window.setTimeout(
             () =>
                 propertyDefinitionsModel.findMounted()?.actions.loadPropertyDefinitions([propertyName], definitionType),
             0
         )
     }
-    const cachedResponse = propertyDefinitionStorage[`${definitionType}/${propertyName}`]
+    const cachedResponse = propertyDefinitionStorage[key]
     if (typeof cachedResponse === 'object') {
         return cachedResponse
     }
@@ -164,13 +165,13 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 // since this is a unique query, there is no breakpoint here to prevent out of order replies
                 const newProperties: PropertyDefinitionStorage = {}
                 for (const [type, pending] of Object.entries(pendingByType)) {
+                    if (pending.length === 0) {
+                        continue
+                    }
                     // set them all as PropertyDefinitionState.Loading
                     actions.updatePropertyDefinitions(
                         Object.fromEntries(pending.map((key) => [`${type}/${key}`, PropertyDefinitionState.Loading]))
                     )
-                    if (pending.length === 0) {
-                        continue
-                    }
                     // and then fetch them
                     const propertyDefinitions = await api.propertyDefinitions.list({
                         properties: pending,
