@@ -4,9 +4,9 @@ import { loaders } from 'kea-loaders'
 import { NotebookListItemType } from '~/types'
 
 import type { notebooksListLogicType } from './notebooksListLogicType'
-import { delay, uuid } from 'lib/utils'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import api from 'lib/api'
 
 const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
@@ -15,18 +15,13 @@ const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     created_by: null,
 }
 
-const createLocalNotebook = (short_id: string): NotebookListItemType => ({
-    short_id,
-    created_at: '',
-    created_by: null,
-})
-
 export const notebooksListLogic = kea<notebooksListLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
         createNotebook: (redirect = false) => ({ redirect }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
+        loadNotebooks: true,
     }),
 
     reducers({
@@ -36,30 +31,21 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 setScratchpadNotebook: (_, { notebook }) => notebook,
             },
         ],
-
-        // NOTE: This is temporary, until we have a backend
-        localNotebooks: [
-            [] as NotebookListItemType[],
-            { persist: true },
-            {
-                createNotebookSuccess: (_, { notebooks }) => notebooks,
-                receiveNotebookUpdateSuccess: (_, { notebooks }) => notebooks,
-            },
-        ],
     }),
 
     loaders(({ values }) => ({
         notebooks: [
             [] as NotebookListItemType[],
             {
-                loadNotebooks: async () => {
-                    await delay(1000)
-                    return values.localNotebooks
+                loadNotebooks: async (_, breakpoint) => {
+                    // TODO: Support pagination
+                    await breakpoint(100)
+                    const res = await api.notebooks.list()
+                    return res.results
                 },
-                createNotebook: async ({ redirect }) => {
-                    const notebook = createLocalNotebook(uuid())
-
-                    await delay(1000)
+                createNotebook: async ({ redirect }, breakpoint) => {
+                    await breakpoint(100)
+                    const notebook = await api.notebooks.create()
 
                     if (redirect) {
                         setTimeout(() => {
@@ -68,11 +54,11 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                         }, 500)
                     }
 
-                    return [...values.localNotebooks, notebook]
+                    return [notebook]
                 },
 
                 receiveNotebookUpdate: ({ notebook }) => {
-                    return values.localNotebooks.map((n) => (n.short_id === notebook.short_id ? notebook : n))
+                    return values.notebooks.map((n) => (n.short_id === notebook.short_id ? notebook : n))
                 },
             },
         ],

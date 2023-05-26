@@ -22,7 +22,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { NotFound } from 'lib/components/NotFound'
 
 export type NotebookProps = {
-    id: string | number
+    shortId: string
     sourceMode?: boolean
     editable?: boolean
 }
@@ -33,12 +33,12 @@ const CustomDocument = ExtensionDocument.extend({
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({ id, sourceMode, editable = false }: NotebookProps): JSX.Element {
-    const logic = notebookLogic({ id })
+export function Notebook({ shortId, sourceMode, editable = false }: NotebookProps): JSX.Element {
+    const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading } = useValues(logic)
     const { setEditorRef, onEditorUpdate } = useActions(logic)
 
-    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [id])
+    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
     const editor = useEditor({
         extensions: [
@@ -127,7 +127,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
     // TODO - Render a special state if the notebook is empty
 
     return (
-        <BindLogic logic={notebookLogic} props={{ id }}>
+        <BindLogic logic={notebookLogic} props={{ shortId }}>
             <div className="Notebook">
                 {/* {editor && (
                 <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex items-center gap-2">

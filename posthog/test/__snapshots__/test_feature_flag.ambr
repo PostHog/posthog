@@ -389,6 +389,20 @@
          AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
   '
 ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.7
+  '
+  SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
+         "posthog_featureflaghashkeyoverride"."hash_key",
+         "posthog_featureflaghashkeyoverride"."person_id"
+  FROM "posthog_featureflaghashkeyoverride"
+  WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (1,
+                                                              2,
+                                                              3,
+                                                              4,
+                                                              5 /* ... */)
+         AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging
   '
   

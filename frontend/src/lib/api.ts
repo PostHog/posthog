@@ -40,6 +40,7 @@ import {
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
     Survey,
+    NotebookType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -465,6 +466,15 @@ class ApiRequest {
     // # Queries
     public query(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
+    }
+
+    // Notebooks
+    public notebooks(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('notebooks')
+    }
+
+    public notebook(id: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebooks(teamId).addPathComponent(id)
     }
 
     // Request finalization
@@ -1137,6 +1147,24 @@ const api = {
                 .withAction('recordings')
                 .withAction(session_recording_id)
                 .delete()
+        },
+    },
+
+    notebooks: {
+        async get(notebookId: NotebookType['short_id']): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).get()
+        },
+        async update(
+            notebookId: NotebookType['short_id'],
+            data: Pick<NotebookType, 'version' | 'content' | 'title'>
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).update({ data })
+        },
+        async list(): Promise<PaginatedResponse<NotebookType>> {
+            return await new ApiRequest().notebooks().get()
+        },
+        async create(data?: Pick<NotebookType, 'content'>): Promise<NotebookType> {
+            return await new ApiRequest().notebooks().create({ data })
         },
     },
 
