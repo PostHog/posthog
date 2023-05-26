@@ -27,7 +27,7 @@ class TestTolerantZlibCompressor(TestCase):
     )
     def test_the_zlib_compressor_compression(self, _, setting: bool, input: bytes, output: bytes) -> None:
         with self.settings(USE_REDIS_COMPRESSION=setting):
-            self.assertEqual(output, self.compressor.compress(input))
+            assert self.compressor.compress(input) == output
 
     @parameterized.expand(
         [
@@ -38,4 +38,4 @@ class TestTolerantZlibCompressor(TestCase):
     )
     def test_the_zlib_compressor_decompression(self, _, setting: bool, input: bytes, output: bytes) -> None:
         with self.settings(USE_REDIS_COMPRESSION=setting):
-            self.assertEqual(output, self.compressor.decompress(input))
+            assert self.compressor.decompress(input) == output
