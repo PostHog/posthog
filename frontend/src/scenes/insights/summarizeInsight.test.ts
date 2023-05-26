@@ -15,6 +15,7 @@ import {
 import {
     BASE_MATH_DEFINITIONS,
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    HOGQL_MATH_DEFINITIONS,
     MathCategory,
     MathDefinition,
     PROPERTY_MATH_DEFINITIONS,
@@ -61,6 +62,7 @@ const mathDefinitions: Record<string, MathDefinition> = {
     },
     ...PROPERTY_MATH_DEFINITIONS,
     ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    ...HOGQL_MATH_DEFINITIONS,
 }
 
 const summaryContext: SummaryContext = {

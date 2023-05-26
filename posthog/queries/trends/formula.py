@@ -55,7 +55,11 @@ class TrendsFormula:
             # Need to wrap aggregates in arrays so we can still use arrayMap
             selects=", ".join(
                 [
-                    (f"[sub_{letter}.total]" if is_aggregate else f"arrayResize(sub_{letter}.total, max_length, 0)")
+                    (
+                        f"[ifNull(sub_{letter}.total, 0)]"
+                        if is_aggregate
+                        else f"arrayResize(sub_{letter}.total, max_length, 0)"
+                    )
                     for letter in letters
                 ]
             ),
