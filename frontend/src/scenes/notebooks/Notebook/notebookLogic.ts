@@ -44,7 +44,6 @@ export const notebookLogic = kea<notebookLogicType>([
         setReady: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
-        setExpanded: (expanded: boolean) => ({ expanded }),
     }),
     reducers({
         localContent: [
@@ -77,13 +76,6 @@ export const notebookLogic = kea<notebookLogicType>([
             false,
             {
                 setReady: () => true,
-            },
-        ],
-
-        expanded: [
-            true,
-            {
-                setExpanded: (_, { expanded }) => expanded,
             },
         ],
     }),

@@ -29,14 +29,10 @@
 
     &--compact {
         .NotebookEditor {
-            > :not(.react-renderer) {
+            > * {
                 max-width: 1000px;
-                margin: 0 auto;
-            }
-
-            .react-renderer {
-                max-width: 1000px;
-                margin: 0 auto;
+                margin-left: auto;
+                margin-right: auto;
             }
         }
     }

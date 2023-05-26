@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
+import { notebookSettingsLogic } from './Notebook/notebookSettingsLogic'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -28,9 +29,11 @@ export const scene: SceneExport = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, mode } = useValues(notebookSceneLogic)
     const { setNotebookMode } = useActions(notebookSceneLogic)
-    const { notebook, notebookLoading, expanded } = useValues(notebookLogic({ shortId: notebookId }))
-    const { setExpanded } = useActions(notebookLogic({ shortId: notebookId }))
+    const { notebook, notebookLoading } = useValues(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setNotebookSideBarShown } = useActions(notebookSidebarLogic)
+
+    const { isExpanded } = useValues(notebookSettingsLogic)
+    const { setIsExpanded } = useActions(notebookSettingsLogic)
 
     if (!notebook && !notebookLoading) {
         return <NotFound object="notebook" />
@@ -48,8 +51,8 @@ export function NotebookScene(): JSX.Element {
 
                     <LemonButton
                         type="secondary"
-                        onClick={() => setExpanded(!expanded)}
-                        icon={<IconDocumentExpand mode={expanded ? 'expand' : 'collapse'} />}
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        icon={<IconDocumentExpand mode={isExpanded ? 'expand' : 'collapse'} />}
                     />
 
                     <LemonButton
