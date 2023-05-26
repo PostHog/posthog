@@ -723,7 +723,7 @@ def parse_exception_for_error_message(err: Exception):
     reason = "unknown"
     if isinstance(err, OperationalError):
         if "statement timeout" in str(err):
-            reason = "statement_timeout"
+            reason = "timeout"
         elif "no more connections" in str(err):
             reason = "no_more_connections"
     elif isinstance(err, DatabaseError):
