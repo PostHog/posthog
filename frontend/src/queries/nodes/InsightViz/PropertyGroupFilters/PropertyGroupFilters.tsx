@@ -78,6 +78,7 @@ export function PropertyGroupFilters({
                                                         }
                                                         value={group.type}
                                                     />
+                                                    <LemonDivider className="flex-1 mx-2" />
                                                     <div className="flex items-center space-x-2">
                                                         <LemonButton
                                                             icon={<IconCopy />}
