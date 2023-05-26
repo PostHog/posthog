@@ -1,4 +1,4 @@
-import { DashboardType, InsightModel } from '~/types'
+import { DashboardType, InsightModel, SessionRecordingType } from '~/types'
 
 export enum ExportType {
     Image = 'image',
@@ -10,6 +10,8 @@ export interface ExportOptions {
     whitelabel?: boolean
     noHeader?: boolean
     legend?: boolean
+    // Recording options
+    showInspector?: boolean
 }
 
 export interface ExportedData extends ExportOptions {
@@ -17,4 +19,5 @@ export interface ExportedData extends ExportOptions {
     type: ExportType
     dashboard?: DashboardType
     insight?: InsightModel
+    recording?: SessionRecordingType
 }

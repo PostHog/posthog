@@ -7,6 +7,7 @@ import {
     createAndReloadPluginConfig,
     createOrganization,
     createPlugin,
+    createPluginAttachment,
     createPluginConfig,
     createTeam,
     fetchEvents,
@@ -15,6 +16,7 @@ import {
     getPluginConfig,
     reloadPlugins,
     updatePluginConfig,
+    waitForPluginToLoad,
 } from './api'
 import { waitForExpect } from './expectations'
 
@@ -533,7 +535,7 @@ test.concurrent(
         })
 
         const teamId = await createTeam(organizationId)
-        const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id })
+        const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} })
         await reloadPlugins()
 
         await waitForExpect(
@@ -549,6 +551,167 @@ test.concurrent(
     },
     120000
 )
+
+test.concurrent('plugins can use attachements', async () => {
+    const indexJs = `
+        export function processEvent(event, { attachments }) {
+            return {
+                ...event,
+                properties: {
+                    ...event.properties,
+                    attachments: attachments
+                }
+            };
+        }`
+
+    const teamId = await createTeam(organizationId)
+    const plugin = await createPlugin({
+        organization_id: organizationId,
+        name: 'attachments plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: indexJs,
+    })
+
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} })
+
+    await createPluginAttachment({
+        teamId,
+        pluginConfigId: pluginConfig.id,
+        fileSize: 4,
+        contentType: 'text/plain',
+        fileName: 'test.txt',
+        key: 'testAttachment',
+        contents: 'test',
+    })
+
+    await reloadPlugins()
+
+    // Wait for plugin setupPlugin to have run
+    await waitForPluginToLoad(pluginConfig)
+
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    // Wait for
+
+    // First let's ingest an event
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: 'custom event',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+        },
+    })
+
+    const [event] = await waitForExpect(async () => {
+        const events = await fetchEvents(teamId)
+        expect(events.length).toBe(1)
+        return events
+    })
+
+    // Check the attachment was added to the event.
+    expect(event.properties.attachments).toEqual({
+        testAttachment: {
+            file_name: 'test.txt',
+            content_type: 'text/plain',
+            contents: JSON.parse(JSON.stringify(Buffer.from('test'))),
+        },
+    })
+})
+
+test.concurrent('plugins can use config variables', async () => {
+    const indexJs = `
+        export function processEvent(event, { config }) {
+            return {
+                ...event,
+                properties: {
+                    ...event.properties,
+                    config: config
+                }
+            };
+        }`
+
+    const pluginJson = {
+        name: 'plugin with secret',
+        url: 'https://some.url',
+        description: '',
+        main: 'index.js',
+        config: [
+            {
+                markdown: 'A Markdown block.\n[Use links](http://example.com) and other goodies!',
+            },
+            {
+                key: 'secretVariable',
+                name: 'Secret Variable',
+                type: 'string',
+                default: '',
+                hint: '',
+                required: true,
+                secret: true,
+            },
+            {
+                key: 'normalVariable',
+                name: 'Normal Variable',
+                type: 'string',
+                default: '',
+                hint: '',
+            },
+        ],
+    }
+
+    const teamId = await createTeam(organizationId)
+    const plugin = await createPlugin({
+        organization_id: organizationId,
+        name: 'plugin config',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: indexJs,
+        source__plugin_json: JSON.stringify(pluginJson),
+    })
+
+    const pluginConfig = await createPluginConfig({
+        team_id: teamId,
+        plugin_id: plugin.id,
+        config: { secretVariable: 'super secret', normalVariable: 'look at me' },
+    })
+    await reloadPlugins()
+
+    // Wait for plugin setupPlugin to have run
+    await waitForPluginToLoad(pluginConfig)
+
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    // Wait for
+
+    // First let's ingest an event
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: 'custom event',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+        },
+    })
+
+    const [event] = await waitForExpect(async () => {
+        const events = await fetchEvents(teamId)
+        expect(events.length).toBe(1)
+        return events
+    })
+
+    // Check the attachment was added to the event.
+    expect(event.properties.config).toEqual({
+        secretVariable: 'super secret',
+        normalVariable: 'look at me',
+    })
+})
 
 test.concurrent(`liveness check endpoint works`, async () => {
     await waitForExpect(async () => {

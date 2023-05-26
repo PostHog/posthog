@@ -156,6 +156,15 @@ export async function runPluginTask(
             )
         }
 
+        if (!pluginConfig?.enabled) {
+            status.info('🚮', 'Skipping job for disabled pluginconfig', {
+                taskName: taskName,
+                taskType: taskType,
+                pluginConfigId: pluginConfigId,
+            })
+            return
+        }
+
         shouldQueueAppMetric = taskType === PluginTaskType.Schedule && !task.__ignoreForAppMetrics
         response = await instrument(
             hub.statsd,

@@ -44,7 +44,3 @@ export function isIngestionOverflowEnabled(): boolean {
     const ingestionOverflowEnabled = process.env.INGESTION_OVERFLOW_ENABLED
     return stringToBoolean(ingestionOverflowEnabled)
 }
-
-export function isIngestionParallelBatchingEnabled(): boolean {
-    return stringToBoolean(process.env.INGESTION_PARALLEL_BATCHING_ENABLED)
-}
