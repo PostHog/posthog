@@ -1,3 +1,4 @@
+import { createRoot } from 'react-dom/client'
 import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { ActorType, ExporterFormat, PropertiesTimelineFilterType, SessionRecordingType } from '~/types'
@@ -9,7 +10,6 @@ import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/ico
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonBadge, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
-import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SaveCohortModal } from './SaveCohortModal'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -378,13 +378,15 @@ export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfter
 
 export const openPersonsModal = (props: OpenPersonsModalProps): void => {
     const div = document.createElement('div')
+    const root = createRoot(div)
+
     function destroy(): void {
-        const unmountResult = ReactDOM.unmountComponentAtNode(div)
-        if (unmountResult && div.parentNode) {
+        root.unmount()
+        if (div.parentNode) {
             div.parentNode.removeChild(div)
         }
     }
 
     document.body.appendChild(div)
-    ReactDOM.render(<PersonsModal {...props} onAfterClose={destroy} />, div)
+    root.render(<PersonsModal {...props} onAfterClose={destroy} />)
 }

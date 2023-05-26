@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { useValues } from 'kea'
 import {
     ActiveElement,
@@ -418,7 +418,7 @@ export function LineGraph_({
                                 )
                             })
 
-                            ReactDOM.render(
+                            createRoot(tooltipEl).render(
                                 <InsightTooltip
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     timezone={timezone}
@@ -438,8 +438,7 @@ export function LineGraph_({
                                             : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
-                                />,
-                                tooltipEl
+                                />
                             )
                         }
 

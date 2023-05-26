@@ -40,12 +40,12 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
             }
         }
 
-        ;(referenceRef.current as HTMLElement).addEventListener('keydown', handleKeyDown)
+        ;(referenceRef.current as HTMLElement)?.addEventListener('keydown', handleKeyDown)
         for (const item of itemsRef.current) {
             item.current?.addEventListener('keydown', handleKeyDown)
         }
         return () => {
-            ;(referenceRef.current as HTMLElement).removeEventListener('keydown', handleKeyDown)
+            ;(referenceRef.current as HTMLElement)?.removeEventListener('keydown', handleKeyDown)
             for (const item of itemsRef.current) {
                 item.current?.removeEventListener('keydown', handleKeyDown)
             }

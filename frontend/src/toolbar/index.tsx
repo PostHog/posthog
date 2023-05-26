@@ -1,7 +1,7 @@
 import '~/styles'
 import './styles.scss'
 
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { initKea } from '~/initKea'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { ToolbarParams } from '~/types'
@@ -17,14 +17,13 @@ import { PostHog } from 'posthog-js'
         )
     }
 
-    ReactDOM.render(
+    createRoot(container).render(
         <ToolbarApp
             {...toolbarParams}
             actionId={parseInt(String(toolbarParams.actionId))}
             jsURL={toolbarParams.jsURL || toolbarParams.apiURL}
             posthog={posthog}
-        />,
-        container
+        />
     )
 }
 /** @deprecated, use "ph_load_toolbar" instead */
