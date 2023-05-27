@@ -43,7 +43,12 @@ export const ProductEmptyState = ({
                     <p className="ml-0">{description}</p>
                     <div className="flex items-center gap-x-4 mt-6">
                         {action ? (
-                            <LemonButton type="primary" sideIcon={<IconPlus />} onClick={action}>
+                            <LemonButton
+                                type="primary"
+                                sideIcon={<IconPlus />}
+                                onClick={action}
+                                data-attr={'create-' + thingName}
+                            >
                                 Create {thingName}
                             </LemonButton>
                         ) : (

@@ -94,7 +94,7 @@ describe('Insights', () => {
             cy.get('[data-attr="menu-item-annotations"]').click()
 
             // the annotations API call is made before the annotations page loads, so we can't wait for it
-            cy.get('[data-attr="annotations-table"]').should('exist')
+            cy.get('[data-attr="annotations-content"]').should('exist')
             cy.url().should('include', '/annotations')
         })
 
