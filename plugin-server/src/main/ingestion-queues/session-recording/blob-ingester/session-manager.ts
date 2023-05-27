@@ -360,9 +360,9 @@ export class SessionManager {
     }
 
     /**
-     * Chunked messages are added to the chunks map
+     * Chunked messages arrive over time or as duplicates
+     * and are stored until there is a complete set
      * Once all chunks are received, the message is added to the buffer
-     *
      */
     private async addToChunks(message: IncomingRecordingMessage): Promise<void> {
         // If it is a chunked message we add to the collected chunks
@@ -377,17 +377,19 @@ export class SessionManager {
         if (pendingChunks && pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
-            await this.processChunksToBuffer(pendingChunks.completedChunks, pendingChunks.allChunkOffsets)
+            await this.processChunksToBuffer(pendingChunks)
             this.chunks.delete(message.chunk_id)
         }
     }
 
-    private async processChunksToBuffer(chunks: IncomingRecordingMessage[], allOffsets: number[]): Promise<void> {
-        allOffsets.forEach((offset) => this.buffer.offsets.push(offset))
+    private async processChunksToBuffer(pendingChunks: PendingChunks): Promise<void> {
+        pendingChunks.allChunkOffsets.forEach((offset) => this.buffer.offsets.push(offset))
+
+        const completedChunks = pendingChunks.completedChunks
 
         await this.addToBuffer({
-            ...chunks[0],
-            data: chunks
+            ...completedChunks[0],
+            data: completedChunks
                 .sort((a, b) => a.chunk_index - b.chunk_index)
                 .map((c) => c.data)
                 .join(''),
