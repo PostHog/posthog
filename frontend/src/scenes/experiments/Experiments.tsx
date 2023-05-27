@@ -27,7 +27,7 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, searchTerm } = useValues(experimentsLogic)
+    const { filteredExperiments, experimentsLoading, tab, searchTerm, searchStatus } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -172,7 +172,7 @@ export function Experiments(): JSX.Element {
                             { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                         ]}
                     />
-                    {filteredExperiments.length > 0 || experimentsLoading ? (
+                    {filteredExperiments.length > 0 || experimentsLoading || searchTerm || searchStatus ? (
                         <>
                             <div className="flex justify-between mb-4">
                                 <LemonInput
@@ -192,7 +192,7 @@ export function Experiments(): JSX.Element {
                                             }
                                         }}
                                         options={[
-                                            { label: 'All', value: 'all' },
+                                            { label: 'All', value: ProgressStatus.All },
                                             { label: 'Draft', value: ProgressStatus.Draft },
                                             { label: 'Running', value: ProgressStatus.Running },
                                             { label: 'Complete', value: ProgressStatus.Complete },
