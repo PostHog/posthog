@@ -401,7 +401,6 @@ export class SessionManager {
             this.inProgressUpload = null
         }
 
-        status.debug('␡', `blob_ingester_session_manager Destroying session manager`, { sessionId: this.sessionId })
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
             .map((x) =>
