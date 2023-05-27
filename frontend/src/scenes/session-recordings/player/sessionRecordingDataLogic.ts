@@ -430,21 +430,32 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     )
                     breakpoint()
 
-                    const contentBuffer = new Uint8Array(await response.arrayBuffer())
-                    const jsonLines = strFromU8(decompressSync(contentBuffer)).trim().split('\n')
-                    const snapshots: RecordingSnapshot[] = jsonLines.flatMap((l) => {
-                        const snapshotLine = JSON.parse(l)
-                        const snapshotData = JSON.parse(snapshotLine['data'])
+                    try {
+                        const contentBuffer = new Uint8Array(await response.arrayBuffer())
+                        const decompressedBytes = decompressSync(contentBuffer)
+                        const decompressedBlobs = strFromU8(decompressedBytes)
+                        const jsonLines = decompressedBlobs.trim().split('\n')
+                        const snapshots: RecordingSnapshot[] = jsonLines.flatMap((l) => {
+                            const snapshotLine = JSON.parse(l)
+                            const snapshotData = JSON.parse(snapshotLine['data'])
 
-                        return snapshotData.map((d: any) => ({
-                            windowId: snapshotLine['window_id'],
-                            ...d,
-                        }))
-                    })
-
-                    return {
-                        blob_keys: snapshotDataClone.blob_keys,
-                        snapshots: prepareRecordingSnapshots(snapshots, snapshotDataClone.snapshots),
+                            return snapshotData.map((d: any) => ({
+                                windowId: snapshotLine['window_id'],
+                                ...d,
+                            }))
+                        })
+                        return {
+                            blob_keys: snapshotDataClone.blob_keys,
+                            snapshots: prepareRecordingSnapshots(snapshots, snapshotDataClone.snapshots),
+                        }
+                    } catch (e) {
+                        captureException(e, {
+                            tags: {
+                                blob_key,
+                                sessionRecordingId: props.sessionRecordingId,
+                            },
+                        })
+                        throw e
                     }
                 },
                 loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
