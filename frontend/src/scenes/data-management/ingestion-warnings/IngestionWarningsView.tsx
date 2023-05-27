@@ -190,7 +190,6 @@ export function IngestionWarningsView(): JSX.Element {
                     thingName="ingestion warning"
                     description="Nice! You've had no ingestion warnings in the past 30 days. If we detect any issues with your data, we'll show them here."
                     docsURL="https://posthog.com/docs/data/data-management#ingestion-warnings"
-                    actionable={false}
                 />
             )}
         </div>

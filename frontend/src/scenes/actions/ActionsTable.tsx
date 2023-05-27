@@ -278,7 +278,7 @@ export function ActionsTable(): JSX.Element {
                     thingName="action"
                     description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
                     docsURL="https://posthog.com/docs/data/actions"
-                    actionOverride={<NewActionButton />}
+                    actionElementOverride={<NewActionButton />}
                 />
             )}
         </div>

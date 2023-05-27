@@ -31,7 +31,6 @@ const Empty = ({ scope, idExists }: { scope: string; idExists: boolean }): JSX.E
                 productName={noun.toUpperCase()}
                 thingName={'history for ' + noun}
                 description={`History shows any changes that were made to ${noun}. As changes are made they'll show up here.`}
-                actionable={false}
             />
         </div>
     )

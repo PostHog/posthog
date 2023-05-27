@@ -6,9 +6,8 @@ export const ProductEmptyState = ({
     productName,
     thingName,
     description,
-    actionable = true,
     action,
-    actionOverride,
+    actionElementOverride,
     docsURL,
     customHog,
 }: {
@@ -17,17 +16,17 @@ export const ProductEmptyState = ({
     // The name of the thing that they will create, e.g. "cohort"
     thingName: string
     description: string
-    actionable?: boolean
     // The action to take when the user clicks the CTA
     action?: () => void
     // If you want to provide a custom action button instead of using the default one
-    actionOverride?: JSX.Element
+    actionElementOverride?: JSX.Element
     docsURL?: string
     customHog?: JSX.Element
 }): JSX.Element => {
+    const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border-light w-full p-8 flex rounded-md mt-6">
-            <div className="max-w-180 flex items-center gap-x-8">
+        <div className="border-2 border-dashed border-border-light w-full p-8 flex justify-center rounded-md mt-6">
+            <div className="flex items-center gap-x-8">
                 <div>
                     <div className="w-40 mx-auto mb-4">
                         {customHog ? (
@@ -39,18 +38,20 @@ export const ProductEmptyState = ({
                         )}
                     </div>
                 </div>
-                <div className="flex-shrink">
+                <div className="flex-shrink max-w-140 text-left">
                     <h2>{actionable ? `Create your first ${thingName}` : `No ${thingName}s yet`}</h2>
                     <p className="ml-0">{description}</p>
                     <div className="flex items-center gap-x-4 mt-6">
-                        {action && (
+                        {action ? (
                             <LemonButton type="primary" sideIcon={<IconPlus />} onClick={action}>
                                 Create {thingName}
                             </LemonButton>
+                        ) : (
+                            actionElementOverride && actionElementOverride
                         )}
                         {docsURL && (
                             <LemonButton
-                                type="tertiary"
+                                type={actionable ? 'tertiary' : 'secondary'}
                                 status="muted-alt"
                                 sideIcon={<IconOpenInNew className="w-4 h-4" />}
                                 to={docsURL}
@@ -58,7 +59,6 @@ export const ProductEmptyState = ({
                                 Learn more about {productName}
                             </LemonButton>
                         )}
-                        {actionOverride && actionOverride}
                     </div>
                 </div>
             </div>

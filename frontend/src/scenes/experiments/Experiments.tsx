@@ -223,7 +223,6 @@ export function Experiments(): JSX.Element {
                             thingName="archived experiment"
                             description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                             docsURL="https://posthog.com/docs/experiments"
-                            actionable={false}
                         />
                     ) : (
                         <ProductEmptyState
