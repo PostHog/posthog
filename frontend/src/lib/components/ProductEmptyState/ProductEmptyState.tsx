@@ -38,7 +38,7 @@ export const ProductEmptyState = ({
                         )}
                     </div>
                 </div>
-                <div className="flex-shrink max-w-140 text-left">
+                <div className="flex-shrink max-w-140">
                     <h2>{actionable ? `Create your first ${thingName}` : `No ${thingName}s yet`}</h2>
                     <p className="ml-0">{description}</p>
                     <div className="flex items-center gap-x-4 mt-6">

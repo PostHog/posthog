@@ -17,22 +17,18 @@ export interface ActivityLogProps {
     caption?: string | JSX.Element
 }
 
-const Empty = ({ scope, idExists }: { scope: string; idExists: boolean }): JSX.Element => {
+const Empty = ({ scope }: { scope: string }): JSX.Element => {
     const noun = scope
         .replace(/([A-Z])/g, ' $1')
         .trim()
         .toLowerCase()
-        .concat(idExists ? 's' : '')
 
-    // KLUDGE: Appending 's' to the noun works with all values for ActivityScope at the moment, but might not make sense as more models are added
     return (
-        <div className="empty">
-            <ProductEmptyState
-                productName={noun.toUpperCase()}
-                thingName={'history for ' + noun}
-                description={`History shows any changes that were made to ${noun}. As changes are made they'll show up here.`}
-            />
-        </div>
+        <ProductEmptyState
+            productName={noun.toUpperCase()}
+            thingName={'history record'}
+            description={`History shows any ${noun} changes that have been made. After making changes you'll see them logged here.`}
+        />
     )
 }
 
@@ -107,7 +103,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
                 </>
             ) : (
-                <Empty scope={scope} idExists={typeof id !== 'undefined'} />
+                <Empty scope={scope} />
             )}
         </div>
     )
