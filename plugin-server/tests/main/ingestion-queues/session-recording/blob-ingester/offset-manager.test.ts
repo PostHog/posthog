@@ -7,11 +7,11 @@ describe('offset-manager', () => {
 
     let offsetManager: OffsetManager
     const mockConsumer = {
-        commit: jest.fn(() => Promise.resolve()),
+        commitSync: jest.fn(() => Promise.resolve()),
     }
 
     beforeEach(() => {
-        mockConsumer.commit.mockClear()
+        mockConsumer.commitSync.mockClear()
         offsetManager = new OffsetManager(mockConsumer as unknown as KafkaConsumer)
     })
 
@@ -95,11 +95,11 @@ describe('offset-manager', () => {
 
         expect(result).toEqual(expectedCommittedOffset)
         if (result === undefined) {
-            expect(mockConsumer.commit).toHaveBeenCalledTimes(0)
+            expect(mockConsumer.commitSync).toHaveBeenCalledTimes(0)
         } else {
-            expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
-            expect(mockConsumer.commit).toHaveBeenCalledWith({
-                offset: result,
+            expect(mockConsumer.commitSync).toHaveBeenCalledTimes(1)
+            expect(mockConsumer.commitSync).toHaveBeenCalledWith({
+                offset: result + 1, // why oh why
                 partition: 1,
                 topic: 'test-session-recordings',
             })
@@ -121,18 +121,18 @@ describe('offset-manager', () => {
 
         const resultOne = offsetManager.removeOffsets(TOPIC, 1, [1])
         expect(resultOne).toEqual(undefined)
-        expect(mockConsumer.commit).toHaveBeenCalledTimes(0)
+        expect(mockConsumer.commitSync).toHaveBeenCalledTimes(0)
 
-        mockConsumer.commit.mockClear()
+        mockConsumer.commitSync.mockClear()
 
         const resultTwo = offsetManager.removeOffsets(TOPIC, 2, [2])
         expect(resultTwo).toEqual(2)
-        expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+        expect(mockConsumer.commitSync).toHaveBeenCalledTimes(1)
 
-        mockConsumer.commit.mockClear()
+        mockConsumer.commitSync.mockClear()
 
         const resultThree = offsetManager.removeOffsets(TOPIC, 3, [3])
         expect(resultThree).toEqual(3)
-        expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+        expect(mockConsumer.commitSync).toHaveBeenCalledTimes(1)
     })
 })

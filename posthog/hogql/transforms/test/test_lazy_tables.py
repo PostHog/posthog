@@ -18,7 +18,7 @@ class TestLazyJoins(BaseTest):
             "HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi "
             "ON equals(events.distinct_id, events__pdi.distinct_id) "
             f"WHERE equals(events.team_id, {self.team.pk}) "
-            "LIMIT 65535"
+            "LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
@@ -30,7 +30,7 @@ class TestLazyJoins(BaseTest):
             f"person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id FROM person_distinct_id2 WHERE "
             f"equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING "
             f"equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi "
-            f"ON equals(events.distinct_id, events__pdi.distinct_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
+            f"ON equals(events.distinct_id, events__pdi.distinct_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
@@ -44,7 +44,7 @@ class TestLazyJoins(BaseTest):
             f"equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (SELECT person.id FROM person WHERE "
             f"equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) "
             f"AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) "
-            f"WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
+            f"WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
@@ -59,7 +59,7 @@ class TestLazyJoins(BaseTest):
             f"equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (SELECT person.id FROM person WHERE "
             f"equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) "
             f"AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) "
-            f"WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
+            f"WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
@@ -74,7 +74,7 @@ class TestLazyJoins(BaseTest):
             f"INNER JOIN (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), person.version) "
             f"AS `properties___$browser`, person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
             f"HAVING equals(argMax(person.is_deleted, person.version), 0)) AS person_distinct_ids__person "
-            f"ON equals(person_distinct_ids.person_id, person_distinct_ids__person.id) LIMIT 65535"
+            f"ON equals(person_distinct_ids.person_id, person_distinct_ids__person.id) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
@@ -89,7 +89,7 @@ class TestLazyJoins(BaseTest):
             f"INNER JOIN (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', ''), person.version) "
             f"AS `properties___$browser___in___json`, person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
             f"HAVING equals(argMax(person.is_deleted, person.version), 0)) AS person_distinct_ids__person "
-            f"ON equals(person_distinct_ids.person_id, person_distinct_ids__person.id) LIMIT 65535"
+            f"ON equals(person_distinct_ids.person_id, person_distinct_ids__person.id) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
@@ -104,7 +104,7 @@ class TestLazyJoins(BaseTest):
             f"INNER JOIN (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', "
             f"''), person.version) AS `properties___$browser`, person.id FROM person WHERE equals(person.team_id, {self.team.pk}) "
             f"GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person "
-            f"ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
+            f"ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
@@ -120,7 +120,7 @@ class TestLazyJoins(BaseTest):
             f"INNER JOIN (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), person.version) "
             f"AS properties___name, argMax(person.properties, person.version) AS properties, person.id FROM person "
             f"WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) "
-            f"AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
+            f"AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
@@ -132,7 +132,7 @@ class TestLazyJoins(BaseTest):
             f"(SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), person.version) AS "
             f"properties___email, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), person.version) "
             f"AS `properties___$browser`, person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-            f"HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons LIMIT 65535"
+            f"HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 

@@ -123,10 +123,12 @@ export class OffsetManager {
         this.offsetsByPartitionTopic.set(key, inFlightOffsets)
 
         if (offsetToCommit !== undefined) {
-            this.consumer.commit({
+            this.consumer.commitSync({
                 topic,
                 partition,
-                offset: offsetToCommit,
+                // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
+                // for some reason you commit the next offset you expect to read and not the one you actually have
+                offset: offsetToCommit + 1,
             })
         }
 
