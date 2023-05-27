@@ -34,8 +34,8 @@ export function noAction(): JSX.Element {
     return (
         <ProductEmptyState
             productName="Feature Flags"
-            thingName={'history for feature flag'}
-            description={`History shows any changes that were made to feature flags. As changes are made they'll show up here.`}
+            thingName={'history record'}
+            description={`History shows any feature flag changes that have been made. After making changes you'll see them logged here.`}
         />
     )
 }
