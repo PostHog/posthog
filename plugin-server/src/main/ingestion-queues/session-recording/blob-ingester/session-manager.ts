@@ -386,7 +386,7 @@ export class SessionManager {
         allOffsets.forEach((offset) => this.buffer.offsets.push(offset))
 
         await this.addToBuffer({
-            ...chunks[0], // send the first chunk as the message, it should have the events summary
+            ...chunks[0],
             data: chunks
                 .sort((a, b) => a.chunk_index - b.chunk_index)
                 .map((c) => c.data)
