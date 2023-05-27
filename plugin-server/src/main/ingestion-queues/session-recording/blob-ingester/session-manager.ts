@@ -304,7 +304,7 @@ export class SessionManager {
             this.flushBuffer = undefined
 
             // TODO: Sync the last processed offset to redis
-            this.onFinish(offsets.sort((a, b) => a - b))
+            this.onFinish(offsets)
         }
     }
 
