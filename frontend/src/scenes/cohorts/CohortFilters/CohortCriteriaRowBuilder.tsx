@@ -175,7 +175,7 @@ export interface LogicalRowDividerProps {
 export function LogicalRowDivider({ logicalOperator }: LogicalRowDividerProps): JSX.Element {
     return (
         <Divider className="logical-row-divider" orientation="left">
-            {logicalOperator}
+            <span className="text-xs text-primary-alt font-semibold">{logicalOperator}</span>
         </Divider>
     )
 }

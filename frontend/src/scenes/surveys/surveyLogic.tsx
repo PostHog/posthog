@@ -60,7 +60,6 @@ export const surveyLogic = kea<surveyLogicType>([
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
                     return await api.surveys.get(props.id)
-                    // return await ({ id: '123', name: 'early access', created_at: new Date() } as Survey)
                 }
                 return { ...NEW_SURVEY }
             },
@@ -112,8 +111,9 @@ export const surveyLogic = kea<surveyLogicType>([
     forms(({ actions, props }) => ({
         survey: {
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
-            errors: ({ name }) => ({
-                name: !name ? 'Please enter a name' : undefined,
+            errors: ({ name, questions }) => ({
+                name: !name && 'Please enter a name.',
+                questions: questions.map(({ question }) => ({ question: !question && 'Please enter a question.' })),
             }),
             submit: async (surveyPayload) => {
                 if (props.id && props.id !== 'new') {

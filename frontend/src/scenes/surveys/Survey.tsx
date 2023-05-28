@@ -8,7 +8,7 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea } fro
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { SurveyQuestion, SurveyType } from '~/types'
+import { FilterLogicalOperator, SurveyQuestion, SurveyType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
@@ -18,6 +18,7 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Query } from '~/queries/Query/Query'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
+import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 export const scene: SceneExport = {
     component: Survey,
@@ -37,7 +38,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
     return (
-        <Form formKey="survey" logic={surveyLogic} className="space-y-4">
+        <Form formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
             <PageHeader
                 title={id === 'new' ? 'New survey' : survey.name}
                 buttons={
@@ -102,19 +103,24 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </Group>
                 ))}
                 <PureField label="Targeting">
+                    <span className="text-muted">
+                        Choose when the survey appears based on url, selector, and user properties.
+                    </span>
                     <LemonDivider />
                     <Group name="conditions">
                         <Field name="url" label="Url">
                             <LemonInput />
                         </Field>
+                        <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                         <Field name="selector" label="Selector">
                             <LemonInput />
                         </Field>
                     </Group>
-                    <div>
-                        <>
+                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
+                    <div className="border rounded p-4">
+                        <div className="mb-2">
                             Matching <b>users</b> against the criteria
-                        </>
+                        </div>
                         <div>
                             <PropertyFilters
                                 orFiltering={true}
