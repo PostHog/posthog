@@ -101,8 +101,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             validated_data.pop("targeting_flag_filters")
 
         validated_data["created_by"] = self.context["request"].user
-        survey: Survey = super().create(validated_data)
-        return survey
+        return super().create(validated_data)
 
     def update(self, instance: Survey, validated_data):
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
@@ -136,12 +135,11 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
 
-        instance = super().update(instance, validated_data)
-        return instance
+        return super().update(instance, validated_data)
 
 
 class SurveyViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = Survey.objects.all()
+    queryset = Survey.objects.select_related("linked_flag", "targeting_flag").all()
     permission_classes = [
         IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
