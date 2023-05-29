@@ -3,6 +3,7 @@ import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
+import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter, Gauge } from 'prom-client'
 import * as zlib from 'zlib'
@@ -84,6 +85,26 @@ export class SessionManager {
         // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
+    private logContext = (): Record<string, any> => {
+        const chunkStates: Record<string, any> = {}
+        for (const [key, chunk] of this.chunks.entries()) {
+            chunkStates[key] = chunk.logContext
+        }
+
+        return {
+            sessionId: this.sessionId,
+            partition: this.partition,
+            teamId: this.teamId,
+            topic: this.topic,
+            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+            oldestKafkaTimestampHumanReadable: this.buffer.oldestKafkaTimestamp
+                ? DateTime.fromMillis(this.buffer.oldestKafkaTimestamp).toISO()
+                : undefined,
+            chunkStates,
+            bufferCount: this.buffer.count,
+        }
+    }
+
     private async deleteFile(file: string, context: string) {
         try {
             await unlink(file)
@@ -138,22 +159,11 @@ export class SessionManager {
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
         if (gzippedCapacity > 1) {
-            const logContext: Record<string, any> = {
+            status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
                 gzippedCapacity,
                 gzipSizeKb,
-                sessionId: this.sessionId,
-                partition: this.partition,
-            }
-
-            if (this.chunks.size !== 0) {
-                const chunkStates: Record<string, any> = {}
-                for (const [key, chunk] of this.chunks.entries()) {
-                    chunkStates[key] = chunk.logContext
-                }
-                logContext['chunkStates'] = chunkStates
-            }
-
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, logContext)
+                ...this.logContext(),
+            })
             // return the promise and let the caller decide whether to await
             return this.flush('buffer_size')
         }
@@ -165,13 +175,10 @@ export class SessionManager {
         }
 
         const logContext: Record<string, any> = {
-            sessionId: this.sessionId,
-            partition: this.partition,
-            chunkSize: this.chunks.size,
-            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+            ...this.logContext(),
             referenceTime: referenceNow,
+            referenceTimeHumanReadable: DateTime.fromMillis(referenceNow).toISO(),
             flushThresholdMillis,
-            bufferCount: this.buffer.count,
         }
 
         if (this.buffer.oldestKafkaTimestamp === null) {
@@ -187,14 +194,6 @@ export class SessionManager {
         logContext['bufferAge'] = bufferAge
 
         this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
-
-        if (this.chunks.size !== 0) {
-            const chunkStates: Record<string, any> = {}
-            for (const [key, chunk] of this.chunks.entries()) {
-                chunkStates[key] = chunk.logContext
-            }
-            logContext['chunkStates'] = chunkStates
-        }
 
         if (bufferAge >= flushThresholdMillis) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
@@ -229,8 +228,6 @@ export class SessionManager {
                 gaugePendingChunksDropped.inc()
                 status.warn('🚽', `blob_ingester_session_manager dropping pending chunks due to age`, {
                     ...logContext,
-                    referenceNow,
-                    flushThresholdMillis,
                     chunkId: key,
                 })
                 continue
@@ -300,9 +297,7 @@ export class SessionManager {
             // TODO: If we fail to write to S3 we should be do something about it
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
                 error,
-                sessionId: this.sessionId,
-                partition: this.partition,
-                team: this.teamId,
+                ...this.logContext(),
                 reason,
             })
             captureException(error)
