@@ -388,6 +388,7 @@ export class SessionManager {
                     session: this.sessionId,
                     chunk_index: message.chunk_index,
                     stillHasPendingChunks: !!this.chunks.get(message.chunk_id),
+                    offsetsThatWereJustAdded: pendingChunks?.allChunkOffsets,
                 })
             }
         } else {
@@ -405,6 +406,7 @@ export class SessionManager {
                     pendingChunks: pendingChunks?.logContext,
                     pendingChunksIsPresent: !!pendingChunks,
                     pendingChunksIsComplete: pendingChunks?.isComplete,
+                    offsetsPending: pendingChunks?.allChunkOffsets,
                 })
             }
         }
