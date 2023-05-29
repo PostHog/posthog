@@ -346,11 +346,20 @@ export class SessionRecordingBlobIngester {
                 sessionManagerBufferSizes += sessionManager.buffer.size
 
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
-                // but in case we get here before the first message, we use now
-                const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition]
-
+                let kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition]
                 if (!kafkaNow) {
                     throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
+                }
+
+                // it is possible for a session to need an idle flush to continue, but for the head of the partition
+                // to be within the idle timeout threshold and so never flush on idle.
+                // in that circumstance, we still need to flush the session.
+                // in practice, any partition should only lag behind real-world now by around ten minutes
+                // if things are lagging by more than twelve hours then we will prioritise flushing
+                // even if it means that blob storage write costs are higher
+                const twelveHoursInMillis = 6 * 60 * 60 * 1000
+                if (DateTime.now().toMillis() - kafkaNow >= twelveHoursInMillis) {
+                    kafkaNow = DateTime.now().toMillis()
                 }
 
                 void sessionManager
