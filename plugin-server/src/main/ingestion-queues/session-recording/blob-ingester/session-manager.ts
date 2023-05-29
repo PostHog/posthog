@@ -137,7 +137,6 @@ export class SessionManager {
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
-        // even if the buffer is over-size we can't flush if we have unfinished chunks
         if (gzippedCapacity > 1) {
             const logContext: Record<string, any> = {
                 gzippedCapacity,
