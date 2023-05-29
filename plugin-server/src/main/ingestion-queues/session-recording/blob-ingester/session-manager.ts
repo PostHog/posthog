@@ -375,7 +375,16 @@ export class SessionManager {
         }
         const pendingChunks = this.chunks.get(message.chunk_id)
 
-        if (pendingChunks && pendingChunks.isComplete) {
+        if (!pendingChunks) {
+            const { data, events_summary, ...messageToLog } = message
+            captureMessage('No pending chunks when that is impossible', {
+                extra: { ...messageToLog },
+                tags: { team_id: this.teamId, session_id: this.sessionId, partition: this.partition },
+            })
+            throw new Error('It is impossible to have no pending chunks here')
+        }
+
+        if (pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
             await this.processChunksToBuffer(pendingChunks)
@@ -388,7 +397,7 @@ export class SessionManager {
                     session: this.sessionId,
                     chunk_index: message.chunk_index,
                     stillHasPendingChunks: !!this.chunks.get(message.chunk_id),
-                    offsetsThatWereJustAdded: pendingChunks?.allChunkOffsets,
+                    offsetsThatWereJustAdded: pendingChunks.allChunkOffsets,
                 })
             }
         } else {
@@ -403,10 +412,9 @@ export class SessionManager {
                     team: this.teamId,
                     session: this.sessionId,
                     chunk_index: message.chunk_index,
-                    pendingChunks: pendingChunks?.logContext,
-                    pendingChunksIsPresent: !!pendingChunks,
-                    pendingChunksIsComplete: pendingChunks?.isComplete,
-                    offsetsPending: pendingChunks?.allChunkOffsets,
+                    pendingChunks: pendingChunks.logContext,
+                    pendingChunksIsComplete: pendingChunks.isComplete,
+                    offsetsPending: pendingChunks.allChunkOffsets,
                 })
             }
         }
