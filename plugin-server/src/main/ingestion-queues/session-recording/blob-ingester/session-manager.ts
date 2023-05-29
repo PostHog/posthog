@@ -375,11 +375,48 @@ export class SessionManager {
         }
         const pendingChunks = this.chunks.get(message.chunk_id)
 
-        if (pendingChunks && pendingChunks.isComplete) {
+        if (!pendingChunks) {
+            const { data, events_summary, ...messageToLog } = message
+            captureMessage('No pending chunks when that is impossible', {
+                extra: { ...messageToLog },
+                tags: { team_id: this.teamId, session_id: this.sessionId, partition: this.partition },
+            })
+            throw new Error('It is impossible to have no pending chunks here')
+        }
+
+        if (pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
             await this.processChunksToBuffer(pendingChunks)
             this.chunks.delete(message.chunk_id)
+            if (this.partition === 50) {
+                status.info('🧩', 'blob_ingester_session_manager completed chunked message', {
+                    chunk_id: message.chunk_id,
+                    partition: this.partition,
+                    team: this.teamId,
+                    session: this.sessionId,
+                    chunk_index: message.chunk_index,
+                    stillHasPendingChunks: !!this.chunks.get(message.chunk_id),
+                    offsetsThatWereJustAdded: pendingChunks.allChunkOffsets,
+                })
+            }
+        } else {
+            // A very specific log line to help debug chunking issues
+            // partition 50 is stuck and at the point it is stuck it has two apparently complete chunks
+            // still in the pendingChunks map
+            // that should be impossible... but it is apparently happening
+            if (this.partition === 50) {
+                status.info('🧩', 'blob_ingester_session_manager received chunked message', {
+                    chunk_id: message.chunk_id,
+                    partition: this.partition,
+                    team: this.teamId,
+                    session: this.sessionId,
+                    chunk_index: message.chunk_index,
+                    pendingChunks: pendingChunks.logContext,
+                    pendingChunksIsComplete: pendingChunks.isComplete,
+                    offsetsPending: pendingChunks.allChunkOffsets,
+                })
+            }
         }
     }
 
