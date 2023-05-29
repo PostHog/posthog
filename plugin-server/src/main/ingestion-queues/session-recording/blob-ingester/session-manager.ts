@@ -172,6 +172,7 @@ export class SessionManager {
             oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
             referenceTime: referenceNow,
             flushThresholdMillis,
+            bufferCount: this.buffer.count,
         }
 
         if (this.buffer.oldestKafkaTimestamp === null) {
