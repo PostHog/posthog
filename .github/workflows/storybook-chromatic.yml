@@ -61,7 +61,7 @@ jobs:
         env:
             SHARD_COUNT: '2'
             CYPRESS_INSTALL_BINARY: '0'
-            NODE_OPTIONS: --max-old-space-size=4096
+            NODE_OPTIONS: --max-old-space-size=6144
             JEST_IMAGE_SNAPSHOT_TRACK_OBSOLETE: '1' # Remove obsolete snapshots
         outputs:
             # The below have to be manually listed unfortunately, as GitHub Actions doesn't allow matrix-dependent outputs
