@@ -45,7 +45,7 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
 
     listeners(({ values, actions }) => ({
         addNodeToNotebook: ({ type, properties }) => {
-            notebookLogic({ id: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
+            notebookLogic({ shortId: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
 
             actions.setNotebookSideBarShown(true)
         },

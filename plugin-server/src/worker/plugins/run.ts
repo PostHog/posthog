@@ -4,6 +4,7 @@ import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { instrument } from '../../utils/metrics'
 import { runRetriableFunction } from '../../utils/retries'
+import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
@@ -182,6 +183,15 @@ export async function runPluginTask(
             throw new Error(
                 `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfigId}`
             )
+        }
+
+        if (!pluginConfig?.enabled) {
+            status.info('🚮', 'Skipping job for disabled pluginconfig', {
+                taskName: taskName,
+                taskType: taskType,
+                pluginConfigId: pluginConfigId,
+            })
+            return
         }
 
         shouldQueueAppMetric = taskType === PluginTaskType.Schedule && !task.__ignoreForAppMetrics

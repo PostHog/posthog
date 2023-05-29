@@ -299,8 +299,10 @@ class FeatureFlagMatcher:
         return self._get_query_condition(f"flag_{feature_flag.pk}_condition_{condition_index}")
 
     def _get_query_condition(self, key: str) -> bool:
-        if self.failed_to_fetch_conditions or self.skip_database_flags:
+        if self.failed_to_fetch_conditions:
             raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
+        if self.skip_database_flags:
+            raise DatabaseError("Database healthcheck failed, not fetching flag conditions.")
         return self.query_conditions.get(key, False)
 
     # Define contiguous sub-domains within [0, 1].
@@ -577,8 +579,8 @@ def get_all_feature_flags(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
     )
 
-    # check every 10 seconds whether the database is alive or not
-    is_database_alive = is_postgres_connected_cached_check(round(time.time() / 10))
+    # check every 20 seconds whether the database is alive or not
+    is_database_alive = is_postgres_connected_cached_check(round(time.time() / 20))
 
     if not is_database_alive or not flags_have_experience_continuity_enabled:
         return _get_all_feature_flags(
@@ -729,5 +731,9 @@ def parse_exception_for_error_message(err: Exception):
             reason = "flag_condition_retry"
         elif "Failed to fetch group" in str(err):
             reason = "group_mapping_retry"
+        elif "Database healthcheck failed" in str(err):
+            reason = "healthcheck_failed"
+        elif "query_wait_timeout" in str(err):
+            reason = "query_wait_timeout"
 
     return reason
