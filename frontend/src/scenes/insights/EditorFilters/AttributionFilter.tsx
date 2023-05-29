@@ -10,6 +10,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelsFilter } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { FUNNEL_STEP_COUNT_LIMIT } from './FunnelsQuerySteps'
 
 export function AttributionDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
     const { insightFilter, steps } = useValues(funnelDataLogic(insightProps))
@@ -37,48 +38,46 @@ export function AttributionComponent({
     setFilters,
     steps,
 }: AttributionComponentProps): JSX.Element {
+    const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
+        !breakdown_attribution_type
+            ? BreakdownAttributionType.FirstTouch
+            : breakdown_attribution_type === BreakdownAttributionType.Step
+            ? `${breakdown_attribution_type}/${breakdown_attribution_value || 0}`
+            : breakdown_attribution_type
+
     return (
         <LemonSelect
-            value={breakdown_attribution_type || BreakdownAttributionType.FirstTouch}
+            value={currentValue}
             placeholder="Attribution"
             options={[
                 { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
                 { value: BreakdownAttributionType.LastTouch, label: 'Last touchpoint' },
                 { value: BreakdownAttributionType.AllSteps, label: 'All steps' },
-                funnel_order_type === StepOrderValue.UNORDERED
-                    ? { value: BreakdownAttributionType.Step, label: 'Any step' }
-                    : {
-                          value: BreakdownAttributionType.Step,
-                          label: breakdown_attribution_value
-                              ? `Step ${breakdown_attribution_value + 1}`
-                              : 'Specific step',
-                          labelInMenu: (
-                              <>
-                                  Specific step:
-                                  <LemonSelect
-                                      className="ml-2"
-                                      onChange={(value) => {
-                                          if (value !== null) {
-                                              setFilters({
-                                                  breakdown_attribution_type: BreakdownAttributionType.Step,
-                                                  breakdown_attribution_value: value,
-                                              })
-                                          }
-                                      }}
-                                      placeholder={`Step ${
-                                          breakdown_attribution_value ? breakdown_attribution_value + 1 : 1
-                                      }`}
-                                      options={steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` }))}
-                                  />
-                              </>
-                          ),
-                      },
+                {
+                    value: BreakdownAttributionType.Step,
+                    label: 'Any step',
+                    hidden: funnel_order_type !== StepOrderValue.UNORDERED,
+                },
+                {
+                    label: 'Specific step',
+                    options: Array(FUNNEL_STEP_COUNT_LIMIT)
+                        .fill(null)
+                        .map((_, stepIndex) => ({
+                            value: `${BreakdownAttributionType.Step}/${stepIndex}`,
+                            label: `Step ${stepIndex + 1}`,
+                            hidden: stepIndex >= steps.length,
+                        })),
+                    hidden: funnel_order_type === StepOrderValue.UNORDERED,
+                },
             ]}
             onChange={(value) => {
+                const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
                 if (value) {
                     setFilters({
-                        breakdown_attribution_type: value,
-                        breakdown_attribution_value: breakdown_attribution_value || 0,
+                        breakdown_attribution_type: breakdownAttributionType as BreakdownAttributionType,
+                        breakdown_attribution_value: breakdownAttributionValue
+                            ? parseInt(breakdownAttributionValue)
+                            : 0,
                     })
                 }
             }}
