@@ -44,9 +44,7 @@ def team(organization):
 def destination(team):
     """Fixture providing an BatchExportDestination for testing."""
     dest = BatchExportDestination.objects.create(
-        name="test-s3-dest",
         type="S3",
-        team=team,
         config={
             "bucket_name": "bucket",
             "region": "us-east-1",
@@ -66,9 +64,7 @@ def destination(team):
 @pytest.fixture
 def batch_export(destination, team):
     """A test BatchExport."""
-    batch_export = BatchExport.objects.create(
-        team=team, destination=destination, interval="hour", create_temporal_schedule=False
-    )
+    batch_export = BatchExport.objects.create(name="test export", team=team, destination=destination, interval="hour")
 
     batch_export.save()
 

@@ -69,8 +69,6 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
     run = await sync_to_async(create_batch_export_run)(  # type: ignore
-        workflow_id=activity.info().workflow_id,
-        run_id=activity.info().workflow_run_id,
         batch_export_id=UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,

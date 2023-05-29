@@ -83,15 +83,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
-        team = Team.objects.get(id=self.context["team_id"])
+        team_id = self.context["team_id"]
         interval = validated_data.pop("interval")
         name = validated_data.pop("name")
 
-        destination = BatchExportDestination.objects.create(team=team, **destination_data)
-
-        batch_export = BatchExport.objects.create(team=team, name=name, interval=interval, destination=destination)
-        create_batch_export(batch_export)
-        return batch_export
+        return create_batch_export(team_id=team_id, interval=interval, name=name, destination_data=destination_data)
 
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

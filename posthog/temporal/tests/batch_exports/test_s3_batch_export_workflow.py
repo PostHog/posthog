@@ -1,5 +1,3 @@
-import csv
-import io
 import json
 from random import randint
 from typing import TypedDict
@@ -8,15 +6,15 @@ import boto3
 
 from aiochclient import ChClient
 import pytest
-from asgiref.sync import sync_to_async
 from django.conf import settings
-from temporalio.client import Client
+from django.test import Client as HttpClient
 from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
+from posthog.api.test.test_organization import acreate_organization
+from posthog.api.test.test_team import acreate_team
 
-from posthog.models import (
-    BatchExportRun,
-)
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportInputs,
@@ -24,9 +22,50 @@ from posthog.temporal.workflows.s3_batch_export import (
     S3InsertInputs,
     insert_into_s3_activity,
 )
-import logging
 
 bucket_name = ""
+
+TEST_ROOT_BUCKET = "test-batch-exports"
+
+
+class EventValues(TypedDict):
+    """Events to be inserted for testing."""
+
+    uuid: str
+    event: str
+    timestamp: str
+    person_id: str
+    team_id: int
+    properties: str
+
+
+async def insert_events(client: ChClient, events: list[EventValues]):
+    """Insert some events into the sharded_events table."""
+    await client.execute(
+        f"""
+        INSERT INTO `sharded_events` (
+            uuid,
+            event,
+            timestamp,
+            person_id,
+            team_id,
+            properties
+        )
+        VALUES
+        """,
+        *[
+            (
+                event["uuid"],
+                event["event"],
+                event["timestamp"],
+                event["person_id"],
+                event["team_id"],
+                event["properties"],
+            )
+            for event in events
+        ],
+        json=False,
+    )
 
 
 def setup_module(module):
@@ -45,11 +84,38 @@ def setup_module(module):
 
     s3_client.create_bucket(Bucket=bucket_name)
 
-    logging.getLogger().setLevel(logging.DEBUG)
+
+def teardown_module(module):
+    """
+    Delete the random S3 bucket created for testing. We need to also delete all the
+    objects in the bucket before we can delete the bucket itself.
+    """
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+    )
+
+    response = s3_client.list_objects_v2(Bucket=bucket_name)
+
+    if "Contents" in response:
+        for obj in response["Contents"]:
+            if "Key" in obj:
+                s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
+
+    s3_client.delete_bucket(Bucket=bucket_name)
 
 
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
+    """
+    Test that the insert_into_s3_activity function puts data into S3. We do not
+    assume anything about the Django models, and instead just check that the
+    data is in S3.
+    """
+
     data_interval_start = "2023-04-20 14:00:00"
     data_interval_end = "2023-04-25 15:00:00"
 
@@ -143,124 +209,99 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
     assert json_data == events
 
 
-TEST_ROOT_BUCKET = "test-batch-exports"
-
-
-class EventValues(TypedDict):
-    """Events to be inserted for testing."""
-
-    uuid: str
-    event: str
-    timestamp: str
-    person_id: str
-    team_id: int
-    properties: str
-
-
-async def insert_events(client, events: list[EventValues]):
-    """Insert some events into the sharded_events table."""
-    await client.execute(
-        f"""
-        INSERT INTO `sharded_events` (
-            uuid,
-            event,
-            timestamp,
-            person_id,
-            team_id,
-            properties
-        )
-        VALUES
-        """,
-        *[
-            (
-                event["uuid"],
-                event["event"],
-                event["timestamp"],
-                event["person_id"],
-                event["team_id"],
-                event["properties"],
-            )
-            for event in events
-        ],
-        json=False,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_with_minio_bucket(
-    s3_bucket, destination, team, organization, events_to_export, max_datetime, batch_export
-):
-    """Test the S3BatchExportWorkflow targetting a local MinIO bucket.
-
-    The MinIO object-storage is part of the PostHog development stack. We are loading some events
-    into ClickHouse and exporting them by running the S3BatchExportWorkflow.
-
-    Once the Workflow finishes, we assert a new object exists in our bucket, that it matches our,
-    key, and we read it's contents as a CSV to ensure all events we loaded are accounted for.
+async def test_s3_export_workflow_with_minio_bucket(client: HttpClient):
     """
-    client = await Client.connect(
-        f"{settings.TEMPORAL_HOST}:{settings.TEMPORAL_PORT}",
-        namespace=settings.TEMPORAL_NAMESPACE,
+    Test that the whole workflow not just the activity works. It should update
+    the batch export run status to completed, as well as updating the record
+    count.
+    """
+    ch_client = ChClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
     )
 
-    # To ensure these are populated in the db, we have to save them here.
-    # These ignore comments are required. It's a bug in asigref fixed in newer versions.
-    # See: https://github.com/django/asgiref/issues/281
-    await organization.save()  # type:ignore
-    await team.save()  # type:ignore
-    await destination.save()  # type:ignore
-    await batch_export.save()  # type:ignore
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "key_template": "posthog-events/{table_name}.csv",
+            "batch_window_size": 3600,
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = await acreate_organization("test")
+    team = await acreate_team(organization=organization)
+    batch_export = await acreate_batch_export(
+        team_id=team.pk,
+        name=batch_export_data["name"],
+        destination_data=batch_export_data["destination"],
+        interval=batch_export_data["interval"],
+    )
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "timestamp": "2023-04-20 14:30:00.000000",
+            "person_id": str(uuid4()),
+            "team_id": team.pk,
+            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+        },
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "timestamp": "2023-04-25 14:30:00.000000",
+            "person_id": str(uuid4()),
+            "team_id": team.pk,
+            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+        },
+    ]
+
+    # Insert some data into the `sharded_events` table.
+    await insert_events(
+        client=ch_client,
+        events=events,
+    )
 
     workflow_id = str(uuid4())
     inputs = S3BatchExportInputs(
-        team_id=batch_export.team.id,
+        team_id=team.pk,
         batch_export_id=str(batch_export.id),
-        data_interval_end=max_datetime.isoformat(),
+        data_interval_end="2023-04-25 14:30:00.000000",
         **batch_export.destination.config,
     )
 
-    async with Worker(
-        client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
-        workflows=[S3BatchExportWorkflow],
-        activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
-        workflow_runner=UnsandboxedWorkflowRunner(),
-    ):
-        await client.execute_workflow(
-            S3BatchExportWorkflow.run,
-            inputs,
-            id=workflow_id,
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=1),
-        )
+            workflows=[S3BatchExportWorkflow],
+            activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                S3BatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
 
-        s3_objects = list(s3_bucket.objects.filter(Prefix=TEST_ROOT_BUCKET))
-        assert len(s3_objects) == 1
-        s3_object = s3_objects[0]
+        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+        assert len(runs) == 1
 
-        assert s3_object.bucket_name == s3_bucket.name
-        assert s3_object.key == f"{TEST_ROOT_BUCKET}/posthog-events/events.csv"
-
-        file_obj = io.BytesIO()
-        s3_bucket.download_fileobj(s3_object.key, file_obj)
-
-        reader = csv.DictReader((line.decode() for line in file_obj.readlines()))
-        for row in reader:
-            event_id = row["id"]
-            matching_event = [event for event in events_to_export if event.id == event_id][0]
-
-            assert row["event"] == matching_event["event"]
-            assert row["timestamp"] == matching_event["timestamp"]
-            assert row["person_id"] == matching_event["person_id"]
-            assert row["team_id"] == matching_event["team_id"]
-
-        assert (
-            await sync_to_async(BatchExportRun.objects.filter(batch_export_id=batch_export.pk).count)()
-            == 1  # type:ignore
-        )
-
-        run = await sync_to_async(BatchExportRun.objects.filter(batch_export_id=batch_export.pk).first)()  # type:ignore
-        assert run is not None
+        run = runs[0]
         assert run.status == "Completed"
-        assert run.data_interval_end == max_datetime

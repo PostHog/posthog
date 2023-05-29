@@ -1,9 +1,10 @@
 import datetime as dt
+from asgiref.sync import sync_to_async
 from uuid import UUID
 
 from dataclasses import dataclass, asdict
 from posthog import settings
-from posthog.batch_exports.models import BatchExport, BatchExportRun
+from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.temporal.client import sync_connect
 from asgiref.sync import async_to_sync
 
@@ -147,8 +148,6 @@ def backfill_export(batch_export_id: str, start_at: dt.datetime | None = None, e
 
 
 def create_batch_export_run(
-    workflow_id: str,
-    run_id: str,
     batch_export_id: UUID,
     data_interval_start: str,
     data_interval_end: str,
@@ -164,8 +163,6 @@ def create_batch_export_run(
     """
     run = BatchExportRun(
         batch_export_id=batch_export_id,
-        workflow_id=workflow_id,
-        run_id=run_id,
         status=BatchExportRun.Status.STARTING,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start),
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
@@ -186,14 +183,14 @@ def update_batch_export_run_status(run_id: UUID, status: str):
         raise ValueError(f"BatchExportRun with id {run_id} not found.")
 
 
-def create_batch_export(
-    batch_export: BatchExport,
-):
-    """Create a Schedule in Temporal for this BatchExport.
-
-    Returns:
-        The ScheduleHandle for the created Temporal Schedule.
+def create_batch_export(team_id: int, interval: str, name: str, destination_data: dict):
     """
+    Create a BatchExport and its underlying Schedule.
+    """
+    destination = BatchExportDestination.objects.create(**destination_data)
+
+    batch_export = BatchExport.objects.create(team_id=team_id, name=name, interval=interval, destination=destination)
+
     workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
 
     # These attributes allow us to filter Workflows in Temporal.
@@ -237,3 +234,26 @@ def create_batch_export(
         ),
         search_attributes=common_search_attributes,
     )
+
+    return batch_export
+
+
+async def acreate_batch_export(team_id: int, interval: str, name: str, destination_data: dict) -> BatchExport:
+    """
+    Create a BatchExport and its underlying Schedule.
+    """
+    return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)
+
+
+def fetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[BatchExportRun]:
+    """
+    Fetch the BatchExportRuns for a given BatchExport.
+    """
+    return list(BatchExportRun.objects.filter(batch_export_id=batch_export_id).order_by("-created_at")[:limit])
+
+
+async def afetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[BatchExportRun]:
+    """
+    Fetch the BatchExportRuns for a given BatchExport.
+    """
+    return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)
