@@ -1,4 +1,4 @@
-from django.test.client import Client as TestClient
+from django.test.client import Client as HttpClient
 import pytest
 
 from rest_framework import status
@@ -26,7 +26,7 @@ pytestmark = [
 ]
 
 
-def test_delete_batch_export(client: TestClient):
+def test_delete_batch_export(client: HttpClient):
     """Test deleting a BatchExport."""
     temporal = sync_connect()
 
@@ -65,7 +65,7 @@ def test_delete_batch_export(client: TestClient):
         describe_schedule(temporal, batch_export_id)
 
 
-def test_cannot_delete_export_of_other_organizations(client: TestClient):
+def test_cannot_delete_export_of_other_organizations(client: HttpClient):
     temporal = sync_connect()
 
     destination_data = {
@@ -108,7 +108,7 @@ def test_cannot_delete_export_of_other_organizations(client: TestClient):
         assert response.status_code == status.HTTP_200_OK
 
 
-def test_deletes_are_partitioned_by_team_id(client: TestClient):
+def test_deletes_are_partitioned_by_team_id(client: HttpClient):
     temporal = sync_connect()
 
     destination_data = {

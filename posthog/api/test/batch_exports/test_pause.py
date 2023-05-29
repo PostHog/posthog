@@ -1,4 +1,4 @@
-from django.test.client import Client as TestClient
+from django.test.client import Client as HttpClient
 import pytest
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
@@ -26,7 +26,7 @@ pytestmark = [
 ]
 
 
-def test_pause_and_unpause_batch_export(client: TestClient):
+def test_pause_and_unpause_batch_export(client: HttpClient):
     """Test pausing and unpausing a BatchExport."""
     temporal = sync_connect()
 
@@ -82,7 +82,7 @@ def test_pause_and_unpause_batch_export(client: TestClient):
         assert schedule_desc.schedule.state.paused is False
 
 
-def test_connot_pause_and_unpause_batch_exports_of_other_organizations(client: TestClient):
+def test_connot_pause_and_unpause_batch_exports_of_other_organizations(client: HttpClient):
     temporal = sync_connect()
 
     destination_data = {
@@ -149,7 +149,7 @@ def test_connot_pause_and_unpause_batch_exports_of_other_organizations(client: T
         assert schedule_desc.schedule.state.paused is True
 
 
-def test_pause_and_unpause_are_partitioned_by_team_id(client: TestClient):
+def test_pause_and_unpause_are_partitioned_by_team_id(client: HttpClient):
     temporal = sync_connect()
 
     destination_data = {

@@ -1,4 +1,4 @@
-from django.test.client import Client as TestClient
+from django.test.client import Client as HttpClient
 import pytest
 
 from rest_framework import status
@@ -17,7 +17,7 @@ pytestmark = [
 ]
 
 
-def test_batch_export_backfill(client: TestClient):
+def test_batch_export_backfill(client: HttpClient):
     """
     We should be able to create a Batch Export, then request that there should
     be a run created for an arbitrary date range in the past.
@@ -56,7 +56,7 @@ def test_batch_export_backfill(client: TestClient):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
 
-def test_cannot_trigger_backfill_for_another_organization(client: TestClient):
+def test_cannot_trigger_backfill_for_another_organization(client: HttpClient):
     temporal = sync_connect()
 
     destination_data = {
@@ -96,7 +96,7 @@ def test_cannot_trigger_backfill_for_another_organization(client: TestClient):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
-def test_backfill_is_partitioned_by_team_id(client: TestClient):
+def test_backfill_is_partitioned_by_team_id(client: HttpClient):
     temporal = sync_connect()
 
     destination_data = {

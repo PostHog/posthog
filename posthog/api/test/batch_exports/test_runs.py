@@ -1,4 +1,4 @@
-from django.test.client import Client as TestClient
+from django.test.client import Client as HttpClient
 import pytest
 
 from rest_framework import status
@@ -22,7 +22,7 @@ pytestmark = [
 ]
 
 
-def test_can_get_export_runs_for_your_organizations(client: TestClient):
+def test_can_get_export_runs_for_your_organizations(client: HttpClient):
     temporal = sync_connect()
 
     destination_data = {
@@ -59,7 +59,7 @@ def test_can_get_export_runs_for_your_organizations(client: TestClient):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
 
-def test_cannot_get_exports_for_other_organizations(client: TestClient):
+def test_cannot_get_exports_for_other_organizations(client: HttpClient):
     temporal = sync_connect()
 
     destination_data = {
@@ -100,7 +100,7 @@ def test_cannot_get_exports_for_other_organizations(client: TestClient):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
-def test_batch_exports_are_partitioned_by_team(client: TestClient):
+def test_batch_exports_are_partitioned_by_team(client: HttpClient):
     """
     You shouldn't be able to fetch a BatchExport by id, via a team that it
     doesn't belong to.
@@ -152,7 +152,7 @@ def test_batch_exports_are_partitioned_by_team(client: TestClient):
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
 
-def test_batch_export_backfill_creates_a_run(client: TestClient):
+def test_batch_export_backfill_creates_a_run(client: HttpClient):
     temporal = sync_connect()
 
     destination_data = {

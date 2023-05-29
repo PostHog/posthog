@@ -1,4 +1,4 @@
-from django.test.client import Client as TestClient
+from django.test.client import Client as HttpClient
 import pytest
 
 from posthog.api.test.batch_exports.operations import (
@@ -16,7 +16,7 @@ pytestmark = [
 ]
 
 
-def test_list_batch_exports(client: TestClient):
+def test_list_batch_exports(client: HttpClient):
     """
     Should be able to list batch exports.
     """
@@ -59,7 +59,7 @@ def test_list_batch_exports(client: TestClient):
     assert len(response["results"]) == 0
 
 
-def test_cannot_list_batch_exports_for_other_organizations(client: TestClient):
+def test_cannot_list_batch_exports_for_other_organizations(client: HttpClient):
     """
     Should not be able to list batch exports for other teams.
     """
@@ -102,7 +102,7 @@ def test_cannot_list_batch_exports_for_other_organizations(client: TestClient):
     assert len(response["results"]) == 0
 
 
-def test_list_is_partitioned_by_team(client: TestClient):
+def test_list_is_partitioned_by_team(client: HttpClient):
     """
     Should be able to list batch exports for a specific team.
     """

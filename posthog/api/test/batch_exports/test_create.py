@@ -1,4 +1,4 @@
-from django.test.client import Client as TestClient
+from django.test.client import Client as HttpClient
 import pytest
 
 from rest_framework import status
@@ -16,7 +16,7 @@ pytestmark = [
 ]
 
 
-def test_create_batch_export_with_interval_schedule(client: TestClient):
+def test_create_batch_export_with_interval_schedule(client: HttpClient):
     """Test creating a BatchExport.
 
     When creating a BatchExport, we should create a corresponding Schedule in
@@ -73,7 +73,7 @@ def test_create_batch_export_with_interval_schedule(client: TestClient):
     }
 
 
-def test_cannot_create_a_batch_export_for_another_organization(client: TestClient):
+def test_cannot_create_a_batch_export_for_another_organization(client: HttpClient):
     temporal = sync_connect()
 
     destination_data = {
