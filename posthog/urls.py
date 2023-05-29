@@ -38,6 +38,7 @@ from posthog.models import User
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
 from .year_in_posthog import year_in_posthog
+from django.utils.html import escape
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -115,7 +116,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     return render_template(
         "authorize_and_redirect.html",
         request=request,
-        context={"domain": redirect_url.hostname, "redirect_url": request.GET["redirect"]},
+        context={"domain": escape(redirect_url.hostname), "redirect_url": escape(request.GET["redirect"])},
     )
 
 

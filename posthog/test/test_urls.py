@@ -3,6 +3,8 @@ import uuid
 from rest_framework import status
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+from posthog import utils
 
 
 class TestUrls(APIBaseTest):
@@ -55,7 +57,8 @@ class TestUrls(APIBaseTest):
         response = self.client.get(f"/login")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_authorize_and_redirect_domain(self):
+    @patch("posthog.utils.render_template", side_effect=utils.render_template)
+    def test_authorize_and_redirect_domain(self, wrapped_render_template):
         self.team.app_urls = ["https://domain.com", "https://not.com"]
         self.team.save()
 
@@ -93,6 +96,16 @@ class TestUrls(APIBaseTest):
             "/authorize_and_redirect/?redirect=https://domain.com/sdf", HTTP_REFERER="https://domain.com/asd"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(
+            "/authorize_and_redirect/?redirect=https://domain.com/sdf/<script>alert(1)</script>",
+            HTTP_REFERER="https://domain.com/asd",
+        )
+        self.assertEqual(
+            wrapped_render_template.call_args_list[-1].kwargs["context"]["redirect_url"],
+            "https://domain.com/sdf/&lt;script&gt;alert(1)&lt;/script&gt;",
+        )
+
         # TODO: build frontend before backend tests, or find a way to mock the template
         # self.assertContains(
         #     response,
