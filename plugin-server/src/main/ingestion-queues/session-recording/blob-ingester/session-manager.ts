@@ -395,33 +395,6 @@ export class SessionManager {
             // We want to add all the chunk offsets as well so that they are tracked correctly
             await this.processChunksToBuffer(pendingChunks)
             this.chunks.delete(message.chunk_id)
-
-            // TODO this should be removed as soon as possible
-            status.info('🧩', 'blob_ingester_session_manager completed chunked message', {
-                chunk_id: message.chunk_id,
-                partition: this.partition,
-                team: this.teamId,
-                session: this.sessionId,
-                chunk_index: message.chunk_index,
-                stillHasPendingChunks: !!this.chunks.get(message.chunk_id),
-                offsetsThatWereJustAdded: pendingChunks.allChunkOffsets,
-            })
-        } else {
-            // A very specific log line to help debug chunking issues
-            // some partitions get stuck and at the point they are stuck apparently have complete chunks
-            // still in the pendingChunks map
-            // that should be impossible... but it is apparently happening
-            // TODO: this should be removed as soon as possible
-            status.info('🧩', 'blob_ingester_session_manager received chunked message', {
-                chunk_id: message.chunk_id,
-                partition: this.partition,
-                team: this.teamId,
-                session: this.sessionId,
-                chunk_index: message.chunk_index,
-                pendingChunks: pendingChunks.logContext,
-                pendingChunksIsComplete: pendingChunks.isComplete,
-                offsetsPending: pendingChunks.allChunkOffsets,
-            })
         }
     }
 
