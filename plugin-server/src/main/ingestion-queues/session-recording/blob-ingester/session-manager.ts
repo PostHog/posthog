@@ -380,6 +380,23 @@ export class SessionManager {
             // We want to add all the chunk offsets as well so that they are tracked correctly
             await this.processChunksToBuffer(pendingChunks)
             this.chunks.delete(message.chunk_id)
+        } else {
+            // A very specific log line to help debug chunking issues
+            // partition 50 is stuck and at the point it is stuck it has two apparently complete chunks
+            // still in the pendingChunks map
+            // that should be impossible... but it is apparently happening
+            if (this.partition === 50) {
+                status.info('🧩', 'blob_ingester_session_manager received chunked message', {
+                    chunk_id: message.chunk_id,
+                    partition: this.partition,
+                    team: this.teamId,
+                    session: this.sessionId,
+                    chunk_index: message.chunk_index,
+                    pendingChunks: pendingChunks?.logContext,
+                    pendingChunksIsPresent: !!pendingChunks,
+                    pendingChunksIsComplete: pendingChunks?.isComplete,
+                })
+            }
         }
     }
 
