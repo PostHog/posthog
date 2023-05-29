@@ -310,64 +310,64 @@ export class PersonState {
     }
 
     public async merge(
-        previousDistinctId: string,
-        distinctId: string,
+        otherPersonDistinctId: string,
+        mergeIntoDistinctId: string,
         teamId: number,
         timestamp: DateTime
     ): Promise<Person | undefined> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
-        if (distinctId === previousDistinctId) {
+        if (mergeIntoDistinctId === otherPersonDistinctId) {
             return undefined
         }
-        if (isDistinctIdIllegal(distinctId)) {
-            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: distinctId })
+        if (isDistinctIdIllegal(mergeIntoDistinctId)) {
+            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: mergeIntoDistinctId })
             captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
-                illegalDistinctId: distinctId,
-                otherDistinctId: previousDistinctId,
+                illegalDistinctId: mergeIntoDistinctId,
+                otherDistinctId: otherPersonDistinctId,
                 eventUuid: this.event.uuid,
             })
             return undefined
         }
-        if (isDistinctIdIllegal(previousDistinctId)) {
-            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: previousDistinctId })
+        if (isDistinctIdIllegal(otherPersonDistinctId)) {
+            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: otherPersonDistinctId })
             captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
-                illegalDistinctId: previousDistinctId,
-                otherDistinctId: distinctId,
+                illegalDistinctId: otherPersonDistinctId,
+                otherDistinctId: mergeIntoDistinctId,
                 eventUuid: this.event.uuid,
             })
             return undefined
         }
-        return await this.mergeWithoutValidation(previousDistinctId, distinctId, teamId, timestamp, 0)
+        return await this.mergeWithoutValidation(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp, 0)
     }
 
     private async mergeWithoutValidation(
-        previousDistinctId: string,
-        distinctId: string,
+        otherPersonDistinctId: string,
+        mergeIntoDistinctId: string,
         teamId: number,
         timestamp: DateTime,
         totalMergeAttempts = 0
     ): Promise<Person> {
         this.updateIsIdentified = true
 
-        const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
-        const newPerson = await this.db.fetchPerson(teamId, distinctId)
+        const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
+        const mergeIntoPerson = await this.db.fetchPerson(teamId, mergeIntoDistinctId)
 
         try {
-            if (oldPerson && !newPerson) {
-                await this.db.addDistinctId(oldPerson, distinctId)
-                return oldPerson
-            } else if (!oldPerson && newPerson) {
-                await this.db.addDistinctId(newPerson, previousDistinctId)
-                return newPerson
-            } else if (oldPerson && newPerson) {
-                if (oldPerson.id == newPerson.id) {
-                    return newPerson
+            if (otherPerson && !mergeIntoPerson) {
+                await this.db.addDistinctId(otherPerson, mergeIntoDistinctId)
+                return otherPerson
+            } else if (!otherPerson && mergeIntoPerson) {
+                await this.db.addDistinctId(mergeIntoPerson, otherPersonDistinctId)
+                return mergeIntoPerson
+            } else if (otherPerson && mergeIntoPerson) {
+                if (otherPerson.id == mergeIntoPerson.id) {
+                    return mergeIntoPerson
                 }
                 return await this.mergePeople({
-                    mergeInto: newPerson,
-                    mergeIntoDistinctId: distinctId,
-                    otherPerson: oldPerson,
-                    otherPersonDistinctId: previousDistinctId,
+                    mergeInto: mergeIntoPerson,
+                    mergeIntoDistinctId: mergeIntoDistinctId,
+                    otherPerson: otherPerson,
+                    otherPersonDistinctId: otherPersonDistinctId,
                 })
             }
             //  The last case: (!oldPerson && !newPerson)
@@ -381,7 +381,7 @@ export class PersonState {
                 true,
                 this.newUuid,
                 this.event.uuid,
-                [distinctId, previousDistinctId]
+                [mergeIntoDistinctId, otherPersonDistinctId]
             )
         } catch (error) {
             // Retrying merging up to `MAX_FAILED_PERSON_MERGE_ATTEMPTS` times, in case race conditions occur.
@@ -399,22 +399,22 @@ export class PersonState {
             status.error('🚨', 'merge_failed', {
                 error,
                 teamId: this.teamId,
-                previousDistinctId: previousDistinctId,
-                distinctId: distinctId,
+                previousDistinctId: otherPersonDistinctId,
+                distinctId: mergeIntoDistinctId,
             })
             totalMergeAttempts++
             if (totalMergeAttempts >= this.maxMergeAttempts) {
                 status.error('🚨', 'merge_failed_final', {
                     error,
                     teamId: this.teamId,
-                    previousDistinctId: previousDistinctId,
-                    distinctId: distinctId,
+                    previousDistinctId: otherPersonDistinctId,
+                    distinctId: mergeIntoDistinctId,
                 })
                 throw error // Very much not OK, failed repeatedly so rethrowing the error
             }
             return await this.mergeWithoutValidation(
-                previousDistinctId,
-                distinctId,
+                otherPersonDistinctId,
+                mergeIntoDistinctId,
                 teamId,
                 timestamp,
                 totalMergeAttempts
