@@ -40,7 +40,7 @@ describe('the person header', () => {
             personDisplay: 'person@example.net',
 
             describe: 'when person is identified',
-            testName: 'if only email in person properties it shows identified people by email',
+            testName: 'if only email in person properties, shows identified people by email',
         },
         {
             isIdentified: true,
@@ -50,7 +50,7 @@ describe('the person header', () => {
             personDisplay: 'Mr Potato-head',
 
             describe: 'when person is identified',
-            testName: 'if only name in person properties it shows identified people by name',
+            testName: 'if only name in person properties, shows identified people by name',
         },
         {
             isIdentified: true,
@@ -60,7 +60,7 @@ describe('the person header', () => {
             personDisplay: 'mr.potato.head',
 
             describe: 'when person is identified',
-            testName: 'if only username in person properties it shows identified people by username',
+            testName: 'if only username in person properties, shows identified people by username',
         },
         {
             isIdentified: true,
@@ -72,7 +72,7 @@ describe('the person header', () => {
             personDisplay: 'person@example.com',
 
             describe: 'when person is identified',
-            testName: 'if there is a choice in person properties it shows identified people by email',
+            testName: 'if there is a choice in person properties, shows identified people by email',
         },
         {
             isIdentified: true,
@@ -83,18 +83,29 @@ describe('the person header', () => {
             personDisplay: '03b16e4c0b14ef-00000…c680-17878af3ba9d1c',
 
             describe: 'when person is identified',
-            testName: 'if there are no person properties it shows identified people by hash',
+            testName: 'if there are no person properties, shows identified people by distinct ID',
+        },
+        {
+            isIdentified: true,
+            distinctIds: ['03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3ba9d1c', 'juliatusk@gmail.com'],
+            props: {
+                email: null,
+            },
+            personDisplay: 'juliatusk@gmail.com',
+            describe: 'when person is identified',
+            testName: 'if there are no person properties, shows identified people by distinct ID, email-like ideally',
         },
         {
             isIdentified: false,
-            distinctIds: ['03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3babcde'],
+            // The second ID has an "@" and a "." but it's NOT an email
+            distinctIds: ['03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3babcde', 'fd.r34234-343@d'],
             props: {
                 email: null,
             },
             personDisplay: '03b16e4c0b14ef-00000…c680-17878af3babcde',
 
             describe: 'when person is unidentified',
-            testName: 'if there are no person properties it shows people by hash',
+            testName: 'if there are no person properties, shows people by distinct ID',
         },
         {
             isIdentified: false,
@@ -106,7 +117,7 @@ describe('the person header', () => {
             personDisplay: 'example@person.com',
 
             describe: 'when person is unidentified',
-            testName: 'if there are no person properties it shows people by hash',
+            testName: 'if there are no person properties, shows people by distinct ID',
         },
     ]
 

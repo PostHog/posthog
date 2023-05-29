@@ -7,7 +7,9 @@ import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { midEllipsis } from 'lib/utils'
 import clsx from 'clsx'
 
-type PersonPropType = { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: string }
+type PersonPropType =
+    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
+    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
 
 export interface PersonHeaderProps {
     person?: PersonPropType | null
@@ -15,6 +17,9 @@ export interface PersonHeaderProps {
     noLink?: boolean
     noEllipsis?: boolean
 }
+
+/** Very permissive email regex. */
+const EMAIL_REGEX = /.+@.+\..+/i
 
 export function asDisplay(person: PersonPropType | null | undefined, maxLength?: number): string {
     if (!person) {
@@ -29,7 +34,12 @@ export function asDisplay(person: PersonPropType | null | undefined, maxLength?:
     const customIdentifier: string =
         typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
-    const display: string | undefined = (customIdentifier || person.distinct_id || person.distinct_ids?.[0])?.trim()
+    const display: string | undefined = (
+        customIdentifier ||
+        person.distinct_id ||
+        (person.distinct_ids && // If there are multiple IDs, prefer the first one that has email characteristics
+            (person.distinct_ids.find((id) => EMAIL_REGEX.test(id)) || person.distinct_ids?.[0]))
+    )?.trim()
 
     return display ? midEllipsis(display, maxLength || 40) : 'Person without ID'
 }
