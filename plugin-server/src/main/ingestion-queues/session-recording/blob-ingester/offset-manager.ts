@@ -132,9 +132,7 @@ export class OffsetManager {
 
         status.info(
             '💾',
-            `offset_manager - ${
-                offsetToCommit !== undefined ? 'attempting to commit_offsets' : 'no offsets to commit'
-            }`,
+            `offset_manager - ${offsetToCommit !== undefined ? 'attempting to commit_offset' : 'no offset to commit'}`,
             { ...logContext, offsetToCommit }
         )
 
