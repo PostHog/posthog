@@ -143,6 +143,7 @@ export class SessionManager {
                 gzippedCapacity,
                 gzipSizeKb,
                 sessionId: this.sessionId,
+                partition: this.partition,
             }
 
             if (this.chunks.size !== 0) {
