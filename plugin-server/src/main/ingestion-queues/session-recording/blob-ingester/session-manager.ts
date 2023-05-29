@@ -165,42 +165,48 @@ export class SessionManager {
             return
         }
 
+        const logContext: Record<string, any> = {
+            sessionId: this.sessionId,
+            partition: this.partition,
+            chunkSize: this.chunks.size,
+            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+            referenceTime: referenceNow,
+            flushThresholdMillis,
+            bufferCount: this.buffer.count,
+        }
+
         if (this.buffer.oldestKafkaTimestamp === null) {
             // We have no messages yet, so we can't flush
             if (this.buffer.count > 0) {
                 throw new Error('Session buffer has messages but oldest timestamp is null. A paradox!')
             }
+            status.warn('🚽', `blob_ingester_session_manager buffer has no oldestKafkaTimestamp yet`, { logContext })
             return
         }
 
         const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
+        logContext['bufferAge'] = bufferAge
+
+        this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
+
+        if (this.chunks.size !== 0) {
+            const chunkStates: Record<string, any> = {}
+            for (const [key, chunk] of this.chunks.entries()) {
+                chunkStates[key] = chunk.logContext
+            }
+            logContext['chunkStates'] = chunkStates
+        }
 
         if (bufferAge >= flushThresholdMillis) {
-            const logContext: Record<string, any> = {
-                bufferAge,
-                sessionId: this.sessionId,
-                partition: this.partition,
-                chunkSize: this.chunks.size,
-                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
-                referenceTime: referenceNow,
-                flushThresholdMillis,
-            }
-
-            this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
-
-            if (this.chunks.size !== 0) {
-                const chunkStates: Record<string, any> = {}
-                for (const [key, chunk] of this.chunks.entries()) {
-                    chunkStates[key] = chunk.logContext
-                }
-                logContext['chunkStates'] = chunkStates
-            }
-
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 ...logContext,
             })
             // return the promise and let the caller decide whether to await
             return this.flush('buffer_age')
+        } else {
+            status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
+                ...logContext,
+            })
         }
     }
 
