@@ -244,7 +244,10 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         # verify we don't change anything
         self.everything_test_run(False)
 
-    def everything_test_run(self, live_run):
+    def test_live_run_everything_batch_2(self):
+        self.everything_test_run(True, 2)
+
+    def everything_test_run(self, live_run, batch: int = 100):
         # 2 persons who shouldn't be changed
         person_not_changed_1 = Person.objects.create(
             team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
@@ -371,6 +374,9 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             "person_override": True,
             "group": True,
             "deletes": True,
+            "batch_size_pg": batch,
+            "batch_size_ch": batch,
+            "log_every_nth": batch,
         }
         run(options, sync=True)
 
