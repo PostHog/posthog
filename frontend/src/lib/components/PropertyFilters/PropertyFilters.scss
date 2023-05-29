@@ -1,14 +1,16 @@
 .PropertyFilters {
     display: flex;
+    gap: 0.5rem;
 
     .PropertyFilters__content {
         flex: 1;
         display: flex;
         flex-wrap: wrap;
+        gap: 0.5rem;
         overflow: hidden;
     }
 
-    .PropertyFilters__pprefix {
+    .PropertyFilters__prefix {
         color: #c4c4c4;
         font-size: 18px;
         user-select: none;
@@ -16,7 +18,6 @@
     }
 
     .logical-row-divider {
-        color: var(--primary-alt);
         font-weight: 600;
         font-size: 12px;
         text-transform: uppercase;
