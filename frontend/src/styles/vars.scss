@@ -175,6 +175,10 @@ $_lifecycle_dormant: $_danger;
     --green: var(--success);
     --black: var(--default);
 
+    // Tag colors
+    --purple-light: #dcb1e3;
+    --purple-dark: #572e5e;
+
     // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-brand-blue: var(--primary);
     --data-purple: #621da6;
