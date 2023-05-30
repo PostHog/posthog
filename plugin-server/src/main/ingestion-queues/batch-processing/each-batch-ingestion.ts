@@ -29,8 +29,9 @@ const kafkaBatchOffsetCommitted = new Counter({
 
 export enum IngestionOverflowMode {
     Disabled,
-    Reroute,
+    Reroute, // reroute from capture only
     Consume,
+    ReroutePluginServer, // reroute from capture and plugin-server too
 }
 
 type IngestionSplitBatch = {
@@ -257,14 +258,18 @@ export function splitIngestionBatch(
 
     const batches: Map<string, PipelineEvent[]> = new Map()
     for (const message of kafkaMessages) {
-        if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
+        if (
+            (overflowMode === IngestionOverflowMode.Reroute ||
+                overflowMode === IngestionOverflowMode.ReroutePluginServer) &&
+            message.key == null
+        ) {
             // Overflow detected by capture, reroute to overflow topic
             output.toOverflow.push(message)
             continue
         }
         const pluginEvent = formPipelineEvent(message)
         const eventKey = computeKey(pluginEvent)
-        if (overflowMode === IngestionOverflowMode.Reroute && !ConfiguredLimiter.consume(eventKey, 1)) {
+        if (overflowMode === IngestionOverflowMode.ReroutePluginServer && !ConfiguredLimiter.consume(eventKey, 1)) {
             // Local overflow detection triggering, reroute to overflow topic too
             message.key = null
             ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()

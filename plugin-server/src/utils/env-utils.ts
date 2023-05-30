@@ -44,3 +44,8 @@ export function isIngestionOverflowEnabled(): boolean {
     const ingestionOverflowEnabled = process.env.INGESTION_OVERFLOW_ENABLED
     return stringToBoolean(ingestionOverflowEnabled)
 }
+
+export function isIngestionOverflowFromPluginServerEnabled(): boolean {
+    const ingestionOverflowEnabled = process.env.INGESTION_OVERFLOW_PLUGIN_SERVER_ENABLED
+    return stringToBoolean(ingestionOverflowEnabled)
+}

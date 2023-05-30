@@ -114,11 +114,55 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
     })
 
-    it('reroutes excess events to OVERFLOW topic', async () => {
+    it('reroutes events with no key to OVERFLOW topic in plugin server reroute mode', async () => {
+        const batch = [
+            {
+                partition: 0,
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                value: JSON.stringify(captureEndpointEvent),
+                timestamp: captureEndpointEvent['timestamp'],
+                offset: captureEndpointEvent['offset'],
+                key: null,
+            },
+        ]
+
+        const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
+
+        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.ReroutePluginServer)
+
+        expect(consume).not.toHaveBeenCalled()
+        expect(captureIngestionWarning).not.toHaveBeenCalled()
+        expect(queue.pluginsServer.kafkaProducer.produce).toHaveBeenCalledWith({
+            topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+            value: JSON.stringify(captureEndpointEvent),
+            timestamp: captureEndpointEvent['timestamp'],
+            offset: captureEndpointEvent['offset'],
+            key: null,
+            waitForAck: true,
+        })
+
+        // Event is not processed here
+        expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
+    })
+
+    it('does not reroute excess events to OVERFLOW topic', async () => {
         const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
         const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
 
         await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Reroute)
+
+        expect(consume).not.toHaveBeenCalled()
+        expect(captureIngestionWarning).not.toHaveBeenCalled()
+        expect(queue.pluginsServer.kafkaProducer.produce).not.toHaveBeenCalled()
+        // Event is processed
+        expect(queue.workerMethods.runEventPipeline).toHaveBeenCalled()
+    })
+
+    it('reroutes excess events to OVERFLOW topic in plugin server reroute mode', async () => {
+        const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
+        const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
+
+        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.ReroutePluginServer)
 
         expect(consume).toHaveBeenCalledWith(
             captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
@@ -144,11 +188,11 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
     })
 
-    it('does not reroute if not over capacity limit', async () => {
+    it('does not reroute if not over capacity limit in plugin server reroute mode', async () => {
         const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
         const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => true)
 
-        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Reroute)
+        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.ReroutePluginServer)
 
         expect(consume).toHaveBeenCalledWith(
             captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],

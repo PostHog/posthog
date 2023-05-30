@@ -4,7 +4,7 @@ import { Counter } from 'prom-client'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
-import { isIngestionOverflowEnabled } from '../../utils/env-utils'
+import { isIngestionOverflowEnabled, isIngestionOverflowFromPluginServerEnabled } from '../../utils/env-utils'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
 import { eachBatchParallelIngestion, IngestionOverflowMode } from './batch-processing/each-batch-ingestion'
@@ -50,7 +50,12 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // deployment, we require an env variable to be set to confirm this before
     // enabling re-production of events to the OVERFLOW topic.
 
-    const overflowMode = isIngestionOverflowEnabled() ? IngestionOverflowMode.Reroute : IngestionOverflowMode.Disabled
+    let overflowMode = IngestionOverflowMode.Disabled
+    if (isIngestionOverflowEnabled()) {
+        overflowMode = isIngestionOverflowFromPluginServerEnabled()
+            ? IngestionOverflowMode.ReroutePluginServer
+            : IngestionOverflowMode.Reroute
+    }
     const batchHandler = async (payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> => {
         await eachBatchParallelIngestion(payload, queue, overflowMode)
     }
