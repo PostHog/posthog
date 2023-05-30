@@ -26,7 +26,8 @@ require('@sentry/tracing')
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
-
+const twelveHoursInMillis = 6 * 60 * 60 * 1000
+                
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
 const gaugeSessionsHandled = new Gauge({
@@ -351,13 +352,14 @@ export class SessionRecordingBlobIngester {
                     throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
                 }
 
-                // it is possible for a session to need an idle flush to continue, but for the head of the partition
-                // to be within the idle timeout threshold and so never flush on idle.
+                // it is possible for a session to need an idle flush to continue 
+                // but for the head of the partition to be within the idle timeout threshold.
+                // for e.g. when no new message is received on the partition
+                // and so, it will never flush on idle.
                 // in that circumstance, we still need to flush the session.
                 // in practice, any partition should only lag behind real-world now by around ten minutes
                 // if things are lagging by more than twelve hours then we will prioritise flushing
                 // even if it means that blob storage write costs are higher
-                const twelveHoursInMillis = 6 * 60 * 60 * 1000
                 if (DateTime.now().toMillis() - kafkaNow >= twelveHoursInMillis) {
                     kafkaNow = DateTime.now().toMillis()
                 }
