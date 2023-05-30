@@ -5,7 +5,7 @@ import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
 import { urls } from 'scenes/urls'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { teamLogic } from 'scenes/teamLogic'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { insightUrlForEvent } from 'lib/utils'
@@ -37,6 +37,17 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             data-attr="events-table-create-action"
                         >
                             Create action from event
+                        </LemonButton>
+                    )}
+                    {event.uuid && event.timestamp && (
+                        <LemonButton
+                            status="stealth"
+                            fullWidth
+                            sideIcon={<IconLink />}
+                            data-attr="events-table-event-link"
+                            to={urls.event(event.uuid, event.timestamp)}
+                        >
+                            Link to event
                         </LemonButton>
                     )}
                     {!!event.properties?.$session_id && (
