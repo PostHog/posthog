@@ -957,6 +957,41 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_case_when(self):
+        self.assertEqual(
+            parse_expr("case when 1 then 2 else 3 end"),
+            ast.Call(name="if", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+        )
+
+    def test_case_when_many(self):
+        self.assertEqual(
+            parse_expr("case when 1 then 2 when 3 then 4 else 5 end"),
+            ast.Call(
+                name="multiIf",
+                args=[
+                    ast.Constant(value=1),
+                    ast.Constant(value=2),
+                    ast.Constant(value=3),
+                    ast.Constant(value=4),
+                    ast.Constant(value=5),
+                ],
+            ),
+        )
+
+    def test_case_when_case(self):
+        self.assertEqual(
+            parse_expr("case 0 when 1 then 2 when 3 then 4 else 5 end"),
+            ast.Call(
+                name="transform",
+                args=[
+                    ast.Constant(value=0),
+                    ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=3)]),
+                    ast.Array(exprs=[ast.Constant(value=2), ast.Constant(value=4)]),
+                    ast.Constant(value=5),
+                ],
+            ),
+        )
+
     def test_window_functions(self):
         query = "SELECT person.id, min(latest_1) over (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) latest_1 FROM events"
         expr = parse_select(query)

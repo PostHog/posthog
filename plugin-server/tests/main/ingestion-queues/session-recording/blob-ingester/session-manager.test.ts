@@ -261,6 +261,31 @@ describe('session-manager', () => {
         )
     })
 
+    it('can flush messages without dropping pending chunks', async () => {
+        await sessionManager.add(createIncomingRecordingMessage())
+        // Create an event that ends up in the chunks rather than the buffer
+        await sessionManager.add(
+            createIncomingRecordingMessage({
+                chunk_count: 2,
+            })
+        )
+
+        expect(sessionManager.buffer.count).toEqual(1)
+        expect(sessionManager.chunks.size).toEqual(1)
+
+        const afterResumeFlushPromise = sessionManager.flush('buffer_size')
+
+        expect(sessionManager.buffer.count).toEqual(0)
+        expect(sessionManager.flushBuffer?.count).toEqual(1)
+
+        await afterResumeFlushPromise
+
+        expect(sessionManager.flushBuffer).toEqual(undefined)
+        expect(mockFinish).toBeCalledTimes(1)
+        expect(sessionManager.buffer.count).toEqual(0)
+        expect(sessionManager.chunks.size).toEqual(1)
+    })
+
     it.each([
         [
             'incomplete and below threshold of 1000, we keep it in the chunks buffer',

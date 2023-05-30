@@ -1,5 +1,6 @@
-import { kea, path, props, defaults, actions, reducers, selectors, listeners, connect } from 'kea'
+import { actions, connect, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 import {
+    propertyFilterTypeToPropertyDefinitionType,
     propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
@@ -93,7 +94,8 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     listeners(({ props, values }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
             const breakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
-            const isHistogramable = !!values.getPropertyDefinition(breakdown)?.is_numerical
+            const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
+            const isHistogramable = !!values.getPropertyDefinition(breakdown, propertyDefinitionType)?.is_numerical
 
             if (!props.updateBreakdown || !breakdownType) {
                 return
@@ -102,7 +104,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
             // For now, it is safe to fall back to `breakdown` instead of the property definition.
             const isNormalizeable = isURLNormalizeable(
-                values.getPropertyDefinition(breakdown)?.name || (breakdown as string)
+                values.getPropertyDefinition(breakdown, propertyDefinitionType)?.name || (breakdown as string)
             )
 
             props.updateBreakdown({

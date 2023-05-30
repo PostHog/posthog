@@ -16,13 +16,18 @@ from sentry_sdk import capture_exception
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Filter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    SharingTokenPermission,
+    TeamMemberAccessPermission,
+)
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
@@ -80,6 +85,15 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
         ]
 
 
+class SessionRecordingSharedSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="session_id", read_only=True)
+    recording_duration = serializers.IntegerField(source="duration", read_only=True)
+
+    class Meta:
+        model = SessionRecording
+        fields = ["id", "recording_duration", "start_time", "end_time"]
+
+
 class SessionRecordingPropertiesSerializer(serializers.Serializer):
     session_id = serializers.CharField()
     properties = serializers.DictField(required=False)
@@ -91,9 +105,31 @@ class SessionRecordingPropertiesSerializer(serializers.Serializer):
         }
 
 
-class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
+class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
+    authentication_classes = StructuredViewSetMixin.authentication_classes + [SharingAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    serializer_class = SessionRecordingSerializer
+
+    sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
+
+    def get_permissions(self):
+        if hasattr(self.request, "sharing_configuration"):
+            return [permission() for permission in [SharingTokenPermission]]
+        return super().get_permissions()
+
+    def get_serializer_class(self) -> Type[serializers.Serializer]:
+        if hasattr(self.request, "sharing_configuration"):
+            return SessionRecordingSharedSerializer
+        else:
+            return SessionRecordingSerializer
+
+    def get_object(self):
+        team = self.team
+        session_id = self.kwargs["pk"]
+        obj = SessionRecording.get_or_build(session_id=session_id, team=team)
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
@@ -106,7 +142,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+        recording = self.get_object()
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
@@ -125,15 +161,16 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         recording.load_person()
 
-        save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
-        recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
+        if not request.user.is_anonymous:
+            save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
+            recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
 
-        serializer = SessionRecordingSerializer(recording, context=self.get_serializer_context())
+        serializer = self.get_serializer(recording)
 
         return Response(serializer.data)
 
-    def delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        recording = self.get_object()
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
@@ -141,11 +178,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         recording.deleted = True
         recording.save()
 
-        return Response({"success": True})
+        return Response({"success": True}, status=204)
 
     @action(methods=["GET"], detail=True)
     def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+        recording = self.get_object()
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
@@ -170,7 +207,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+        recording = self.get_object()
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
