@@ -10,7 +10,7 @@ export const ProductEmptyState = ({
     actionElementOverride,
     docsURL,
 }: {
-    // The name of the product, e.g. "Cohorts"
+    /** The name of the product, e.g. "Cohorts" */
     productName: string
     // The name of the thing that they will create, e.g. "cohort"
     thingName: string
@@ -48,7 +48,7 @@ export const ProductEmptyState = ({
                                 Create {thingName}
                             </LemonButton>
                         ) : (
-                            actionElementOverride && actionElementOverride
+                            actionElementOverride
                         )}
                         {docsURL && (
                             <LemonButton
