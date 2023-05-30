@@ -11,7 +11,7 @@ import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonsTabType, PersonType } from '~/types'
+import { PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -162,6 +162,7 @@ export function Person(): JSX.Element | null {
                     key={PersonsTabType.PROPERTIES}
                 >
                     <PropertiesTable
+                        type={PropertyDefinitionType.Person}
                         properties={person.properties || {}}
                         searchable
                         onEdit={editProperty}
