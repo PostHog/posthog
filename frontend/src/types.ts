@@ -27,6 +27,7 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
 import { InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -355,7 +356,7 @@ export interface ActionType {
 }
 
 /** Sync with plugin-server/src/types.ts */
-export enum ActionStepUrlMatching {
+export enum StringMatching {
     Contains = 'contains',
     Regex = 'regex',
     Exact = 'exact',
@@ -363,15 +364,21 @@ export enum ActionStepUrlMatching {
 
 export interface ActionStepType {
     event?: string | null
-    href?: string | null
     id?: number
     name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
+    /** @deprecated Only `selector` should be used now. */
     tag_name?: string
     text?: string | null
+    /** @default StringMatching.Exact */
+    text_matching?: StringMatching | null
+    href?: string | null
+    /** @default StringMatching.Exact */
+    href_matching?: StringMatching | null
     url?: string | null
-    url_matching?: ActionStepUrlMatching
+    /** @default StringMatching.Contains */
+    url_matching?: StringMatching | null
     isNew?: string
 }
 
@@ -459,7 +466,7 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
-export enum ExperimentStatus {
+export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
@@ -1782,6 +1789,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
+    math_hogql?: string
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
@@ -1975,8 +1983,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** If showing a shared insight/dashboard, we need the access token for refreshing. */
-    sharingAccessToken?: string
     /** Temporary hack to disable data exploration to enable result fetching. */
     disableDataExploration?: boolean
 }
@@ -1986,6 +1992,54 @@ export interface SetInsightOptions {
     overrideFilter?: boolean
     /** calling with this updates the "last saved" filters */
     fromPersistentApi?: boolean
+}
+
+export interface Survey {
+    /** UUID */
+    id: string
+    name: string
+    description: string
+    type: SurveyType
+    linked_flag: FeatureFlagBasicType | null
+    targeting_flag: FeatureFlagBasicType | null
+    conditions: { url: string; selector: string } | null
+    appearance: SurveyAppearance
+    questions: SurveyQuestion[]
+    created_at: string
+    created_by: UserBasicType | null
+    start_date: string | null
+    end_date: string | null
+    archived: boolean
+}
+
+export enum SurveyType {
+    Popover = 'popover',
+    Button = 'button',
+    FullScreen = 'full_screen',
+    Email = 'email',
+}
+
+export interface SurveyAppearance {
+    background_color?: string
+    button_color?: string
+    text_color?: string
+}
+
+export interface SurveyQuestion {
+    type: SurveyQuestionType
+    question: string
+    required?: boolean
+    link?: string | null
+    choices?: string[] | null
+}
+
+export enum SurveyQuestionType {
+    Open = 'open',
+    MultipleChoiceSingle = 'multiple_single',
+    MultipleChoiceMulti = 'multiple_multi',
+    NPS = 'nps',
+    Rating = 'rating',
+    Link = 'link',
 }
 
 export interface FeatureFlagGroupType {
@@ -2221,6 +2275,12 @@ export enum PropertyType {
     Selector = 'Selector',
 }
 
+export enum PropertyDefinitionType {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+}
+
 export interface PropertyDefinition {
     id: string
     name: string
@@ -2233,6 +2293,7 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_seen_on_filtered_events?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: PropertyType
+    type?: PropertyDefinitionType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
     example?: string
@@ -2575,6 +2636,9 @@ export enum CountPerActorMathType {
     P99 = 'p99_count_per_actor',
 }
 
+export enum HogQLMathType {
+    HogQL = 'hogql',
+}
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
@@ -2842,7 +2906,8 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    content: any // TODO: Type this better
+    content: JSONContent // TODO: Type this better
+    version: number
 }
 
 export enum NotebookMode {
