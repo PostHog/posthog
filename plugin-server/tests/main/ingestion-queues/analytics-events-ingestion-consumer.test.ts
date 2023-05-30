@@ -1,12 +1,18 @@
+import { v4 } from 'uuid'
+
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../src/config/kafka-topics'
 import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
+import { IngestionConsumer } from '../../../src/main/ingestion-queues/kafka-queue'
+import { Hub } from '../../../src/types'
+import { createHub } from '../../../src/utils/db/hub'
 import { ConfiguredLimiter } from '../../../src/utils/token-bucket'
+import { createOrganization, createTeam } from '../../helpers/sql'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 
-jest.mock('../../../src/utils/status')
+// jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
 
 const captureEndpointEvent = {
@@ -24,7 +30,9 @@ const captureEndpointEvent = {
 }
 
 describe('eachBatchParallelIngestion with overflow reroute', () => {
-    let queue: any
+    let queue: Pick<IngestionConsumer, 'pluginsServer' | 'workerMethods'>
+    let hub: Hub
+    let closeHub: () => Promise<void>
 
     function createBatchWithMultipleEventsWithKeys(events: any[], timestamp?: any): any {
         return events.map((event) => ({
@@ -37,22 +45,17 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         }))
     }
 
+    beforeAll(async () => {
+        ;[hub, closeHub] = await createHub()
+    })
+
+    afterAll(async () => {
+        await closeHub()
+    })
+
     beforeEach(() => {
         queue = {
-            bufferSleep: jest.fn(),
-            pluginsServer: {
-                INGESTION_CONCURRENCY: 4,
-                statsd: {
-                    timing: jest.fn(),
-                    increment: jest.fn(),
-                    histogram: jest.fn(),
-                    gauge: jest.fn(),
-                },
-                kafkaProducer: {
-                    produce: jest.fn(),
-                },
-                db: 'database',
-            },
+            pluginsServer: hub,
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(),
@@ -129,5 +132,106 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         expect(queue.pluginsServer.kafkaProducer.produce).not.toHaveBeenCalled()
         // Event is processed
         expect(queue.workerMethods.runEventPipeline).toHaveBeenCalled()
+    })
+
+    it('throws error if Kafka is down in reroute mode', async () => {
+        const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
+        const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
+        queue.pluginsServer.kafkaProducer.produce = jest.fn(() => {
+            throw new Error('Kafka is down')
+        })
+
+        await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Reroute)).rejects.toThrow(
+            'Kafka is down'
+        )
+
+        expect(consume).toHaveBeenCalledWith(
+            captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
+            1
+        )
+        expect(captureIngestionWarning).not.toHaveBeenCalled()
+        expect(queue.pluginsServer.kafkaProducer.produce).toHaveBeenCalled()
+        // Event is not processed here
+        expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
+    })
+
+    it('throws error if Kafka is down in consume mode', async () => {
+        const organizationId = await createOrganization(queue.pluginsServer.postgres)
+        const token = v4()
+        await createTeam(queue.pluginsServer.postgres, organizationId, token)
+
+        const event = {
+            distinct_id: 'id',
+            ip: null,
+            site_url: '',
+            data: JSON.stringify({
+                event: 'event',
+                properties: {},
+            }),
+            token: token,
+            now: null,
+            sent_at: null,
+        }
+
+        const message = {
+            partition: 0,
+            topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+            value: Buffer.from(JSON.stringify(event)),
+            timestamp: event['timestamp'],
+            offset: 0,
+            size: 0,
+        }
+
+        queue.pluginsServer.kafkaProducer.produce = jest.fn(() => {
+            throw new Error('Kafka is down')
+        })
+
+        await expect(
+            eachBatchParallelIngestion([message], queue as any, IngestionOverflowMode.Consume)
+        ).rejects.toThrow('Kafka is down')
+
+        expect(captureIngestionWarning).not.toHaveBeenCalled()
+        expect(queue.pluginsServer.kafkaProducer.produce).toHaveBeenCalled()
+        // Event is not processed here
+        expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
+    })
+
+    it('throws error if postgres is down in consume mode', async () => {
+        // This very roughly simulates transient postgres errors, but the
+        // handling of such errors may be different down the stack so this isn't
+        // exhaustive.
+        const organizationId = await createOrganization(queue.pluginsServer.postgres)
+        const token = v4()
+        await createTeam(queue.pluginsServer.postgres, organizationId, token)
+
+        const event = {
+            distinct_id: 'id',
+            ip: null,
+            site_url: '',
+            data: JSON.stringify({
+                event: 'event',
+                properties: {},
+            }),
+            token: token,
+            now: null,
+            sent_at: null,
+        }
+
+        const message = {
+            partition: 0,
+            topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+            value: Buffer.from(JSON.stringify(event)),
+            timestamp: event['timestamp'],
+            offset: 0,
+            size: 0,
+        }
+
+        queue.pluginsServer.postgres.query = jest.fn(() => {
+            throw new Error('Postgres is down')
+        })
+
+        await expect(
+            eachBatchParallelIngestion([message], queue as any, IngestionOverflowMode.Consume)
+        ).rejects.toThrow('Postgres is down')
     })
 })
