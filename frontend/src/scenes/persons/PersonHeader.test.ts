@@ -87,18 +87,34 @@ describe('the person header', () => {
         },
         {
             isIdentified: true,
-            distinctIds: ['03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3ba9d1c', 'juliatusk@gmail.com'],
+            distinctIds: ['03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3ba9d1c', '1234abc'],
+            props: {
+                email: null,
+            },
+            personDisplay: '1234abc',
+            describe: 'when person is identified',
+            testName:
+                'if there are no person properties, shows identified people by distinct ID, preferring non-anon IDs',
+        },
+        {
+            isIdentified: true,
+            // The second ID has an "@" and a "." but is NOT an email
+            distinctIds: [
+                '03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3ba9d1c',
+                '1234.abc@',
+                'juliatusk@gmail.com',
+            ],
             props: {
                 email: null,
             },
             personDisplay: 'juliatusk@gmail.com',
             describe: 'when person is identified',
-            testName: 'if there are no person properties, shows identified people by distinct ID, email-like ideally',
+            testName:
+                'if there are no person properties, shows identified people by distinct ID, preferring email-like',
         },
         {
             isIdentified: false,
-            // The second ID has an "@" and a "." but it's NOT an email
-            distinctIds: ['03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3babcde', 'fd.r34234-343@d'],
+            distinctIds: ['03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3babcde'],
             props: {
                 email: null,
             },
