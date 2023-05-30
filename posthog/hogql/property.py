@@ -268,8 +268,10 @@ def action_to_expr(action: Action) -> ast.Expr:
 
     if len(or_queries) == 1:
         return or_queries[0]
-    else:
+    elif len(or_queries) > 1:
         return ast.Or(exprs=or_queries)
+    else:
+        return ast.Constant(value=True)
 
 
 def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
