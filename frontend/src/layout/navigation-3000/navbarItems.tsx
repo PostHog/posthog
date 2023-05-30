@@ -14,9 +14,12 @@ import {
 } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { NavbarItem } from '../types'
-import { dashboardsSidebarLogic } from './dashboardsSidebarLogic'
-import { featureFlagsSidebarLogic } from './featureFlagsSidebarLogic'
+import { NavbarItem } from './types'
+import { dashboardsSidebarLogic } from './sidebars/dashboardsSidebarLogic'
+import { featureFlagsSidebarLogic } from './sidebars/featureFlagsSidebarLogic'
+import { cohortsSidebarLogic } from './sidebars/cohortsSidebarLogic'
+import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroupsSidebarLogic'
+import { insightsSidebarLogic } from './sidebars/insightsSidebarLogic'
 
 /** A list of navbar sections with items. */
 export const NAVBAR_ITEMS: NavbarItem[][] = [
@@ -27,8 +30,6 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             icon: <IconCottage />,
             pointer: urls.projectHomepage(),
         },
-    ],
-    [
         {
             identifier: Scene.Dashboards,
             label: 'Dashboards',
@@ -44,11 +45,13 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             identifier: Scene.Persons,
             label: 'Persons and groups',
             icon: <IconPerson />,
+            pointer: personsAndGroupsSidebarLogic,
         },
         {
             identifier: Scene.Cohorts,
             label: 'Cohorts',
             icon: <IconCohort />,
+            pointer: cohortsSidebarLogic,
         },
         {
             identifier: Scene.Annotations,
@@ -66,6 +69,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             identifier: Scene.SavedInsights,
             label: 'Product Analytics',
             icon: <IconBarChart />,
+            pointer: insightsSidebarLogic,
         },
         {
             identifier: Scene.Replay,
@@ -85,31 +89,6 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         },
     ],
     [
-        {
-            identifier: Scene.Events,
-            label: 'Events',
-            icon: <IconLive />,
-        },
-        {
-            identifier: Scene.DataManagement,
-            label: 'Data management',
-            icon: <IconUnverifiedEvent />,
-        },
-        {
-            identifier: Scene.Persons,
-            label: 'Persons',
-            icon: <IconPerson />,
-        },
-        {
-            identifier: Scene.Cohorts,
-            label: 'Cohorts',
-            icon: <IconCohort />,
-        },
-        {
-            identifier: Scene.Annotations,
-            label: 'Annotations',
-            icon: <IconComment />,
-        },
         {
             identifier: Scene.Plugins,
             label: 'Apps',
