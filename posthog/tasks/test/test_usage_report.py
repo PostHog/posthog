@@ -37,6 +37,7 @@ from posthog.utils import get_machine_id
 logger = structlog.get_logger(__name__)
 
 
+@freeze_time("2022-01-10T00:01:00Z")
 class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
