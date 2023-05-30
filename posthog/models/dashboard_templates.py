@@ -19,6 +19,7 @@ class DashboardTemplate(UUIDModel):
 
         ONLY_TEAM = "team", "Only team"
         GLOBAL = "global", "Global"
+        FEATURE_FLAG = "feature_flag", "Feature Flag"
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     template_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
