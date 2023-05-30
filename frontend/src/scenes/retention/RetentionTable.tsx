@@ -14,17 +14,12 @@ import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
 export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const {
-        results,
         filters: { period, date_to },
     } = useValues(retentionLogic(insightProps))
     const { tableHeaders, tableRows } = useValues(retentionTableLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
     const isLatestPeriod = periodIsLatest(date_to || null, period || null)
-
-    if (!results?.length) {
-        return null
-    }
 
     return (
         <table className="RetentionTable" data-attr="retention-table">
