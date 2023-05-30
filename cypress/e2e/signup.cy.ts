@@ -49,7 +49,7 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
-        cy.location('pathname').should('eq', '/ingestion')
+        cy.location('pathname').should('eq', '/verify_email')
     })
 
     it('Can fill out all the fields on social login', () => {
