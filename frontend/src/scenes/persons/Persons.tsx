@@ -10,6 +10,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconExport } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 interface PersonsProps {
     cohort?: CohortType['id']
@@ -45,7 +48,9 @@ export function PersonsScene({
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading, exporterProps, apiDocsURL } = useValues(personsLogic)
 
-    return (
+    console.log(persons.results.length, personsLoading, Object.keys(listFilters).length, listFilters)
+
+    return persons.results.length > 0 || personsLoading || Object.keys(listFilters).length > 1 || listFilters.search ? (
         <div className="persons-list">
             <div className="space-y-2">
                 <div className="flex justify-between items-center gap-2">
@@ -108,5 +113,17 @@ export function PersonsScene({
                 />
             </div>
         </div>
+    ) : (
+        <ProductEmptyState
+            productName="Persons"
+            thingName="person"
+            description="PostHog tracks user behaviour, whether or not the user is logged in or anonymous. Once you've sent some data, the associated people will show up here."
+            docsURL="https://posthog.com/docs/getting-started/install"
+            actionElementOverride={
+                <LemonButton type="primary" onClick={() => router.actions.push(urls.ingestion() + '/platform')}>
+                    Start sending data
+                </LemonButton>
+            }
+        />
     )
 }
