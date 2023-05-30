@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { insightUrlForEvent } from 'lib/utils'
+import { copyToClipboard, insightUrlForEvent } from 'lib/utils'
 
 interface EventActionProps {
     event: EventType
@@ -45,9 +45,14 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             fullWidth
                             sideIcon={<IconLink />}
                             data-attr="events-table-event-link"
-                            to={urls.event(event.uuid, event.timestamp)}
+                            onClick={() =>
+                                copyToClipboard(
+                                    `${window.location.origin}${urls.event(event.uuid, event.timestamp)}`,
+                                    'link to event'
+                                )
+                            }
                         >
-                            Link to event
+                            Copy link to event
                         </LemonButton>
                     )}
                     {!!event.properties?.$session_id && (
