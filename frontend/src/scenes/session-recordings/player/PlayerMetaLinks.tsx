@@ -1,4 +1,7 @@
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
@@ -44,34 +47,40 @@ export function PlayerMetaLinks(): JSX.Element {
         size: 'small',
     }
 
+    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+
     return (
-        <div className="flex flex-row gap-1 items-center flex-1 justify-end">
-            <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
-                <span>Share</span>
-            </LemonButton>
+        <div className="flex flex-row gap-1 items-center justify-end">
+            {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
+                <>
+                    <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
+                        <span>Share</span>
+                    </LemonButton>
 
-            <PlaylistPopoverButton {...commonProps}>
-                <span>Pin</span>
-            </PlaylistPopoverButton>
+                    <PlaylistPopoverButton {...commonProps}>
+                        <span>Pin</span>
+                    </PlaylistPopoverButton>
 
-            {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                <AddToNotebook
-                    tooltip="Add to Notebook"
-                    node={NotebookNodeType.Recording}
-                    properties={{ sessionRecordingId }}
-                    {...commonProps}
-                />
-            )}
+                    {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
+                        <AddToNotebook
+                            tooltip="Add to Notebook"
+                            node={NotebookNodeType.Recording}
+                            properties={{ id: sessionRecordingId }}
+                            {...commonProps}
+                        />
+                    )}
 
-            {logicProps.playerKey !== 'modal' && (
-                <LemonButton
-                    tooltip="Delete"
-                    icon={<IconDelete />}
-                    onClick={onDelete}
-                    {...commonProps}
-                    status="danger"
-                />
-            )}
+                    {logicProps.playerKey !== 'modal' && (
+                        <LemonButton
+                            tooltip="Delete"
+                            icon={<IconDelete />}
+                            onClick={onDelete}
+                            {...commonProps}
+                            status="danger"
+                        />
+                    )}
+                </>
+            ) : null}
         </div>
     )
 }

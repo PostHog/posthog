@@ -8,9 +8,9 @@ import {
     Element,
     GroupTypeIndex,
     Hub,
-    IngestionPersonData,
     ISOTimestamp,
     PerformanceEventReverseMapping,
+    Person,
     PreIngestionEvent,
     RawClickHouseEvent,
     RawPerformanceEvent,
@@ -26,7 +26,6 @@ import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
-import { LazyPersonContainer } from './lazy-person-container'
 import { upsertGroup } from './properties-updater'
 import { PropertyDefinitionsManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
@@ -128,7 +127,7 @@ export class EventsProcessor {
         try {
             await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
         } catch (err) {
-            Sentry.captureException(err)
+            Sentry.captureException(err, { tags: { team_id: team.id } })
             status.warn('⚠️', 'Failed to update property definitions for an event', {
                 event,
                 properties,
@@ -164,7 +163,7 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(preIngestionEvent: PreIngestionEvent, personContainer: LazyPersonContainer): Promise<void> {
+    async createEvent(preIngestionEvent: PreIngestionEvent, person: Person): Promise<RawClickHouseEvent> {
         const {
             eventUuid: uuid,
             event,
@@ -180,26 +179,13 @@ export class EventsProcessor {
         const groupIdentifiers = this.getGroupIdentifiers(properties)
         const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
 
-        let eventPersonProperties: string | null = null
-        let personInfo: IngestionPersonData | undefined = await personContainer.get()
-
-        if (personInfo) {
-            eventPersonProperties = JSON.stringify({
-                ...personInfo.properties,
-                // For consistency, we'd like events to contain the properties that they set, even if those were changed
-                // before the event is ingested.
-                ...(properties.$set || {}),
-            })
-        } else {
-            personInfo = await this.db.getPersonData(teamId, distinctId)
-            if (personInfo) {
-                // For consistency, we'd like events to contain the properties that they set, even if those were changed
-                // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
-                // $set properties if they exist.
-                const latestPersonProperties = personInfo ? personInfo?.properties : {}
-                eventPersonProperties = JSON.stringify({ ...latestPersonProperties, ...(properties.$set || {}) })
-            }
-        }
+        const eventPersonProperties: string = JSON.stringify({
+            ...person.properties,
+            // For consistency, we'd like events to contain the properties that they set, even if those were changed
+            // before the event is ingested.
+            ...(properties.$set || {}),
+        })
+        // TODO: Remove Redis caching for person that's not used anymore
 
         const rawEvent: RawClickHouseEvent = {
             uuid,
@@ -210,11 +196,9 @@ export class EventsProcessor {
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-            person_id: personInfo?.uuid,
+            person_id: person.uuid,
             person_properties: eventPersonProperties ?? undefined,
-            person_created_at: personInfo
-                ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
-                : undefined,
+            person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
             ...groupsColumns,
         }
 
@@ -227,6 +211,7 @@ export class EventsProcessor {
                 },
             ],
         })
+        return rawEvent
     }
 
     private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {
@@ -295,6 +280,14 @@ export const createSessionReplayEvent = (
     ip: string | null,
     properties: Properties
 ) => {
+    const chunkIndex = properties['$snapshot_data']?.chunk_index
+
+    // only the first chunk has the eventsSummary
+    // we can ignore subsequent chunks for calculating a replay event
+    if (chunkIndex > 0) {
+        return null
+    }
+
     const eventsSummaries: RRWebEventSummary[] = properties['$snapshot_data']?.['events_summary'] || []
 
     const timestamps = eventsSummaries
@@ -306,12 +299,14 @@ export const createSessionReplayEvent = (
         })
         .sort()
 
+    // but every event where chunk index = 0 must have an eventsSummary
     if (eventsSummaries.length === 0 || timestamps.length === 0) {
         status.warn('🙈', 'ignoring an empty session recording event', {
             session_id: properties['$session_id'],
             properties: properties,
         })
-        return null
+        // it is safe to throw here as it caught a level up so that we can see this happening in Sentry
+        throw new Error('ignoring an empty session recording event')
     }
 
     let clickCount = 0

@@ -22,10 +22,16 @@ export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
     value: T
     /** Extra element shown next to the label in the select menu. */
     labelInMenuExtra?: React.ReactElement
+    /**
+     * If you really need something more advanced than a button, you can provide a custom control component.
+     * This will be displayed instead of the label in the select menu.
+     * Can be for example a textarea with a "Use custom expression" button hooked up to `onSelect`.
+     */
+    CustomControl?: ({ onSelect }: { onSelect: OnSelect<T> }) => JSX.Element
 }
 
 export interface LemonSelectOptionNode<T> extends LemonSelectOptionBase {
-    options: LemonSelectOption<T>[]
+    options: LemonSelectOptions<T>
 }
 
 export type LemonSelectOption<T> = LemonSelectOptionLeaf<T> | LemonSelectOptionNode<T>
@@ -195,13 +201,17 @@ function convertToMenuSingle<T>(
         } as LemonMenuItemNode
     } else {
         acc.push(option)
-        const { value, label, labelInMenuExtra: element, ...leaf } = option
+        const { value, label, labelInMenuExtra, CustomControl, ...leaf } = option
         return {
             ...leaf,
-            label: element ? (
+            label: CustomControl ? (
+                function LabelWrapped() {
+                    return <CustomControl onSelect={onSelect} />
+                }
+            ) : labelInMenuExtra ? (
                 <>
                     {label}
-                    {element}
+                    {labelInMenuExtra}
                 </>
             ) : (
                 label
@@ -224,7 +234,7 @@ export function isLemonSelectOptionNode<T>(
     return candidate && 'options' in candidate && 'label' in candidate
 }
 
-function doOptionsContainActiveValue<T>(options: LemonSelectOption<T>[], activeValue: T | null): boolean {
+function doOptionsContainActiveValue<T>(options: LemonSelectOptions<T>, activeValue: T | null): boolean {
     for (const option of options) {
         if ('options' in option) {
             if (doOptionsContainActiveValue(option.options, activeValue)) {

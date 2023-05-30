@@ -263,7 +263,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             basePrice: '',
             usage: '',
             total: `$${
-                (parseInt(product.current_amount_usd || '0') * (billing?.discount_percent / 100)).toFixed(2) || '0.00'
+                (parseInt(product.current_amount_usd || '0') * (1 - billing?.discount_percent / 100)).toFixed(2) ||
+                '0.00'
             }`,
             projectedTotal: `$${
                 (
@@ -412,10 +413,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     >
                                                         <div className="font-bold text-3xl leading-7">
                                                             $
-                                                            {parseFloat(product.current_amount_usd || '') *
-                                                                (billing?.discount_percent
-                                                                    ? billing.discount_percent / 100
-                                                                    : 1) || '0.00'}
+                                                            {(
+                                                                parseFloat(product.current_amount_usd || '') *
+                                                                (1 -
+                                                                    (billing?.discount_percent
+                                                                        ? billing.discount_percent / 100
+                                                                        : 0))
+                                                            ).toFixed(2) || '0.00'}
                                                         </div>
                                                         <span className="text-xs text-muted">
                                                             {capitalizeFirstLetter(
@@ -435,10 +439,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         >
                                                             <div className="font-bold text-muted text-lg leading-5">
                                                                 $
-                                                                {parseFloat(product.projected_amount_usd || '') *
-                                                                    (billing?.discount_percent
-                                                                        ? billing.discount_percent / 100
-                                                                        : 1) || '0.00'}
+                                                                {(
+                                                                    parseFloat(product.projected_amount_usd || '') *
+                                                                    (1 -
+                                                                        (billing?.discount_percent
+                                                                            ? billing.discount_percent / 100
+                                                                            : 0))
+                                                                ).toFixed(2) || '0.00'}
                                                             </div>
                                                             <span className="text-xs text-muted">Projected</span>
                                                         </Tooltip>

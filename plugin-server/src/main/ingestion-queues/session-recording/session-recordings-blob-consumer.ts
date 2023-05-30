@@ -1,4 +1,6 @@
+import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
+import { DateTime } from 'luxon'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -13,41 +15,39 @@ import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
+import { eventDroppedCounter } from '../metrics'
 import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { IncomingRecordingMessage } from './blob-ingester/types'
+
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
 
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
 
-const flushIntervalTimeoutMs = 30000
-
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
-export const gaugeSessionsHandled = new Gauge({
+const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
     help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
 })
 
-export const gaugePartitionsRevoked = new Gauge({
-    name: 'recording_blob_ingestion_partitions_revoked',
-    help: 'A gauge of the number of partitions being revoked when a re-balance occurs',
-})
-
-export const gaugeSessionsRevoked = new Gauge({
+const gaugeSessionsRevoked = new Gauge({
     name: 'recording_blob_ingestion_sessions_revoked',
     help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
 })
 
-export const gaugePartitionsAssigned = new Gauge({
-    name: 'recording_blob_ingestion_partitions_assigned',
-    help: 'A gauge of the number of partitions being assigned when a re-balance occurs',
-})
-
-export const gaugeBytesBuffered = new Gauge({
+const gaugeBytesBuffered = new Gauge({
     name: 'recording_blob_ingestion_bytes_buffered',
     help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
+})
+
+const gaugeLagMilliseconds = new Gauge({
+    name: 'recording_blob_ingestion_lag_in_milliseconds',
+    help: "A gauge of the lag in milliseconds, more useful than lag in messages since it affects how much work we'll be pushing to redis",
+    labelNames: ['partition'],
 })
 
 export class SessionRecordingBlobIngester {
@@ -58,11 +58,13 @@ export class SessionRecordingBlobIngester {
     lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
     enabledTeams: number[] | null
+    latestKafkaMessageTimestamp: Record<number, number | null> = {}
 
     constructor(
         private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
-        private objectStorage: ObjectStorage
+        private objectStorage: ObjectStorage,
+        private flushIntervalTimeoutMs = 30000
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
@@ -73,7 +75,16 @@ export class SessionRecordingBlobIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const { partition, topic, offset } = event.metadata
+        const { partition, topic, offset, timestamp } = event.metadata
+
+        // track the latest message timestamp seen so, we can use it to calculate a reference "now"
+        // lag does not distribute evenly across partitions, so track timestamps per partition
+        this.latestKafkaMessageTimestamp[partition] = timestamp
+        gaugeLagMilliseconds
+            .labels({
+                partition: partition.toString(),
+            })
+            .set(DateTime.now().toMillis() - timestamp)
 
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
@@ -87,16 +98,11 @@ export class SessionRecordingBlobIngester {
                 topic,
                 (offsets) => {
                     this.offsetManager?.removeOffsets(topic, partition, offsets)
-
-                    // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                    if (sessionManager.isEmpty) {
-                        this.sessions.delete(key)
-                    }
                 }
             )
 
             this.sessions.set(key, sessionManager)
-            status.info('📦', 'Blob ingestion consumer started session manager', {
+            status.debug('📦', 'Blob ingestion consumer started session manager', {
                 key,
                 partition,
                 topic,
@@ -104,20 +110,20 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        this.offsetManager?.addOffset(topic, partition, offset)
+        this.offsetManager?.addOffset(topic, partition, session_id, offset)
         await this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
         // If it is recoverable, we probably want to retry?
     }
 
-    public async handleKafkaMessage(message: Message): Promise<void> {
-        const statusWarn = (reason: string, error?: Error) => {
+    public async handleKafkaMessage(message: Message, span?: Sentry.Span): Promise<void> {
+        const statusWarn = (reason: string, extra?: Record<string, any>) => {
             status.warn('⚠️', 'invalid_message', {
                 reason,
-                error,
                 partition: message.partition,
                 offset: message.offset,
+                ...(extra || {}),
             })
         }
 
@@ -133,7 +139,7 @@ export class SessionRecordingBlobIngester {
             messagePayload = JSON.parse(message.value.toString())
             event = JSON.parse(messagePayload.data)
         } catch (error) {
-            return statusWarn('invalid_json', error)
+            return statusWarn('invalid_json', { error })
         }
 
         if (event.event !== '$snapshot') {
@@ -147,18 +153,35 @@ export class SessionRecordingBlobIngester {
 
         let team: Team | null = null
 
+        const teamSpan = span?.startChild({
+            op: 'fetchTeam',
+        })
         if (messagePayload.team_id != null) {
             team = await this.teamManager.fetchTeam(messagePayload.team_id)
         } else if (messagePayload.token) {
             team = await this.teamManager.getTeamByToken(messagePayload.token)
         }
+        teamSpan?.finish()
 
         if (team == null) {
-            return statusWarn('team_not_found')
+            return statusWarn('team_not_found', {
+                teamId: messagePayload.team_id,
+                payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
+            })
         }
 
         if (this.enabledTeams && !this.enabledTeams.includes(team.id)) {
             // NOTE: due to the high volume of hits here we don't log this
+            return
+        }
+
+        if (!team.session_recording_opt_in) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'disabled',
+                })
+                .inc()
             return
         }
 
@@ -187,13 +210,27 @@ export class SessionRecordingBlobIngester {
             events_summary: $snapshot_data.events_summary,
         }
 
+        const consumeSpan = span?.startChild({
+            op: 'consume',
+        })
         await this.consume(recordingMessage)
+        consumeSpan?.finish()
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
-        for (const message of messages) {
-            await this.handleKafkaMessage(message)
-        }
+        const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
+
+        await Promise.all(
+            messages.map(async (message) => {
+                const childSpan = transaction.startChild({
+                    op: 'handleKafkaMessage',
+                })
+                await this.handleKafkaMessage(message, childSpan)
+                childSpan.finish()
+            })
+        )
+
+        transaction.finish()
     }
 
     public async start(): Promise<void> {
@@ -222,7 +259,9 @@ export class SessionRecordingBlobIngester {
             consumerMaxBytes: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             consumerMaxWaitMs: this.serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            consumerErrorBackoffMs: this.serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             fetchBatchSize,
+            batchingTimeoutMs: this.serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             autoCommit: false,
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)
@@ -245,16 +284,6 @@ export class SessionRecordingBlobIngester {
                  * The assign_partitions indicates that the consumer group has new assignments.
                  * We don't need to do anything, but it is useful to log for debugging.
                  */
-                const assignedPartitions = topicPartitions.map((c) => c.partition).sort()
-
-                if (!assignedPartitions.length) {
-                    return
-                }
-
-                status.info('⚖️', 'blob_ingester_consumer - assigned partitions', {
-                    assignedPartitions: assignedPartitions,
-                })
-                gaugePartitionsAssigned.set(assignedPartitions.length)
                 return
             }
 
@@ -269,23 +298,18 @@ export class SessionRecordingBlobIngester {
                     return
                 }
 
-                const currentPartitions = [...this.sessions.values()].map((session) => session.partition).sort()
-
-                const sessionsToDrop = [...this.sessions.values()].filter((session) =>
-                    revokedPartitions.includes(session.partition)
+                const sessionsToDrop = [...this.sessions.entries()].filter(([_, sessionManager]) =>
+                    revokedPartitions.includes(sessionManager.partition)
                 )
 
+                // any commit from this point is invalid, so we revoke immediately
                 this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
-
                 await this.destroySessions(sessionsToDrop)
 
-                status.info('⚖️', 'blob_ingester_consumer - partitions revoked', {
-                    currentPartitions: currentPartitions,
-                    revokedPartitions: revokedPartitions,
-                    droppedSessions: sessionsToDrop.map((s) => s.sessionId),
-                })
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
-                gaugePartitionsRevoked.set(revokedPartitions.length)
+                revokedPartitions.forEach((partition) => {
+                    gaugeLagMilliseconds.remove({ partition: partition.toString() })
+                })
                 return
             }
 
@@ -308,63 +332,83 @@ export class SessionRecordingBlobIngester {
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', 'blob_ingester_consumer Blob ingestion consumer disconnected, cleaning up', { err })
+            status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
             await this.stop()
         })
 
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
-            let sessionManangerBufferSizes = 0
+            status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
+            // It's unclear what happens if an exception occurs here so we try catch it just in case
+            let sessionManagerBufferSizes = 0
 
-            this.sessions.forEach((sessionManager) => {
-                sessionManangerBufferSizes += sessionManager.buffer.size
+            for (const [key, sessionManager] of this.sessions) {
+                sessionManagerBufferSizes += sessionManager.buffer.size
 
-                void sessionManager.flushIfSessionBufferIsOld().catch((err) => {
-                    status.error(
-                        '🚽',
-                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
-                        {
-                            err,
-                            session_id: sessionManager.sessionId,
-                        }
+                // in practice, we will always have a values for latestKafkaMessageTimestamp,
+                // but in case we get here before the first message, we use now
+                const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition]
+
+                if (!kafkaNow) {
+                    throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
+                }
+
+                void sessionManager
+                    .flushIfSessionBufferIsOld(
+                        kafkaNow,
+                        this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
                     )
-                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
-                    throw err
-                })
-            })
+                    .catch((err) => {
+                        status.error(
+                            '🚽',
+                            'blob_ingester_consumer - failed trying to flush on idle session: ' +
+                                sessionManager.sessionId,
+                            {
+                                err,
+                                session_id: sessionManager.sessionId,
+                            }
+                        )
+                        captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                        throw err
+                    })
+
+                // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+                if (sessionManager.isEmpty) {
+                    this.sessions.delete(key)
+                }
+            }
 
             gaugeSessionsHandled.set(this.sessions.size)
-            gaugeBytesBuffered.set(sessionManangerBufferSizes)
-        }, flushIntervalTimeoutMs)
+            gaugeBytesBuffered.set(sessionManagerBufferSizes)
+
+            status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
+        }, this.flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', 'blob_ingester_consumer Stopping session recordings consumer')
+        status.info('🔁', 'blob_ingester_consumer - stopping')
 
         if (this.flushInterval) {
             clearInterval(this.flushInterval)
         }
 
         if (this.producer && this.producer.isConnected()) {
-            status.info(
-                '🔁',
-                'blob_ingester_consumer disconnecting kafka producer in session recordings batchConsumer stop'
-            )
+            status.info('🔁', 'blob_ingester_consumer disconnecting kafka producer in batchConsumer stop')
             await disconnectProducer(this.producer)
         }
         await this.batchConsumer?.stop()
 
         // This is inefficient but currently necessary due to new instances restarting from the committed offset point
-        await this.destroySessions([...this.sessions.values()])
+        await this.destroySessions([...this.sessions.entries()])
 
         this.sessions = new Map()
     }
 
-    private async destroySessions(sessionsToDestroy: SessionManager[]): Promise<void> {
+    async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
         const destroyPromises: Promise<void>[] = []
 
-        sessionsToDestroy.forEach((sessionManager) => {
-            this.sessions.delete(sessionManager.sessionId)
+        sessionsToDestroy.forEach(([key, sessionManager]) => {
+            this.sessions.delete(key)
             destroyPromises.push(sessionManager.destroy())
         })
 

@@ -50,7 +50,7 @@ class TestPropertyTypes(BaseTest):
             "toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')), "
             "toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))), "
             "equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_3)s) "
-            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
@@ -62,7 +62,7 @@ class TestPropertyTypes(BaseTest):
             "SELECT toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')), "
             "parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), 6, %(hogql_val_2)s), "
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^\"|\"$', '') "
-            f"FROM person WHERE equals(person.team_id, {self.team.pk}) LIMIT 65535"
+            f"FROM person WHERE equals(person.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
@@ -74,11 +74,11 @@ class TestPropertyTypes(BaseTest):
             "SELECT toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')), "
             "parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), 6, %(hogql_val_2)s), "
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^\"|\"$', '') "
-            f"FROM person WHERE equals(person.team_id, {self.team.pk}) LIMIT 65535"
+            f"FROM person WHERE equals(person.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_property_types_combined(self):
         printed = self._print_select("select properties.$screen_width * person.properties.tickets from events")
         expected = (
@@ -90,7 +90,7 @@ class TestPropertyTypes(BaseTest):
             "ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (SELECT "
             "argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___tickets, "
             f"person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person "
-            f"ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
+            f"ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
 

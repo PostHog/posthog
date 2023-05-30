@@ -1,8 +1,7 @@
 import json
 from datetime import datetime, timedelta
-from typing import Dict, cast
+from typing import Dict, Optional
 
-import posthoganalytics
 from dateutil.parser import isoparse
 from django.http import HttpResponse, JsonResponse
 from django.utils.timezone import now
@@ -19,11 +18,10 @@ from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.cloud_utils import is_cloud
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import Team, User
+from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
@@ -96,14 +94,9 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         self._tag_client_query_id(request.GET.get("client_query_id"))
         query_json = QuerySchemaParser.validate_query(self._query_json_from_request(request))
 
-        is_hogql_enabled = _is_hogql_enabled(
-            user=cast(User, self.request.user),
-            organization_id=self.organization_id,
-            organization_created_at=self.organization.created_at,
-        )
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
+            return JsonResponse(process_query(self.team, query_json), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
 
@@ -111,14 +104,9 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         request_json = request.data
         query_json = request_json.get("query")
         self._tag_client_query_id(request_json.get("client_query_id"))
-        is_hogql_enabled = _is_hogql_enabled(
-            user=cast(User, self.request.user),
-            organization_id=self.organization_id,
-            organization_created_at=self.organization.created_at,
-        )
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
+            return JsonResponse(process_query(self.team, query_json), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
 
@@ -159,7 +147,7 @@ def _response_to_dict(response: BaseModel) -> Dict:
     return dict
 
 
-def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
+def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = None) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
     query_kind = query_json.get("kind")
@@ -168,13 +156,13 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
 
     if query_kind == "EventsQuery":
         events_query = EventsQuery.parse_obj(query_json)
-        response = run_events_query(query=events_query, team=team)
+        response = run_events_query(query=events_query, team=team, default_limit=default_limit)
         return _response_to_dict(response)
     elif query_kind == "HogQLQuery":
-        if not is_hogql_enabled:
-            raise ValidationError("HogQL is not enabled for this organization")
         hogql_query = HogQLQuery.parse_obj(query_json)
-        response = execute_hogql_query(query=hogql_query.query, team=team, query_type="HogQLQuery")
+        response = execute_hogql_query(
+            query=hogql_query.query, team=team, query_type="HogQLQuery", default_limit=default_limit
+        )
         return _response_to_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
@@ -211,23 +199,6 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
         return get_session_events(serializer) or {}
     else:
         if query_json.get("source"):
-            return process_query(team, query_json["source"], is_hogql_enabled)
+            return process_query(team, query_json["source"])
 
         raise ValidationError(f"Unsupported query kind: {query_kind}")
-
-
-def _is_hogql_enabled(user: User, organization_id: str, organization_created_at: datetime) -> bool:
-    # enabled for all self-hosted
-    if not is_cloud():
-        return True
-
-    # on PostHog Cloud, use the feature flag
-    return posthoganalytics.feature_enabled(
-        "hogql",
-        str(user.distinct_id),
-        person_properties={"email": user.email},
-        groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id, "created_at": organization_created_at}},
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )

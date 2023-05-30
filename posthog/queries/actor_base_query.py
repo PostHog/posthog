@@ -123,7 +123,7 @@ class ActorBaseQuery:
             and has_full_snapshot = 1
             and session_id in %(session_ids)s
         """
-        params = {"team_id": self._team.pk, "session_ids": list(session_ids)}
+        params = {"team_id": self._team.pk, "session_ids": sorted(list(session_ids))}  # Sort for stable queries
         raw_result = insight_sync_execute(
             query,
             params,

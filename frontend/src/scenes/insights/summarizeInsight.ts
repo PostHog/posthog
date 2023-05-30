@@ -148,6 +148,8 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
                             ? 'unique groups'
                             : mathType
                     }`
+                } else if (mathDefinition?.category === MathCategory.HogQLExpression) {
+                    series = localFilter.math_hogql ?? 'HogQL'
                 } else {
                     series = `${getDisplayNameFromEntityFilter(localFilter)} ${
                         mathDefinition

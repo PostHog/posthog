@@ -105,12 +105,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightShortId={insight.short_id}
                         subscriptionId={subscriptionId}
                     />
-
                     <SharingModal
+                        title="Insight Sharing"
                         isOpen={insightMode === ItemMode.Sharing}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         insight={insight}
+                        previewIframe
                     />
                 </>
             )}
@@ -302,7 +303,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
                                 <AddToNotebook
                                     node={NotebookNodeType.Insight}
-                                    properties={{ shortId: insight.short_id }}
+                                    properties={{ id: insight.short_id }}
                                     type="secondary"
                                 />
                             )}

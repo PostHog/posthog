@@ -10,6 +10,7 @@ import { isFunnelsQuery, isInsightQueryNode } from '~/queries/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
@@ -125,6 +126,7 @@ function AggregationSelectComponent({
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
+    const baseValues = [UNIQUE_USERS]
     const optionSections: LemonSelectSection<string>[] = [
         {
             title: 'Event Aggregation',
@@ -141,6 +143,7 @@ function AggregationSelectComponent({
         optionSections[0].footer = <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
     } else {
         groupTypes.forEach((groupType) => {
+            baseValues.push(`$group_${groupType.group_type_index}`)
             optionSections[0].options.push({
                 value: `$group_${groupType.group_type_index}`,
                 label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
@@ -149,11 +152,37 @@ function AggregationSelectComponent({
     }
 
     if (hogqlAvailable) {
+        baseValues.push(`properties.$session_id`)
         optionSections[0].options.push({
-            value: `properties.$session_id`,
+            value: 'properties.$session_id',
             label: `Unique sessions`,
         })
     }
+    optionSections[0].options.push({
+        label: 'Custom HogQL expression',
+        options: [
+            {
+                // This is a bit of a hack so that the HogQL option is only highlighted as active when the user has
+                // set a custom value (because actually _all_ the options are HogQL)
+                value: !value || baseValues.includes(value) ? '' : value,
+                label: <span className="font-mono">{value}</span>,
+                CustomControl: function CustomHogQLOptionWrapped({ onSelect }) {
+                    return (
+                        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                            <HogQLEditor
+                                onChange={onSelect}
+                                value={value}
+                                disablePersonProperties
+                                placeholder={
+                                    "Enter HogQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
+                                }
+                            />
+                        </div>
+                    )
+                },
+            },
+        ],
+    })
 
     return (
         <LemonSelect

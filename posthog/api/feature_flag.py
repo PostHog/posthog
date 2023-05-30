@@ -224,6 +224,11 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
+
+        if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
+            raise exceptions.ValidationError(
+                "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
+            )
         request = self.context["request"]
         validated_key = validated_data.get("key", None)
         if validated_key:

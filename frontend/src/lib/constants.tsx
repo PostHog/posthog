@@ -142,7 +142,7 @@ export const FEATURE_FLAGS = {
     HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
-    ARUBUG: 'arubug', // owner: #team-arubug
+    EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith
     RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
@@ -150,6 +150,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SESSION_RECORDING_INFINITE_LIST: 'session-recording-infinite-list', // owner: #team-monitoring
     SESSION_RECORDING_SUMMARY_LISTING: 'session-recording-summary-listing', // owner: #team-monitoring
+    SURVEYS: 'surveys', // owner: @liyiy
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

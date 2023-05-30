@@ -17,7 +17,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import {
@@ -331,7 +331,9 @@ export const insightLogic = kea<insightLogicType>([
                         ) {
                             // Instead of making a search for filters, reload the insight via its id if possible.
                             // This makes sure we update the insight's cache key if we get new default filters.
-                            apiUrl = `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`
+                            apiUrl = combineUrl(`api/projects/${currentTeamId}/insights/${values.savedInsight.id}`, {
+                                refresh: true,
+                            }).url
                             fetchResponse = await api.getResponse(apiUrl, methodOptions)
                         } else {
                             const params = {
@@ -870,7 +872,7 @@ export const insightLogic = kea<insightLogicType>([
 
             // (Re)load results when filters have changed or if there's no result yet
             if (backendFilterChanged || !values.insight?.result) {
-                if (!values.isUsingDataExploration && !values.insight?.query) {
+                if ((!values.isUsingDataExploration || props.disableDataExploration) && !values.insight?.query) {
                     actions.loadResults()
                 }
             }
