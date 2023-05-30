@@ -46,7 +46,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
         ignoreUpdateRef.current = true
     }, [content])
 
-    // NOTE: We shouldn't use this refernce as it can be that it is null in many of the contexts
+    // NOTE: We shouldn't use this reference as it can be that it is null in many of the contexts
     const _editor = useEditor({
         extensions: [
             CustomDocument,
