@@ -43,14 +43,6 @@ describe('ingester', () => {
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
-        ingester = new SessionRecordingBlobIngester(
-            hub.teamManager,
-            defaultConfig,
-            hub.objectStorage,
-            hub.redisPool,
-            veryShortFlushInterval
-        )
-        await ingester.start()
     })
 
     afterEach(async () => {
@@ -62,48 +54,74 @@ describe('ingester', () => {
         rmSync(config.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
     })
 
-    it('creates a new session manager if needed', async () => {
-        const event = createIncomingRecordingMessage()
-        await ingester.consume(event)
-        await waitForExpect(() => {
+    describe('with long flush interval', () => {
+        beforeEach(async () => {
+            ingester = new SessionRecordingBlobIngester(
+                hub.teamManager,
+                defaultConfig,
+                hub.objectStorage,
+                hub.redisPool,
+                veryShortFlushInterval * 100_000
+            )
+            await ingester.start()
+        })
+
+        it('creates a new session manager if needed', async () => {
+            const event = createIncomingRecordingMessage()
+            await ingester.consume(event)
+            await waitForExpect(() => {
+                expect(ingester.sessions.size).toBe(1)
+                expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
+            })
+        })
+    })
+
+    describe('with short flush interval', () => {
+        beforeEach(async () => {
+            ingester = new SessionRecordingBlobIngester(
+                hub.teamManager,
+                defaultConfig,
+                hub.objectStorage,
+                hub.redisPool,
+                veryShortFlushInterval
+            )
+            await ingester.start()
+        })
+
+        it('removes sessions on destroy', async () => {
+            await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_1' }))
+            await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_2' }))
+
+            expect(ingester.sessions.size).toBe(2)
+            expect(ingester.sessions.has('2-session_id_1')).toEqual(true)
+            expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
+
+            await ingester.destroySessions([['2-session_id_1', ingester.sessions.get('2-session_id_1')!]])
+
             expect(ingester.sessions.size).toBe(1)
+            expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
+        })
+
+        it('handles multiple incoming sessions', async () => {
+            const event = createIncomingRecordingMessage()
+            const event2 = createIncomingRecordingMessage({
+                session_id: 'session_id_2',
+            })
+            await Promise.all([ingester.consume(event), ingester.consume(event2)])
+            expect(ingester.sessions.size).toBe(2)
             expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
+            expect(ingester.sessions.has('1-session_id_2')).toEqual(true)
         })
-    })
 
-    it('removes sessions on destroy', async () => {
-        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_1' }))
-        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_2' }))
+        it('destroys a session manager if finished', async () => {
+            const event = createIncomingRecordingMessage()
+            await ingester.consume(event)
+            expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
+            await ingester.sessions.get('1-session_id_1')?.flush('buffer_age')
 
-        expect(ingester.sessions.size).toBe(2)
-        expect(ingester.sessions.has('2-session_id_1')).toEqual(true)
-        expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
+            await new Promise((resolve) => setTimeout(resolve, veryShortFlushInterval))
 
-        await ingester.destroySessions([['2-session_id_1', ingester.sessions.get('2-session_id_1')!]])
-
-        expect(ingester.sessions.size).toBe(1)
-        expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
-    })
-
-    it('handles multiple incoming sessions', async () => {
-        const event = createIncomingRecordingMessage()
-        const event2 = createIncomingRecordingMessage({
-            session_id: 'session_id_2',
+            expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
         })
-        await Promise.all([ingester.consume(event), ingester.consume(event2)])
-        expect(ingester.sessions.size).toBe(2)
-        expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
-        expect(ingester.sessions.has('1-session_id_2')).toEqual(true)
-    })
-
-    it('destroys a session manager if finished', async () => {
-        const event = createIncomingRecordingMessage()
-        await ingester.consume(event)
-        expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
-        await ingester.sessions.get('1-session_id_1')?.flush('buffer_age')
-
-        await new Promise((resolve) => setTimeout(resolve, veryShortFlushInterval))
-
-        expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
     })
 })
