@@ -291,7 +291,7 @@ describe('hooks', () => {
                 { ...event, eventUuid: '**)', event: 'text](yes!), [new link' },
                 'http://localhost:8000',
                 WebhookType.Teams,
-                ['event', 'event']
+                ['event']
             )
 
             expect(text).toBe('text\\]\\(yes\\!\\), \\[new link')
