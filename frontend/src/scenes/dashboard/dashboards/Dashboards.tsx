@@ -26,7 +26,7 @@ export const scene: SceneExport = {
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, currentTab, filters } = useValues(dashboardsLogic)
+    const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -90,7 +90,7 @@ export function Dashboards(): JSX.Element {
                 <DashboardTemplatesTable />
             ) : currentTab === DashboardsTab.Notebooks ? (
                 <NotebooksTable />
-            ) : dashboardsLoading || dashboards.length > 0 || filters.search ? (
+            ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
                 <DashboardsTable />
             ) : (
                 <NoDashboards />

@@ -209,6 +209,25 @@ export class LazyPluginVM {
         this.totalInitAttemptsCounter++
         const timer = new Date()
         try {
+            // Make sure one can't self-replicate resulting in an infinite loop
+            if (this.pluginConfig.plugin && this.pluginConfig.plugin.name == 'Replicator') {
+                const host = this.pluginConfig.config['host']
+                const apiKey = String(this.pluginConfig.config['project_api_key'])
+                const team = await this.hub.teamManager.fetchTeam(this.pluginConfig.team_id)
+                // There's a single team with replication for the same api key from US to EU
+                // otherwise we're just checking that token differs to better safeguard against forwarding
+                const isWhitelisted = team?.uuid == '017955d2-b09f-0000-ec00-2116c7e8a605' && host == 'eu.posthog.com'
+                if (!isWhitelisted && team?.api_token.trim() == apiKey.trim()) {
+                    throw Error('Self replication is not allowed')
+                }
+                // Only default org can use higher than 1x replication
+                if (
+                    team?.organization_id != '4dc8564d-bd82-1065-2f40-97f7c50f67cf' &&
+                    this.pluginConfig.config['replication'] != 1
+                ) {
+                    throw Error('Only 1x replication is allowed')
+                }
+            }
             await instrument(
                 this.hub.statsd,
                 {
