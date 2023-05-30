@@ -1,17 +1,27 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { kea, path, props, key, listeners, afterMount, reducers, actions, selectors } from 'kea'
+import { kea, path, props, key, listeners, afterMount, reducers, actions, selectors, connect } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    AnyPropertyFilter,
+    Breadcrumb,
+    FeatureFlagFilters,
+    FeatureFlagGroupType,
+    Survey,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
 import { DataTableNode, NodeKind } from '~/queries/schema'
+import { surveysLogic } from './surveysLogic'
 
 export interface NewSurvey
-    extends Pick<Survey, 'name' | 'description' | 'type' | 'questions' | 'targeting_flag' | 'start_date' | 'end_date'> {
+    extends Pick<Survey, 'name' | 'description' | 'type' | 'questions' | 'start_date' | 'end_date' | 'targeting_flag'> {
     linked_flag_id: number | undefined
+    targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
 
 const NEW_SURVEY: NewSurvey = {
@@ -20,6 +30,7 @@ const NEW_SURVEY: NewSurvey = {
     questions: [{ type: SurveyQuestionType.Open, question: '' }],
     type: SurveyType.Popover,
     linked_flag_id: undefined,
+    targeting_flag_filters: undefined,
     targeting_flag: null,
     start_date: null,
     end_date: null,
@@ -52,10 +63,15 @@ export const surveyLogic = kea<surveyLogicType>([
     path(['scenes', 'surveys', 'surveyLogic']),
     props({} as SurveyLogicProps),
     key(({ id }) => id),
+    connect(() => ({
+        actions: [surveysLogic, ['loadSurveys']],
+    })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
+        updateTargetingFlagFilters: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
+        addConditionSet: true,
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
@@ -69,16 +85,51 @@ export const surveyLogic = kea<surveyLogicType>([
             updateSurvey: async (surveyPayload) => {
                 return await api.surveys.update(props.id, surveyPayload)
             },
+            updateTargetingFlagFilters: ({ index, properties }) => {
+                if (!values.survey.targeting_flag_filters) {
+                    return values.survey
+                }
+                const surv = { ...values.survey }
+                const groups = [...values.survey.targeting_flag_filters.groups]
+                if (properties !== undefined) {
+                    groups[index] = { ...groups[index], properties }
+                }
+                return { ...surv, targeting_flag_filters: { groups } }
+            },
+            addConditionSet: () => {
+                if (!values.survey) {
+                    return values.survey
+                }
+                if (values.survey.targeting_flag_filters) {
+                    const groups = [
+                        ...values.survey?.targeting_flag_filters?.groups,
+                        { properties: [], rollout_percentage: null, variant: null },
+                    ]
+                    return {
+                        ...values.survey,
+                        targeting_flag_filters: { ...values.survey?.targeting_flag_filters, groups },
+                    }
+                } else {
+                    return {
+                        ...values.survey,
+                        targeting_flag_filters: {
+                            groups: [{ properties: [], rollout_percentage: null, variant: null }],
+                        },
+                    }
+                }
+            },
         },
     })),
-    listeners(() => ({
+    listeners(({ actions }) => ({
         createSurveySuccess: async ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
-            router.actions.push(urls.survey(survey.id))
+            actions.loadSurveys()
+            router.actions.replace(urls.survey(survey.id))
         },
         updateSurveySuccess: async ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} updated</>)
-            router.actions.push(urls.survey(survey.id))
+            actions.editingSurvey(false)
+            router.actions.replace(urls.survey(survey.id))
         },
     })),
     reducers({
@@ -95,6 +146,21 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): boolean => {
                 return !!(survey.start_date && !survey.end_date)
+            },
+        ],
+        propertySelectErrors: [
+            (s) => [s.survey],
+            (survey: NewSurvey) => {
+                return survey.targeting_flag_filters?.groups?.map(({ properties }: FeatureFlagGroupType) => ({
+                    properties: properties?.map((property: AnyPropertyFilter) => ({
+                        value:
+                            property.value === null ||
+                            property.value === undefined ||
+                            (Array.isArray(property.value) && property.value.length === 0)
+                                ? "Property filters can't be empty"
+                                : undefined,
+                    })),
+                }))
             },
         ],
         breadcrumbs: [

@@ -77,11 +77,13 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
+        if Survey.objects.filter(name=data.get("name", None), team_id=self.context["team_id"]).exists():
+            raise serializers.ValidationError("There is already a survey with this name.", code="unique")
+
         return data
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
-
         if validated_data.get("targeting_flag_filters", None):
             # create a new feature flag using the targeting flag filters
             targeting_flag_filters = validated_data["targeting_flag_filters"]
@@ -134,7 +136,6 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 new_flag = new_flag_serializer.save()
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
-
         return super().update(instance, validated_data)
 
 

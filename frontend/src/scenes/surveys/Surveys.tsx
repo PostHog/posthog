@@ -8,19 +8,17 @@ import { getSurveyStatus, surveysLogic } from './surveysLogic'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Survey } from '~/types'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
 }
 
-// function getResponsesCount(survey: Survey): number {
-//     return 0
-// }
-
 export function Surveys(): JSX.Element {
     const { surveys } = useValues(surveysLogic)
+    const { deleteSurvey } = useActions(surveysLogic)
 
     return (
         <div className="mt-10">
@@ -76,19 +74,24 @@ export function Surveys(): JSX.Element {
                     },
                     {
                         width: 0,
-                        render: function Render() {
+                        render: function Render(_, survey: Survey) {
                             return (
                                 <More
                                     overlay={
                                         <>
-                                            <LemonButton status="stealth" fullWidth>
-                                                View results
-                                            </LemonButton>
-                                            <LemonButton status="stealth" fullWidth onClick={() => {}}>
-                                                Edit
+                                            <LemonButton
+                                                status="stealth"
+                                                fullWidth
+                                                onClick={() => router.actions.push(urls.survey(survey.id))}
+                                            >
+                                                View
                                             </LemonButton>
                                             <LemonDivider />
-                                            <LemonButton status="danger" onClick={() => {}} fullWidth>
+                                            <LemonButton
+                                                status="danger"
+                                                onClick={() => deleteSurvey(survey.id)}
+                                                fullWidth
+                                            >
                                                 Delete
                                             </LemonButton>
                                         </>

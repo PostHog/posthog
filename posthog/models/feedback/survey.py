@@ -33,9 +33,6 @@ class Survey(UUIDModel):
         related_name="surveys_targeting_flag",
         related_query_name="survey",
     )
-
-    responses_count: models.IntegerField = models.IntegerField(default=0)
-
     type: models.CharField = models.CharField(max_length=40, choices=SurveyType.choices)
 
     # { url: 'posthog.com/feature', selector: null, triggers: [{}] #similar to cohort behavioral filters for now?}
