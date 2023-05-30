@@ -107,7 +107,7 @@ export class SessionRecordingBlobIngester {
             )
 
             this.sessions.set(key, sessionManager)
-            status.debug('📦', 'Blob ingestion consumer started session manager', {
+            status.info('📦', 'Blob ingestion consumer started session manager', {
                 key,
                 partition,
                 topic,

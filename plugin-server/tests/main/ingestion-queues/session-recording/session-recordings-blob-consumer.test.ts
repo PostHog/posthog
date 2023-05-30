@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync } from 'node:fs'
 import path from 'path'
 
+import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingBlobIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
 import { Hub, PluginsServerConfig } from '../../../../src/types'
@@ -64,8 +65,10 @@ describe('ingester', () => {
     it('creates a new session manager if needed', async () => {
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)
-        expect(ingester.sessions.size).toBe(1)
-        expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
+        await waitForExpect(() => {
+            expect(ingester.sessions.size).toBe(1)
+            expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
+        })
     })
 
     it('removes sessions on destroy', async () => {
