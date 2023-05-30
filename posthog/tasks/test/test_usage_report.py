@@ -468,39 +468,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
             return all_reports
 
-    def test_usage_report_hogql_queries(self) -> None:
-        for _ in range(0, 100):
-            _create_event(
-                distinct_id="hello",
-                event="$event1",
-                properties={"$lib": "$web"},
-                timestamp=now() - relativedelta(hours=12),
-                team=self.team,
-            )
-        flush_persons_and_events()
-        sync_execute("SYSTEM FLUSH LOGS")
-
-        from posthog.models.event.events_query import run_events_query
-
-        execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
-        run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)
-        sync_execute("SYSTEM FLUSH LOGS")
-
-        all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
-        assert len(all_reports) == 1
-
-        report = all_reports[0]["teams"][str(self.team.pk)]
-
-        # We selected 200 or 50 rows, but still read 100 rows to return the query
-        assert report["hogql_app_rows_read"] == 100
-        assert report["hogql_app_bytes_read"] > 0
-        assert report["event_explorer_app_rows_read"] == 100
-        assert report["event_explorer_app_bytes_read"] > 0
-
-        # Nothing was read via the API
-        assert report["hogql_api_rows_read"] == 0
-        assert report["event_explorer_api_rows_read"] == 0
-
     @freeze_time("2022-01-10T00:01:00Z")
     @patch("os.environ", {"DEPLOYMENT": "tests"})
     @patch("posthog.tasks.usage_report.Client")
@@ -538,6 +505,42 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
         assert mock_posthog.capture.call_count == 2
         mock_posthog.capture.assert_has_calls(calls, any_order=True)
+
+
+class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    def test_usage_report_hogql_queries(self) -> None:
+        for _ in range(0, 100):
+            _create_event(
+                distinct_id="hello",
+                event="$event1",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.team,
+            )
+        flush_persons_and_events()
+        sync_execute("SYSTEM FLUSH LOGS")
+        sync_execute("TRUNCATE TABLE system.query_log")
+
+        from posthog.models.event.events_query import run_events_query
+
+        execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
+        run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
+        assert len(all_reports) == 1
+
+        report = all_reports[0]["teams"][str(self.team.pk)]
+
+        # We selected 200 or 50 rows, but still read 100 rows to return the query
+        assert report["hogql_app_rows_read"] == 100
+        assert report["hogql_app_bytes_read"] > 0
+        assert report["event_explorer_app_rows_read"] == 100
+        assert report["event_explorer_app_bytes_read"] > 0
+
+        # Nothing was read via the API
+        assert report["hogql_api_rows_read"] == 0
+        assert report["event_explorer_api_rows_read"] == 0
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

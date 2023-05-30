@@ -71,17 +71,17 @@ class UsageReportCounters:
     ff_active_count: int
     # HogQL
     hogql_app_bytes_read: int
-    hogql_api_bytes_read: int
     hogql_app_rows_read: int
-    hogql_api_rows_read: int
     hogql_app_duration_ms: int
+    hogql_api_bytes_read: int
+    hogql_api_rows_read: int
     hogql_api_duration_ms: int
     # Event Explorer
     event_explorer_app_bytes_read: int
-    event_explorer_api_bytes_read: int
     event_explorer_app_rows_read: int
-    event_explorer_api_rows_read: int
     event_explorer_app_duration_ms: int
+    event_explorer_api_bytes_read: int
+    event_explorer_api_rows_read: int
     event_explorer_api_duration_ms: int
 
 
