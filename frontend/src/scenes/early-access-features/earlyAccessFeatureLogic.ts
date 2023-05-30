@@ -35,7 +35,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
-        promote: true,
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
     }),
     loaders(({ props }) => ({
@@ -109,11 +108,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 router.actions.push(urls.earlyAccessFeatures())
             }
             actions.editFeature(false)
-        },
-        promote: async () => {
-            'id' in values.earlyAccessFeature && (await api.earlyAccessFeatures.promote(values.earlyAccessFeature.id))
-            actions.loadEarlyAccessFeature()
-            actions.loadEarlyAccessFeatures()
         },
         saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature }) => {
             lemonToast.success('Early Access Feature saved')

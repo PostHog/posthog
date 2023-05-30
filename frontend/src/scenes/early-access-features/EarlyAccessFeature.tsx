@@ -19,7 +19,7 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { PersonsLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
-import { Col, Popconfirm } from 'antd'
+import { Popconfirm } from 'antd'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -32,7 +32,7 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote, deleteEarlyAccessFeature } =
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, deleteEarlyAccessFeature } =
         useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
@@ -149,25 +149,21 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     {isEditingFeature || isNewEarlyAccessFeature ? (
                         <></>
                     ) : (
-                        <div className="mb-2 flex flex-row justify-between">
-                            <Col>
-                                <b>Stage</b>
-                                <div>
-                                    <LemonTag type="highlight" className="mt-2 uppercase">
-                                        {earlyAccessFeature.stage}
-                                    </LemonTag>
-                                </div>
-                            </Col>
-                            {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
-                                <LemonButton
-                                    onClick={() => promote()}
-                                    tooltip={'Make feature generally available'}
-                                    type="secondary"
-                                >
-                                    Promote
-                                </LemonButton>
-                            )}
-                        </div>
+                        <PureField
+                            label="Stage"
+                            info={
+                                <>
+                                    When you're ready to rollout the feature to everyone, delete this early access
+                                    feature
+                                </>
+                            }
+                        >
+                            <div className="flex flex-row justify-between">
+                                <LemonTag type="highlight" className="uppercase">
+                                    {earlyAccessFeature.stage}
+                                </LemonTag>
+                            </div>
+                        </PureField>
                     )}
                     {isEditingFeature || isNewEarlyAccessFeature ? (
                         <Field name="description" label="Description" showOptional>

@@ -30,18 +30,3 @@ class EarlyAccessFeature(UUIDModel):
         return self.name
 
     __repr__ = sane_repr("id", "name", "team_id", "stage")
-
-    def promote(self) -> None:
-        self.feature_flag.filters = {
-            **self.feature_flag.filters,
-            "super_groups": [
-                {
-                    "properties": [],
-                    "rollout_percentage": 100,
-                }
-            ],
-        }
-        self.feature_flag.save()
-
-        self.stage = "general-availability"
-        self.save()
