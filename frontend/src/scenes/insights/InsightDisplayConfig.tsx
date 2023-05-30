@@ -150,7 +150,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                                     ((isTrendsFilter(filters) ||
                                         isStickinessFilter(filters) ||
                                         isLifecycleFilter(filters)) &&
-                                        filters.show_values_on_series) ||
+                                        (filters as TrendsFilterType).show_values_on_series) ||
                                     // pie charts have value checked by default
                                     (isTrendsFilter(filters) &&
                                         filters.display === ChartDisplayType.ActionsPie &&
