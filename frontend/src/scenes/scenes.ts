@@ -294,7 +294,7 @@ export const redirects: Record<
     '/events/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
-    '/events/:id': ({ id }) =>
+    '/events/:id/:timestamp': ({ id }) =>
         combineUrl(
             urls.events(),
             {},
