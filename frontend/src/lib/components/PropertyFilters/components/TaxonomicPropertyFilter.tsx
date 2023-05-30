@@ -20,7 +20,7 @@ import {
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinitionType, PropertyFilterType } from '~/types'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
 
@@ -83,7 +83,7 @@ export function TaxonomicPropertyFilter({
         filter?.type !== PropertyFilterType.Cohort &&
         filter?.type !== PropertyFilterType.HogQL
 
-    const { propertyDefinitions } = useValues(propertyDefinitionsModel)
+    const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
@@ -182,7 +182,9 @@ export function TaxonomicPropertyFilter({
                         </LemonButtonWithDropdown>
                         {showOperatorValueSelect ? (
                             <OperatorValueSelect
-                                propertyDefinitions={propertyDefinitions}
+                                propertyDefinitions={propertyDefinitionsByType(
+                                    filter?.type || PropertyDefinitionType.Event
+                                )}
                                 type={filter?.type}
                                 propkey={filter?.key}
                                 operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}

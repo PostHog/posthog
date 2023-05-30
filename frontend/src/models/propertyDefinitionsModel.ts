@@ -279,12 +279,15 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     (key) => propertyDefinitionStorage[key] === PropertyDefinitionState.Pending
                 ),
         ],
-        propertyDefinitions: [
+        propertyDefinitionsByType: [
             (s) => [s.propertyDefinitionStorage],
-            (propertyDefinitionStorage): PropertyDefinition[] =>
-                Object.values(propertyDefinitionStorage).filter(
-                    (value) => typeof value === 'object'
-                ) as PropertyDefinition[],
+            (propertyDefinitionStorage): ((type: string) => PropertyDefinition[]) => {
+                return (type) => {
+                    return Object.entries(propertyDefinitionStorage ?? {})
+                        .filter(([key, value]) => key.startsWith(`${type}/`) && typeof value === 'object')
+                        .map(([, value]) => value as PropertyDefinition)
+                }
+            },
         ],
         getPropertyDefinition: [
             (s) => [s.propertyDefinitionStorage],
