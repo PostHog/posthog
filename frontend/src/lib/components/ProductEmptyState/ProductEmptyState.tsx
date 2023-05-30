@@ -47,7 +47,7 @@ export const ProductEmptyState = ({
                                 type="primary"
                                 sideIcon={<IconPlus />}
                                 onClick={action}
-                                data-attr={'create-' + thingName}
+                                data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
                             >
                                 Create {thingName}
                             </LemonButton>
@@ -59,7 +59,7 @@ export const ProductEmptyState = ({
                                 type={actionable ? 'tertiary' : 'secondary'}
                                 status="muted-alt"
                                 sideIcon={<IconOpenInNew className="w-4 h-4" />}
-                                to={docsURL}
+                                to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
                             >
                                 Learn more about {productName}
                             </LemonButton>
