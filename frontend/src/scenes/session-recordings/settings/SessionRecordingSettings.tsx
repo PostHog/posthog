@@ -27,7 +27,6 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                             session_recording_opt_in: checked,
                             capture_console_log_opt_in: checked,
                             capture_performance_opt_in: checked,
-                            session_recording_version: checked ? 'v2' : undefined,
                         })
                     }}
                     label="Record user sessions"
@@ -96,33 +95,6 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     The network requests and timings will be shown in the recording player to help you debug any issues.
                 </p>
             </div>
-            <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_V2_RECORDER} match={true}>
-                <div className="space-y-2">
-                    <LemonSwitch
-                        data-attr="opt-in-capture-performance-switch"
-                        onChange={(checked) => {
-                            updateCurrentTeam({ session_recording_version: checked ? 'v2' : 'v1' })
-                        }}
-                        label={
-                            <span className="flex items-center gap-2">
-                                Use Recorder V2
-                                <LemonTag type="warning">Beta</LemonTag>
-                            </span>
-                        }
-                        labelClassName={inModal ? 'text-base font-semibold' : ''}
-                        bordered={!inModal}
-                        fullWidth={inModal}
-                        checked={currentTeam?.session_recording_version === 'v2'}
-                    />
-                    <p>
-                        Turn this setting on to opt into{' '}
-                        <Link to="https://github.com/rrweb-io/rrweb/releases/tag/rrweb%402.0.0-alpha.5" target="_blank">
-                            rrweb 2
-                        </Link>{' '}
-                        which comes with various fixes and improvements.
-                    </p>
-                </div>
-            </FlaggedFeature>
             <div className="space-y-2">
                 <LemonLabel className="text-base">Authorized domains for recordings</LemonLabel>
 
