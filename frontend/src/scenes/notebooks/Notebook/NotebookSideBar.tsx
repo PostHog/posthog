@@ -27,7 +27,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
         notebookSideBarShown
             ? {
                   escape: {
-                      action: function () {
+                      action: () => {
                           setFullScreen(false)
                       },
                   },

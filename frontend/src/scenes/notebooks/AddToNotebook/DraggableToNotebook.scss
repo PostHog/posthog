@@ -32,6 +32,7 @@
             padding: 0.25rem 0.5rem;
             font-weight: 700;
             animation: notebook-indicator-appear-no-overflow 150ms ease-out;
+            transition: opacity 150ms ease-out;
         }
 
         .Notebook & {
@@ -49,7 +50,7 @@
 
     &:hover {
         .DraggableToNotebook__indicator__text {
-            display: none;
+            opacity: 0.5;
         }
     }
 }
