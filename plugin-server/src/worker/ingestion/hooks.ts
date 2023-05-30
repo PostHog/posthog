@@ -34,16 +34,22 @@ function escapeSlack(text: string): string {
 }
 
 function escapeMarkdown(text: string): string {
-    const markdownChars: string[] = ['\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '#', '+', '-', '.', '!']
+    const markdownChars: string[] = ['\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '!']
+    const lineStartChars: string[] = ['#', '-', '+']
 
     let escapedText = ''
+    let isNewLine = true
 
     for (const char of text) {
-        if (markdownChars.includes(char)) {
+        if (isNewLine && lineStartChars.includes(char)) {
+            escapedText += '\\' + char
+        } else if (!isNewLine && markdownChars.includes(char)) {
             escapedText += '\\' + char
         } else {
             escapedText += char
         }
+
+        isNewLine = char === '\n' || char === '\r'
     }
 
     return escapedText
@@ -74,7 +80,7 @@ export function getUserDetails(event: PostIngestionEvent, siteUrl: string, webho
         event.person_properties?.name ||
         event.person_properties?.username ||
         event.distinctId
-    return toWebhookLink(userName, `${siteUrl}/person/${event.distinctId}`, webhookType)
+    return toWebhookLink(userName, `${siteUrl}/person/${encodeURIComponent(event.distinctId)}`, webhookType)
 }
 
 export function getActionDetails(action: Action, siteUrl: string, webhookType: WebhookType): [string, string] {
@@ -86,7 +92,11 @@ export function getEventDetails(
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
-    return toWebhookLink(event.event, `${siteUrl}/events/${event.eventUuid}`, webhookType)
+    return toWebhookLink(
+        event.event,
+        `${siteUrl}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(event.timestamp)}`,
+        webhookType
+    )
 }
 
 export function getTokens(messageFormat: string): [string[], string] {

@@ -102,6 +102,7 @@ describe('hooks', () => {
             distinctId: 'WALL-E',
             properties: { $browser: 'Chrome' },
             person_properties: { enjoys_broccoli_on_pizza: false },
+            timestamp: '2021-10-31T00:44:00.000Z',
         } as unknown as PostIngestionEvent
 
         test('event UUID', () => {
@@ -146,7 +147,7 @@ describe('hooks', () => {
             )
 
             expect(text).toBe('$pageview')
-            expect(markdown).toBe('[$pageview](http://localhost:8000/events/123)')
+            expect(markdown).toBe('[$pageview](http://localhost:8000/events/123/2021-10-31T00%3A44%3A00.000Z)')
         })
 
         test('event distinct_id', () => {
@@ -160,8 +161,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('WALL\\-E')
-            expect(markdown).toBe('WALL\\-E')
+            expect(text).toBe('WALL-E')
+            expect(markdown).toBe('WALL-E')
         })
         test('person with just distinct ID', () => {
             const tokenUserName = ['person']
@@ -174,8 +175,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('WALL\\-E')
-            expect(markdown).toBe('[WALL\\-E](http://localhost:8000/person/WALL\\-E)')
+            expect(text).toBe('WALL-E')
+            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
         })
 
         test('person with email', () => {
@@ -189,8 +190,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('wall\\-e@buynlarge\\.com')
-            expect(markdown).toBe('[wall\\-e@buynlarge\\.com](http://localhost:8000/person/WALL\\-E)')
+            expect(text).toBe('wall-e@buynlarge.com')
+            expect(markdown).toBe('[wall-e@buynlarge.com](http://localhost:8000/person/WALL-E)')
         })
 
         test('person prop', () => {
@@ -219,8 +220,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('WALL\\-E')
-            expect(markdown).toBe('[WALL\\-E](http://localhost:8000/person/WALL\\-E)')
+            expect(text).toBe('WALL-E')
+            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
         })
 
         test('user prop (actually event prop)', () => {
@@ -263,7 +264,9 @@ describe('hooks', () => {
             )
 
             expect(text).toBe('text&gt;&lt;new link')
-            expect(markdown).toBe('<http://localhost:8000/events/**&gt;)|text&gt;&lt;new link>')
+            expect(markdown).toBe(
+                '<http://localhost:8000/events/**%3E)/2021-10-31T00%3A44%3A00.000Z|text&gt;&lt;new link>'
+            )
         })
 
         test('escapes teams', () => {
@@ -276,7 +279,9 @@ describe('hooks', () => {
             )
 
             expect(text).toBe('text\\]\\(yes\\!\\), \\[new link')
-            expect(markdown).toBe('[text\\]\\(yes\\!\\), \\[new link](http://localhost:8000/events/\\*\\*\\))')
+            expect(markdown).toBe(
+                '[text\\]\\(yes\\!\\), \\[new link](http://localhost:8000/events/\\*\\*\\)/2021-10-31T00%3A44%3A00.000Z)'
+            )
         })
     })
 
