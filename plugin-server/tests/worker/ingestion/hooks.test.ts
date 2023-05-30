@@ -276,7 +276,7 @@ describe('hooks', () => {
                 { ...event, eventUuid: '**>)', event: 'text><new link' },
                 'http://localhost:8000',
                 WebhookType.Slack,
-                ['event', 'event']
+                ['event']
             )
 
             expect(text).toBe('text&gt;&lt;new link')
