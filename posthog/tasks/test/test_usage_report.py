@@ -302,12 +302,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "hogql_api_bytes_read": 0,
                     "hogql_api_rows_read": 0,
                     "hogql_api_duration_ms": 0,
-                    "event_explorer_read_bytes": 0,
-                    "event_explorer_read_rows": 0,
-                    "event_explorer_duration_ms": 0,
-                    "event_explorer_read_bytes_via_api": 0,
-                    "event_explorer_read_rows_via_api": 0,
-                    "event_explorer_duration_ms_via_api": 0,
+                    "event_explorer_app_bytes_read": 0,
+                    "event_explorer_app_rows_read": 0,
+                    "event_explorer_app_duration_ms": 0,
+                    "event_explorer_api_bytes_read": 0,
+                    "event_explorer_api_rows_read": 0,
+                    "event_explorer_api_duration_ms": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -335,12 +335,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "hogql_api_bytes_read": 0,
                             "hogql_api_rows_read": 0,
                             "hogql_api_duration_ms": 0,
-                            "event_explorer_read_bytes": 0,
-                            "event_explorer_read_rows": 0,
-                            "event_explorer_duration_ms": 0,
-                            "event_explorer_read_bytes_via_api": 0,
-                            "event_explorer_read_rows_via_api": 0,
-                            "event_explorer_duration_ms_via_api": 0,
+                            "event_explorer_app_bytes_read": 0,
+                            "event_explorer_app_rows_read": 0,
+                            "event_explorer_app_duration_ms": 0,
+                            "event_explorer_api_bytes_read": 0,
+                            "event_explorer_api_rows_read": 0,
+                            "event_explorer_api_duration_ms": 0,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_lifetime": 10,
@@ -362,12 +362,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "hogql_api_bytes_read": 0,
                             "hogql_api_rows_read": 0,
                             "hogql_api_duration_ms": 0,
-                            "event_explorer_read_bytes": 0,
-                            "event_explorer_read_rows": 0,
-                            "event_explorer_duration_ms": 0,
-                            "event_explorer_read_bytes_via_api": 0,
-                            "event_explorer_read_rows_via_api": 0,
-                            "event_explorer_duration_ms_via_api": 0,
+                            "event_explorer_app_bytes_read": 0,
+                            "event_explorer_app_rows_read": 0,
+                            "event_explorer_app_duration_ms": 0,
+                            "event_explorer_api_bytes_read": 0,
+                            "event_explorer_api_rows_read": 0,
+                            "event_explorer_api_duration_ms": 0,
                         },
                     },
                 },
@@ -410,12 +410,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "hogql_api_bytes_read": 0,
                     "hogql_api_rows_read": 0,
                     "hogql_api_duration_ms": 0,
-                    "event_explorer_read_bytes": 0,
-                    "event_explorer_read_rows": 0,
-                    "event_explorer_duration_ms": 0,
-                    "event_explorer_read_bytes_via_api": 0,
-                    "event_explorer_read_rows_via_api": 0,
-                    "event_explorer_duration_ms_via_api": 0,
+                    "event_explorer_app_bytes_read": 0,
+                    "event_explorer_app_rows_read": 0,
+                    "event_explorer_app_duration_ms": 0,
+                    "event_explorer_api_bytes_read": 0,
+                    "event_explorer_api_rows_read": 0,
+                    "event_explorer_api_duration_ms": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -443,12 +443,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "hogql_api_bytes_read": 0,
                             "hogql_api_rows_read": 0,
                             "hogql_api_duration_ms": 0,
-                            "event_explorer_read_bytes": 0,
-                            "event_explorer_read_rows": 0,
-                            "event_explorer_duration_ms": 0,
-                            "event_explorer_read_bytes_via_api": 0,
-                            "event_explorer_read_rows_via_api": 0,
-                            "event_explorer_duration_ms_via_api": 0,
+                            "event_explorer_app_bytes_read": 0,
+                            "event_explorer_app_rows_read": 0,
+                            "event_explorer_app_duration_ms": 0,
+                            "event_explorer_api_bytes_read": 0,
+                            "event_explorer_api_rows_read": 0,
+                            "event_explorer_api_duration_ms": 0,
                         }
                     },
                 },
@@ -493,12 +493,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         # We selected 200 or 50 rows, but still read 100 rows to return the query
         assert report["hogql_app_rows_read"] == 100
         assert report["hogql_app_bytes_read"] > 0
-        assert report["event_explorer_read_rows"] == 100
-        assert report["event_explorer_read_bytes"] > 0
+        assert report["event_explorer_app_rows_read"] == 100
+        assert report["event_explorer_app_bytes_read"] > 0
 
         # Nothing was read via the API
         assert report["hogql_api_rows_read"] == 0
-        assert report["event_explorer_read_rows_via_api"] == 0
+        assert report["event_explorer_api_rows_read"] == 0
 
     @freeze_time("2022-01-10T00:01:00Z")
     @patch("os.environ", {"DEPLOYMENT": "tests"})

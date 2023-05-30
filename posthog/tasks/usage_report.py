@@ -559,42 +559,42 @@ def send_all_org_usage_reports(
             query_types=["hogql_query", "HogQLQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_event_explorer_read_bytes=get_teams_with_hogql_metric(
+        teams_with_event_explorer_app_bytes_read=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_bytes",
             query_types=["EventsQuery"],
             access_method="",
         ),
-        teams_with_event_explorer_read_rows=get_teams_with_hogql_metric(
+        teams_with_event_explorer_app_rows_read=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["EventsQuery"],
             access_method="",
         ),
-        teams_with_event_explorer_duration_ms=get_teams_with_hogql_metric(
+        teams_with_event_explorer_app_duration_ms=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
             query_types=["EventsQuery"],
             access_method="",
         ),
-        teams_with_event_explorer_read_bytes_via_api=get_teams_with_hogql_metric(
+        teams_with_event_explorer_api_bytes_read=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_bytes",
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_event_explorer_read_rows_via_api=get_teams_with_hogql_metric(
+        teams_with_event_explorer_api_rows_read=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_event_explorer_duration_ms_via_api=get_teams_with_hogql_metric(
+        teams_with_event_explorer_api_duration_ms=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
@@ -640,23 +640,23 @@ def send_all_org_usage_reports(
             hogql_api_bytes_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_bytes_read"]),
             hogql_api_rows_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_rows_read"]),
             hogql_api_duration_ms=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_duration_ms"]),
-            event_explorer_read_bytes=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_read_bytes"]
+            event_explorer_app_bytes_read=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_app_bytes_read"]
             ),
-            event_explorer_read_rows=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_read_rows"]
+            event_explorer_app_rows_read=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_app_rows_read"]
             ),
-            event_explorer_duration_ms=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_duration_ms"]
+            event_explorer_app_duration_ms=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_app_duration_ms"]
             ),
-            event_explorer_read_bytes_via_api=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_read_bytes_via_api"]
+            event_explorer_api_bytes_read=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_api_bytes_read"]
             ),
-            event_explorer_read_rows_via_api=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_read_rows_via_api"]
+            event_explorer_api_rows_read=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_api_rows_read"]
             ),
-            event_explorer_duration_ms_via_api=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_duration_ms_via_api"]
+            event_explorer_api_duration_ms=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_api_duration_ms"]
             ),
         )
 
