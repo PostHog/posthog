@@ -165,42 +165,48 @@ export class SessionManager {
             return
         }
 
+        const logContext: Record<string, any> = {
+            sessionId: this.sessionId,
+            partition: this.partition,
+            chunkSize: this.chunks.size,
+            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+            referenceTime: referenceNow,
+            flushThresholdMillis,
+            bufferCount: this.buffer.count,
+        }
+
         if (this.buffer.oldestKafkaTimestamp === null) {
             // We have no messages yet, so we can't flush
             if (this.buffer.count > 0) {
                 throw new Error('Session buffer has messages but oldest timestamp is null. A paradox!')
             }
+            status.warn('🚽', `blob_ingester_session_manager buffer has no oldestKafkaTimestamp yet`, { logContext })
             return
         }
 
         const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
+        logContext['bufferAge'] = bufferAge
+
+        this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
+
+        if (this.chunks.size !== 0) {
+            const chunkStates: Record<string, any> = {}
+            for (const [key, chunk] of this.chunks.entries()) {
+                chunkStates[key] = chunk.logContext
+            }
+            logContext['chunkStates'] = chunkStates
+        }
 
         if (bufferAge >= flushThresholdMillis) {
-            const logContext: Record<string, any> = {
-                bufferAge,
-                sessionId: this.sessionId,
-                partition: this.partition,
-                chunkSize: this.chunks.size,
-                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
-                referenceTime: referenceNow,
-                flushThresholdMillis,
-            }
-
-            this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
-
-            if (this.chunks.size !== 0) {
-                const chunkStates: Record<string, any> = {}
-                for (const [key, chunk] of this.chunks.entries()) {
-                    chunkStates[key] = chunk.logContext
-                }
-                logContext['chunkStates'] = chunkStates
-            }
-
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 ...logContext,
             })
             // return the promise and let the caller decide whether to await
             return this.flush('buffer_age')
+        } else {
+            status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
+                ...logContext,
+            })
         }
     }
 
@@ -375,11 +381,47 @@ export class SessionManager {
         }
         const pendingChunks = this.chunks.get(message.chunk_id)
 
-        if (pendingChunks && pendingChunks.isComplete) {
+        if (!pendingChunks) {
+            const { data, events_summary, ...messageToLog } = message
+            captureMessage('No pending chunks when that is impossible', {
+                extra: { ...messageToLog },
+                tags: { team_id: this.teamId, session_id: this.sessionId, partition: this.partition },
+            })
+            throw new Error('It is impossible to have no pending chunks here')
+        }
+
+        if (pendingChunks.isComplete) {
             // If we have all the chunks, we can add the message to the buffer
             // We want to add all the chunk offsets as well so that they are tracked correctly
             await this.processChunksToBuffer(pendingChunks)
             this.chunks.delete(message.chunk_id)
+
+            // TODO this should be removed as soon as possible
+            status.info('🧩', 'blob_ingester_session_manager completed chunked message', {
+                chunk_id: message.chunk_id,
+                partition: this.partition,
+                team: this.teamId,
+                session: this.sessionId,
+                chunk_index: message.chunk_index,
+                stillHasPendingChunks: !!this.chunks.get(message.chunk_id),
+                offsetsThatWereJustAdded: pendingChunks.allChunkOffsets,
+            })
+        } else {
+            // A very specific log line to help debug chunking issues
+            // some partitions get stuck and at the point they are stuck apparently have complete chunks
+            // still in the pendingChunks map
+            // that should be impossible... but it is apparently happening
+            // TODO: this should be removed as soon as possible
+            status.info('🧩', 'blob_ingester_session_manager received chunked message', {
+                chunk_id: message.chunk_id,
+                partition: this.partition,
+                team: this.teamId,
+                session: this.sessionId,
+                chunk_index: message.chunk_index,
+                pendingChunks: pendingChunks.logContext,
+                pendingChunksIsComplete: pendingChunks.isComplete,
+                offsetsPending: pendingChunks.allChunkOffsets,
+            })
         }
     }
 
