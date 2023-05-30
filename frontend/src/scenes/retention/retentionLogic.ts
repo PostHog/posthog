@@ -14,7 +14,7 @@ export const retentionLogic = kea<retentionLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters as inflightFilters', 'insight', 'insightLoading']],
+        values: [insightLogic(props), ['filters as inflightFilters', 'insight']],
     }),
     selectors: {
         filters: [
@@ -29,6 +29,5 @@ export const retentionLogic = kea<retentionLogicType>({
                 return filters?.insight === InsightType.RETENTION ? result ?? [] : []
             },
         ],
-        resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
     },
 })

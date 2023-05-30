@@ -15,7 +15,6 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
     const { insightProps } = useValues(insightLogic)
     const {
         results,
-        resultsLoading,
         filters: { period, date_to },
     } = useValues(retentionLogic(insightProps))
     const { tableHeaders, tableRows } = useValues(retentionTableLogic(insightProps))
@@ -23,7 +22,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
 
     const isLatestPeriod = periodIsLatest(date_to || null, period || null)
 
-    if (resultsLoading || !results?.length) {
+    if (!results?.length) {
         return null
     }
 

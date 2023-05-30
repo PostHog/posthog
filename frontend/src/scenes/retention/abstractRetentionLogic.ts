@@ -18,7 +18,7 @@ export const abstractRetentionLogic = kea<abstractRetentionLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             retentionLogic(props),
-            ['filters', 'results as retentionResults', 'resultsLoading as retentionResultsLoading'],
+            ['filters', 'results as retentionResults'],
             insightVizDataLogic(props),
             [
                 'querySource',
@@ -72,6 +72,5 @@ export const abstractRetentionLogic = kea<abstractRetentionLogicType>({
             },
         ],
         results: [(s) => [s.retentionResults], (retentionResults): RetentionTablePayload[] => retentionResults],
-        resultsLoading: [(s) => [s.retentionResultsLoading], (retentionResultsLoading) => retentionResultsLoading],
     },
 })
