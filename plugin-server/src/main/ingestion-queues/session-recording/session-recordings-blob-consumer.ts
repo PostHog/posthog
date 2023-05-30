@@ -26,8 +26,8 @@ require('@sentry/tracing')
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
-const twelveHoursInMillis = 6 * 60 * 60 * 1000
-                
+const hoursInMillis = (hours: number) => hours * 60 * 60 * 1000
+
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
 const gaugeSessionsHandled = new Gauge({
@@ -56,7 +56,6 @@ export class SessionRecordingBlobIngester {
     offsetManager?: OffsetManager
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
-    lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
     enabledTeams: number[] | null
     latestKafkaMessageTimestamp: Record<number, number | null> = {}
@@ -206,7 +205,7 @@ export class SessionRecordingBlobIngester {
             chunk_index: $snapshot_data.chunk_index,
             chunk_count: $snapshot_data.chunk_count,
             data: $snapshot_data.data,
-            compresssion: $snapshot_data.compression,
+            compression: $snapshot_data.compression,
             has_full_snapshot: $snapshot_data.has_full_snapshot,
             events_summary: $snapshot_data.events_summary,
         }
@@ -340,7 +339,7 @@ export class SessionRecordingBlobIngester {
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
             status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
-            // It's unclear what happens if an exception occurs here so we try catch it just in case
+            // It's unclear what happens if an exception occurs here so, we try catch it just in case
             let sessionManagerBufferSizes = 0
 
             for (const [key, sessionManager] of this.sessions) {
@@ -352,16 +351,27 @@ export class SessionRecordingBlobIngester {
                     throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
                 }
 
-                // it is possible for a session to need an idle flush to continue 
+                // it is possible for a session to need an idle flush to continue
                 // but for the head of the partition to be within the idle timeout threshold.
                 // for e.g. when no new message is received on the partition
                 // and so, it will never flush on idle.
                 // in that circumstance, we still need to flush the session.
-                // in practice, any partition should only lag behind real-world now by around ten minutes
-                // if things are lagging by more than twelve hours then we will prioritise flushing
-                // even if it means that blob storage write costs are higher
-                if (DateTime.now().toMillis() - kafkaNow >= twelveHoursInMillis) {
-                    kafkaNow = DateTime.now().toMillis()
+                // the aim is for no partition to lag more than ten minutes behind "now"
+                // but as traffic isn't distributed evenly between partitions.
+                // if "partition now" is lagging behind "consumer now" then we use "consumer now"
+                // that way so long as the consumer is running and receiving messages
+                // we will be more likely to flush "stuck" partitions
+                if (DateTime.now().toMillis() - kafkaNow >= hoursInMillis(2)) {
+                    const consumerNow = Object.values(this.latestKafkaMessageTimestamp).reduce((acc, curr) => {
+                        if (acc === null) {
+                            return curr
+                        }
+                        if (curr !== null && curr > acc) {
+                            return curr
+                        }
+                        return acc
+                    }, -1)
+                    kafkaNow = consumerNow ?? DateTime.now().toMillis()
                 }
 
                 void sessionManager
