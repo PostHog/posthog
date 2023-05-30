@@ -216,7 +216,7 @@ describe('eachBatchX', () => {
                 { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
             ])
             const batches = splitIngestionBatch(input.batch.messages, IngestionOverflowMode.Consume).toProcess
-            expect(batches.length).toEqual(input.length)
+            expect(batches.length).toEqual(input.batch.messages.length)
             for (const group of batches) {
                 expect(group.length).toEqual(1)
             }
