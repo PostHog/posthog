@@ -1109,3 +1109,5 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
     token?: string
 }
+
+export type RedisPool = GenericPool<Redis>

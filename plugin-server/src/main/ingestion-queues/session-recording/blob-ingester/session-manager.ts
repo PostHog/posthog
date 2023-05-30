@@ -14,6 +14,7 @@ import { bufferFileDir } from '../session-recordings-blob-consumer'
 import { PendingChunks } from './pending-chunks'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
+import { WrittenOffsetCache } from './written-offset-cache'
 
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
@@ -69,6 +70,7 @@ export class SessionManager {
     flushBuffer?: SessionBuffer
     destroying = false
     inProgressUpload: Upload | null = null
+    lastProcessedOffset: number | null = null
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -77,11 +79,10 @@ export class SessionManager {
         public readonly sessionId: string,
         public readonly partition: number,
         public readonly topic: string,
-        private readonly onFinish: (offsetsToRemove: number[]) => void
+        private readonly onFinish: (offsetsToRemove: number[]) => void,
+        private readonly offsetHighWatermark: WrittenOffsetCache
     ) {
         this.buffer = this.createBuffer()
-
-        // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
     private async deleteFile(file: string, context: string) {
@@ -112,9 +113,15 @@ export class SessionManager {
             message.metadata.timestamp
         )
 
-        // TODO: Check that the offset is higher than the lastProcessed
-        // If not - ignore it
-        // If it is - update lastProcessed and process it
+        if (this.lastProcessedOffset === null) {
+            this.lastProcessedOffset = (await this.offsetHighWatermark.get(this.partition)) ?? -Infinity
+        }
+
+        if (message.metadata.offset <= this.lastProcessedOffset) {
+            this.buffer.offsets.push(message.metadata.offset)
+            return
+        }
+
         if (message.chunk_count === 1) {
             await this.addToBuffer(message)
         } else {
@@ -287,6 +294,11 @@ export class SessionManager {
             })
 
             await this.inProgressUpload.done()
+
+            await this.offsetHighWatermark.set(
+                this.partition,
+                this.flushBuffer.offsets.sort((a, b) => a - b)[this.flushBuffer.offsets.length - 1]
+            )
 
             fileStream.close()
 

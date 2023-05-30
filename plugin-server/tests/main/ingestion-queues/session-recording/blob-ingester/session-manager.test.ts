@@ -8,6 +8,7 @@ import { PendingChunks } from '../../../../../src/main/ingestion-queues/session-
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
 import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
+import { WrittenOffsetCache } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/written-offset-cache'
 import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
 
 jest.mock('fs', () => {
@@ -49,12 +50,25 @@ describe('session-manager', () => {
     const mockS3Client: any = {
         send: jest.fn(),
     }
+    const mockHighWaterMark = {
+        set: jest.fn(),
+        get: jest.fn(),
+    }
 
     beforeEach(() => {
         // it's always May 25
         Settings.now = () => new Date(2018, 4, 25).valueOf()
 
-        sessionManager = new SessionManager(defaultConfig, mockS3Client, 1, 'session_id_1', 1, 'topic', mockFinish)
+        sessionManager = new SessionManager(
+            defaultConfig,
+            mockS3Client,
+            1,
+            'session_id_1',
+            1,
+            'topic',
+            mockFinish,
+            mockHighWaterMark as unknown as WrittenOffsetCache
+        )
         mockFinish.mockClear()
     })
 
@@ -118,6 +132,8 @@ describe('session-manager', () => {
 
         const payload = JSON.stringify([{ simple: 'data' }])
         const eventOne = createIncomingRecordingMessage({
+            // the highest offset doesn't have to be received first!
+            metadata: { offset: 12345 } as any,
             data: compressToString(payload),
             events_summary: [
                 {
@@ -128,6 +144,7 @@ describe('session-manager', () => {
             ],
         })
         const eventTwo = createIncomingRecordingMessage({
+            metadata: { offset: 12344 } as any,
             data: compressToString(payload),
             events_summary: [
                 {
@@ -158,6 +175,7 @@ describe('session-manager', () => {
                 }),
             })
         )
+        expect(mockHighWaterMark.set).toHaveBeenCalledWith(1, 12345)
     })
 
     it('does not flush a short session even when lagging if within threshold', async () => {
@@ -438,81 +456,117 @@ describe('session-manager', () => {
         }
     )
 
-    // it.each([
-    //     [
-    //         'incomplete, we do not add to the buffer',
-    //         [
-    //             { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage,
-    //             { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage,
-    //         ],
-    //         0,
-    //         [],
-    //     ],
-    //     [
-    //         'exactly complete, we add to the buffer',
-    //         [
-    //             {
-    //                 chunk_count: 2,
-    //                 chunk_index: 0,
-    //                 data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-    //                 metadata: { timestamp: 1000, offset: 1 },
-    //             } as IncomingRecordingMessage,
-    //             {
-    //                 chunk_count: 2,
-    //                 chunk_index: 1,
-    //                 data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-    //                 metadata: { timestamp: 1000, offset: 2 },
-    //             } as IncomingRecordingMessage,
-    //         ],
-    //         1,
-    //         [2, 1],
-    //     ],
-    //     [
-    //         'over complete, we add only necessary data to the buffer, but all offsets',
-    //         [
-    //             // receives first event 3 times
-    //             {
-    //                 chunk_count: 2,
-    //                 chunk_index: 0,
-    //                 data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-    //                 metadata: { timestamp: 1000, offset: 1 },
-    //             } as IncomingRecordingMessage,
-    //             {
-    //                 chunk_count: 2,
-    //                 chunk_index: 0,
-    //                 data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-    //                 metadata: { timestamp: 1000, offset: 2 },
-    //             } as IncomingRecordingMessage,
-    //             {
-    //                 chunk_count: 2,
-    //                 chunk_index: 0,
-    //                 data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-    //                 metadata: { timestamp: 1000, offset: 3 },
-    //             } as IncomingRecordingMessage,
-    //             {
-    //                 chunk_count: 2,
-    //                 chunk_index: 1,
-    //                 data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-    //                 metadata: { timestamp: 1000, offset: 4 },
-    //             } as IncomingRecordingMessage,
-    //         ],
-    //         1,
-    //         [4, 2, 3, 1],
-    //     ],
-    // ])(
-    //     'correctly handles adding to and completing chunks - %s',
-    //     (
-    //         _description: string,
-    //         chunks: IncomingRecordingMessage[],
-    //         expectedBufferCount: number,
-    //         expectedBufferOffsets: number[]
-    //     ) => {
-    //         chunks.forEach(async (chunk) => {
-    //             await sessionManager.add(chunk)
-    //         })
+    it.each([
+        [
+            'incomplete, we do not add to the buffer',
+            [
+                { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage,
+                { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage,
+            ],
+            0,
+            [],
+        ],
+        [
+            'exactly complete, we add to the buffer',
+            [
+                {
+                    chunk_count: 2,
+                    chunk_index: 0,
+                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                    metadata: { timestamp: 1000, offset: 1 },
+                } as IncomingRecordingMessage,
+                {
+                    chunk_count: 2,
+                    chunk_index: 1,
+                    data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                    metadata: { timestamp: 1000, offset: 2 },
+                } as IncomingRecordingMessage,
+            ],
+            1,
+            [1, 2, 1], // allow duplicates in what we add to the buffer
+        ],
+        [
+            'over complete, we add only necessary data to the buffer, but all offsets',
+            [
+                // receives first event 3 times
+                {
+                    chunk_count: 2,
+                    chunk_index: 0,
+                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                    metadata: { timestamp: 1000, offset: 1 },
+                } as IncomingRecordingMessage,
+                {
+                    chunk_count: 2,
+                    chunk_index: 0,
+                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                    metadata: { timestamp: 1000, offset: 2 },
+                } as IncomingRecordingMessage,
+                {
+                    chunk_count: 2,
+                    chunk_index: 0,
+                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                    metadata: { timestamp: 1000, offset: 3 },
+                } as IncomingRecordingMessage,
+                {
+                    chunk_count: 2,
+                    chunk_index: 1,
+                    data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                    metadata: { timestamp: 1000, offset: 4 },
+                } as IncomingRecordingMessage,
+            ],
+            1,
+            [1, 2, 3, 4, 1], // allow duplicates in what we add to the buffer
+        ],
+    ])(
+        'correctly handles adding to and completing chunks - %s',
+        async (
+            _description: string,
+            chunks: IncomingRecordingMessage[],
+            expectedBufferCount: number,
+            expectedBufferOffsets: number[]
+        ) => {
+            await Promise.allSettled(
+                chunks.map(async (chunk) => {
+                    await sessionManager.add(chunk)
+                })
+            )
 
-    //         expect(sessionManager.buffer.count).toEqual(expectedBufferCount)
-    //         expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
-    //     }
-    // )
+            expect(sessionManager.buffer.count).toEqual(expectedBufferCount)
+            expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
+        }
+    )
+
+    it('skips messages that are below the high-water mark', async () => {
+        mockHighWaterMark.get.mockResolvedValue(1000)
+
+        await sessionManager.add(
+            createIncomingRecordingMessage({
+                metadata: {
+                    offset: 998,
+                } as any,
+            })
+        )
+        expect(sessionManager.buffer.count).toEqual(0)
+        expect(sessionManager.buffer.offsets).toEqual([998])
+
+        await sessionManager.add(
+            createIncomingRecordingMessage({
+                metadata: {
+                    offset: 1000,
+                } as any,
+            })
+        )
+        expect(sessionManager.buffer.count).toEqual(0)
+        expect(sessionManager.buffer.offsets).toEqual([998, 1000])
+
+        await sessionManager.add(
+            createIncomingRecordingMessage({
+                metadata: {
+                    offset: 1001,
+                } as any,
+            })
+        )
+        expect(sessionManager.buffer.count).toEqual(1)
+        expect(sessionManager.buffer.offsets).toEqual([998, 1000, 1001])
+    })
 })
