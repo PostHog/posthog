@@ -1,5 +1,6 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import { retryOnDependencyUnavailableError } from 'kafka/error-handling'
 import { Counter } from 'prom-client'
 
 import { runInSpan } from '../../../sentry'
@@ -187,7 +188,7 @@ export class EventPipelineRunner {
                     event: JSON.stringify(this.originalEvent),
                 })
                 try {
-                    const result = await step(...args)
+                    const result = await retryOnDependencyUnavailableError(() => step(...args))
                     pipelineStepCompletionCounter.labels(step.name).inc()
                     this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: step.name })
                     this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: step.name })
