@@ -18,8 +18,8 @@ import { ObjectStorage } from '../../services/object_storage'
 import { eventDroppedCounter } from '../metrics'
 import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
+import { SessionOffsetHighWaterMark } from './blob-ingester/session-offset-high-water-mark'
 import { IncomingRecordingMessage } from './blob-ingester/types'
-import { WrittenOffsetCache } from './blob-ingester/written-offset-cache'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -60,7 +60,7 @@ export class SessionRecordingBlobIngester {
     flushInterval: NodeJS.Timer | null = null
     enabledTeams: number[] | null
     latestKafkaMessageTimestamp: Record<number, number | null> = {}
-    private writtenOffsetCache: WrittenOffsetCache
+    private sessionOffsetHighWaterMark: SessionOffsetHighWaterMark
 
     constructor(
         private teamManager: TeamManager,
@@ -72,7 +72,7 @@ export class SessionRecordingBlobIngester {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
             enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
-        this.writtenOffsetCache = new WrittenOffsetCache(this.redisPool)
+        this.sessionOffsetHighWaterMark = new SessionOffsetHighWaterMark(this.redisPool)
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
@@ -96,7 +96,7 @@ export class SessionRecordingBlobIngester {
             const sessionManager = new SessionManager(
                 this.serverConfig,
                 this.objectStorage.s3,
-                this.writtenOffsetCache,
+                this.sessionOffsetHighWaterMark,
                 team_id,
                 session_id,
                 partition,

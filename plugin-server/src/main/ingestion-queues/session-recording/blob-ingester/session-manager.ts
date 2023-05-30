@@ -12,9 +12,9 @@ import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
 import { PendingChunks } from './pending-chunks'
+import { SessionOffsetHighWaterMark } from './session-offset-high-water-mark'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
-import { WrittenOffsetCache } from './written-offset-cache'
 
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
@@ -75,7 +75,7 @@ export class SessionManager {
     constructor(
         public readonly serverConfig: PluginsServerConfig,
         public readonly s3Client: ObjectStorage['s3'],
-        private readonly offsetHighWatermark: WrittenOffsetCache,
+        private readonly offsetHighWaterMark: SessionOffsetHighWaterMark,
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
@@ -114,7 +114,7 @@ export class SessionManager {
         )
 
         if (this.lastProcessedOffset === null) {
-            this.lastProcessedOffset = (await this.offsetHighWatermark.get(this.sessionId)) ?? -Infinity
+            this.lastProcessedOffset = (await this.offsetHighWaterMark.get(this.sessionId)) ?? -Infinity
         }
 
         if (message.metadata.offset <= this.lastProcessedOffset) {
@@ -295,7 +295,7 @@ export class SessionManager {
 
             await this.inProgressUpload.done()
 
-            await this.offsetHighWatermark.set(
+            await this.offsetHighWaterMark.set(
                 this.sessionId,
                 this.flushBuffer.offsets.sort((a, b) => a - b)[this.flushBuffer.offsets.length - 1]
             )

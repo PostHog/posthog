@@ -6,9 +6,9 @@ import { DateTime, Settings } from 'luxon'
 import { defaultConfig } from '../../../../../src/config/config'
 import { PendingChunks } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/pending-chunks'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
+import { SessionOffsetHighWaterMark } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-offset-high-water-mark'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
 import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
-import { WrittenOffsetCache } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/written-offset-cache'
 import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
 
 jest.mock('fs', () => {
@@ -62,7 +62,7 @@ describe('session-manager', () => {
         sessionManager = new SessionManager(
             defaultConfig,
             mockS3Client,
-            mockHighWaterMark as unknown as WrittenOffsetCache,
+            mockHighWaterMark as unknown as SessionOffsetHighWaterMark,
             1,
             'session_id_1',
             1,

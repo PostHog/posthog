@@ -17,7 +17,7 @@ const offsetHighWaterMarkKey = (sessionId: string) => `@posthog/replay/partition
  * which offsets have been written to S3 for each session, and which haven't
  * so that we don't re-process those messages.
  */
-export class WrittenOffsetCache {
+export class SessionOffsetHighWaterMark {
     constructor(private redisPool: RedisPool) {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {
