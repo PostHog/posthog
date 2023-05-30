@@ -78,7 +78,6 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import clsx from 'clsx'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -377,132 +376,130 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             <Skeleton active />
                         ) : (
                             <>
-                                <DraggableToNotebook href={urls.featureFlag(id)}>
-                                    <PageHeader
-                                        title={
-                                            <div className="flex items-center gap-2 mb-2">
-                                                {featureFlag.key || 'Untitled'}
-                                                <CopyToClipboardInline
-                                                    explicitValue={featureFlag.key}
-                                                    iconStyle={{ color: 'var(--muted-alt)' }}
-                                                />
-                                                <div className="flex">
-                                                    {featureFlag.active ? (
-                                                        <LemonTag type="success" className="uppercase">
-                                                            Enabled
-                                                        </LemonTag>
-                                                    ) : (
-                                                        <LemonTag type="default" className="uppercase">
-                                                            Disabled
-                                                        </LemonTag>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        }
-                                        description={
-                                            <>
-                                                {featureFlag.name ? (
-                                                    <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
+                                <PageHeader
+                                    notebookProps={{
+                                        href: urls.featureFlag(id),
+                                    }}
+                                    title={
+                                        <div className="flex items-center gap-2 mb-2">
+                                            {featureFlag.key || 'Untitled'}
+                                            <CopyToClipboardInline
+                                                explicitValue={featureFlag.key}
+                                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                            />
+                                            <div className="flex">
+                                                {featureFlag.active ? (
+                                                    <LemonTag type="success" className="uppercase">
+                                                        Enabled
+                                                    </LemonTag>
                                                 ) : (
-                                                    'There is no description for this feature flag.'
+                                                    <LemonTag type="default" className="uppercase">
+                                                        Disabled
+                                                    </LemonTag>
                                                 )}
-                                            </>
-                                        }
-                                        caption={
-                                            <>
-                                                {featureFlag?.tags && (
+                                            </div>
+                                        </div>
+                                    }
+                                    description={
+                                        <>
+                                            {featureFlag.name ? (
+                                                <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
+                                            ) : (
+                                                'There is no description for this feature flag.'
+                                            )}
+                                        </>
+                                    }
+                                    caption={
+                                        <>
+                                            {featureFlag?.tags && (
+                                                <>
+                                                    {featureFlag.can_edit ? (
+                                                        <ObjectTags
+                                                            tags={featureFlag.tags}
+                                                            onChange={(_, tags) => {
+                                                                triggerFeatureFlagUpdate({ tags })
+                                                            }}
+                                                            saving={featureFlagLoading}
+                                                            tagsAvailable={tags.filter(
+                                                                (tag) => !featureFlag.tags?.includes(tag)
+                                                            )}
+                                                            className="insight-metadata-tags"
+                                                        />
+                                                    ) : featureFlag.tags.length ? (
+                                                        <ObjectTags
+                                                            tags={featureFlag.tags}
+                                                            saving={featureFlagLoading}
+                                                            staticOnly
+                                                            className="insight-metadata-tags"
+                                                        />
+                                                    ) : null}
+                                                </>
+                                            )}
+                                        </>
+                                    }
+                                    buttons={
+                                        <>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
                                                     <>
-                                                        {featureFlag.can_edit ? (
-                                                            <ObjectTags
-                                                                tags={featureFlag.tags}
-                                                                onChange={(_, tags) => {
-                                                                    triggerFeatureFlagUpdate({ tags })
-                                                                }}
-                                                                saving={featureFlagLoading}
-                                                                tagsAvailable={tags.filter(
-                                                                    (tag) => !featureFlag.tags?.includes(tag)
-                                                                )}
-                                                                className="insight-metadata-tags"
-                                                            />
-                                                        ) : featureFlag.tags.length ? (
-                                                            <ObjectTags
-                                                                tags={featureFlag.tags}
-                                                                saving={featureFlagLoading}
-                                                                staticOnly
-                                                                className="insight-metadata-tags"
-                                                            />
-                                                        ) : null}
+                                                        <LemonButton
+                                                            to={urls.replay(ReplayTabs.Recent, {
+                                                                events: defaultEntityFilterOnFlag(featureFlag.key)
+                                                                    .events,
+                                                            })}
+                                                            type="secondary"
+                                                        >
+                                                            View Recordings
+                                                            <LemonTag type="warning" className="uppercase ml-2 mr-2">
+                                                                Beta
+                                                            </LemonTag>
+                                                        </LemonButton>
+                                                        <LemonDivider vertical />
                                                     </>
                                                 )}
-                                            </>
-                                        }
-                                        buttons={
-                                            <>
-                                                <div className="flex items-center gap-2 mb-2">
-                                                    {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
-                                                        <>
-                                                            <LemonButton
-                                                                to={urls.replay(ReplayTabs.Recent, {
-                                                                    events: defaultEntityFilterOnFlag(featureFlag.key)
-                                                                        .events,
-                                                                })}
-                                                                type="secondary"
-                                                            >
-                                                                View Recordings
-                                                                <LemonTag
-                                                                    type="warning"
-                                                                    className="uppercase ml-2 mr-2"
-                                                                >
-                                                                    Beta
-                                                                </LemonTag>
-                                                            </LemonButton>
-                                                            <LemonDivider vertical />
-                                                        </>
-                                                    )}
-                                                    <LemonButton
-                                                        data-attr="delete-feature-flag"
-                                                        status="danger"
-                                                        type="secondary"
-                                                        onClick={() => {
-                                                            deleteFeatureFlag(featureFlag)
-                                                        }}
-                                                        disabledReason={
-                                                            featureFlagLoading
-                                                                ? 'Loading...'
-                                                                : !featureFlag.can_edit
-                                                                ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                                : (featureFlag.features?.length || 0) > 0
-                                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                                : null
-                                                        }
-                                                    >
-                                                        Delete feature flag
-                                                    </LemonButton>
-                                                    <LemonButton
-                                                        data-attr="edit-feature-flag"
-                                                        type="secondary"
-                                                        tooltip={
-                                                            featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] &&
-                                                            !featureFlag.can_edit &&
-                                                            "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                        }
-                                                        onClick={() => {
-                                                            editFeatureFlag(true)
-                                                        }}
-                                                        disabled={featureFlagLoading || !featureFlag.can_edit}
-                                                    >
-                                                        Edit
-                                                    </LemonButton>
-                                                    <AddToNotebook
-                                                        node={NotebookNodeType.FeatureFlag}
-                                                        properties={{ id }}
-                                                        type="secondary"
-                                                    />
-                                                </div>
-                                            </>
-                                        }
-                                    />
-                                </DraggableToNotebook>
+                                                <LemonButton
+                                                    data-attr="delete-feature-flag"
+                                                    status="danger"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        deleteFeatureFlag(featureFlag)
+                                                    }}
+                                                    disabledReason={
+                                                        featureFlagLoading
+                                                            ? 'Loading...'
+                                                            : !featureFlag.can_edit
+                                                            ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                            : (featureFlag.features?.length || 0) > 0
+                                                            ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                            : null
+                                                    }
+                                                >
+                                                    Delete feature flag
+                                                </LemonButton>
+                                                <LemonButton
+                                                    data-attr="edit-feature-flag"
+                                                    type="secondary"
+                                                    tooltip={
+                                                        featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] &&
+                                                        !featureFlag.can_edit &&
+                                                        "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                    }
+                                                    onClick={() => {
+                                                        editFeatureFlag(true)
+                                                    }}
+                                                    disabled={featureFlagLoading || !featureFlag.can_edit}
+                                                >
+                                                    Edit
+                                                </LemonButton>
+                                                <AddToNotebook
+                                                    node={NotebookNodeType.FeatureFlag}
+                                                    properties={{ id }}
+                                                    type="secondary"
+                                                />
+                                            </div>
+                                        </>
+                                    }
+                                />
                                 <Tabs
                                     activeKey={activeTab}
                                     destroyInactiveTabPane
