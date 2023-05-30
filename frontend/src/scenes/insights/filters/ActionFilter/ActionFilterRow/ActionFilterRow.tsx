@@ -3,18 +3,19 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     ActionFilter as ActionFilterType,
     ActionFilter,
+    BaseMathType,
+    CountPerActorMathType,
     EntityType,
     EntityTypes,
+    FilterType,
     FunnelStepRangeEntityFilter,
-    PropertyFilterValue,
-    BaseMathType,
-    PropertyMathType,
-    CountPerActorMathType,
     HogQLMathType,
+    PropertyFilterValue,
+    PropertyMathType,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { entityFilterLogic } from '../entityFilterLogic'
-import { getEventNamesForAction } from 'lib/utils'
+import { convertPropertyGroupToProperties, getEventNamesForAction } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -30,15 +31,27 @@ import {
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
+import {
+    IconCopy,
+    IconDelete,
+    IconEdit,
+    IconFilter,
+    IconOpenInApp,
+    IconWithCount,
+    SortableDragIcon,
+} from 'lib/lemon-ui/icons'
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { EventsQuery, NodeKind } from '~/queries/schema'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { combineUrl } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { teamLogic } from 'scenes/teamLogic'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -55,6 +68,7 @@ export enum MathAvailability {
 export interface ActionFilterRowProps {
     logic: typeof entityFilterLogic
     filter: ActionFilter
+    filters: FilterType
     index: number
     typeKey: string
     mathAvailability: MathAvailability
@@ -97,6 +111,7 @@ export interface ActionFilterRowProps {
 export function ActionFilterRow({
     logic,
     filter,
+    filters,
     index,
     typeKey,
     mathAvailability,
@@ -132,6 +147,7 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -270,6 +286,36 @@ export function ActionFilterRow({
         />
     )
 
+    console.log({ filters, filter })
+    const eventsQuery: EventsQuery = {
+        kind: NodeKind.EventsQuery,
+        select: defaultDataTableColumns(NodeKind.EventsQuery),
+        orderBy: ['timestamp DESC'],
+        after: filters.date_from ?? '-7d',
+        before: filters.date_to ?? undefined,
+        properties: [
+            ...(filter.properties ?? []),
+            ...(convertPropertyGroupToProperties(filters.properties ?? []) ?? []),
+            ...(filters.filter_test_accounts ? currentTeam?.test_account_filters ?? [] : []),
+        ],
+        actionId: filter.type === 'actions' && filter.id ? parseInt(String(filter.id)) : undefined,
+        event: filter.type === 'events' && filter.id ? String(filter.id) : undefined,
+    }
+
+    const exploreRowButton = (
+        <LemonButton
+            icon={<IconOpenInApp />}
+            status="primary-alt"
+            title="Explore events"
+            data-attr={`show-prop-explore-${index}`}
+            noPadding
+            to={
+                combineUrl(urls.events(), {}, { q: { kind: NodeKind.DataTableNode, full: true, source: eventsQuery } })
+                    .url
+            }
+        />
+    )
+
     const deleteButton = (
         <LemonButton
             icon={<IconDelete />}
@@ -390,6 +436,7 @@ export function ActionFilterRow({
                                 <>
                                     {!hideFilter && propertyFiltersButton}
                                     {!hideRename && renameRowButton}
+                                    {exploreRowButton}
                                     {!hideDuplicate && !singleFilter && duplicateRowButton}
                                     {!hideDeleteBtn && !singleFilter && deleteButton}
                                 </>
