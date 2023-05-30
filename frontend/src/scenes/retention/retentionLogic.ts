@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isRetentionFilter } from 'scenes/insights/sharedUtils'
 import { RetentionTablePayload } from 'scenes/retention/types'
@@ -14,7 +15,12 @@ export const retentionLogic = kea<retentionLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters as inflightFilters', 'insight']],
+        values: [
+            insightLogic(props),
+            ['filters as inflightFilters', 'insight'],
+            insightVizDataLogic(props),
+            ['querySource'],
+        ],
     }),
     selectors: {
         filters: [
