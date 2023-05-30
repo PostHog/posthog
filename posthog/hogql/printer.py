@@ -432,12 +432,12 @@ class _Printer(Visitor):
                         f"Aggregation '{node.name}' requires between {required_arg_count[0] or '0'} and {required_arg_count[1] or 'unlimited'} arguments, found {len(node.args)}"
                     )
 
-                # # check that we're not running inside another aggregate
-                # for stack_node in self.call_stack[:-1]:
-                #     if stack_node in HOGQL_AGGREGATIONS:
-                #         raise HogQLException(
-                #             f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node}'."
-                #         )
+                # check that we're not running inside another aggregate
+                for stack_node in self.call_stack[:-1]:
+                    if stack_node in HOGQL_AGGREGATIONS:
+                        raise HogQLException(
+                            f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node}'."
+                        )
 
                 translated_args = ", ".join([self.visit(arg) for arg in node.args])
                 if node.distinct:
