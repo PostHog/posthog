@@ -5,7 +5,7 @@ import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/d
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
-import { DashboardTemplateType } from '~/types'
+import { DashboardTemplateScope, DashboardTemplateType } from '~/types'
 import { useState } from 'react'
 
 import { pluralize } from 'lib/utils'
@@ -78,8 +78,13 @@ export function DashboardTemplatePreview(): JSX.Element {
     )
 }
 
-export function DashboardTemplateChooser(): JSX.Element {
-    const { allTemplates } = useValues(dashboardTemplatesLogic)
+interface DashboardTemplateChooserProps {
+    scope?: DashboardTemplateScope
+}
+
+export function DashboardTemplateChooser({ scope = 'global' }: DashboardTemplateChooserProps): JSX.Element {
+    const templatesLogic = dashboardTemplatesLogic({ scope })
+    const { allTemplates } = useValues(templatesLogic)
 
     const { isLoading } = useValues(newDashboardLogic)
     const { setActiveDashboardTemplate, createDashboardFromTemplate, addDashboard, setIsLoading } =

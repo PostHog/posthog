@@ -1287,6 +1287,12 @@ export interface DashboardType {
     _highlight?: boolean
 }
 
+export interface DashboardTemplateListParams {
+    scope?: DashboardTemplateScope
+}
+
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+
 export interface DashboardTemplateType {
     id: string
     team_id?: number
@@ -1298,7 +1304,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
-    scope?: 'team' | 'global'
+    scope?: DashboardTemplateScope
 }
 
 export interface MonacoMarker {

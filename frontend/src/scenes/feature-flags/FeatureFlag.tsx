@@ -79,6 +79,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import clsx from 'clsx'
+import { DashboardTemplateChooser } from 'scenes/dashboard/NewDashboardModal'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -532,6 +533,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <UsageTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
+                                    {featureFlag.key && id && (
+                                        <Tabs.TabPane tab={<div>Analysis</div>} key="analysis">
+                                            <AnalysisTab id={id} featureFlag={featureFlag} />
+                                        </Tabs.TabPane>
+                                    )}
                                     {featureFlag.id && (
                                         <Tabs.TabPane tab="History" key="history">
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
@@ -561,6 +567,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 )}
             </div>
         </>
+    )
+}
+
+function AnalysisTab({}: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
+    return (
+        <div className="NewDashboardModal">
+            <DashboardTemplateChooser scope="feature_flag" />
+        </div>
     )
 }
 
