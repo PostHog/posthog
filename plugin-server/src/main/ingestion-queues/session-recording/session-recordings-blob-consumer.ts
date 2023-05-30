@@ -26,6 +26,7 @@ require('@sentry/tracing')
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
+const hoursInMillis = (hours: number) => hours * 60 * 60 * 1000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
@@ -55,10 +56,12 @@ export class SessionRecordingBlobIngester {
     offsetManager?: OffsetManager
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
-    lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
     enabledTeams: number[] | null
-    latestKafkaMessageTimestamp: Record<number, number | null> = {}
+    // the time at the most recent message of a particular partition
+    partitionNow: Record<number, number | null> = {}
+    // the most recent message timestamp seen across all partitions
+    consumerNow: number | null = null
 
     constructor(
         private teamManager: TeamManager,
@@ -79,12 +82,13 @@ export class SessionRecordingBlobIngester {
 
         // track the latest message timestamp seen so, we can use it to calculate a reference "now"
         // lag does not distribute evenly across partitions, so track timestamps per partition
-        this.latestKafkaMessageTimestamp[partition] = timestamp
+        this.partitionNow[partition] = timestamp
         gaugeLagMilliseconds
             .labels({
                 partition: partition.toString(),
             })
             .set(DateTime.now().toMillis() - timestamp)
+        this.consumerNow = Math.max(timestamp, this.consumerNow ?? -Infinity)
 
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
@@ -205,7 +209,7 @@ export class SessionRecordingBlobIngester {
             chunk_index: $snapshot_data.chunk_index,
             chunk_count: $snapshot_data.chunk_count,
             data: $snapshot_data.data,
-            compresssion: $snapshot_data.compression,
+            compression: $snapshot_data.compression,
             has_full_snapshot: $snapshot_data.has_full_snapshot,
             events_summary: $snapshot_data.events_summary,
         }
@@ -339,23 +343,36 @@ export class SessionRecordingBlobIngester {
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
             status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
-            // It's unclear what happens if an exception occurs here so we try catch it just in case
+            // It's unclear what happens if an exception occurs here so, we try catch it just in case
             let sessionManagerBufferSizes = 0
 
             for (const [key, sessionManager] of this.sessions) {
                 sessionManagerBufferSizes += sessionManager.buffer.size
 
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
-                // but in case we get here before the first message, we use now
-                const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition]
-
-                if (!kafkaNow) {
+                let referenceTime = this.partitionNow[sessionManager.partition]
+                if (!referenceTime) {
                     throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
+                }
+
+                // it is possible for a session to need an idle flush to continue
+                // but for the head of that partition to be within the idle timeout threshold.
+                // for e.g. when no new message is received on the partition
+                // and so, it will never flush on idle.
+                // in that circumstance, we still need to flush the session.
+                // the aim is for no partition to lag more than ten minutes behind "now"
+                // but as traffic isn't distributed evenly between partitions.
+                // if "partition now" is lagging behind "consumer now" then we use "consumer now"
+                // and if there is no "consumer now" then we use "server now"
+                // that way so long as the consumer is running and receiving messages
+                // we will be more likely to flush "stuck" partitions
+                if (DateTime.now().toMillis() - referenceTime >= hoursInMillis(2)) {
+                    referenceTime = this.consumerNow ?? DateTime.now().toMillis()
                 }
 
                 void sessionManager
                     .flushIfSessionBufferIsOld(
-                        kafkaNow,
+                        referenceTime,
                         this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
                     )
                     .catch((err) => {
