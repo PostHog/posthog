@@ -12,18 +12,18 @@ export const ProductEmptyState = ({
 }: {
     /** The name of the product, e.g. "Cohorts" */
     productName: string
-    // The name of the thing that they will create, e.g. "cohort"
+    /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
-    // The action to take when the user clicks the CTA
+    /** The action to take when the user clicks the CTA */
     action?: () => void
-    // If you want to provide a custom action button instead of using the default one
+    /** If you want to provide a custom action button instead of using the default one */
     actionElementOverride?: JSX.Element
     docsURL?: string
 }): JSX.Element => {
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border-light w-full p-8 flex justify-center rounded-md mt-6">
+        <div className="border-2 border-dashed border-border-light w-full p-8 flex justify-center rounded-md mt-2">
             <div className="flex items-center gap-x-8">
                 <div>
                     <div className="w-40 mx-auto mb-4">
