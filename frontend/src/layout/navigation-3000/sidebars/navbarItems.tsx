@@ -24,7 +24,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.ProjectHomepage,
             label: 'Project homepage',
-            icon: <IconCottage />, // This is in a separate section as it uniquely is a direct URL
+            icon: <IconCottage />,
             pointer: urls.projectHomepage(),
         },
     ],
@@ -36,24 +36,51 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             pointer: dashboardsSidebarLogic,
         },
         {
+            identifier: Scene.DataManagement,
+            label: 'Data management',
+            icon: <IconUnverifiedEvent />,
+        },
+        {
+            identifier: Scene.Persons,
+            label: 'Persons and groups',
+            icon: <IconPerson />,
+        },
+        {
+            identifier: Scene.Cohorts,
+            label: 'Cohorts',
+            icon: <IconCohort />,
+        },
+        {
+            identifier: Scene.Annotations,
+            label: 'Annotations',
+            icon: <IconComment />,
+        },
+    ],
+    [
+        {
+            identifier: Scene.Events,
+            label: 'Events',
+            icon: <IconLive />,
+        },
+        {
             identifier: Scene.SavedInsights,
-            label: 'Insights',
+            label: 'Product Analytics',
             icon: <IconBarChart />,
         },
         {
             identifier: Scene.Replay,
-            label: 'Recordings',
+            label: 'Session Replay',
             icon: <IconRecording />,
         },
         {
             identifier: Scene.FeatureFlags,
-            label: 'Feature flags',
+            label: 'Feature Flags',
             icon: <IconFlag />,
             pointer: featureFlagsSidebarLogic,
         },
         {
             identifier: Scene.Experiments,
-            label: 'Experiments',
+            label: 'A/B Testing',
             icon: <IconExperiment />,
         },
     ],
@@ -85,7 +112,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         },
         {
             identifier: Scene.Plugins,
-            label: 'Plugins',
+            label: 'Apps',
             icon: <IconApps />,
         },
     ],
