@@ -175,7 +175,7 @@ describe('session-manager', () => {
                 }),
             })
         )
-        expect(mockHighWaterMark.set).toHaveBeenCalledWith(1, 12345)
+        expect(mockHighWaterMark.set).toHaveBeenCalledWith('session_id_1', 12345)
     })
 
     it('does not flush a short session even when lagging if within threshold', async () => {

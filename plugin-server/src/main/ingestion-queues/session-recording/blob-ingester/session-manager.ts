@@ -114,7 +114,7 @@ export class SessionManager {
         )
 
         if (this.lastProcessedOffset === null) {
-            this.lastProcessedOffset = (await this.offsetHighWatermark.get(this.partition)) ?? -Infinity
+            this.lastProcessedOffset = (await this.offsetHighWatermark.get(this.sessionId)) ?? -Infinity
         }
 
         if (message.metadata.offset <= this.lastProcessedOffset) {
@@ -296,7 +296,7 @@ export class SessionManager {
             await this.inProgressUpload.done()
 
             await this.offsetHighWatermark.set(
-                this.partition,
+                this.sessionId,
                 this.flushBuffer.offsets.sort((a, b) => a - b)[this.flushBuffer.offsets.length - 1]
             )
 
