@@ -89,27 +89,33 @@ jobs:
 
         steps:
             - name: Checkout
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: actions/checkout@v3
 
             - name: Install pnpm
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: pnpm/action-setup@v2
               with:
                   version: 8.x.x
 
             - name: Set up Node.js
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: actions/setup-node@v3
               with:
                   node-version: 18
 
             - name: Get pnpm cache directory path
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
             - name: Get cypress cache directory path
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: cypress-cache-dir
               run: echo "CYPRESS_BIN_PATH=$(npx cypress cache path)" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@v3
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: pnpm-cache
               with:
                   path: |
@@ -120,6 +126,7 @@ jobs:
                       ${{ runner.os }}-pnpm-cypress-
 
             - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: pnpm install --frozen-lockfile
 
             - name: Stop/Start stack with Docker Compose
@@ -163,6 +170,7 @@ jobs:
                   echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
             - name: Get the PostHog container image of this PR
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: meta
               uses: docker/metadata-action@v4
               with:
@@ -226,6 +234,7 @@ jobs:
               if: ${{ failure() }}
 
             - name: Archive accessibility violations
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: actions/upload-artifact@v3
               with:
                   name: accessibility-violations
