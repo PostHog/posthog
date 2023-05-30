@@ -1,24 +1,68 @@
 .DraggableToNotebook {
     position: relative;
-    // Weird hack - this fixes browsers from not correctly identifying the bounds of the component for the
+    // Weird hack - this fixes chrome from not correctly identifying the bounds of the component for the drag preview
+    // https://github.com/react-dnd/react-dnd/issues/832#issuecomment-442071628
     transform: translate3d(0, 0, 0);
+}
 
-    > [data-attr='add-to-notebook'] {
+.DraggableToNotebookIndicator {
+    position: absolute;
+    left: 0px;
+    right: 0px;
+    bottom: 0px;
+    top: 0px;
+    outline: 2px solid var(--primary-light);
+    pointer-events: none;
+    outline-offset: 0.25rem;
+    border-radius: 0.25rem;
+    animation: notebook-indicator-appear 150ms ease-out;
+
+    .DraggableToNotebookIndicator__pulser {
         position: absolute;
-        top: 0;
-        right: 0;
-        z-index: var(--z-raised);
-        pointer-events: none;
-        transition: opacity 200ms ease-in-out, transform 200ms ease-in-out;
-        opacity: 0;
-        transform: translateY(-70%);
+        left: 0px;
+        top: 0px;
+        border-radius: 1000px;
+        border: 2px solid var(--primary);
+        background-color: var(--primary);
+        height: 1rem;
+        width: 1rem;
+        animation: notebook-indicator-pulse 150ms ease-out;
     }
 
-    &:hover {
-        > [data-attr='add-to-notebook'] {
-            pointer-events: all;
-            opacity: 1;
-            transform: translateY(-100%);
-        }
+    &--no-overflow {
+        outline-offset: -0.125rem;
+        border-radius: 0.125rem;
+        animation: none;
     }
+}
+
+@keyframes notebook-indicator-appear {
+    0% {
+        outline-offset: 1rem;
+        opacity: 0;
+    }
+
+    100% {
+        outline-offset: 0.25rem;
+        opacity: 1;
+    }
+}
+
+@keyframes notebook-indicator-pulse {
+    0% {
+        transform: scale(0);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+.DraggableToNotebookIndicator__placeholder {
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    bottom: 0px;
+    right: 0px;
+    pointer-events: none;
 }

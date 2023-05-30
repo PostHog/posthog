@@ -81,7 +81,7 @@ export function SessionRecordingPlaylistItem({
     const firstPath = recording.start_url?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
 
     return (
-        <DraggableToNotebook alwaysDraggable href={urls.replaySingle(recording.id)}>
+        <DraggableToNotebook href={urls.replaySingle(recording.id)} alwaysDraggable noOverflow>
             <li
                 key={recording.id}
                 className={clsx(
