@@ -9,7 +9,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { notebookSidebarLogic } from './Notebook/notebookSidebarLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { NotebookSyncInfo } from './Notebook/NotebookMeta'
+import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 
 interface NotebookSceneProps {
@@ -43,6 +43,9 @@ export function NotebookScene(): JSX.Element {
 
                 <div className="flex gap-2 items-center">
                     <NotebookSyncInfo shortId={notebookId} />
+
+                    <NotebookExpandButton type="secondary" />
+
                     <LemonButton
                         type="secondary"
                         onClick={() => {
@@ -60,6 +63,7 @@ export function NotebookScene(): JSX.Element {
                     >
                         Pin to side
                     </LemonButton>
+
                     {mode === NotebookMode.Edit ? (
                         <>
                             <LemonButton type="primary" onClick={() => setNotebookMode(NotebookMode.View)}>
@@ -76,7 +80,7 @@ export function NotebookScene(): JSX.Element {
                 </div>
             </div>
 
-            <LemonDivider />
+            <LemonDivider className="mt-2 mb-6" />
 
             <Notebook key={notebookId} shortId={notebookId} editable={mode === NotebookMode.Edit} />
         </div>

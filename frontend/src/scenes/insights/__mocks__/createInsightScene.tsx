@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import type { Story } from '@storybook/react'
 
 let shortCounter = 0
-export function createInsightStory(insight: Partial<InsightModel>): Story {
+export function createInsightStory(insight: Partial<InsightModel>, mode: 'view' | 'edit' = 'view'): Story {
     const count = shortCounter++
     return function InsightStory() {
         useStorybookMocks({
@@ -27,7 +27,7 @@ export function createInsightStory(insight: Partial<InsightModel>): Story {
         useFeatureFlags([FEATURE_FLAGS.RETENTION_BREAKDOWN])
 
         useEffect(() => {
-            router.actions.push(`/insights/${insight.short_id}${count}`)
+            router.actions.push(`/insights/${insight.short_id}${count}${mode === 'edit' ? '/edit' : ''}`)
         }, [])
 
         return <App />

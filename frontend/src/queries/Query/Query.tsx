@@ -6,10 +6,10 @@ import { AnyResponseType, Node, QueryContext, QuerySchema } from '~/queries/sche
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
-import { AddToNotebookWrapper } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
@@ -72,7 +72,7 @@ export function Query(props: QueryProps): JSX.Element | null {
 
         return (
             <ErrorBoundary>
-                <AddToNotebookWrapper node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }}>
+                <DraggableToNotebook node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }}>
                     {!!props.context?.showQueryEditor ? (
                         <>
                             <QueryEditor
@@ -86,7 +86,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                         </>
                     ) : null}
                     {component}
-                </AddToNotebookWrapper>
+                </DraggableToNotebook>
             </ErrorBoundary>
         )
     }

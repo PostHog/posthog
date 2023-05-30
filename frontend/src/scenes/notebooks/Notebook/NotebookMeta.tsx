@@ -1,9 +1,12 @@
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { NotebookSyncStatus } from '~/types'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { IconDocumentExpand } from 'lib/lemon-ui/icons'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tooltip: React.ReactNode }> = {
     synced: {
@@ -57,4 +60,17 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
             <span className="flex items-center gap-1 text-muted-alt">{content.content}</span>
         </Tooltip>
     ) : null
+}
+
+export const NotebookExpandButton = (props: LemonButtonProps): JSX.Element => {
+    const { isExpanded } = useValues(notebookSettingsLogic)
+    const { setIsExpanded } = useActions(notebookSettingsLogic)
+
+    return (
+        <LemonButton
+            {...props}
+            onClick={() => setIsExpanded(!isExpanded)}
+            icon={<IconDocumentExpand mode={isExpanded ? 'expand' : 'collapse'} />}
+        />
+    )
 }
