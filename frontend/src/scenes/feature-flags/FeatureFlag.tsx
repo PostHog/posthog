@@ -75,9 +75,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import clsx from 'clsx'
 
 export const scene: SceneExport = {
@@ -378,6 +375,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         ) : (
                             <>
                                 <PageHeader
+                                    notebookProps={{
+                                        href: urls.featureFlag(id),
+                                    }}
                                     title={
                                         <div className="flex items-center gap-2 mb-2">
                                             {featureFlag.key || 'Untitled'}
@@ -489,15 +489,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
-                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                                                    <span>
-                                                        <AddToNotebook
-                                                            node={NotebookNodeType.FeatureFlag}
-                                                            properties={{ id }}
-                                                            type="secondary"
-                                                        />
-                                                    </span>
-                                                </FlaggedFeature>
                                             </div>
                                         </>
                                     }
