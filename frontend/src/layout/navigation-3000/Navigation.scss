@@ -94,13 +94,16 @@
         text-overflow: ellipsis;
         overflow: hidden;
         margin: 0;
+        line-height: inherit;
     }
     h3 {
         font-weight: 600;
+        line-height: 2rem;
         font-size: 0.75rem;
     }
     h4 {
         font-weight: 600;
+        line-height: 1.75rem;
         font-size: 0.6875rem;
     }
     h5 {
@@ -230,8 +233,8 @@
     min-height: var(--accordion-row-height);
     flex-shrink: 0;
     flex-basis: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
     [theme='dark'] & {
         --accordion-header-background: var(--bg-3000);
     }
@@ -271,7 +274,7 @@
         background: var(--border-3000);
     }
     .LemonIcon {
-        transition: 100ms ease transform;
+        transition: 50ms ease transform;
         font-size: var(--accordion-arrow-size);
         flex-shrink: 0;
         .Accordion--expanded & {
@@ -281,6 +284,11 @@
     h4 {
         margin-left: calc(var(--accordion-inset) - var(--accordion-arrow-size));
     }
+}
+
+.Accordion__content {
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .SidebarListItem {
