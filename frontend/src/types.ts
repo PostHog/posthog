@@ -368,6 +368,7 @@ export interface ActionStepType {
     name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
+    /** @deprecated Only `selector` should be used now. */
     tag_name?: string
     text?: string | null
     /** @default StringMatching.Exact */
