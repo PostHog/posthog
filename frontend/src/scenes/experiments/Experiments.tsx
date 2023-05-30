@@ -20,6 +20,10 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
 import { router } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useEffect } from 'react'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -27,9 +31,18 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, searchTerm, searchStatus } = useValues(experimentsLogic)
+    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState } =
+        useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { reportEmptyStateShown } = useActions(eventUsageLogic)
+
+    useEffect(() => {
+        if (shouldShowEmptyState) {
+            reportEmptyStateShown('experiments')
+        }
+    }, [shouldShowEmptyState])
 
     const EXPERIMENTS_PRODUCT_DESCRIPTION =
         'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
@@ -172,7 +185,24 @@ export function Experiments(): JSX.Element {
                             { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                         ]}
                     />
-                    {filteredExperiments.length > 0 || experimentsLoading || searchTerm || searchStatus ? (
+                    {shouldShowEmptyState && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
+                        tab === ExperimentsTabs.Archived ? (
+                            <ProductEmptyState
+                                productName="Experiments"
+                                thingName="archived experiment"
+                                description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                                docsURL="https://posthog.com/docs/experiments"
+                            />
+                        ) : (
+                            <ProductEmptyState
+                                productName="Experiments"
+                                thingName="experiment"
+                                description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                                docsURL="https://posthog.com/docs/experiments"
+                                action={() => router.actions.push(urls.experiment('new'))}
+                            />
+                        )
+                    ) : (
                         <>
                             <div className="flex justify-between mb-4">
                                 <LemonInput
@@ -217,21 +247,6 @@ export function Experiments(): JSX.Element {
                                 data-attr="experiment-table"
                             />
                         </>
-                    ) : tab === ExperimentsTabs.Archived ? (
-                        <ProductEmptyState
-                            productName="Experiments"
-                            thingName="archived experiment"
-                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                            docsURL="https://posthog.com/docs/experiments"
-                        />
-                    ) : (
-                        <ProductEmptyState
-                            productName="Experiments"
-                            thingName="experiment"
-                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                            docsURL="https://posthog.com/docs/experiments"
-                            action={() => router.actions.push(urls.experiment('new'))}
-                        />
                     )}
                 </>
             ) : (

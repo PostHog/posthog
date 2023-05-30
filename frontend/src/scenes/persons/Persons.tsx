@@ -117,7 +117,7 @@ export function PersonsScene({
         <ProductEmptyState
             productName="Persons"
             thingName="person"
-            description="PostHog tracks user behaviour, whether or not the user is logged in or anonymous. Once you've sent some data, the associated people will show up here."
+            description="PostHog tracks user behaviour, whether or not the user is logged in or anonymous. Once you've sent some data, the associated persons will show up here."
             docsURL="https://posthog.com/docs/getting-started/install"
             actionElementOverride={
                 <LemonButton type="primary" onClick={() => router.actions.push(urls.ingestion() + '/platform')}>
