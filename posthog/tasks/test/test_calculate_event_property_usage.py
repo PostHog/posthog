@@ -168,6 +168,25 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         self.assertEqual(empty_name_event.volume_30_day, 1)
         self.assertEqual(empty_name_property.query_usage_30_day, 1)
 
+    def test_action_without_id_is_safe(self) -> None:
+        create_event(event="$pageview", team=self.team, distinct_id="user1")
+        EventDefinition.objects.create(name="$pageview", team=self.team)
+
+        with freeze_time("2020-10-01"):
+            Insight.objects.create(
+                team=self.team,
+                filters={
+                    "actions": [{"name": "an action without id"}],
+                },
+            )
+            Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+            # calculate_event_property_usage()
+            calculate_event_property_usage_for_team(self.team.pk)
+
+        instance = EventDefinition.objects.get(name="$pageview", team=self.team)
+        self.assertEqual(instance.volume_30_day, 1)
+        self.assertEqual(instance.query_usage_30_day, 1)
+
     def test_calculate_usage_does_not_double_count_on_second_run(self) -> None:
         EventDefinition.objects.create(team=self.team, name="$pageview")
         PropertyDefinition.objects.create(team=self.team, name="$current_url")

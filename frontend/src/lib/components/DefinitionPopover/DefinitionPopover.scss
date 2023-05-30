@@ -58,6 +58,10 @@
                 &.taxonomy-icon-verified {
                     color: var(--success);
                 }
+
+                &.taxonomy-icon-built-in {
+                    color: var(--primary);
+                }
             }
         }
     }
@@ -134,7 +138,7 @@
                         }
 
                         pre {
-                            background-color: var(--bg-mid);
+                            background-color: var(--mid);
                             padding: 0 4px;
                             font-size: 12px;
                             margin: 2px 0.25rem 1px;

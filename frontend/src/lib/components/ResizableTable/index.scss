@@ -71,7 +71,7 @@
         transition: 0.2s border-color ease;
 
         &:hover {
-            border-color: var(--blue-light);
+            border-color: var(--primary-light);
         }
 
         &[data-drag-active='true'] {

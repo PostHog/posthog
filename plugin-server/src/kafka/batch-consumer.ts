@@ -26,7 +26,9 @@ export const startBatchConsumer = async ({
     consumerMaxBytesPerPartition,
     consumerMaxBytes,
     consumerMaxWaitMs,
+    consumerErrorBackoffMs,
     fetchBatchSize,
+    batchingTimeoutMs,
     eachBatch,
     autoCommit = true,
 }: {
@@ -37,7 +39,9 @@ export const startBatchConsumer = async ({
     consumerMaxBytesPerPartition: number
     consumerMaxBytes: number
     consumerMaxWaitMs: number
+    consumerErrorBackoffMs: number
     fetchBatchSize: number
+    batchingTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     autoCommit?: boolean
 }): Promise<BatchConsumer> => {
@@ -71,6 +75,7 @@ export const startBatchConsumer = async ({
         'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
         'fetch.message.max.bytes': consumerMaxBytes,
         'fetch.wait.max.ms': consumerMaxWaitMs,
+        'fetch.error.backoff.ms': consumerErrorBackoffMs,
         'enable.partition.eof': true,
         'queued.min.messages': 100000, // 100000 is the default
         'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
@@ -112,7 +117,13 @@ export const startBatchConsumer = async ({
     await ensureTopicExists(adminClient, topic)
     adminClient.disconnect()
 
-    consumer.setDefaultConsumeTimeout(consumerMaxWaitMs)
+    // The consumer has an internal pre-fetching queue that sequentially pools
+    // each partition, with the consumerMaxWaitMs timeout. We want to read big
+    // batches from this queue, but guarantee we are still running (with smaller
+    // batches) if the queue is not full enough. batchingTimeoutMs is that
+    // timeout, to return messages even if fetchBatchSize is not reached.
+    consumer.setDefaultConsumeTimeout(batchingTimeoutMs)
+
     consumer.subscribe([topic])
 
     const startConsuming = async () => {
@@ -147,10 +158,14 @@ export const startBatchConsumer = async ({
 
                 status.debug('🔁', 'main_loop_consuming')
                 const messages = await consumeMessages(consumer, fetchBatchSize)
-                status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
+                if (!messages) {
+                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
+                    continue
+                }
 
+                status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
                 if (!messages.length) {
-                    // For now
+                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
                     continue
                 }
 

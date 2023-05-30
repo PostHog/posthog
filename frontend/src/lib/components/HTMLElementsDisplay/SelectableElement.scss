@@ -4,12 +4,12 @@
     border-radius: 4px;
 
     &:hover {
-        background: var(--blue-lightest);
+        background: var(--primary-highlight);
     }
 
     &--selected {
-        background: var(--blue-lightest);
+        background: var(--primary-highlight);
         color: black;
-        border-color: var(--blue-light);
+        border-color: var(--primary-extralight);
     }
 }

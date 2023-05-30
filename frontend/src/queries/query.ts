@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { DataNode, EventsQuery, HogQLQueryResponse, PersonsNode } from './schema'
+import { DataNode, HogQLQueryResponse, PersonsNode } from './schema'
 import {
     isInsightQueryNode,
     isEventsQuery,
@@ -31,8 +31,6 @@ import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 
 const EVENTS_DAYS_FIRST_FETCH = 5
-
-export const DEFAULT_QUERY_LIMIT = 100
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
@@ -168,24 +166,6 @@ export async function query<N extends DataNode = DataNode>(
         posthog.capture('Query Error', { query: queryNode, duration: performance.now() - startTime, ...logParams })
         throw e
     }
-}
-
-export function getEventsEndpoint(query: EventsQuery): string {
-    return api.events.determineListEndpoint(
-        {
-            properties: [...(query.fixedProperties || []), ...(query.properties || [])],
-            ...(query.event ? { event: query.event } : {}),
-            ...(isEventsQuery(query) ? { select: query.select ?? [] } : {}),
-            ...(isEventsQuery(query) ? { where: query.where ?? [] } : {}),
-            ...(query.actionId ? { action_id: query.actionId } : {}),
-            ...(query.personId ? { person_id: query.personId } : {}),
-            ...(query.before ? { before: query.before } : {}),
-            ...(query.after ? { after: query.after } : {}),
-            ...(query.orderBy ? { orderBy: query.orderBy } : {}),
-            ...(query.offset ? { offset: query.offset } : {}),
-        },
-        query.limit ?? DEFAULT_QUERY_LIMIT
-    )
 }
 
 export function getPersonsEndpoint(query: PersonsNode): string {

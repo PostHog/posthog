@@ -43,7 +43,7 @@ export function WebInstructions(): JSX.Element {
                     style={{
                         marginLeft: 10,
                         padding: 4,
-                        backgroundColor: '#fdedc9',
+                        backgroundColor: 'var(--mark-color)',
                         borderRadius: 'var(--radius)',
                         color: 'var(--primary-alt)',
                         fontSize: 11,
@@ -69,8 +69,7 @@ export function WebInstructions(): JSX.Element {
             </p>
             <h3>Install the snippet</h3>
             <p>
-                Insert this snippet in your website within the <code className="code">&lt;head&gt;</code> tag.{' '}
-                <JSSnippet />
+                Insert this snippet in your website within the <code>&lt;head&gt;</code> tag. <JSSnippet />
             </p>
             <h3>Send events </h3>
             <p>Visit your site and click around to generate some initial events.</p>

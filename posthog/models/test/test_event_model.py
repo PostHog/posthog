@@ -179,6 +179,58 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             self.assertEqual(events[2].uuid, event2_uuid)
             self.assertEqual(events[3].uuid, event1_uuid)
 
+        def test_with_href_contains(self):
+            _create_person(distinct_ids=["whatever"], team=self.team)
+
+            action1 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(
+                event="$autocapture", action=action1, href="/a-url", href_matching="contains", selector="a"
+            )
+
+            event1_uuid = _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="whatever",
+                elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0)],
+            )
+
+            event2_uuid = _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="whatever2",
+                elements=[
+                    Element(tag_name="a", href="https://google.com/a-url", text="some_text", nth_child=0, nth_of_type=0)
+                ],
+            )
+
+            event3_uuid = _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0),
+                    # make sure elements don't get double counted if they're part of the same event
+                    Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0),
+                ],
+            )
+
+            _create_event(  # Not matched because href is /b-url not /a-url
+                team=self.team,
+                event="$autocapture",
+                distinct_id="whatever2",
+                elements=[
+                    Element(tag_name="a", href="/b-url", text="some_other_text", nth_child=0, nth_of_type=0),
+                    # make sure elements don't get double counted if they're part of the same event
+                    Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0),
+                ],
+            )
+
+            events = _get_events_for_action(action1)
+            self.assertEqual(len(events), 3)
+            self.assertEqual(events[0].uuid, event3_uuid)
+            self.assertEqual(events[1].uuid, event2_uuid)
+            self.assertEqual(events[2].uuid, event1_uuid)
+
         def test_with_class(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
             action1 = Action.objects.create(team=self.team)

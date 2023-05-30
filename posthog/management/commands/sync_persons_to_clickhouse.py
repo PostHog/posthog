@@ -4,13 +4,19 @@ from uuid import UUID
 
 import structlog
 from django.core.management.base import BaseCommand
+from django.utils.timezone import now
 
 from posthog.client import sync_execute
 from posthog.models.group.group import Group
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person import PersonDistinctId
-from posthog.models.person.person import Person
-from posthog.models.person.util import _delete_ch_distinct_id, create_person, create_person_distinct_id
+from posthog.models.person.person import Person, PersonOverride
+from posthog.models.person.util import (
+    _delete_ch_distinct_id,
+    create_person,
+    create_person_distinct_id,
+    create_person_override,
+)
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -27,6 +33,7 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", default=None, type=int, help="Specify a team to fix data for.")
         parser.add_argument("--person", action="store_true", help="Sync persons")
         parser.add_argument("--person-distinct-id", action="store_true", help="Sync person distinct IDs")
+        parser.add_argument("--person-override", action="store_true", help="Sync person overrides")
         parser.add_argument("--group", action="store_true", help="Sync groups")
         parser.add_argument(
             "--deletes", action="store_true", help="process deletes for data in ClickHouse but not Postgres"
@@ -53,6 +60,9 @@ def run(options, sync: bool = False):  # sync used for unittests
     if options["person_distinct_id"]:
         run_distinct_id_sync(team_id, live_run, deletes, sync)
 
+    if options["person_override"]:
+        run_person_override_sync(team_id, live_run, deletes, sync)
+
     if options["group"]:
         run_group_sync(team_id, live_run, sync)
 
@@ -70,8 +80,12 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
         },
     )
     ch_persons_to_version = {row[0]: row[1] for row in rows}
+    total_pg = len(persons)
+    logger.info(f"Got ${total_pg} in PG and ${len(ch_persons_to_version)} in CH")
 
-    for person in persons:
+    for i, person in enumerate(persons):
+        if i % (max(total_pg // 10, 1)) == 0 and i > 0:
+            logger.info(f"Processed {i / total_pg * 100}%")
         ch_version = ch_persons_to_version.get(person.uuid, None)
         pg_version = person.version or 0
         if ch_version is None or ch_version < pg_version:
@@ -124,7 +138,12 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
     )
     ch_distinct_id_to_version = {row[0]: row[1] for row in rows}
 
-    for person_distinct_id in person_distinct_ids:
+    total_pg = len(person_distinct_ids)
+    logger.info(f"Got ${total_pg} in PG and ${len(ch_distinct_id_to_version)} in CH")
+
+    for i, person_distinct_id in enumerate(person_distinct_ids):
+        if i % (max(total_pg // 10, 1)) == 0 and i > 0:
+            logger.info(f"Processed {i / total_pg * 100}%")
         ch_version = ch_distinct_id_to_version.get(person_distinct_id.distinct_id, None)
         pg_version = person_distinct_id.version or 0
         if ch_version is None or ch_version < pg_version:
@@ -157,6 +176,46 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
                     _delete_ch_distinct_id(team_id, UUID(int=0), distinct_id, version, sync=sync)
 
 
+def run_person_override_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
+    logger.info("Running person override sync")
+    # lookup what needs to be updated in ClickHouse and send kafka messages for only those
+    pg_overrides = PersonOverride.objects.filter(team_id=team_id).select_related("old_person_id", "override_person_id")
+    rows = sync_execute(
+        """
+            SELECT old_person_id, max(version) FROM person_overrides WHERE team_id = %(team_id)s GROUP BY old_person_id
+        """,
+        {
+            "team_id": team_id,
+        },
+    )
+    ch_override_to_version = {row[0]: row[1] for row in rows}
+    total_pg = len(pg_overrides)
+    logger.info(f"Got ${total_pg} in PG and ${len(ch_override_to_version)} in CH")
+
+    for i, pg_override in enumerate(pg_overrides):
+        if i % (max(total_pg // 10, 1)) == 0 and i > 0:
+            logger.info(f"Processed {i / total_pg * 100}%")
+        ch_version = ch_override_to_version.get(pg_override.old_person_id.uuid, None)
+        if ch_version is None or ch_version < pg_override.version:
+            logger.info(
+                f"Updating {pg_override.old_person_id.uuid} to version {pg_override.version} and map to {pg_override.override_person_id.uuid}"
+            )
+            if live_run:
+                # Update ClickHouse via Kafka message
+                create_person_override(
+                    team_id,
+                    str(pg_override.old_person_id.uuid),
+                    str(pg_override.override_person_id.uuid),
+                    pg_override.version,
+                    now(),
+                    pg_override.oldest_event,
+                    sync=sync,
+                )
+
+    if deletes:
+        logger.info("Override deletes aren't supported at this point")
+
+
 def run_group_sync(team_id: int, live_run: bool, sync: bool):
     logger.info("Running group table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
@@ -173,8 +232,12 @@ def run_group_sync(team_id: int, live_run: bool, sync: bool):
         },
     )
     ch_groups = {(row[0], row[1]): {"properties": row[2], "created_at": row[3]} for row in rows}
+    total_pg = len(pg_groups)
+    logger.info(f"Got ${total_pg} in PG and ${len(ch_groups)} in CH")
 
-    for pg_group in pg_groups:
+    for i, pg_group in enumerate(pg_groups):
+        if i % (max(total_pg // 10, 1)) == 0 and i > 0:
+            logger.info(f"Processed {i / total_pg * 100}%")
         ch_group = ch_groups.get((pg_group["group_type_index"], pg_group["group_key"]), None)
         if ch_group is None or should_update_group(ch_group, pg_group):
             logger.info(

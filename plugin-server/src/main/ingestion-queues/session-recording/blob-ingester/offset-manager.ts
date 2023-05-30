@@ -16,6 +16,7 @@
  * track everything in this single process
  */
 
+import { captureException } from '@sentry/node'
 import { KafkaConsumer } from 'node-rdkafka-acosom'
 import { Gauge } from 'prom-client'
 
@@ -24,6 +25,13 @@ import { status } from '../../../../utils/status'
 export const gaugeOffsetCommitted = new Gauge({
     name: 'offset_manager_offset_committed',
     help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed.',
+    labelNames: ['partition'],
+})
+
+export const gaugeOffsetCommitFailed = new Gauge({
+    name: 'offset_manager_offset_commit_failed',
+    help: 'An attempt to commit failed, other than accidentally committing just after a rebalance this is not great news.',
+    labelNames: ['partition'],
 })
 
 export const gaugeOffsetRemovalImpossible = new Gauge({
@@ -99,6 +107,13 @@ export class OffsetManager {
         }
         inFlightOffsets.sort((a, b) => a.offset - b.offset)
 
+        const logContext = {
+            partition,
+            blockingSession: !!inFlightOffsets.length ? inFlightOffsets[0].session_id : null,
+            lowestInflightOffset: !!inFlightOffsets.length ? inFlightOffsets[0].offset : null,
+            lowestOffsetToRemove: offsetsToRemove[0],
+        }
+
         offsetsToRemove.forEach((offset) => {
             // Remove from the list. If it is the lowest value - set it
             const offsetIndex = inFlightOffsets.findIndex((os) => os.offset === offset)
@@ -115,31 +130,32 @@ export class OffsetManager {
 
         this.offsetsByPartitionTopic.set(key, inFlightOffsets)
 
-        const logContext = {
-            offsetToCommit,
-            partition,
-            blockingSession: !!inFlightOffsets.length ? inFlightOffsets[0].session_id : null,
-            lowestInflightOffset: !!inFlightOffsets.length ? inFlightOffsets[0].offset : null,
-            lowestOffsetToRemove: offsetsToRemove[0],
-        }
-
-        if (offsetToCommit !== undefined) {
-            this.consumer.commit({
-                topic,
-                partition,
-                offset: offsetToCommit,
-            })
-        }
-
         status.info(
             '💾',
-            `offset_manager committing_offsets - ${
-                offsetToCommit !== undefined ? 'committed offset' : 'no offsets to commit'
-            }`,
-            logContext
+            `offset_manager - ${offsetToCommit !== undefined ? 'attempting to commit_offset' : 'no offset to commit'}`,
+            { ...logContext, offsetToCommit }
         )
+
         if (offsetToCommit !== undefined) {
-            gaugeOffsetCommitted.inc()
+            try {
+                this.consumer.commitSync({
+                    topic,
+                    partition,
+                    // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
+                    // for some reason you commit the next offset you expect to read and not the one you actually have
+                    offset: offsetToCommit + 1,
+                })
+                gaugeOffsetCommitted.inc({ partition })
+            } catch (e) {
+                gaugeOffsetCommitFailed.inc({ partition })
+                captureException(e, { extra: { ...logContext, offsetToCommit }, tags: { partition } })
+                if (e.message !== 'Broker: Specified group generation id is not valid') {
+                    // If this is not a known error that happens when you commit just after a re-balance
+                    // then we throw instead of swallowing
+                    // TODO: ideally we'd only swallow this if it really was just after re-balance
+                    throw e
+                }
+            }
         }
 
         return offsetToCommit
