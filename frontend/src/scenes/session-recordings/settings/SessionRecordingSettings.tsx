@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export type SessionRecordingSettingsProps = {
     inModal?: boolean

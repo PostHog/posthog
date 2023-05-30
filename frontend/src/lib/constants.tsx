@@ -134,7 +134,6 @@ export const FEATURE_FLAGS = {
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
     REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
     SAMPLING: 'sampling', // owner: @yakkomajuri
-    RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
