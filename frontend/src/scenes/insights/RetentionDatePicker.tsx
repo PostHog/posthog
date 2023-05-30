@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { retentionLogic } from 'scenes/retention/retentionLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
@@ -18,16 +17,6 @@ export function RetentionDatePickerDataExploration(): JSX.Element {
             date_to={dateRange?.date_to}
             updateDateRange={updateDateRange}
         />
-    )
-}
-
-export function RetentionDatePicker(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { filters } = useValues(retentionLogic(insightProps))
-    const { setFilters } = useActions(retentionLogic(insightProps))
-
-    return (
-        <RetentionDatePickerComponent period={filters.period} date_to={filters.date_to} updateDateRange={setFilters} />
     )
 }
 

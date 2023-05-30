@@ -2,7 +2,6 @@ import { Select } from 'antd'
 import { PercentageOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
-import { retentionLogic } from 'scenes/retention/retentionLogic'
 import { RetentionFilter } from '~/queries/schema'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -12,14 +11,6 @@ export function RetentionReferencePickerDataExploration(): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     return <RetentionReferencePickerComponent {...retentionFilter} setFilters={updateInsightFilter} />
-}
-
-export function RetentionReferencePicker(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { filters } = useValues(retentionLogic(insightProps))
-    const { setFilters } = useActions(retentionLogic(insightProps))
-
-    return <RetentionReferencePickerComponent {...filters} setFilters={setFilters} />
 }
 
 type RetentionReferencePickerComponentProps = {
