@@ -1162,8 +1162,8 @@ class TestInviteSignupAPI(APIBaseTest):
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
-    def test_api_social_invite_sign_up_if_email_verification_on(self, ff_mock, email_mock, email_available_mock):
-        """Test to make sure that social signups skip email verification if the verification feature flag is on."""
+    def test_api_social_invite_sign_up_if_email_verification_on(self, email_mock, email_available_mock):
+        """Test to make sure that social signups skip email verification"""
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
         # Simulate SSO process started
         session = self.client.session
