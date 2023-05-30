@@ -54,6 +54,7 @@ describe('ingester', () => {
         rmSync(config.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
     })
 
+    // these tests assume that a flush won't run while they run
     describe('with long flush interval', () => {
         beforeEach(async () => {
             ingester = new SessionRecordingBlobIngester(
@@ -73,19 +74,6 @@ describe('ingester', () => {
                 expect(ingester.sessions.size).toBe(1)
                 expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
             })
-        })
-    })
-
-    describe('with short flush interval', () => {
-        beforeEach(async () => {
-            ingester = new SessionRecordingBlobIngester(
-                hub.teamManager,
-                defaultConfig,
-                hub.objectStorage,
-                hub.redisPool,
-                veryShortFlushInterval
-            )
-            await ingester.start()
         })
 
         it('removes sessions on destroy', async () => {
@@ -111,6 +99,19 @@ describe('ingester', () => {
             expect(ingester.sessions.size).toBe(2)
             expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
             expect(ingester.sessions.has('1-session_id_2')).toEqual(true)
+        })
+    })
+
+    describe('with short flush interval', () => {
+        beforeEach(async () => {
+            ingester = new SessionRecordingBlobIngester(
+                hub.teamManager,
+                defaultConfig,
+                hub.objectStorage,
+                hub.redisPool,
+                veryShortFlushInterval
+            )
+            await ingester.start()
         })
 
         it('destroys a session manager if finished', async () => {
