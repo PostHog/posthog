@@ -11,14 +11,42 @@ import type { retentionTableLogicType } from './retentionTableLogicType'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
+const periodIsLatest = (date_to: string | null, period: string | null): boolean => {
+    if (!date_to || !period) {
+        return true
+    }
+
+    const curr = dayjs(date_to)
+    if (
+        (period == 'Hour' && curr.isSame(dayjs(), 'hour')) ||
+        (period == 'Day' && curr.isSame(dayjs(), 'day')) ||
+        (period == 'Week' && curr.isSame(dayjs(), 'week')) ||
+        (period == 'Month' && curr.isSame(dayjs(), 'month'))
+    ) {
+        return true
+    } else {
+        return false
+    }
+}
+
 export const retentionTableLogic = kea<retentionTableLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionTableLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['retentionFilter', 'breakdown'], retentionLogic(props), ['results']],
+        values: [
+            insightVizDataLogic(props),
+            ['dateRange', 'retentionFilter', 'breakdown'],
+            retentionLogic(props),
+            ['results'],
+        ],
     }),
     selectors: {
+        isLatestPeriod: [
+            (s) => [s.dateRange, s.retentionFilter],
+            (dateRange, retentionFilter) => periodIsLatest(dateRange?.date_to || null, retentionFilter?.period || null),
+        ],
+
         maxIntervalsCount: [
             (s) => [s.results],
             (results) => {
