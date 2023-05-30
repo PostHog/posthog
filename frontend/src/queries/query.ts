@@ -160,10 +160,10 @@ export async function query<N extends DataNode = DataNode>(
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
         }
-        posthog.capture('Query', { query: queryNode, duration: performance.now() - startTime, ...logParams })
+        posthog.capture('query completed', { query: queryNode, duration: performance.now() - startTime, ...logParams })
         return response
     } catch (e) {
-        posthog.capture('Query Error', { query: queryNode, duration: performance.now() - startTime, ...logParams })
+        posthog.capture('query failed', { query: queryNode, duration: performance.now() - startTime, ...logParams })
         throw e
     }
 }

@@ -82,7 +82,7 @@ describe('query', () => {
             limit: 100,
         }
         await query(q)
-        expect(posthog.capture).toHaveBeenCalledWith('Query', { query: q, duration: expect.any(Number) })
+        expect(posthog.capture).toHaveBeenCalledWith('query completed', { query: q, duration: expect.any(Number) })
     })
 
     it('emits a specific event on a HogQLQuery', async () => {
@@ -92,7 +92,7 @@ describe('query', () => {
             query: 'select * from events',
         }
         await query(q)
-        expect(posthog.capture).toHaveBeenCalledWith('Query', {
+        expect(posthog.capture).toHaveBeenCalledWith('query completed', {
             query: q,
             duration: expect.any(Number),
             clickhouse_sql: expect.any(String),
@@ -113,6 +113,6 @@ describe('query', () => {
             detail: 'error',
         })
 
-        expect(posthog.capture).toHaveBeenCalledWith('Query Error', { query: q, duration: expect.any(Number) })
+        expect(posthog.capture).toHaveBeenCalledWith('query failed', { query: q, duration: expect.any(Number) })
     })
 })
