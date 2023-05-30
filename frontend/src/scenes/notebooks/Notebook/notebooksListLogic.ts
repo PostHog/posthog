@@ -48,17 +48,14 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                     const notebook = await api.notebooks.create()
 
                     if (redirect) {
-                        setTimeout(() => {
-                            // TODO: Remove this once we have proper DB backing
-                            router.actions.push(urls.notebookEdit(notebook.short_id))
-                        }, 500)
+                        router.actions.push(urls.notebookEdit(notebook.short_id))
                     }
 
                     return [notebook]
                 },
 
                 receiveNotebookUpdate: ({ notebook }) => {
-                    return values.notebooks.map((n) => (n.short_id === notebook.short_id ? notebook : n))
+                    return values.notebooks.filter((n) => n.short_id !== notebook.short_id).concat([notebook])
                 },
             },
         ],

@@ -1,4 +1,5 @@
-import { Message } from 'node-rdkafka-acosom'
+import { EachBatchPayload } from 'kafkajs'
+import * as schedule from 'node-schedule'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
@@ -33,8 +34,8 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
     // group id. In these cases, updating to this version will result in the
     // re-exporting of events still in Kafka `clickhouse_events_json` topic.
 
-    const batchHandler = async (messages: Message[], queue: IngestionConsumer): Promise<void> => {
-        await eachBatchParallelIngestion(messages, queue, IngestionOverflowMode.Consume)
+    const batchHandler = async (payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> => {
+        await eachBatchParallelIngestion(payload, queue, IngestionOverflowMode.Consume)
     }
 
     const queue = new IngestionConsumer(
@@ -46,6 +47,10 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
     )
 
     await queue.start()
+
+    schedule.scheduleJob('0 * * * * *', async () => {
+        await queue.emitConsumerGroupMetrics()
+    })
 
     return queue
 }

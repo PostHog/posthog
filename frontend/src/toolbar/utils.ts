@@ -56,11 +56,9 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
 
 export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
     const query = elementToQuery(element, dataAttributes)
-    const tagName = element.tagName.toLowerCase()
 
     return {
         event: '$autocapture',
-        tag_name: tagName,
         href: element.getAttribute('href') || '',
         name: element.getAttribute('name') || '',
         text: getSafeText(element) || '',

@@ -16,7 +16,7 @@ export function createIncomingRecordingMessage(data: Partial<IncomingRecordingMe
         chunk_index: 0,
         chunk_count: 1,
         data: compressToString(JSON.stringify(jsonFullSnapshot)),
-        compresssion: 'gzip-base64',
+        compression: 'gzip-base64',
         has_full_snapshot: true,
         events_summary: [
             {

@@ -279,24 +279,29 @@ describe('session-manager', () => {
         )
     })
 
-    it('flushes messages even if the buffer is empty', async () => {
+    it('can flush messages without dropping pending chunks', async () => {
+        await sessionManager.add(createIncomingRecordingMessage())
         // Create an event that ends up in the chunks rather than the buffer
-        const event = createIncomingRecordingMessage({
-            chunk_count: 2,
-        })
-        await sessionManager.add(event)
-        expect(sessionManager.buffer.count).toEqual(0)
+        await sessionManager.add(
+            createIncomingRecordingMessage({
+                chunk_count: 2,
+            })
+        )
+
+        expect(sessionManager.buffer.count).toEqual(1)
         expect(sessionManager.chunks.size).toEqual(1)
 
         const afterResumeFlushPromise = sessionManager.flush('buffer_size')
 
         expect(sessionManager.buffer.count).toEqual(0)
-        expect(sessionManager.flushBuffer?.count).toEqual(0)
+        expect(sessionManager.flushBuffer?.count).toEqual(1)
 
         await afterResumeFlushPromise
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(mockFinish).toBeCalledTimes(1)
+        expect(sessionManager.buffer.count).toEqual(0)
+        expect(sessionManager.chunks.size).toEqual(1)
     })
 
     it.each([
