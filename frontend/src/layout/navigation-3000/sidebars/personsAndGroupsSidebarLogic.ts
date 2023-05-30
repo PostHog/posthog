@@ -11,6 +11,7 @@ import { findSearchTermInItemName } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsPaginatedResponse, groupsListLogic } from 'scenes/groups/groupsListLogic'
+import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 
 const SEARCH_DEBOUNCE_MS = 200
 
@@ -69,7 +70,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                                     const { searchTerm } = values
                                     return {
                                         key: group.group_key,
-                                        name: group.group_key,
+                                        name: groupDisplayId(group.group_key, group.group_properties),
                                         url: urls.group(groupType.group_type_index, group.group_key),
                                         searchMatch: findSearchTermInItemName(group.group_key, searchTerm),
                                     } as BasicListItem
