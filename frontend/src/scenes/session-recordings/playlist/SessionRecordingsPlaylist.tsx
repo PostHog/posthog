@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingFilters, SessionRecordingType, ReplayTabs } from '~/types'
 import {
+    DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
     sessionRecordingsListLogic,
@@ -196,7 +197,26 @@ export function RecordingsLists({
                     recordings={sessionRecordings}
                     loading={sessionRecordingsResponseLoading}
                     loadingSkeletonCount={RECORDINGS_LIMIT}
-                    empty={<>No matching recordings found</>}
+                    empty={
+                        <div className={'flex flex-col items-center space-y-2'}>
+                            <span>No matching recordings found</span>
+                            {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
+                                <>
+                                    <LemonButton
+                                        type={'secondary'}
+                                        data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
+                                        onClick={() => {
+                                            setFilters({
+                                                date_from: '-21d',
+                                            })
+                                        }}
+                                    >
+                                        Search over the last 21 days
+                                    </LemonButton>
+                                </>
+                            )}
+                        </div>
+                    }
                     activeRecordingId={activeSessionRecording?.id}
                     onScrollToEnd={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('older') : undefined}
                     onScrollToStart={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('newer') : undefined}

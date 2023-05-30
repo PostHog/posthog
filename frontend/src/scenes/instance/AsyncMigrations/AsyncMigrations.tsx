@@ -20,7 +20,7 @@ import { AsyncMigrationDetails } from './AsyncMigrationDetails'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTag, LemonTagPropsType } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 
@@ -96,7 +96,7 @@ export function AsyncMigrations(): JSX.Element {
         title: 'Status',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             const status = asyncMigration.status
-            const type: LemonTagPropsType =
+            const type: LemonTagType =
                 status === AsyncMigrationStatus.Running
                     ? 'success'
                     : status === AsyncMigrationStatus.Errored || status === AsyncMigrationStatus.FailedAtStartup

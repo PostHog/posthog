@@ -4,7 +4,7 @@ import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton/LemonButton'
 import './LemonTag.scss'
 
-export type LemonTagPropsType =
+export type LemonTagType =
     | 'primary'
     | 'highlight'
     | 'warning'
@@ -16,7 +16,7 @@ export type LemonTagPropsType =
     | 'none'
 
 interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
-    type?: LemonTagPropsType
+    type?: LemonTagType
     children: React.ReactNode
     icon?: JSX.Element
     closable?: boolean

@@ -10,6 +10,7 @@ import { PersonHeader } from '@posthog/apps-common'
 import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { PropertyDefinitionType } from '~/types'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const id = props.node.attrs.id
@@ -32,7 +33,12 @@ const Component = (props: NodeViewProps): JSX.Element => {
                     <>
                         <LemonDivider className="my-0" />
                         <div className="p-2 max-h-100 overflow-y-auto">
-                            <PropertiesTable properties={person?.properties} filterable searchable />
+                            <PropertiesTable
+                                type={PropertyDefinitionType.Person}
+                                properties={person?.properties}
+                                filterable
+                                searchable
+                            />
                         </div>
                     </>
                 )}

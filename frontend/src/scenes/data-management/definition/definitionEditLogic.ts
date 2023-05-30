@@ -74,7 +74,9 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                                 propertyDefinitionId: _eventProperty.id,
                                 propertyDefinitionData: _eventProperty,
                             })
-                            updatePropertyDefinitions([definition as PropertyDefinition])
+                            updatePropertyDefinitions({
+                                [`event/${definition.name}`]: definition as PropertyDefinition,
+                            })
                         }
                         breakpoint()
                     } catch (response: any) {
