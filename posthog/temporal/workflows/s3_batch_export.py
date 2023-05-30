@@ -71,8 +71,13 @@ def prepare_template_vars(inputs: S3InsertInputs):
 @activity.defn
 async def insert_into_s3_activity(inputs: S3InsertInputs):
     """
-    Activity that runs a INSERT INTO query in ClickHouse targetting an S3
-    table function.
+    Activity streams data from ClickHouse to S3. It currently only creates a
+    single file per run, and uploads as a multipart upload.
+
+    TODO: this implementation currently tries to export as one run, but it could
+    be a very big date range and time consuming, better to split into multiple
+    runs, timing out after say 30 seconds or something and upload multiple
+    files.
     """
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 

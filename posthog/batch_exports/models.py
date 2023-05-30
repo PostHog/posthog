@@ -63,9 +63,6 @@ class BatchExportRun(UUIDModel):
     status: models.CharField = models.CharField(
         choices=Status.choices, max_length=64, help_text="The status of this run."
     )
-    records_total: models.IntegerField = models.IntegerField(
-        null=True, help_text="The total number of records to be exported."
-    )
     records_completed: models.IntegerField = models.IntegerField(
         null=True, help_text="The number of records that have been exported."
     )
@@ -74,6 +71,7 @@ class BatchExportRun(UUIDModel):
     )
     data_interval_start: models.DateTimeField = models.DateTimeField(help_text="The start of the data interval.")
     data_interval_end: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.")
+    cursor: models.TextField = models.TextField(null=True, help_text="An opaque cursor that may be used to resume.")
     created_at: models.DateTimeField = models.DateTimeField(
         auto_now_add=True, help_text="The timestamp at which this BatchExportRun was created."
     )
