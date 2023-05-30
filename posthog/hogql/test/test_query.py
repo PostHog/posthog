@@ -746,7 +746,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_window_functions_simple(self):
         random_uuid = str(UUIDT())
         for person in range(5):
-            distinct_id = f"person_{person}"
+            distinct_id = f"person_{person}_{random_uuid}"
             with freeze_time("2020-01-10 00:00:00"):
                 _create_person(
                     properties={"name": f"Person {person}", "random_uuid": random_uuid},
@@ -787,7 +787,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                   groupArray(event) OVER (PARTITION BY distinct_id ORDER BY timestamp ASC ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) AS two_after
              from events
             where timestamp > toDateTime('2020-01-09 00:00:00')
-              and person.properties.random_uuid = '{random_uuid}'
+              and distinct_id like '%_{random_uuid}'
          order by distinct_id, timestamp
         """
         response = execute_hogql_query(query, team=self.team)
@@ -796,21 +796,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         for person in range(5):
             expected += [
                 (
-                    f"person_{person}",
+                    f"person_{person}_{random_uuid}",
                     datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=pytz.UTC),
                     "random event",
                     [],
                     ["random bla", "random boo"],
                 ),
                 (
-                    f"person_{person}",
+                    f"person_{person}_{random_uuid}",
                     datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=pytz.UTC),
                     "random bla",
                     ["random event"],
                     ["random boo"],
                 ),
                 (
-                    f"person_{person}",
+                    f"person_{person}_{random_uuid}",
                     datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=pytz.UTC),
                     "random boo",
                     ["random event", "random bla"],
@@ -819,7 +819,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ]
         self.assertEqual(response.results, expected)
 
-    def test_window_functions(self):
+    def test_window_functions_complex_funnel(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()
             # sample funnel table, testing window functions
