@@ -46,6 +46,12 @@
             animation: notebook-indicator-appear-no-overflow 150ms ease-out;
         }
     }
+
+    &:hover {
+        .DraggableToNotebook__indicator__text {
+            display: none;
+        }
+    }
 }
 
 @keyframes notebook-indicator-appear-no-overflow {
