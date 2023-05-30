@@ -10,7 +10,7 @@ import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
-import { PipelineEvent, PluginsServerConfig, RawEventMessage, Team } from '../../../types'
+import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, Team } from '../../../types'
 import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
@@ -19,6 +19,7 @@ import { eventDroppedCounter } from '../metrics'
 import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { IncomingRecordingMessage } from './blob-ingester/types'
+import { WrittenOffsetCache } from './blob-ingester/written-offset-cache'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -59,16 +60,19 @@ export class SessionRecordingBlobIngester {
     flushInterval: NodeJS.Timer | null = null
     enabledTeams: number[] | null
     latestKafkaMessageTimestamp: Record<number, number | null> = {}
+    private writtenOffsetCache: WrittenOffsetCache
 
     constructor(
         private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
         private objectStorage: ObjectStorage,
+        private redisPool: RedisPool,
         private flushIntervalTimeoutMs = 30000
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
             enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
+        this.writtenOffsetCache = new WrittenOffsetCache(this.redisPool)
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
@@ -92,6 +96,7 @@ export class SessionRecordingBlobIngester {
             const sessionManager = new SessionManager(
                 this.serverConfig,
                 this.objectStorage.s3,
+                this.writtenOffsetCache,
                 team_id,
                 session_id,
                 partition,

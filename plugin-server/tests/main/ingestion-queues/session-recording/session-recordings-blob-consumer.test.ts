@@ -46,6 +46,7 @@ describe('ingester', () => {
             hub.teamManager,
             defaultConfig,
             hub.objectStorage,
+            hub.redisPool,
             veryShortFlushInterval
         )
         await ingester.start()

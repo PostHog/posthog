@@ -62,12 +62,12 @@ describe('session-manager', () => {
         sessionManager = new SessionManager(
             defaultConfig,
             mockS3Client,
+            mockHighWaterMark as unknown as WrittenOffsetCache,
             1,
             'session_id_1',
             1,
             'topic',
-            mockFinish,
-            mockHighWaterMark as unknown as WrittenOffsetCache
+            mockFinish
         )
         mockFinish.mockClear()
     })

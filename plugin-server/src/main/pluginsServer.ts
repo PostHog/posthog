@@ -14,7 +14,7 @@ import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createPostgresPool, delay } from '../utils/utils'
+import { createPostgresPool, createRedisPool, delay } from '../utils/utils'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
@@ -376,10 +376,12 @@ export async function startPluginsServer(
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
+            const redisPool = hub?.db.redisPool ?? createRedisPool(serverConfig)
+
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
-            const ingester = new SessionRecordingBlobIngester(teamManager, serverConfig, s3)
+            const ingester = new SessionRecordingBlobIngester(teamManager, serverConfig, s3, redisPool)
             await ingester.start()
             const batchConsumer = ingester.batchConsumer
             if (batchConsumer) {

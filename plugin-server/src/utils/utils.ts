@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
+import { createPool } from 'generic-pool'
 import Redis, { RedisOptions } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
@@ -12,6 +13,7 @@ import {
     Plugin,
     PluginConfigId,
     PluginsServerConfig,
+    RedisPool,
     TimestampFormat,
 } from '../types'
 import { Hub } from './../types'
@@ -368,6 +370,22 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
         })
     await redis.info()
     return redis
+}
+
+export function createRedisPool(serverConfig: PluginsServerConfig): RedisPool {
+    return createPool<Redis.Redis>(
+        {
+            create: () => createRedis(serverConfig),
+            destroy: async (client) => {
+                await client.quit()
+            },
+        },
+        {
+            min: serverConfig.REDIS_POOL_MIN_SIZE,
+            max: serverConfig.REDIS_POOL_MAX_SIZE,
+            autostart: true,
+        }
+    )
 }
 
 export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {

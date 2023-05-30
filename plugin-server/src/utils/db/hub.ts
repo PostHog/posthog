@@ -1,9 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import * as Sentry from '@sentry/node'
 import * as fs from 'fs'
-import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
-import Redis from 'ioredis'
 import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
@@ -36,7 +34,7 @@ import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { status } from '../status'
-import { createPostgresPool, createRedis, UUIDT } from '../utils'
+import { createPostgresPool, createRedisPool, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
@@ -142,19 +140,7 @@ export async function createHub(
     status.info('👍', `Postgresql ready`)
 
     status.info('🤔', `Connecting to Redis...`)
-    const redisPool = createPool<Redis.Redis>(
-        {
-            create: () => createRedis(serverConfig),
-            destroy: async (client) => {
-                await client.quit()
-            },
-        },
-        {
-            min: serverConfig.REDIS_POOL_MIN_SIZE,
-            max: serverConfig.REDIS_POOL_MAX_SIZE,
-            autostart: true,
-        }
-    )
+    const redisPool = createRedisPool(serverConfig)
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)

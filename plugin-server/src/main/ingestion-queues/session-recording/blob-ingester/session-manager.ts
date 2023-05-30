@@ -75,12 +75,12 @@ export class SessionManager {
     constructor(
         public readonly serverConfig: PluginsServerConfig,
         public readonly s3Client: ObjectStorage['s3'],
+        private readonly offsetHighWatermark: WrittenOffsetCache,
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
         public readonly topic: string,
-        private readonly onFinish: (offsetsToRemove: number[]) => void,
-        private readonly offsetHighWatermark: WrittenOffsetCache
+        private readonly onFinish: (offsetsToRemove: number[]) => void
     ) {
         this.buffer = this.createBuffer()
     }

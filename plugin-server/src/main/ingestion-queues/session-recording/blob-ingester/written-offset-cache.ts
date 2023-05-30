@@ -1,15 +1,11 @@
 import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
 
-import { PluginsServerConfig, RedisPool } from '../../../../types'
+import { RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 
-const Keys = {
-    offsetHighWaterMark(partition: number): string {
-        return `@posthog/replay/partition-high-water-mark/partition-${partition}`
-    },
-}
+const OFFSET_HIGH_WATER_MARK_KEY = '@posthog/replay/partition-high-water-marks'
 
 /**
  * If a file is written to S3 we need to know the offset of the last message in that file so that we can
@@ -21,7 +17,7 @@ const Keys = {
  * which offsets have been written to S3 and which haven't so that we don't re-process those messages.
  */
 export class WrittenOffsetCache {
-    constructor(private redisPool: RedisPool, private serverConfig: PluginsServerConfig) {}
+    constructor(private redisPool: RedisPool) {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {
         const client = await this.redisPool.acquire()
@@ -42,24 +38,22 @@ export class WrittenOffsetCache {
     }
 
     public async set(partition: number, offset: number): Promise<void> {
-        const key = Keys.offsetHighWaterMark(partition)
-
         try {
-            await this.run(`write offset high-water mark ${key} `, async (client) => {
+            await this.run(`write offset high-water mark ${OFFSET_HIGH_WATER_MARK_KEY} `, async (client) => {
                 // there is no TTL on this key, once an offset has been written for a partition it always has been
                 // if we stop using this mechanism we can remove this key manually
-                return client.hset(key, partition.toString(), offset.toString())
+                return client.hset(OFFSET_HIGH_WATER_MARK_KEY, partition.toString(), offset.toString())
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
                 error,
-                key,
+                key: OFFSET_HIGH_WATER_MARK_KEY,
                 partition,
                 offset,
             })
             captureException(error, {
                 extra: {
-                    key,
+                    key: OFFSET_HIGH_WATER_MARK_KEY,
                 },
                 tags: {
                     partition,
@@ -69,22 +63,20 @@ export class WrittenOffsetCache {
     }
 
     public async get(partition: number): Promise<number | null> {
-        const key = Keys.offsetHighWaterMark(partition)
-
         try {
-            return await this.run(`read offset high-water mark ${key} `, async (client) => {
-                const redisValue = await client.hget(key, partition.toString())
+            return await this.run(`read offset high-water mark ${OFFSET_HIGH_WATER_MARK_KEY} `, async (client) => {
+                const redisValue = await client.hget(OFFSET_HIGH_WATER_MARK_KEY, partition.toString())
                 return redisValue ? parseInt(redisValue) : null
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to read high-water mark for partition', {
                 error,
-                key,
+                key: OFFSET_HIGH_WATER_MARK_KEY,
                 partition,
             })
             captureException(error, {
                 extra: {
-                    key,
+                    key: OFFSET_HIGH_WATER_MARK_KEY,
                 },
                 tags: {
                     partition,
