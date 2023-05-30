@@ -144,12 +144,15 @@ export function getValueOfToken(
             ;[text, markdown] = getActionDetails(action, siteUrl, webhookType)
         }
     } else if (tokenParts[0] === 'event') {
-        if (tokenParts[1] === 'uuid') {
+        if (tokenParts.length === 1) {
+            ;[text, markdown] = getEventDetails(event, siteUrl, webhookType)
+        } else if (tokenParts[1] === 'uuid') {
             markdown = text = webhookEscape(event.eventUuid, webhookType)
         } else if (tokenParts[1] === 'name') {
+            // deprecated
             markdown = text = webhookEscape(event.event, webhookType)
         } else if (tokenParts[1] === 'event') {
-            ;[text, markdown] = getEventDetails(event, siteUrl, webhookType)
+            markdown = text = webhookEscape(event.event, webhookType)
         } else if (tokenParts[1] === 'distinct_id') {
             markdown = text = webhookEscape(event.distinctId, webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {

@@ -105,6 +105,21 @@ describe('hooks', () => {
             timestamp: '2021-10-31T00:44:00.000Z',
         } as unknown as PostIngestionEvent
 
+        test('event', () => {
+            const tokenUserName = ['event']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('$pageview')
+            expect(markdown).toBe('[$pageview](http://localhost:8000/events/123/2021-10-31T00%3A44%3A00.000Z)')
+        })
+
         test('event UUID', () => {
             const tokenUserName = ['event', 'uuid']
 
@@ -147,7 +162,7 @@ describe('hooks', () => {
             )
 
             expect(text).toBe('$pageview')
-            expect(markdown).toBe('[$pageview](http://localhost:8000/events/123/2021-10-31T00%3A44%3A00.000Z)')
+            expect(markdown).toBe('$pageview')
         })
 
         test('event distinct_id', () => {
@@ -164,6 +179,7 @@ describe('hooks', () => {
             expect(text).toBe('WALL-E')
             expect(markdown).toBe('WALL-E')
         })
+
         test('person with just distinct ID', () => {
             const tokenUserName = ['person']
 
