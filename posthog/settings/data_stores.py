@@ -203,11 +203,30 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+# Controls whether the TolerantZlibCompressor is used for Redis compression when writing to Redis.
+# The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
+# can cope with compressed and uncompressed reading at the same time
+USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", False, type_cast=str_to_bool)
+
+# AWS ElastiCache supports "reader" endpoints.
+# See "Finding a Redis (Cluster Mode Disabled) Cluster's Endpoints (Console)"
+# on https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/Endpoints.html#Endpoints.Find.Redis
+# A reader endpoint distributes read-only connections across all replicas in the cluster.
+# ElastiCache manages updating which nodes are used if a replica is failed-over to primary
+# so that we don't have to worry about changing config.
+REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL,
-        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        # the django redis default client can be replica aware
+        # if location is an array then the first element is the primary
+        # and the rest are replicas
+        "LOCATION": REDIS_URL if not REDIS_READER_URL else [REDIS_URL, REDIS_READER_URL],
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.tolerant_zlib_compressor.TolerantZlibCompressor",
+        },
         "KEY_PREFIX": "posthog",
     }
 }

@@ -41,10 +41,6 @@
 }
 
 .LemonTabs__tab {
-    display: flex;
-    align-items: center;
-    padding: 0.75rem 0;
-    cursor: pointer;
     .LemonTabs--transitioning & {
         transition: color 200ms ease;
     }
@@ -67,4 +63,11 @@
         color: inherit;
         transition: none;
     }
+}
+
+.LemonTabs__tab-content {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 0;
+    cursor: pointer;
 }
