@@ -3,8 +3,9 @@ import { subscriptions } from 'kea-subscriptions'
 import { BasicListItem, ExtendedListItem, SidebarNavbarItem } from './types'
 
 import type { navigation3000LogicType } from './navigationLogicType'
-import { NAVBAR_ITEM_ID_TO_ITEM } from './sidebars/navbarItems'
+import { NAVBAR_ITEM_ID_TO_ITEM } from './navbarItems'
 import { Scene } from 'scenes/sceneTypes'
+import React from 'react'
 
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
@@ -31,6 +32,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         setLastFocusedItemByKey: (key: string | number) => ({ key }), // A wrapper over setLastFocusedItemIndex
         focusNextItem: true,
         focusPreviousItem: true,
+        toggleAccordion: (key: string) => ({ key }),
     }),
     reducers({
         isSidebarShown: [
@@ -103,6 +105,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 setLastFocusedItemIndex: (_, { index }) => index,
             },
         ],
+        accordionCollapseMapping: [
+            {} as Record<string, boolean>,
+            {
+                persist: true,
+            },
+            {
+                toggleAccordion: (state, { key }) => ({
+                    ...state,
+                    [key]: !state[key],
+                }),
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         syncSidebarWidthWithMouseMove: ({ delta }) => {
@@ -153,7 +167,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
         },
         setLastFocusedItemByKey: ({ key }) => {
-            const index = values.sidebarContentsFlattened.findIndex((item) => item.key === key)
+            const index = values.sidebarContentsFlattened.findIndex((item) =>
+                Array.isArray(item.key) ? item.key.includes(key as string) : item.key === key
+            )
             if (index !== -1) {
                 actions.setLastFocusedItemIndex(index)
             }
@@ -210,7 +226,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 document.removeEventListener('mouseup', cache.onMouseUp)
             }
         },
-        sidebarContentsFlattened: () => {
+        sidebarContentsFlattened: (sidebarContentsFlattened) => {
+            for (const item of sidebarContentsFlattened) {
+                if (!item.ref) {
+                    item.ref = React.createRef() // Inject refs for keyboard navigation
+                }
+            }
             actions.setLastFocusedItemIndex(-1) // Reset focused item index on contents change
         },
         lastFocusedItemIndex: (lastFocusedItemIndex) => {

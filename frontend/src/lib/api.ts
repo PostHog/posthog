@@ -62,8 +62,8 @@ export const ACTIVITY_PAGE_SIZE = 20
 
 export interface PaginatedResponse<T> {
     results: T[]
-    next?: string
-    previous?: string
+    next?: string | null
+    previous?: string | null
     missing_persons?: number
 }
 
