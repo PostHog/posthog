@@ -6,13 +6,6 @@ import jsonFullSnapshot from './data/snapshot-full.json'
 
 export function createIncomingRecordingMessage(data: Partial<IncomingRecordingMessage> = {}): IncomingRecordingMessage {
     return {
-        metadata: {
-            topic: 'session_recording_events',
-            partition: 1,
-            offset: 1,
-            timestamp: 1,
-        },
-
         team_id: 1,
         distinct_id: 'distinct_id',
         session_id: 'session_id_1',
@@ -33,6 +26,13 @@ export function createIncomingRecordingMessage(data: Partial<IncomingRecordingMe
             },
         ],
         ...data,
+        metadata: {
+            topic: 'session_recording_events',
+            partition: 1,
+            offset: 1,
+            timestamp: 1,
+            ...data.metadata,
+        },
     }
 }
 
