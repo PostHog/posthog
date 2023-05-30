@@ -167,7 +167,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
-        setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         toggleAutoplayDirection: true,
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
@@ -194,12 +193,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
-            },
-        ],
-        isFullScreen: [
-            false,
-            {
-                setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
             },
         ],
         autoplayDirection: [

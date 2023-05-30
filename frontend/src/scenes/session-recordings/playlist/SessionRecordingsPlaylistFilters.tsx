@@ -1,8 +1,5 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { eventUsageLogic, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -11,7 +8,6 @@ import { AvailableFeature, RecordingDurationFilter, ReplayTabs } from '~/types'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { useActions, useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { SessionRecordingsPlaylistProps } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import clsx from 'clsx'
@@ -34,7 +30,6 @@ export function SessionRecordingsPlaylistFilters({
     const { filters, totalFiltersCount, showFilters } = useValues(logic)
     const { setFilters, reportRecordingsListFilterAdded, setShowFilters } = useActions(logic)
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
@@ -119,18 +114,6 @@ export function SessionRecordingsPlaylistFilters({
                         >
                             Save as playlist
                         </LemonButton>
-                    ) : null}
-                    {!!featureFlags[FEATURE_FLAGS.NOTEBOOKS] ? (
-                        <AddToNotebook
-                            type="secondary"
-                            icon={null}
-                            node={NotebookNodeType.RecordingPlaylist}
-                            properties={{ filters: {} }}
-                            data-attr="add-playlist-to-notebook-button"
-                            size="small"
-                        >
-                            Add to notebook
-                        </AddToNotebook>
                     ) : null}
                 </>
             </div>

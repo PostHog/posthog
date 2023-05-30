@@ -154,7 +154,7 @@ export class IngestionConsumer {
         }
         try {
             await this.consumer.disconnect()
-        } catch {}
+        } catch { }
 
         this.consumerReady = false
     }

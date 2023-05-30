@@ -62,24 +62,33 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     }),
 
     selectors({
+        isFiltering: [
+            (s) => [s.filters],
+            (filters) => {
+                return Object.keys(filters).some(
+                    (key) => filters[key as keyof DashboardsFilters] !== DEFAULT_FILTERS[key]
+                )
+            },
+        ],
         dashboards: [
             (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse],
             (dashboards, filters, fuse) => {
-                dashboards = dashboards
-                    .filter((d) => !d.deleted)
-                    .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
-                if (filters.pinned) {
-                    dashboards = dashboards.filter((d) => d.pinned)
-                } else if (filters.shared) {
-                    dashboards = dashboards.filter((d) => d.is_shared)
-                } else if (filters.createdBy !== 'All users') {
-                    dashboards = dashboards.filter((d) => d.created_by && filters.createdBy)
-                }
-                if (!filters.search) {
-                    return dashboards
+                let haystack = dashboards
+                if (filters.search) {
+                    haystack = fuse.search(filters.search).map((result: any) => result.item)
                 }
 
-                return fuse.search(filters.search).map((result: any) => result.item)
+                if (filters.pinned) {
+                    haystack = haystack.filter((d) => d.pinned)
+                }
+                if (filters.shared) {
+                    haystack = haystack.filter((d) => d.is_shared)
+                }
+                if (filters.createdBy !== 'All users') {
+                    haystack = haystack.filter((d) => d.created_by?.uuid === filters.createdBy)
+                }
+
+                return haystack
             },
         ],
 

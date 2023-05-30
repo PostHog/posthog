@@ -207,6 +207,21 @@ describe('eachBatchX', () => {
             )
         })
 
+        it('does not batch events when consuming overflow', () => {
+            const input = createBatchWithMultipleEvents([
+                { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
+                { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
+                { ...captureEndpointEvent, team_id: 3, distinct_id: 'b' },
+                { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
+                { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
+            ])
+            const batches = splitIngestionBatch(input, IngestionOverflowMode.Consume).toProcess
+            expect(batches.length).toEqual(input.length)
+            for (const group of batches) {
+                expect(group.length).toEqual(1)
+            }
+        })
+
         it('batches events but commits offsets only once', async () => {
             const batch = createBatchWithMultipleEvents([
                 { ...captureEndpointEvent, offset: 1, team_id: 3 },

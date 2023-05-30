@@ -191,6 +191,7 @@ describe('EventPipelineRunner', () => {
                     team_id: 2,
                     distinct_id: 'my_id',
                     error: 'ingestEvent failed. Error: testError',
+                    error_location: 'plugin_server_ingest_event:prepareEventStep',
                 })
                 expect(hub.statsd.increment).toHaveBeenCalledWith('events_added_to_dead_letter_queue')
             })

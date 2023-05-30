@@ -107,11 +107,20 @@ export function Person(): JSX.Element | null {
         return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
     }
 
+    const url = urls.person(urlId || person.distinct_ids[0] || String(person.id))
+
     return (
         <>
             <PageHeader
                 title={asDisplay(person)}
                 caption={<PersonCaption person={person} />}
+                notebookProps={
+                    url
+                        ? {
+                              href: url,
+                          }
+                        : undefined
+                }
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
@@ -182,7 +191,7 @@ export function Person(): JSX.Element | null {
                             pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                             fixedFilters={{ person_id: person.id }}
                             showPersonColumn={false}
-                            sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
+                            sceneUrl={url}
                         />
                     )}
                 </TabPane>
