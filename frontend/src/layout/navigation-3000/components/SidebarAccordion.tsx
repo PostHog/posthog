@@ -194,10 +194,15 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
                             navigation3000Logic.actions.focusPreviousItem()
                             e.preventDefault()
                         } else if (e.key === 'Enter') {
-                            completeRename(renamingName)
+                            completeRename(renamingName).then(() => {
+                                // In the keyboard nav experience, we need to refocus the item once it's a link again
+                                setTimeout(() => ref.current?.focus(), 0)
+                            })
                             e.preventDefault()
                         } else if (e.key === 'Escape') {
                             setRenamingName(null)
+                            // In the keyboard nav experience, we need to refocus the item once it's a link again
+                            setTimeout(() => ref.current?.focus(), 0)
                             e.preventDefault()
                         }
                     }}
