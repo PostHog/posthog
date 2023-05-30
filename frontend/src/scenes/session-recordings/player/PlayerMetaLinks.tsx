@@ -8,15 +8,10 @@ import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const onShare = (): void => {
         setPause()
@@ -60,15 +55,6 @@ export function PlayerMetaLinks(): JSX.Element {
                     <PlaylistPopoverButton {...commonProps}>
                         <span>Pin</span>
                     </PlaylistPopoverButton>
-
-                    {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                        <AddToNotebook
-                            tooltip="Add to Notebook"
-                            node={NotebookNodeType.Recording}
-                            properties={{ id: sessionRecordingId }}
-                            {...commonProps}
-                        />
-                    )}
 
                     {logicProps.playerKey !== 'modal' && (
                         <LemonButton

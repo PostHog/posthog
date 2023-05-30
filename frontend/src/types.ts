@@ -2274,6 +2274,12 @@ export enum PropertyType {
     Selector = 'Selector',
 }
 
+export enum PropertyDefinitionType {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+}
+
 export interface PropertyDefinition {
     id: string
     name: string
@@ -2286,6 +2292,7 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_seen_on_filtered_events?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: PropertyType
+    type?: PropertyDefinitionType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
     example?: string

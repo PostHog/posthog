@@ -9,7 +9,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # Allow snapshot updates to finish, so that we don't need to wait for Storybook to build again
+    # Allow UI snapshot updates to finish, so that we don't need to wait for Storybook to build all over again
     cancel-in-progress: false
 
 jobs:
