@@ -100,18 +100,18 @@ describe('the property definitions model', () => {
                     propertyDefinitionStorage: partial({
                         'event/a string': propertyDefinitions.find(({ name }) => name === 'a string'),
                     }),
-                    propertyDefinitions: [
-                        {
-                            description: 'Duration of the session',
-                            id: '$session_duration',
-                            is_seen_on_filtered_events: false,
-                            is_numerical: true,
-                            name: '$session_duration',
-                            property_type: 'Duration',
-                        },
-                        propertyDefinitions.find(({ name }) => name === 'a string'),
-                    ],
                 })
+            expect(logic.values.propertyDefinitionsByType('event')).toEqual([
+                {
+                    description: 'Duration of the session',
+                    id: '$session_duration',
+                    is_seen_on_filtered_events: false,
+                    is_numerical: true,
+                    name: '$session_duration',
+                    property_type: 'Duration',
+                },
+                propertyDefinitions.find(({ name }) => name === 'a string'),
+            ])
         })
 
         it('handles network errors', async () => {
