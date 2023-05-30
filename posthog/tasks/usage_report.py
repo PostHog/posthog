@@ -70,19 +70,19 @@ class UsageReportCounters:
     ff_count: int
     ff_active_count: int
     # HogQL
-    hogql_read_bytes: int
-    hogql_read_rows: int
-    hogql_duration_ms: int
-    hogql_read_bytes_via_api: int
-    hogql_read_rows_via_api: int
-    hogql_duration_ms_via_api: int
+    hogql_app_bytes_read: int
+    hogql_api_bytes_read: int
+    hogql_app_rows_read: int
+    hogql_api_rows_read: int
+    hogql_app_duration_ms: int
+    hogql_api_duration_ms: int
     # Event Explorer
-    event_explorer_read_bytes: int
-    event_explorer_read_rows: int
-    event_explorer_duration_ms: int
-    event_explorer_read_bytes_via_api: int
-    event_explorer_read_rows_via_api: int
-    event_explorer_duration_ms_via_api: int
+    event_explorer_app_bytes_read: int
+    event_explorer_api_bytes_read: int
+    event_explorer_app_rows_read: int
+    event_explorer_api_rows_read: int
+    event_explorer_app_duration_ms: int
+    event_explorer_api_duration_ms: int
 
 
 # Instance metadata to be included in oveall report
@@ -517,42 +517,42 @@ def send_all_org_usage_reports(
         teams_with_ff_active_count=list(
             FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
-        teams_with_hogql_read_bytes=get_teams_with_hogql_metric(
+        teams_with_hogql_app_bytes_read=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_bytes",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="",
         ),
-        teams_with_hogql_read_rows=get_teams_with_hogql_metric(
+        teams_with_hogql_app_rows_read=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="",
         ),
-        teams_with_hogql_duration_ms=get_teams_with_hogql_metric(
+        teams_with_hogql_app_duration_ms=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="",
         ),
-        teams_with_hogql_read_bytes_via_api=get_teams_with_hogql_metric(
+        teams_with_hogql_api_bytes_read=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_bytes",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_hogql_read_rows_via_api=get_teams_with_hogql_metric(
+        teams_with_hogql_api_rows_read=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_hogql_duration_ms_via_api=get_teams_with_hogql_metric(
+        teams_with_hogql_api_duration_ms=get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
@@ -634,18 +634,12 @@ def send_all_org_usage_reports(
             dashboard_tagged_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_tagged_count"]),
             ff_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_count"]),
             ff_active_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_active_count"]),
-            hogql_read_bytes=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_read_bytes"]),
-            hogql_read_rows=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_read_rows"]),
-            hogql_duration_ms=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_duration_ms"]),
-            hogql_read_bytes_via_api=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_hogql_read_bytes_via_api"]
-            ),
-            hogql_read_rows_via_api=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_hogql_read_rows_via_api"]
-            ),
-            hogql_duration_ms_via_api=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_hogql_duration_ms_via_api"]
-            ),
+            hogql_app_bytes_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_app_bytes_read"]),
+            hogql_app_rows_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_app_rows_read"]),
+            hogql_app_duration_ms=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_app_duration_ms"]),
+            hogql_api_bytes_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_bytes_read"]),
+            hogql_api_rows_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_rows_read"]),
+            hogql_api_duration_ms=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_duration_ms"]),
             event_explorer_read_bytes=find_count_for_team_in_rows(
                 team.id, all_data["teams_with_event_explorer_read_bytes"]
             ),
