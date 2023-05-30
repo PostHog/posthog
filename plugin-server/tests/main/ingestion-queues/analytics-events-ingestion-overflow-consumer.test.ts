@@ -1,3 +1,4 @@
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
@@ -26,12 +27,23 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
     let queue: any
 
     function createBatchWithMultipleEventsWithKeys(events: any[], timestamp?: any): any {
-        return events.map((event) => ({
-            value: JSON.stringify(event),
-            timestamp,
-            offset: event.offset,
-            key: event.team_id + ':' + event.distinct_id,
-        }))
+        return {
+            batch: {
+                partition: 0,
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                messages: events.map((event) => ({
+                    value: JSON.stringify(event),
+                    timestamp,
+                    offset: event.offset,
+                    key: event.team_id + ':' + event.distinct_id,
+                })),
+            },
+            resolveOffset: jest.fn(),
+            heartbeat: jest.fn(),
+            commitOffsetsIfNecessary: jest.fn(),
+            isRunning: jest.fn(() => true),
+            isStale: jest.fn(() => false),
+        }
     }
 
     beforeEach(() => {
