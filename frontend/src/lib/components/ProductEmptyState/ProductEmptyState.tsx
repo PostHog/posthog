@@ -9,7 +9,6 @@ export const ProductEmptyState = ({
     action,
     actionElementOverride,
     docsURL,
-    customHog,
 }: {
     // The name of the product, e.g. "Cohorts"
     productName: string
@@ -21,7 +20,6 @@ export const ProductEmptyState = ({
     // If you want to provide a custom action button instead of using the default one
     actionElementOverride?: JSX.Element
     docsURL?: string
-    customHog?: JSX.Element
 }): JSX.Element => {
     const actionable = action || actionElementOverride
     return (
@@ -29,9 +27,7 @@ export const ProductEmptyState = ({
             <div className="flex items-center gap-x-8">
                 <div>
                     <div className="w-40 mx-auto mb-4">
-                        {customHog ? (
-                            { customHog }
-                        ) : actionable ? (
+                        {actionable ? (
                             <BuilderHog3 className="w-full h-full" />
                         ) : (
                             <DetectiveHog className="w-full h-full" />
