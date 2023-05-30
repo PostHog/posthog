@@ -156,7 +156,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         },
         focusNextItem: () => {
             const nextIndex = values.lastFocusedItemIndex + 1
-            console.log(values.sidebarContentsFlattened)
             if (nextIndex < values.sidebarContentsFlattened.length) {
                 actions.setLastFocusedItemIndex(nextIndex)
             }
