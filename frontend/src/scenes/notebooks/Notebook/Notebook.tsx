@@ -84,7 +84,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                 class: 'NotebookEditor',
             },
             handleDrop: (view, event, _slice, moved) => {
-                const editor = logic.values.editor
+                const editor = logic.values.editor // Only for type checking - should never be null
                 if (!editor) {
                     return false
                 }
@@ -103,19 +103,16 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                         }
 
                         if (node) {
-                            const res = editor
+                            editor
                                 .chain()
                                 .focus()
                                 .setTextSelection(coordinates.pos)
                                 .insertContent({ type: node, attrs: JSON.parse(properties) })
                                 .run()
-                            console.log('ADDING NODE', { node, properties, res })
                         } else {
                             editor?.chain().focus().setTextSelection(coordinates.pos).run()
                             view.pasteText(text)
                         }
-
-                        console.log('HERE?!=!', text, { type: node, attrs: JSON.parse(properties) })
 
                         return true
                     }

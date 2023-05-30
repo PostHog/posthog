@@ -35,8 +35,6 @@ export function DraggableToNotebook({
                 }
                 node && e.dataTransfer.setData('node', node)
                 properties && e.dataTransfer.setData('properties', JSON.stringify(properties))
-
-                console.log('SRARTING', e.dataTransfer)
             }}
         >
             {children}
