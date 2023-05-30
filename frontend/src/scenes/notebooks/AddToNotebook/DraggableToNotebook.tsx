@@ -2,7 +2,7 @@ import React from 'react'
 import { NotebookNodeType } from '../Nodes/types'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import './DraggableToNotebook.scss'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
 import clsx from 'clsx'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -15,14 +15,7 @@ export type DraggableToNotebookProps = {
     children: React.ReactNode
     alwaysDraggable?: boolean
     noOverflow?: boolean
-}
-
-function DraggableToNotebookIndicator(): JSX.Element {
-    return (
-        <div className="DraggableToNotebookIndicator">
-            <div className="DraggableToNotebookIndicator__pulser" />
-        </div>
-    )
+    className?: string
 }
 
 export function DraggableToNotebook({
@@ -32,8 +25,8 @@ export function DraggableToNotebook({
     href,
     alwaysDraggable,
     noOverflow,
+    className,
 }: DraggableToNotebookProps): JSX.Element {
-    const { notebookSideBarShown } = useValues(notebookSidebarLogic)
     const { setNotebookSideBarShown } = useActions(notebookSidebarLogic)
     const keyHeld = useKeyHeld('Alt')
 
@@ -41,29 +34,39 @@ export function DraggableToNotebook({
         return <>{children}</>
     }
 
+    const draggable = alwaysDraggable || keyHeld
+
     return (
         <>
             <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match={false}>
                 {children}
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                <div
-                    className={clsx('DraggableToNotebook', noOverflow && 'DraggableToNotebook--no-overflow')}
-                    draggable={alwaysDraggable || keyHeld}
-                    onDragStart={(e: any) => {
-                        if (href) {
-                            const url = window.location.origin + href
-                            e.dataTransfer.setData('text/uri-list', url)
-                            e.dataTransfer.setData('text/plain', url)
-                        }
-                        node && e.dataTransfer.setData('node', node)
-                        properties && e.dataTransfer.setData('properties', JSON.stringify(properties))
-                        setNotebookSideBarShown(true)
-                    }}
+                <span
+                    className={clsx('DraggableToNotebook', className, noOverflow && 'DraggableToNotebook--no-overflow')}
+                    draggable={draggable}
+                    onDragStart={
+                        draggable
+                            ? (e: any) => {
+                                  if (href) {
+                                      const url = window.location.origin + href
+                                      e.dataTransfer.setData('text/uri-list', url)
+                                      e.dataTransfer.setData('text/plain', url)
+                                  }
+                                  node && e.dataTransfer.setData('node', node)
+                                  properties && e.dataTransfer.setData('properties', JSON.stringify(properties))
+                                  setNotebookSideBarShown(true)
+                              }
+                            : undefined
+                    }
                 >
-                    {keyHeld ? <DraggableToNotebookIndicator /> : null}
+                    {keyHeld ? (
+                        <div className="DraggableToNotebook__indicator">
+                            <div className="DraggableToNotebook__indicator__text">Drag to notebook</div>
+                        </div>
+                    ) : null}
                     {children}
-                </div>
+                </span>
             </FlaggedFeature>
         </>
     )
