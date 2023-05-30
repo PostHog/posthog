@@ -1,4 +1,4 @@
-import { RefCallback, useMemo, useState } from 'react'
+import { RefCallback, RefObject, useMemo, useState } from 'react'
 import ResizeObserver from 'resize-observer-polyfill'
 import useResizeObserverImport from 'use-resize-observer'
 
@@ -9,8 +9,11 @@ if (!window.ResizeObserver) {
 
 export const useResizeObserver = useResizeObserverImport
 
-export function useResizeBreakpoints<T>(breakpoints: { [key: number]: T }): {
-    ref?: RefCallback<HTMLDivElement>
+export function useResizeBreakpoints<T>(
+    breakpoints: { [key: number]: T },
+    ref?: RefObject<HTMLDivElement> | null | undefined
+): {
+    ref?: RefCallback<HTMLDivElement> | RefObject<HTMLDivElement>
     size: T
 } {
     const sortedKeys: number[] = useMemo(
@@ -23,7 +26,8 @@ export function useResizeBreakpoints<T>(breakpoints: { [key: number]: T }): {
     const initialSize = breakpoints[sortedKeys[0]]
     const [size, setSize] = useState(initialSize)
 
-    const { ref } = useResizeObserver<HTMLDivElement>({
+    const { ref: refCb } = useResizeObserver<HTMLDivElement>({
+        ref,
         onResize: ({ width = 1 }) => {
             let newSize = breakpoints[sortedKeys[0]]
 
@@ -38,5 +42,5 @@ export function useResizeBreakpoints<T>(breakpoints: { [key: number]: T }): {
         },
     })
 
-    return { ref, size }
+    return { ref: ref || refCb, size }
 }

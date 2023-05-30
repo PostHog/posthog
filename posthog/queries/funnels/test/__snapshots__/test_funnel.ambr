@@ -252,12 +252,12 @@
                               if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id ,
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
-                              if(((((match(elements_chain, '(^|;)button(\\.|$|;|:)'))
-                                    AND (match(elements_chain, '(text="Pay\\ \\$10")')))
+                              if((((match(elements_chain, '(^|;)button(\\.|$|;|:)'))
+                                   AND (match(elements_chain, '(text="Pay\\ \\$10")'))
                                    AND event = '$autocapture')) , 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
-                              if(((((match(elements_chain, '(^|;)a(\\.|$|;|:)'))
-                                    AND (match(elements_chain, '(href="/movie")')))
+                              if((((match(elements_chain, '(^|;)a(\\.|$|;|:)'))
+                                   AND (match(elements_chain, '(href="/movie")'))
                                    AND event = '$autocapture')) , 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM events e

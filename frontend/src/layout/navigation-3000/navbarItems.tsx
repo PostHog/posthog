@@ -27,7 +27,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.ProjectHomepage,
             label: 'Project homepage',
-            icon: <IconCottage />, // This is in a separate section as it uniquely is a direct URL
+            icon: <IconCottage />,
             pointer: urls.projectHomepage(),
         },
         {
@@ -37,10 +37,9 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             pointer: dashboardsSidebarLogic,
         },
         {
-            identifier: Scene.Cohorts,
-            label: 'Cohorts',
-            icon: <IconCohort />,
-            pointer: cohortsSidebarLogic,
+            identifier: Scene.DataManagement,
+            label: 'Data management',
+            icon: <IconUnverifiedEvent />,
         },
         {
             identifier: Scene.Persons,
@@ -49,14 +48,10 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             pointer: personsAndGroupsSidebarLogic,
         },
         {
-            identifier: Scene.Events,
-            label: 'Events',
-            icon: <IconLive />,
-        },
-        {
-            identifier: Scene.DataManagement,
-            label: 'Data management',
-            icon: <IconUnverifiedEvent />,
+            identifier: Scene.Cohorts,
+            label: 'Cohorts',
+            icon: <IconCohort />,
+            pointer: cohortsSidebarLogic,
         },
         {
             identifier: Scene.Annotations,
@@ -66,25 +61,30 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
     ],
     [
         {
+            identifier: Scene.Events,
+            label: 'Events',
+            icon: <IconLive />,
+        },
+        {
             identifier: Scene.SavedInsights,
-            label: 'Analytics',
+            label: 'Product Analytics',
             icon: <IconBarChart />,
             pointer: insightsSidebarLogic,
         },
         {
             identifier: Scene.Replay,
-            label: 'Recordings',
+            label: 'Session Replay',
             icon: <IconRecording />,
         },
         {
             identifier: Scene.FeatureFlags,
-            label: 'Feature flags',
+            label: 'Feature Flags',
             icon: <IconFlag />,
             pointer: featureFlagsSidebarLogic,
         },
         {
             identifier: Scene.Experiments,
-            label: 'Experiments',
+            label: 'A/B Testing',
             icon: <IconExperiment />,
         },
     ],

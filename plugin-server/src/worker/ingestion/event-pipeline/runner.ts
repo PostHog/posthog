@@ -162,18 +162,27 @@ export class EventPipelineRunner {
             tags: { team_id: teamId },
             extra: { currentStepName, currentArgs, originalEvent: this.originalEvent },
         })
+
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
 
         if (err instanceof DependencyUnavailableError) {
             // If this is an error with a dependency that we control, we want to
             // ensure that the caller knows that the event was not processed,
             // for a reason that we control and that is transient.
+            this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error_dep_unavailable', {
+                step: currentStepName,
+            })
             throw err
         }
 
         if (sentToDql) {
             try {
-                const message = generateEventDeadLetterQueueMessage(this.originalEvent, err)
+                const message = generateEventDeadLetterQueueMessage(
+                    this.originalEvent,
+                    err,
+                    teamId,
+                    `plugin_server_ingest_event:${currentStepName}`
+                )
                 await this.hub.db.kafkaProducer!.queueMessage(message)
                 this.hub.statsd?.increment('events_added_to_dead_letter_queue')
             } catch (dlqError) {

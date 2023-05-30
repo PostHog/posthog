@@ -1,7 +1,7 @@
 import { Logic, LogicWrapper } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { RefObject } from 'react'
+import React from 'react'
 
 export interface SidebarLogic extends Logic {
     actions: Record<never, never> // No actions required in the base version
@@ -83,9 +83,10 @@ export interface BasicListItem {
     }
     /** If search is on, this should be present to convey why this item is included in results. */
     searchMatch?: SearchMatch | null
-    menuItems?: LemonMenuItems
+    menuItems?: LemonMenuItems | ((initiateRename?: () => void) => LemonMenuItems)
+    onRename?: (newName: string) => Promise<void>
     /** Ref to the corresponding <a> element. This is injected automatically when the element is rendered. */
-    ref?: RefObject<HTMLAnchorElement>
+    ref?: React.MutableRefObject<HTMLElement | null>
 }
 
 export type ExtraListItemContext = string | Dayjs

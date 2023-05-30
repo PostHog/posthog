@@ -87,7 +87,7 @@ export function Sidebar(): JSX.Element {
                     </div>
                 )}
                 <div className="Sidebar3000__lists">
-                    <SidebarContent activeSidebarLogic={activeNavbarItem.pointer} />
+                    {activeNavbarItem?.pointer && <SidebarContent activeSidebarLogic={activeNavbarItem.pointer} />}
                 </div>
                 {!isSidebarKeyboardShortcutAcknowledged && <SidebarKeyboardShortcut />}
             </div>
