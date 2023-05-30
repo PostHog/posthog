@@ -21,9 +21,6 @@ export function AddToNotebook({
 }: AddToNotebookProps): JSX.Element {
     const { addNodeToNotebook } = useActions(notebookSidebarLogic)
 
-    // TODO: This is a temporary fix to prevent the button from showing up as it doesn't work yet...
-    return <></>
-
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
             <LemonButton

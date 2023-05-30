@@ -45,8 +45,6 @@ import { globalInsightLogic } from './globalInsightLogic'
 import { isInsightVizNode } from '~/queries/utils'
 import { posthog } from 'posthog-js'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
@@ -296,14 +294,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                         {insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
-                        )}
-
-                        {insightMode !== ItemMode.Edit && hasDashboardItemId && (
-                            <AddToNotebook
-                                node={NotebookNodeType.Insight}
-                                properties={{ id: insight.short_id }}
-                                type="secondary"
-                            />
                         )}
 
                         {insightMode !== ItemMode.Edit ? (
