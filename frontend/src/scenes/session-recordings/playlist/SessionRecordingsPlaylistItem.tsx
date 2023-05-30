@@ -80,9 +80,8 @@ export function SessionRecordingPlaylistItem({
 
     const firstPath = recording.start_url?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
 
-    // TODO: Modify onClick to only react to shift+click
     return (
-        <DraggableToNotebook href={urls.replaySingle(recording.id)}>
+        <DraggableToNotebook alwaysDraggable href={urls.replaySingle(recording.id)}>
             <li
                 key={recording.id}
                 className={clsx(

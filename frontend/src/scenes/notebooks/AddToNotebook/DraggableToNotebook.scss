@@ -1,5 +1,7 @@
-.AddToNotebookWrapper {
+.DraggableToNotebook {
     position: relative;
+    // Weird hack - this fixes browsers from not correctly identifying the bounds of the component for the
+    transform: translate3d(0, 0, 0);
 
     > [data-attr='add-to-notebook'] {
         position: absolute;

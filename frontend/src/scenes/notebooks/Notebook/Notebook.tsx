@@ -46,7 +46,8 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
         ignoreUpdateRef.current = true
     }, [content])
 
-    const editor = useEditor({
+    // NOTE: We shouldn't use this refernce as it can be that it is null in many of the contexts
+    const _editor = useEditor({
         extensions: [
             CustomDocument,
             StarterKit.configure({
@@ -83,10 +84,17 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                 class: 'NotebookEditor',
             },
             handleDrop: (view, event, _slice, moved) => {
+                const editor = logic.values.editor
+                if (!editor) {
+                    return false
+                }
+
                 if (!moved && event.dataTransfer) {
                     const text = event.dataTransfer.getData('text/plain')
+                    const node = event.dataTransfer.getData('node')
+                    const properties = event.dataTransfer.getData('properties')
 
-                    if (text.indexOf(window.location.origin) === 0) {
+                    if (text.indexOf(window.location.origin) === 0 || node) {
                         // PostHog link - ensure this gets input as a proper link
                         const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
 
@@ -94,8 +102,20 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                             return false
                         }
 
-                        editor?.chain().focus().setTextSelection(coordinates.pos).run()
-                        view.pasteText(text)
+                        if (node) {
+                            const res = editor
+                                .chain()
+                                .focus()
+                                .setTextSelection(coordinates.pos)
+                                .insertContent({ type: node, attrs: JSON.parse(properties) })
+                                .run()
+                            console.log('ADDING NODE', { node, properties, res })
+                        } else {
+                            editor?.chain().focus().setTextSelection(coordinates.pos).run()
+                            view.pasteText(text)
+                        }
+
+                        console.log('HERE?!=!', text, { type: node, attrs: JSON.parse(properties) })
 
                         return true
                     }
@@ -124,14 +144,14 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
     })
 
     useEffect(() => {
-        if (editor) {
-            setEditorRef(editor)
+        if (_editor) {
+            setEditorRef(_editor)
         }
-    }, [editor])
+    }, [_editor])
 
     useEffect(() => {
-        editor?.setEditable(editable && !!notebook, false)
-    }, [editable, editor, notebook])
+        _editor?.setEditable(editable && !!notebook, false)
+    }, [editable, _editor, notebook])
 
     // TODO - Render a special state if the notebook is empty
 
@@ -179,7 +199,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                 ) : !notebook ? (
                     <NotFound object={'recording'} />
                 ) : (
-                    <EditorContent editor={editor} className="flex flex-col flex-1" />
+                    <EditorContent editor={_editor} className="flex flex-col flex-1" />
                 )}
             </div>
         </BindLogic>
