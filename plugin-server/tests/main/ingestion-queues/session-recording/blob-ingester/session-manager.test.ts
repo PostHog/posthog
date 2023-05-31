@@ -192,8 +192,6 @@ describe('session-manager', () => {
 
         const payload = JSON.stringify([{ simple: 'data' }])
         const eventOne = createIncomingRecordingMessage({
-            // the highest offset doesn't have to be received first!
-            metadata: { offset: 12345 } as any,
             data: compressToString(payload),
             events_summary: [
                 {
@@ -203,11 +201,12 @@ describe('session-manager', () => {
                 },
             ],
             metadata: {
+                // the highest offset doesn't have to be received first!
+                offset: 12345,
                 timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
             } as any,
         })
         const eventTwo = createIncomingRecordingMessage({
-            metadata: { offset: 12344 } as any,
             data: compressToString(payload),
             events_summary: [
                 {
@@ -217,6 +216,7 @@ describe('session-manager', () => {
                 },
             ],
             metadata: {
+                offset: 12344,
                 timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
             } as any,
         })

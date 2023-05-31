@@ -130,7 +130,8 @@ export class SessionManager {
         }
 
         if (this.lastProcessedOffset === null) {
-            this.lastProcessedOffset = (await this.offsetHighWaterMark.get(this.sessionId)) ?? -Infinity
+            const allSessionIdOffsets = (await this.offsetHighWaterMark.getAll(this.topic, this.partition)) ?? {}
+            this.lastProcessedOffset = allSessionIdOffsets[this.sessionId] ?? -1
         }
 
         if (message.metadata.offset <= this.lastProcessedOffset) {
@@ -286,10 +287,8 @@ export class SessionManager {
 
             await this.inProgressUpload.done()
 
-            await this.offsetHighWaterMark.set(
-                this.sessionId,
-                this.flushBuffer.offsets.sort((a, b) => a - b)[this.flushBuffer.offsets.length - 1]
-            )
+            const maxOffset = this.flushBuffer.offsets.sort((a, b) => a - b)[this.flushBuffer.offsets.length - 1]
+            await this.offsetHighWaterMark.onCommit(this.topic, this.partition, maxOffset)
 
             fileStream.close()
 

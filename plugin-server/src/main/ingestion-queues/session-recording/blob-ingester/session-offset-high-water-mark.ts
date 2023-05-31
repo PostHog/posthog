@@ -5,7 +5,9 @@ import { RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 
-const offsetHighWaterMarkKey = (sessionId: string) => `@posthog/replay/partition-high-water-marks/${sessionId}`
+const offsetHighWaterMarkKey = (prefix: string, topic: string, partition: number) => {
+    return `${prefix}/partition-high-water-marks/${topic}/${partition}`
+}
 
 /**
  * If a file is written to S3 we need to know the offset of the last message in that file so that we can
@@ -18,7 +20,7 @@ const offsetHighWaterMarkKey = (sessionId: string) => `@posthog/replay/partition
  * so that we don't re-process those messages.
  */
 export class SessionOffsetHighWaterMark {
-    constructor(private redisPool: RedisPool) {}
+    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {
         const client = await this.redisPool.acquire()
@@ -38,55 +40,91 @@ export class SessionOffsetHighWaterMark {
         }
     }
 
-    public async set(sessionId: string, offset: number): Promise<void> {
-        const key = offsetHighWaterMarkKey(sessionId)
+    public async add(topic: string, partition: number, sessionId: string, offset: number): Promise<void> {
+        const key = offsetHighWaterMarkKey(this.keyPrefix, topic, partition)
         try {
             await this.run(`write offset high-water mark ${key} `, async (client) => {
-                const pipeline = client.pipeline()
-                pipeline.set(key, offset)
-                // expire after 7 days
-                // if we can't process a session in 7 days we have bigger problems
-                // than re-processing some files
-                pipeline.expire(key, 7 * 24 * 60 * 60)
-                return pipeline.exec()
+                return client.zadd(key, offset, sessionId)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
-                error,
+                error: error.message,
                 key,
+                topic,
+                partition,
                 sessionId,
                 offset,
             })
             captureException(error, {
                 extra: {
                     key,
+                    offset,
                 },
                 tags: {
+                    topic,
+                    partition,
                     sessionId,
                 },
             })
         }
     }
 
-    public async get(sessionId: string): Promise<number | null> {
-        const key = offsetHighWaterMarkKey(sessionId)
+    public async getAll(topic: string, partition: number): Promise<Record<string, number> | null> {
+        const key = offsetHighWaterMarkKey(this.keyPrefix, topic, partition)
         try {
-            return await this.run(`read offset high-water mark ${key} `, async (client) => {
-                const redisValue = await client.get(key)
-                return redisValue ? parseInt(redisValue) : null
+            return await this.run(`read all offset high-water mark for ${key} `, async (client) => {
+                const redisValue = await client.zrange(key, 0, -1, 'WITHSCORES')
+                // redisValue is an array of [sessionId, offset, sessionId, offset, ...]
+                // we want to convert it to an object of { sessionId: offset, sessionId: offset, ... }
+                return redisValue.reduce((acc: Record<string, number>, value: string, index: number) => {
+                    if (index % 2 === 0) {
+                        acc[value] = parseInt(redisValue[index + 1])
+                    }
+                    return acc
+                }, {})
             })
         } catch (error) {
-            status.error('🧨', 'WrittenOffsetCache failed to read high-water mark for partition', {
-                error,
+            status.error('🧨', 'WrittenOffsetCache failed to read high-water marks for partition', {
+                error: error.message,
                 key,
-                sessionId,
+                topic,
+                partition,
             })
             captureException(error, {
                 extra: {
                     key,
                 },
                 tags: {
-                    sessionId,
+                    topic,
+                    partition,
+                },
+            })
+            return null
+        }
+    }
+
+    public async onCommit(topic: string, partition: number, offset: number): Promise<Record<string, number> | null> {
+        const key = offsetHighWaterMarkKey(this.keyPrefix, topic, partition)
+        try {
+            return await this.run(`commit all below offset high-water mark for ${key} `, async (client) => {
+                const numberRemoved = await client.zremrangebyscore(key, '-Inf', offset)
+                console.log('removed ', numberRemoved, ' entries from ', key)
+                return this.getAll(topic, partition)
+            })
+        } catch (error) {
+            status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {
+                error: error.message,
+                key,
+                topic,
+                partition,
+            })
+            captureException(error, {
+                extra: {
+                    key,
+                },
+                tags: {
+                    topic,
+                    partition,
                 },
             })
             return null
