@@ -25,6 +25,7 @@ export const createRdConnectionConfigFromEnvVars = (kafkaConfig: KafkaConfig): G
         'sasl.username': kafkaConfig.KAFKA_SASL_USER,
         'sasl.password': kafkaConfig.KAFKA_SASL_PASSWORD,
         'enable.ssl.certificate.verification': false,
+        'client.rack': kafkaConfig.KAFKA_CLIENT_RACK,
         log_level: RDKAFKA_LOG_LEVEL_MAPPING[kafkaConfig.KAFKAJS_LOG_LEVEL],
     }
 

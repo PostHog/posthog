@@ -261,6 +261,7 @@ export type KafkaConfig = {
     KAFKA_SASL_MECHANISM?: KafkaSaslMechanism
     KAFKA_SASL_USER?: string
     KAFKA_SASL_PASSWORD?: string
+    KAFKA_CLIENT_RACK?: string
 }
 
 export function createKafkaClient({
