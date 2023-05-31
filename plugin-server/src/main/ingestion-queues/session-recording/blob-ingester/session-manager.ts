@@ -78,7 +78,7 @@ export class SessionManager {
         public readonly sessionId: string,
         public readonly partition: number,
         public readonly topic: string,
-        private readonly onFinish: (offsetsToRemove: number[]) => void
+        private readonly onFinish: (offsetsToRemove: number[], sessionId: string) => Promise<void>
     ) {
         this.buffer = this.createBuffer()
     }
@@ -300,7 +300,7 @@ export class SessionManager {
             this.flushBuffer = undefined
 
             // TODO: we shouldn't call this if the S3 file write failed?
-            this.onFinish(offsets)
+            await this.onFinish(offsets, this.sessionId)
         }
     }
 
