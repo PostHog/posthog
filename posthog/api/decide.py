@@ -67,7 +67,8 @@ def get_decide(request: HttpRequest):
         "config": {"enable_collect_everything": True},
         "toolbarParams": {},
         "isAuthenticated": False,
-        "supportedCompression": ["gzip", "gzip-js", "lz64"],
+        # gzip and gzip-js are aliases for the same compression algorithm
+        "supportedCompression": ["gzip", "gzip-js"],
     }
 
     response["featureFlags"] = []
