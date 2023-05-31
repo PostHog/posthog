@@ -7,6 +7,7 @@ import { urlToAction } from 'kea-router'
 import { notebooksListLogic } from './notebooksListLogic'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
+import { subscriptions } from 'kea-subscriptions'
 
 export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookSidebarLogic']),
@@ -62,13 +63,19 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         ],
     })),
 
+    subscriptions({
+        notebookSideBarShown: (value, oldvalue) => {
+            if (oldvalue !== undefined && value !== oldvalue) {
+                posthog.capture(`notebook sidebar ${value ? 'shown' : 'hidden'}`)
+            }
+        },
+    }),
+
     listeners(({ values, actions, cache }) => ({
         setNotebookSideBarShown: ({ shown }) => {
             if (shown) {
                 actions.setFullScreen(false)
             }
-
-            posthog.capture(`notebook sidebar ${shown ? 'shown' : 'hidden'}`)
         },
 
         addNodeToNotebook: ({ type, properties }) => {

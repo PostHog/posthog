@@ -122,6 +122,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     selectors({
+        shortId: [() => [(_, props) => props], (props): string => props.shortId],
         isLocalOnly: [() => [(_, props) => props], (props): boolean => props.shortId === 'scratchpad'],
         content: [
             (s) => [s.notebook, s.localContent],
