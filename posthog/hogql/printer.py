@@ -102,7 +102,6 @@ class _Printer(Visitor):
         self.context = context
         self.dialect = dialect
         self.stack: List[ast.AST] = stack or []  # Keep track of all traversed nodes.
-        self.call_stack: List[str] = []  # Keep track of all traversed nodes.
         self.settings = settings
 
     def visit(self, node: ast.AST):
