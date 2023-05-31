@@ -63,4 +63,32 @@ describe('session offset high-water mark', () => {
             'a-third-session': 1,
         })
     })
+
+    it('can check if an offset is below the high-water mark', async () => {
+        const thing = new SessionOffsetHighWaterMark(hub.redisPool, keyPrefix)
+
+        await thing.add('topic', 1, 'some-session', 123)
+        await thing.add('topic', 1, 'another-session', 12)
+        await thing.add('topic', 2, 'a-third-session', 1)
+
+        expect(await thing.isBelowHighWaterMark('topic', 1, 'some-session', 124)).toBe(false)
+        expect(await thing.isBelowHighWaterMark('topic', 1, 'some-session', 123)).toBe(true)
+        expect(await thing.isBelowHighWaterMark('topic', 1, 'some-session', 12)).toBe(true)
+        expect(await thing.isBelowHighWaterMark('topic', 1, 'some-session', 11)).toBe(true)
+
+        expect(await thing.isBelowHighWaterMark('topic', 1, 'another-session', 124)).toBe(false)
+        expect(await thing.isBelowHighWaterMark('topic', 1, 'another-session', 123)).toBe(false)
+        expect(await thing.isBelowHighWaterMark('topic', 1, 'another-session', 12)).toBe(true)
+        expect(await thing.isBelowHighWaterMark('topic', 1, 'another-session', 11)).toBe(true)
+
+        expect(await thing.isBelowHighWaterMark('topic', 2, 'a-third-session', 124)).toBe(false)
+        expect(await thing.isBelowHighWaterMark('topic', 2, 'a-third-session', 123)).toBe(false)
+        expect(await thing.isBelowHighWaterMark('topic', 2, 'a-third-session', 12)).toBe(false)
+        expect(await thing.isBelowHighWaterMark('topic', 2, 'a-third-session', 11)).toBe(false)
+        expect(await thing.isBelowHighWaterMark('topic', 2, 'a-third-session', 1)).toBe(true)
+        expect(await thing.isBelowHighWaterMark('topic', 2, 'a-third-session', 0)).toBe(true)
+
+        // there is nothing for a partition? we are always below the high-water mark
+        expect(await thing.isBelowHighWaterMark('topic', 1, 'anything we did not add yet', 5432)).toBe(false)
+    })
 })

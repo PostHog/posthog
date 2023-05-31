@@ -13,7 +13,6 @@ import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
 import { PendingChunks } from './pending-chunks'
-import { SessionOffsetHighWaterMark } from './session-offset-high-water-mark'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
@@ -71,12 +70,10 @@ export class SessionManager {
     flushBuffer?: SessionBuffer
     destroying = false
     inProgressUpload: Upload | null = null
-    lastProcessedOffset: number | null = null
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
         public readonly s3Client: ObjectStorage['s3'],
-        private readonly offsetHighWaterMark: SessionOffsetHighWaterMark,
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
@@ -126,16 +123,6 @@ export class SessionManager {
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
-            return
-        }
-
-        if (this.lastProcessedOffset === null) {
-            const allSessionIdOffsets = (await this.offsetHighWaterMark.getAll(this.topic, this.partition)) ?? {}
-            this.lastProcessedOffset = allSessionIdOffsets[this.sessionId] ?? -1
-        }
-
-        if (message.metadata.offset <= this.lastProcessedOffset) {
-            this.buffer.offsets.push(message.metadata.offset)
             return
         }
 
@@ -287,9 +274,6 @@ export class SessionManager {
 
             await this.inProgressUpload.done()
 
-            const maxOffset = this.flushBuffer.offsets.sort((a, b) => a - b)[this.flushBuffer.offsets.length - 1]
-            await this.offsetHighWaterMark.onCommit(this.topic, this.partition, maxOffset)
-
             fileStream.close()
 
             counterS3FilesWritten.labels(reason).inc(1)
@@ -315,7 +299,7 @@ export class SessionManager {
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
 
-            // TODO: Sync the last processed offset to redis
+            // TODO: we shouldn't call this if the S3 file write failed?
             this.onFinish(offsets)
         }
     }

@@ -192,6 +192,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
+    SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
 }
 
 export interface Hub extends PluginsServerConfig {

@@ -6,7 +6,6 @@ import { DateTime, Settings } from 'luxon'
 import { defaultConfig } from '../../../../../src/config/config'
 import { PendingChunks } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/pending-chunks'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
-import { SessionOffsetHighWaterMark } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-offset-high-water-mark'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
 import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
@@ -50,25 +49,12 @@ describe('session-manager', () => {
     const mockS3Client: any = {
         send: jest.fn(),
     }
-    const mockHighWaterMark = {
-        set: jest.fn(),
-        get: jest.fn(),
-    }
 
     beforeEach(() => {
         // it's always May 25
         Settings.now = () => new Date(2018, 4, 25).valueOf()
 
-        sessionManager = new SessionManager(
-            defaultConfig,
-            mockS3Client,
-            mockHighWaterMark as unknown as SessionOffsetHighWaterMark,
-            1,
-            'session_id_1',
-            1,
-            'topic',
-            mockFinish
-        )
+        sessionManager = new SessionManager(defaultConfig, mockS3Client, 1, 'session_id_1', 1, 'topic', mockFinish)
         mockFinish.mockClear()
     })
 
@@ -238,7 +224,6 @@ describe('session-manager', () => {
                 }),
             })
         )
-        expect(mockHighWaterMark.set).toHaveBeenCalledWith('session_id_1', 12345)
     })
 
     it('does not flush a short session even when lagging if within threshold', async () => {
@@ -605,38 +590,4 @@ describe('session-manager', () => {
             expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
         }
     )
-
-    it('skips messages that are below the high-water mark', async () => {
-        mockHighWaterMark.get.mockResolvedValue(1000)
-
-        await sessionManager.add(
-            createIncomingRecordingMessage({
-                metadata: {
-                    offset: 998,
-                } as any,
-            })
-        )
-        expect(sessionManager.buffer.count).toEqual(0)
-        expect(sessionManager.buffer.offsets).toEqual([998])
-
-        await sessionManager.add(
-            createIncomingRecordingMessage({
-                metadata: {
-                    offset: 1000,
-                } as any,
-            })
-        )
-        expect(sessionManager.buffer.count).toEqual(0)
-        expect(sessionManager.buffer.offsets).toEqual([998, 1000])
-
-        await sessionManager.add(
-            createIncomingRecordingMessage({
-                metadata: {
-                    offset: 1001,
-                } as any,
-            })
-        )
-        expect(sessionManager.buffer.count).toEqual(1)
-        expect(sessionManager.buffer.offsets).toEqual([998, 1000, 1001])
-    })
 })

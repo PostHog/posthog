@@ -8,6 +8,20 @@ import { Hub, PluginsServerConfig } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { createIncomingRecordingMessage } from './fixtures'
 
+const keyPrefix = 'test-session-offset-high-water-mark'
+
+async function deleteKeysWithPrefix(hub: Hub, keyPrefix: string) {
+    const redisClient = await hub.redisPool.acquire()
+    const keys = await redisClient.keys(`${keyPrefix}*`)
+    const pipeline = redisClient.pipeline()
+    keys.forEach(function (key) {
+        console.log('deleting key', key)
+        pipeline.del(key)
+    })
+    await pipeline.exec()
+    await hub.redisPool.release(redisClient)
+}
+
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
         startBatchConsumer: jest.fn(() =>
@@ -47,6 +61,7 @@ describe('ingester', () => {
 
     afterEach(async () => {
         await ingester.stop()
+        await deleteKeysWithPrefix(hub, keyPrefix)
         await closeHub()
     })
 
@@ -59,7 +74,10 @@ describe('ingester', () => {
         beforeEach(async () => {
             ingester = new SessionRecordingBlobIngester(
                 hub.teamManager,
-                defaultConfig,
+                {
+                    ...defaultConfig,
+                    SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: keyPrefix,
+                },
                 hub.objectStorage,
                 hub.redisPool,
                 veryShortFlushInterval * 100_000
@@ -125,4 +143,38 @@ describe('ingester', () => {
             expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
         })
     })
+
+    // it('skips messages that are below the high-water mark', async () => {
+    //     mockHighWaterMark.get.mockResolvedValue(1000)
+    //
+    //     await sessionManager.add(
+    //         createIncomingRecordingMessage({
+    //             metadata: {
+    //                 offset: 998,
+    //             } as any,
+    //         })
+    //     )
+    //     expect(sessionManager.buffer.count).toEqual(0)
+    //     expect(sessionManager.buffer.offsets).toEqual([998])
+    //
+    //     await sessionManager.add(
+    //         createIncomingRecordingMessage({
+    //             metadata: {
+    //                 offset: 1000,
+    //             } as any,
+    //         })
+    //     )
+    //     expect(sessionManager.buffer.count).toEqual(0)
+    //     expect(sessionManager.buffer.offsets).toEqual([998, 1000])
+    //
+    //     await sessionManager.add(
+    //         createIncomingRecordingMessage({
+    //             metadata: {
+    //                 offset: 1001,
+    //             } as any,
+    //         })
+    //     )
+    //     expect(sessionManager.buffer.count).toEqual(1)
+    //     expect(sessionManager.buffer.offsets).toEqual([998, 1000, 1001])
+    // })
 })

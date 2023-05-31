@@ -75,10 +75,13 @@ export class SessionRecordingBlobIngester {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
             enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
-        this.sessionOffsetHighWaterMark = new SessionOffsetHighWaterMark(this.redisPool)
+        this.sessionOffsetHighWaterMark = new SessionOffsetHighWaterMark(
+            this.redisPool,
+            serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
+        )
     }
 
-    public async consume(event: IncomingRecordingMessage): Promise<void> {
+    public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
@@ -94,19 +97,42 @@ export class SessionRecordingBlobIngester {
             .set(DateTime.now().toMillis() - timestamp)
         this.consumerNow = Math.max(timestamp, this.consumerNow ?? -Infinity)
 
+        const highWaterMarkSpan = sentrySpan?.startChild({
+            op: 'checkHighWaterMark',
+        })
+        if (
+            await this.sessionOffsetHighWaterMark.isBelowHighWaterMark(
+                event.metadata.topic,
+                event.metadata.partition,
+                event.session_id,
+                event.metadata.offset
+            )
+        ) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'high_water_mark',
+                })
+                .inc()
+            return
+        }
+        highWaterMarkSpan?.finish()
+
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
 
             const sessionManager = new SessionManager(
                 this.serverConfig,
                 this.objectStorage.s3,
-                this.sessionOffsetHighWaterMark,
                 team_id,
                 session_id,
                 partition,
                 topic,
-                (offsets) => {
-                    this.offsetManager?.removeOffsets(topic, partition, offsets)
+                async (offsets) => {
+                    const committedOffset = this.offsetManager?.removeOffsets(topic, partition, offsets)
+                    if (committedOffset) {
+                        await this.sessionOffsetHighWaterMark.onCommit(topic, partition, committedOffset)
+                    }
                 }
             )
 
@@ -222,7 +248,7 @@ export class SessionRecordingBlobIngester {
         const consumeSpan = span?.startChild({
             op: 'consume',
         })
-        await this.consume(recordingMessage)
+        await this.consume(recordingMessage, consumeSpan)
         consumeSpan?.finish()
     }
 

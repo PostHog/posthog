@@ -6,7 +6,7 @@ import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 
 const offsetHighWaterMarkKey = (prefix: string, topic: string, partition: number) => {
-    return `${prefix}/partition-high-water-marks/${topic}/${partition}`
+    return `${prefix}/${topic}/${partition}`
 }
 
 /**
@@ -20,7 +20,9 @@ const offsetHighWaterMarkKey = (prefix: string, topic: string, partition: number
  * so that we don't re-process those messages.
  */
 export class SessionOffsetHighWaterMark {
-    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay') {}
+    private topicPartitionWaterMarks: Record<string, Record<string, number>> = {}
+
+    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/partition-high-water-marks') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {
         const client = await this.redisPool.acquire()
@@ -44,7 +46,8 @@ export class SessionOffsetHighWaterMark {
         const key = offsetHighWaterMarkKey(this.keyPrefix, topic, partition)
         try {
             await this.run(`write offset high-water mark ${key} `, async (client) => {
-                return client.zadd(key, offset, sessionId)
+                await client.zadd(key, offset, sessionId)
+                this.topicPartitionWaterMarks[`${topic}-${partition}`][sessionId] = offset
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
@@ -76,12 +79,19 @@ export class SessionOffsetHighWaterMark {
                 const redisValue = await client.zrange(key, 0, -1, 'WITHSCORES')
                 // redisValue is an array of [sessionId, offset, sessionId, offset, ...]
                 // we want to convert it to an object of { sessionId: offset, sessionId: offset, ... }
-                return redisValue.reduce((acc: Record<string, number>, value: string, index: number) => {
-                    if (index % 2 === 0) {
-                        acc[value] = parseInt(redisValue[index + 1])
-                    }
-                    return acc
-                }, {})
+                const highWaterMarks = redisValue.reduce(
+                    (acc: Record<string, number>, value: string, index: number) => {
+                        if (index % 2 === 0) {
+                            acc[value] = parseInt(redisValue[index + 1])
+                        }
+                        return acc
+                    },
+                    {}
+                )
+                if (highWaterMarks) {
+                    this.topicPartitionWaterMarks[`${topic}-${partition}`] = highWaterMarks
+                }
+                return highWaterMarks
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to read high-water marks for partition', {
@@ -109,7 +119,7 @@ export class SessionOffsetHighWaterMark {
             return await this.run(`commit all below offset high-water mark for ${key} `, async (client) => {
                 const numberRemoved = await client.zremrangebyscore(key, '-Inf', offset)
                 console.log('removed ', numberRemoved, ' entries from ', key)
-                return this.getAll(topic, partition)
+                return await this.getAll(topic, partition)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {
@@ -129,5 +139,20 @@ export class SessionOffsetHighWaterMark {
             })
             return null
         }
+    }
+
+    public async isBelowHighWaterMark(
+        topic: string,
+        partition: number,
+        sessionId: string,
+        offset: number
+    ): Promise<boolean> {
+        if (!this.topicPartitionWaterMarks[partition]) {
+            const highWaterMarks = await this.getAll(topic, partition)
+            if (highWaterMarks) {
+                this.topicPartitionWaterMarks[partition] = highWaterMarks
+            }
+        }
+        return offset <= this.topicPartitionWaterMarks[partition]?.[sessionId]
     }
 }
