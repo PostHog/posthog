@@ -29,10 +29,8 @@ export function LemonBanner({
     dismissKey = '',
 }: LemonBannerProps): JSX.Element {
     const logic = lemonBannerLogic({ dismissKey })
-
     const { isDismissed } = useValues(logic)
     const { dismiss } = useActions(logic)
-
     const showCloseButton = dismissKey || onClose
 
     const _onClose = (): void => {
@@ -56,7 +54,7 @@ export function LemonBanner({
                     status="primary-alt"
                     size="small"
                     icon={<IconClose />}
-                    onClick={() => _onClose()}
+                    onClick={_onClose}
                     aria-label="close"
                 />
             )}

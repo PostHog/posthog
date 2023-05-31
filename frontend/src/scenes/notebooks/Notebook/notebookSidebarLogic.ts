@@ -72,15 +72,8 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     }),
 
     listeners(({ values, actions, cache }) => ({
-        setNotebookSideBarShown: ({ shown }) => {
-            if (shown) {
-                actions.setFullScreen(false)
-            }
-        },
-
         addNodeToNotebook: ({ type, properties }) => {
             notebookLogic({ shortId: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
-
             actions.setNotebookSideBarShown(true)
         },
 
