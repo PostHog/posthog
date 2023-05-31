@@ -44,7 +44,7 @@ dependencies:
     specifier: 1.4.0
     version: 1.4.0
   '@sentry/node':
-    specifier: ^7.17.4
+    specifier: ^7.49.0
     version: 7.49.0
   '@sentry/tracing':
     specifier: ^7.17.4
