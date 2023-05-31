@@ -21,6 +21,7 @@ import { NotebookSyncStatus, NotebookType } from '~/types'
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
 import { JSONContent, Editor } from './utils'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 
 const SYNC_DELAY = 1000
 
@@ -181,6 +182,11 @@ export const notebookLogic = kea<notebookLogicType>([
 
         setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
+
+            posthog.capture('notebook content changed', {
+                short_id: values.notebook?.short_id,
+            })
+
             if (!values.isLocalOnly && values.content && !values.notebookLoading) {
                 actions.saveNotebook({
                     content: values.content,
@@ -203,6 +209,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadNotebook()
+        // Gives a chance for the notebook to appear before we actually render the content
         setTimeout(() => {
             actions.setReady()
         }, 500)
