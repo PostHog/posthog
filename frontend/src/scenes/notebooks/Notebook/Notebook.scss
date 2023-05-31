@@ -1,45 +1,52 @@
 .Notebook {
-    height: 100%;
-    flex: 1;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
-}
-.NotebookEditor {
     flex: 1;
-    padding: 1rem 2rem;
 
-    > :not(.react-renderer) {
-        max-width: 1000px;
-        margin: 0 auto;
+    .NotebookEditor {
+        flex: 1;
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5 {
+            margin-top: 0.5rem;
+        }
+
+        p {
+            margin-bottom: 0.2rem;
+        }
+
+        &.ProseMirror-focused {
+            outline: none;
+        }
+
+        .is-empty::before {
+            content: attr(data-placeholder);
+            float: left;
+            color: rgba(0, 0, 0, 0.2);
+            pointer-events: none;
+            height: 0;
+        }
+
+        ul,
+        ol {
+            padding-left: 1rem;
+        }
+
+        ul {
+            list-style: initial;
+        }
     }
 
-    .react-renderer {
-        max-width: 1000px;
-        margin: 0 auto;
-    }
-
-    h1,
-    h2,
-    h3,
-    h4,
-    h5 {
-        margin-top: 0.5rem;
-    }
-
-    p {
-        margin-bottom: 0.2rem;
-    }
-
-    &.ProseMirror-focused {
-        outline: none;
-    }
-
-    .is-empty::before {
-        content: attr(data-placeholder);
-        float: left;
-        color: rgba(0, 0, 0, 0.2);
-        pointer-events: none;
-        height: 0;
+    &--compact {
+        .NotebookEditor {
+            > * {
+                max-width: 1000px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+        }
     }
 }

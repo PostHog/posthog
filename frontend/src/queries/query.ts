@@ -1,4 +1,5 @@
-import { DataNode, EventsQuery, PersonsNode } from './schema'
+import posthog from 'posthog-js'
+import { DataNode, HogQLQueryResponse, PersonsNode } from './schema'
 import {
     isInsightQueryNode,
     isEventsQuery,
@@ -31,15 +32,17 @@ import { currentSessionId } from 'lib/internalMetrics'
 
 const EVENTS_DAYS_FIRST_FETCH = 5
 
-export const DEFAULT_QUERY_LIMIT = 100
-
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean
 ): OnlineExportContext {
-    if (isEventsQuery(query)) {
+    if (isInsightVizNode(query)) {
+        return queryExportContext(query.source, methodOptions, refresh)
+    } else if (isDataTableNode(query)) {
+        return queryExportContext(query.source, methodOptions, refresh)
+    } else if (isEventsQuery(query)) {
         return {
             path: api.queryURL(),
             method: 'POST',
@@ -58,8 +61,6 @@ export function queryExportContext<N extends DataNode = DataNode>(
             currentTeamId: getCurrentTeamId(),
             refresh,
         })
-    } else if (isInsightVizNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh)
     } else if (isLegacyQuery(query)) {
         return legacyInsightQueryExportContext({
             filters: query.filters,
@@ -98,8 +99,6 @@ export function queryExportContext<N extends DataNode = DataNode>(
         }
     } else if (isRecentPerformancePageViewNode(query)) {
         return { path: api.performanceEvents.recentPageViewsURL() }
-    } else if (isDataTableNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh)
     }
     throw new Error(`Unsupported query: ${query.kind}`)
 }
@@ -115,62 +114,58 @@ export async function query<N extends DataNode = DataNode>(
         return query(queryNode.source)
     }
 
-    if (isPersonsNode(queryNode)) {
-        return await api.get(getPersonsEndpoint(queryNode), methodOptions)
-    } else if (isInsightQueryNode(queryNode)) {
-        const filters = queryNodeToFilter(queryNode)
-        const params = {
-            ...filters,
-            ...(refresh ? { refresh: true } : {}),
-            client_query_id: queryId,
-            session_id: currentSessionId(),
+    let response: N['response']
+    const logParams: Record<string, any> = {}
+    const startTime = performance.now()
+
+    try {
+        if (isPersonsNode(queryNode)) {
+            response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
+        } else if (isInsightQueryNode(queryNode)) {
+            const filters = queryNodeToFilter(queryNode)
+            const params = {
+                ...filters,
+                ...(refresh ? { refresh: true } : {}),
+                client_query_id: queryId,
+                session_id: currentSessionId(),
+            }
+            const [resp] = await legacyInsightQuery({
+                filters: params,
+                currentTeamId: getCurrentTeamId(),
+                methodOptions,
+                refresh,
+            })
+            response = await resp.json()
+        } else if (isLegacyQuery(queryNode)) {
+            const [resp] = await legacyInsightQuery({
+                filters: queryNode.filters,
+                currentTeamId: getCurrentTeamId(),
+                methodOptions,
+            })
+            response = await resp.json()
+        } else if (isTimeToSeeDataQuery(queryNode)) {
+            response = await api.query(
+                {
+                    ...queryNode,
+                    teamId: queryNode.teamId ?? getCurrentTeamId(),
+                    sessionId: queryNode.sessionId ?? currentSessionId(),
+                    sessionStart: queryNode.sessionStart ?? now().subtract(1, 'day').toISOString(),
+                    sessionEnd: queryNode.sessionEnd ?? now().toISOString(),
+                },
+                methodOptions
+            )
+        } else {
+            response = await api.query(queryNode, methodOptions, queryId)
+            if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
+                logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
+            }
         }
-        const [response] = await legacyInsightQuery({
-            filters: params,
-            currentTeamId: getCurrentTeamId(),
-            methodOptions,
-            refresh,
-        })
-        return await response.json()
-    } else if (isLegacyQuery(queryNode)) {
-        const [response] = await legacyInsightQuery({
-            filters: queryNode.filters,
-            currentTeamId: getCurrentTeamId(),
-            methodOptions,
-        })
-        return await response.json()
-    } else if (isTimeToSeeDataQuery(queryNode)) {
-        return await api.query(
-            {
-                ...queryNode,
-                teamId: queryNode.teamId ?? getCurrentTeamId(),
-                sessionId: queryNode.sessionId ?? currentSessionId(),
-                sessionStart: queryNode.sessionStart ?? now().subtract(1, 'day').toISOString(),
-                sessionEnd: queryNode.sessionEnd ?? now().toISOString(),
-            },
-            methodOptions
-        )
+        posthog.capture('query completed', { query: queryNode, duration: performance.now() - startTime, ...logParams })
+        return response
+    } catch (e) {
+        posthog.capture('query failed', { query: queryNode, duration: performance.now() - startTime, ...logParams })
+        throw e
     }
-
-    return await api.query(queryNode, methodOptions, queryId)
-}
-
-export function getEventsEndpoint(query: EventsQuery): string {
-    return api.events.determineListEndpoint(
-        {
-            properties: [...(query.fixedProperties || []), ...(query.properties || [])],
-            ...(query.event ? { event: query.event } : {}),
-            ...(isEventsQuery(query) ? { select: query.select ?? [] } : {}),
-            ...(isEventsQuery(query) ? { where: query.where ?? [] } : {}),
-            ...(query.actionId ? { action_id: query.actionId } : {}),
-            ...(query.personId ? { person_id: query.personId } : {}),
-            ...(query.before ? { before: query.before } : {}),
-            ...(query.after ? { after: query.after } : {}),
-            ...(query.orderBy ? { orderBy: query.orderBy } : {}),
-            ...(query.offset ? { offset: query.offset } : {}),
-        },
-        query.limit ?? DEFAULT_QUERY_LIMIT
-    )
 }
 
 export function getPersonsEndpoint(query: PersonsNode): string {

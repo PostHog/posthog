@@ -1,6 +1,12 @@
 import { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { ActorType, ExporterFormat, PropertiesTimelineFilterType, SessionRecordingType } from '~/types'
+import {
+    ActorType,
+    ExporterFormat,
+    PropertiesTimelineFilterType,
+    PropertyDefinitionType,
+    SessionRecordingType,
+} from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
@@ -296,7 +302,10 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                             {propertiesTimelineFilter ? (
                                 <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
                             ) : (
-                                <PropertiesTable properties={actor.properties} />
+                                <PropertiesTable
+                                    type={actor.type /* "person" or "group" */ as PropertyDefinitionType}
+                                    properties={actor.properties}
+                                />
                             )}
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Recordings" key="recordings">

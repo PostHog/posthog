@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
 import {
     PersonPropertyFilter,
@@ -39,12 +39,6 @@ export interface PersonsLogicProps {
 export const personsLogic = kea<personsLogicType>({
     props: {} as PersonsLogicProps,
     key: (props) => {
-        if (!props.fixedProperties && !props.cohort && !props.syncWithUrl) {
-            throw new Error(
-                `personsLogic must be initialized with props.cohort or props.syncWithUrl or props.fixedProperties`
-            )
-        }
-
         if (props.fixedProperties) {
             return JSON.stringify(props.fixedProperties)
         }
@@ -253,9 +247,10 @@ export const personsLogic = kea<personsLogicType>({
     }),
     loaders: ({ values, actions, props }) => ({
         persons: [
-            { next: null, previous: null, results: [] } as PersonPaginatedResponse,
+            { next: null, previous: null, results: [] } as PaginatedResponse<PersonType>,
             {
-                loadPersons: async ({ url }) => {
+                loadPersons: async ({ url }, breakpoint) => {
+                    let result: PaginatedResponse<PersonType>
                     if (!url) {
                         const newFilters = { ...values.listFilters }
                         newFilters.properties = [
@@ -263,12 +258,15 @@ export const personsLogic = kea<personsLogicType>({
                             ...values.hiddenListProperties,
                         ]
                         if (props.cohort) {
-                            url = `api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`
+                            result = await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)
                         } else {
-                            return api.persons.list(newFilters)
+                            result = await api.persons.list(newFilters)
                         }
+                    } else {
+                        result = await api.get(url)
                     }
-                    return await api.get(url)
+                    breakpoint()
+                    return result
                 },
             },
         ],

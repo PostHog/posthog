@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingFilters, SessionRecordingType, ReplayTabs } from '~/types'
 import {
+    DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
     sessionRecordingsListLogic,
@@ -21,6 +22,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SessionRecordingsFiltersV2 } from '../filters/SessionRecordingsFiltersV2'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -92,9 +94,6 @@ export function RecordingsLists({
 
     return (
         <>
-            {/* {showFilters ? (
-                <SessionRecordingsFilters filters={filters} setFilters={setFilters} showPropertyFilters={!personUUID} />
-            ) : null} */}
             <div className="SessionRecordingsPlaylist__lists">
                 {/* Pinned recordings */}
                 {!!playlistShortId && !showFilters ? (
@@ -218,7 +217,26 @@ export function RecordingsLists({
                     recordings={sessionRecordings}
                     loading={sessionRecordingsResponseLoading}
                     loadingSkeletonCount={RECORDINGS_LIMIT}
-                    empty={<>No matching recordings found</>}
+                    empty={
+                        <div className={'flex flex-col items-center space-y-2'}>
+                            <span>No matching recordings found</span>
+                            {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
+                                <>
+                                    <LemonButton
+                                        type={'secondary'}
+                                        data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
+                                        onClick={() => {
+                                            setFilters({
+                                                date_from: '-21d',
+                                            })
+                                        }}
+                                    >
+                                        Search over the last 21 days
+                                    </LemonButton>
+                                </>
+                            )}
+                        </div>
+                    }
                     activeRecordingId={activeSessionRecording?.id}
                     onScrollToEnd={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('older') : undefined}
                     onScrollToStart={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('newer') : undefined}
@@ -295,7 +313,14 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
 
     return (
         <>
-            {/* {mode === 'standard' ? <SessionRecordingsPlaylistFilters {...props} /> : null} */}
+            {/* This was added around Jun 23 so at some point can just be removed */}
+            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-2">
+                <b>Filters have moved!</b> You can now find all filters including time and duration by clicking the{' '}
+                <span className="mx-1 text-lg">
+                    <IconFilter />
+                </span>
+                icon at the top of the list of recordings.
+            </LemonBanner>
             <div
                 ref={playlistRef}
                 data-attr="session-recordings-playlist"

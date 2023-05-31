@@ -43,7 +43,6 @@ class TestSignupAPI(APIBaseTest):
                 "organization_name": "Hedgehogs United, LLC",
                 "role_at_organization": "product",
                 "email_opt_in": False,
-                "is_email_verified": False,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -884,8 +883,11 @@ class TestInviteSignupAPI(APIBaseTest):
 
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-            self.assertEqual(len(mail.outbox), 1)
+            self.assertEqual(len(mail.outbox), 2)
+            # Someone joined email is sent to the initial user
             self.assertListEqual(mail.outbox[0].to, [initial_user.email])
+            # Verify email is sent to the new user
+            self.assertListEqual(mail.outbox[1].to, [invite.target_email])
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
         self.organization.is_member_join_email_enabled = False
@@ -1151,15 +1153,17 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # Check the organization and user were created
         self.assertEqual(
-            User.objects.filter(email="test_api_social_invite_sign_up@posthog.com", first_name="Max").count(), 1
+            User.objects.filter(
+                email="test_api_social_invite_sign_up@posthog.com", first_name="Max", is_email_verified=True
+            ).count(),
+            1,
         )
         self.assertEqual(Organization.objects.filter(name="Org test_api_social_invite_sign_up").count(), 1)
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
-    @patch("posthoganalytics.get_feature_flag", return_value="test")
-    def test_api_social_invite_sign_up_if_email_verification_on(self, ff_mock, email_mock, email_available_mock):
-        """Test to make sure that social signups skip email verification if the verification feature flag is on."""
+    def test_api_social_invite_sign_up_if_email_verification_on(self, email_mock, email_available_mock):
+        """Test to make sure that social signups skip email verification"""
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
         # Simulate SSO process started
         session = self.client.session
