@@ -113,11 +113,12 @@ export function InsightTooltip({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const title: ReactNode | null =
-        getTooltipTitle(seriesData, altTitle, date) || !!date
+        getTooltipTitle(seriesData, altTitle, date) ||
+        (!!date
             ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
                   timezone ? shortTimeZone(timezone) : 'UTC'
               })`
-            : ''
+            : null)
     const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
 
     if (itemizeEntitiesAsColumns) {
