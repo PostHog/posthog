@@ -75,11 +75,11 @@ def sentry_init() -> None:
     if not TEST and os.getenv("SENTRY_DSN"):
         sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
 
-        # Set to true for capture and decide instances, to avoid capturing PII in the following forms:
+        # Setting this on enables move visibility, at the risk of capturing personal information we should not:
         #   - standard sentry "client IP" field, through send_default_pii
         #   - django access logs (info level)
         #   - request payloads
-        send_pii = get_from_env("SENTRY_SEND_PII", type_cast=bool, default=True)
+        send_pii = get_from_env("SENTRY_SEND_PII", type_cast=bool, default=False)
 
         sentry_logging_level = logging.INFO if send_pii else logging.ERROR
         sentry_logging = LoggingIntegration(level=sentry_logging_level, event_level=None)
