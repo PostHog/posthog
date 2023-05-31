@@ -119,7 +119,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         name="name"
                         value={insight.name || ''}
                         placeholder={summarizeInsight(query, filters, {
-                            isUsingDataExploration,
                             aggregationLabel,
                             cohortsById,
                             mathDefinitions,
