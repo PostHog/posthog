@@ -61,6 +61,7 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> ast.Expr:
+
     context.database = context.database or create_hogql_database(context.team_id)
     node = resolve_types(node, context.database, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":

@@ -24,11 +24,7 @@ from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TA
 from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
-from posthog.models.event.sql import (
-    DISTRIBUTED_EVENTS_TABLE_SQL,
-    DROP_EVENTS_TABLE_SQL,
-    EVENTS_TABLE_SQL,
-)
+from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
@@ -48,9 +44,9 @@ from posthog.models.session_recording_event.sql import (
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.models.session_replay_event.sql import (
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
-    SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -72,6 +68,7 @@ def _setup_test_data(klass):
 
 
 class ErrorResponsesMixin:
+
     ERROR_INVALID_CREDENTIALS = {
         "type": "validation_error",
         "code": "invalid_credentials",
@@ -132,6 +129,7 @@ class TestMixin:
             _setup_test_data(cls)
 
     def setUp(self):
+
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
@@ -141,6 +139,7 @@ class TestMixin:
             _setup_test_data(self)
 
     def tearDown(self):
+
         if len(persons_cache_tests) > 0:
             persons_cache_tests.clear()
             raise Exception(
@@ -229,9 +228,7 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 def default_materialised_columns():
     try:
         from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
-        from ee.clickhouse.materialized_columns.test.test_columns import (
-            EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
-        )
+        from ee.clickhouse.materialized_columns.test.test_columns import EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
 
     except:
         # EE not available? Skip
