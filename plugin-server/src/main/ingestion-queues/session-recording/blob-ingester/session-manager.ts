@@ -128,11 +128,6 @@ export class SessionManager {
             return
         }
 
-        this.buffer.oldestKafkaTimestamp = Math.min(
-            this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
-            message.metadata.timestamp
-        )
-
         // TODO: Check that the offset is higher than the lastProcessed
         // If not - ignore it
         // If it is - update lastProcessed and process it
@@ -345,6 +340,11 @@ export class SessionManager {
      */
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
         try {
+            this.buffer.oldestKafkaTimestamp = Math.min(
+                this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
+                message.metadata.timestamp
+            )
+
             const messageData = convertToPersistedMessage(message)
             this.setEventsRangeFrom(message)
 

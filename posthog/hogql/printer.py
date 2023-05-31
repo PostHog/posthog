@@ -174,10 +174,17 @@ class _Printer(Visitor):
             next_join = next_join.next_join
 
         columns = [self.visit(column) for column in node.select] if node.select else ["1"]
-        where = self.visit(where) if where else None
-        having = self.visit(node.having) if node.having else None
+        window = (
+            ", ".join(
+                [f"{self._print_identifier(name)} AS ({self.visit(expr)})" for name, expr in node.window_exprs.items()]
+            )
+            if node.window_exprs
+            else None
+        )
         prewhere = self.visit(node.prewhere) if node.prewhere else None
+        where = self.visit(where) if where else None
         group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
+        having = self.visit(node.having) if node.having else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
         clauses = [
@@ -187,6 +194,7 @@ class _Printer(Visitor):
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
             "HAVING " + having if having else None,
+            "WINDOW " + window if window else None,
             f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]
 
@@ -433,7 +441,6 @@ class _Printer(Visitor):
             translated_args = ", ".join([self.visit(arg) for arg in node.args])
             if node.distinct:
                 translated_args = f"DISTINCT {translated_args}"
-
             return f"{node.name}({translated_args})"
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
@@ -655,6 +662,56 @@ class _Printer(Visitor):
 
     def visit_unknown(self, node: ast.AST):
         raise HogQLException(f"Unknown AST node {type(node).__name__}")
+
+    def visit_window_expr(self, node: ast.WindowExpr):
+        strings: List[str] = []
+        if node.partition_by is not None:
+            if len(node.partition_by) == 0:
+                raise HogQLException("PARTITION BY must have at least one argument")
+            strings.append("PARTITION BY")
+            for expr in node.partition_by:
+                strings.append(self.visit(expr))
+
+        if node.order_by is not None:
+            if len(node.order_by) == 0:
+                raise HogQLException("ORDER BY must have at least one argument")
+            strings.append("ORDER BY")
+            for expr in node.order_by:
+                strings.append(self.visit(expr))
+
+        if node.frame_method is not None:
+            if node.frame_method == "ROWS":
+                strings.append("ROWS")
+            elif node.frame_method == "RANGE":
+                strings.append("RANGE")
+            else:
+                raise HogQLException(f"Invalid frame method {node.frame_method}")
+            if node.frame_start and node.frame_end is None:
+                strings.append(self.visit(node.frame_start))
+
+            elif node.frame_start is not None and node.frame_end is not None:
+                strings.append("BETWEEN")
+                strings.append(self.visit(node.frame_start))
+                strings.append("AND")
+                strings.append(self.visit(node.frame_end))
+
+            else:
+                raise HogQLException("Frame start and end must be specified together")
+        return " ".join(strings)
+
+    def visit_window_function(self, node: ast.WindowFunction):
+        over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
+        return f"{self._print_identifier(node.name)}({', '.join(self.visit(expr) for expr in node.args)}) OVER {over}"
+
+    def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
+        if node.frame_type == "PRECEDING":
+            return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} PRECEDING"
+        elif node.frame_type == "FOLLOWING":
+            return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} FOLLOWING"
+        elif node.frame_type == "CURRENT ROW":
+            return "CURRENT ROW"
+        else:
+            raise HogQLException(f"Invalid frame type {node.frame_type}")
 
     def _last_select(self) -> Optional[ast.SelectQuery]:
         """Find the last SELECT query in the stack."""

@@ -5,6 +5,7 @@ import { notebookLogic } from './notebookLogic'
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
 import { urlToAction } from 'kea-router'
 import { notebooksListLogic } from './notebooksListLogic'
+import { RefObject } from 'react'
 
 export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookSidebarLogic']),
@@ -13,6 +14,9 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         setFullScreen: (full: boolean) => ({ full }),
         addNodeToNotebook: (type: NotebookNodeType, properties: Record<string, any>) => ({ type, properties }),
         selectNotebook: (id: string) => ({ id }),
+        onResize: (event: { originX: number; desiredX: number; finished: boolean }) => event,
+        setDesiredWidth: (width: number) => ({ width }),
+        setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
     }),
 
     connect({
@@ -41,9 +45,23 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
                 setNotebookSideBarShown: (state, { shown }) => (!shown ? false : state),
             },
         ],
+        desiredWidth: [
+            750,
+            { persist: true },
+            {
+                setDesiredWidth: (_, { width }) => width,
+            },
+        ],
+
+        elementRef: [
+            null as RefObject<HTMLElement> | null,
+            {
+                setElementRef: (_, { element }) => element,
+            },
+        ],
     })),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         addNodeToNotebook: ({ type, properties }) => {
             notebookLogic({ shortId: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
 
@@ -53,6 +71,22 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         createNotebookSuccess: ({ notebooks }) => {
             // NOTE: This is temporary: We probably only want to select it if it is created from the sidebar
             actions.selectNotebook(notebooks[notebooks.length - 1].short_id)
+        },
+
+        onResize: ({ originX, desiredX, finished }) => {
+            if (!values.elementRef?.current) {
+                return
+            }
+            if (!cache.originalWidth) {
+                cache.originalWidth = values.elementRef.current.getBoundingClientRect().width
+            }
+
+            if (finished) {
+                cache.originalWidth = undefined
+                actions.setDesiredWidth(values.elementRef.current.getBoundingClientRect().width)
+            } else {
+                actions.setDesiredWidth(cache.originalWidth - (desiredX - originX))
+            }
         },
     })),
 
