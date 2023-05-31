@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import { FunnelsFilterType, StepOrderValue } from '~/types'
+import { StepOrderValue } from '~/types'
 import { LemonSelect } from '@posthog/lemon-ui'
+import { FunnelsFilter } from '~/queries/schema'
 
 interface StepOption {
     key?: string
@@ -28,36 +28,19 @@ const options: StepOption[] = [
     },
 ]
 
-export function FunnelStepOrderPickerDataExploration(): JSX.Element {
+export function FunnelStepOrderPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    return <FunnelStepOrderPickerComponent setFilters={updateInsightFilter} {...insightFilter} />
-}
+    const { funnel_order_type } = (insightFilter || {}) as FunnelsFilter
 
-export function FunnelStepOrderPicker(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { filters } = useValues(funnelLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
-
-    return <FunnelStepOrderPickerComponent setFilters={setFilters} {...filters} />
-}
-
-type FunnelStepOrderPickerComponentProps = {
-    setFilters: (filters: Partial<FunnelsFilterType>) => void
-} & FunnelsFilterType
-
-export function FunnelStepOrderPickerComponent({
-    funnel_order_type,
-    setFilters,
-}: FunnelStepOrderPickerComponentProps): JSX.Element {
     return (
         <LemonSelect
             id="funnel-step-order-filter"
             data-attr="funnel-step-order-filter"
             value={funnel_order_type || StepOrderValue.ORDERED}
-            onChange={(stepOrder) => stepOrder && setFilters({ funnel_order_type: stepOrder })}
+            onChange={(stepOrder) => stepOrder && updateInsightFilter({ funnel_order_type: stepOrder })}
             dropdownMatchSelectWidth={false}
             options={options}
         />

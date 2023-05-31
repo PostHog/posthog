@@ -51,12 +51,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (props.query?.kind && !objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
             actions.loadData()
         }
+        if (props.cachedResults && oldProps.cachedResults == null) {
+            actions.setResponse(props.cachedResults)
+        }
     }),
     actions({
         loadData: (refresh = false) => ({ refresh, queryId: uuid() }),
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
+        setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
         clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
@@ -68,6 +72,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         response: [
             props.cachedResults ?? null,
             {
+                setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh, queryId }, breakpoint) => {
                     if (props.cachedResults) {

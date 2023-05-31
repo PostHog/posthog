@@ -25,16 +25,6 @@ class AggregationAxisFormat(str, Enum):
     percentage_scaled = "percentage_scaled"
 
 
-class FunnelCorrelationPersonConverted(str, Enum):
-    true = "true"
-    false = "false"
-
-
-class RetentionReference(str, Enum):
-    total = "total"
-    previous = "previous"
-
-
 class BaseMathType(str, Enum):
     total = "total"
     dau = "dau"
@@ -247,7 +237,7 @@ class FunnelVizType(str, Enum):
     trends = "trends"
 
 
-class FunnelCorrelationPersonConverted1(str, Enum):
+class FunnelCorrelationPersonConverted(str, Enum):
     true = "true"
     false = "false"
 
@@ -262,17 +252,6 @@ class HogQLQueryResponse(BaseModel):
     query: Optional[str] = None
     results: Optional[List] = None
     types: Optional[List] = None
-
-
-class InsightType(str, Enum):
-    TRENDS = "TRENDS"
-    STICKINESS = "STICKINESS"
-    LIFECYCLE = "LIFECYCLE"
-    FUNNELS = "FUNNELS"
-    RETENTION = "RETENTION"
-    PATHS = "PATHS"
-    JSON = "JSON"
-    SQL = "SQL"
 
 
 class IntervalType(str, Enum):
@@ -379,7 +358,7 @@ class RecordingDurationFilter(BaseModel):
     value: float
 
 
-class RetentionReference1(str, Enum):
+class RetentionReference(str, Enum):
     total = "total"
     previous = "previous"
 
@@ -523,7 +502,7 @@ class FunnelsFilter(BaseModel):
     exclusions: Optional[List[FunnelStepRangeEntityFilter]] = None
     funnel_advanced: Optional[bool] = None
     funnel_aggregate_by_hogql: Optional[str] = None
-    funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted1] = None
+    funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted] = None
     funnel_correlation_person_entity: Optional[Dict[str, Any]] = None
     funnel_custom_steps: Optional[List[float]] = None
     funnel_from_step: Optional[float] = None
@@ -595,7 +574,7 @@ class RetentionFilter(BaseModel):
         extra = Extra.forbid
 
     period: Optional[RetentionPeriod] = None
-    retention_reference: Optional[RetentionReference1] = None
+    retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[Dict[str, Any]] = None
     target_entity: Optional[Dict[str, Any]] = None
@@ -1007,409 +986,6 @@ class TrendsQuery(BaseModel):
     trendsFilter: Optional[TrendsFilter] = Field(None, description="Properties specific to the trends insight")
 
 
-class AnyPartialFilterTypeItem(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    actions: Optional[List[Dict[str, Any]]] = None
-    aggregation_axis_format: Optional[AggregationAxisFormat] = None
-    aggregation_axis_postfix: Optional[str] = None
-    aggregation_axis_prefix: Optional[str] = None
-    aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
-    breakdown_histogram_bin_count: Optional[float] = None
-    breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = None
-    breakdowns: Optional[List[Breakdown]] = None
-    compare: Optional[bool] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    display: Optional[ChartDisplayType] = None
-    entity_id: Optional[Union[str, float]] = None
-    entity_math: Optional[str] = None
-    entity_type: Optional[EntityType] = None
-    events: Optional[List[Dict[str, Any]]] = None
-    explicit_date: Optional[Union[bool, str]] = Field(
-        None,
-        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
-    )
-    filter_test_accounts: Optional[bool] = None
-    formula: Optional[Any] = None
-    from_dashboard: Optional[Union[bool, float]] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
-    insight: Optional[InsightType] = None
-    interval: Optional[IntervalType] = None
-    new_entity: Optional[List[Dict[str, Any]]] = None
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = None
-    sampling_factor: Optional[float] = None
-    show_legend: Optional[bool] = None
-    show_values_on_series: Optional[bool] = None
-    shown_as: Optional[ShownAsValue] = None
-    smoothing_intervals: Optional[float] = None
-
-
-class AnyPartialFilterTypeItem1(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    actions: Optional[List[Dict[str, Any]]] = None
-    aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
-    breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = None
-    breakdowns: Optional[List[Breakdown]] = None
-    compare: Optional[bool] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    display: Optional[ChartDisplayType] = None
-    entity_id: Optional[Union[str, float]] = None
-    entity_math: Optional[str] = None
-    entity_type: Optional[EntityType] = None
-    events: Optional[List[Dict[str, Any]]] = None
-    explicit_date: Optional[Union[bool, str]] = Field(
-        None,
-        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
-    )
-    filter_test_accounts: Optional[bool] = None
-    from_dashboard: Optional[Union[bool, float]] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
-    insight: Optional[InsightType] = None
-    interval: Optional[IntervalType] = None
-    new_entity: Optional[List[Dict[str, Any]]] = None
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = None
-    sampling_factor: Optional[float] = None
-    show_legend: Optional[bool] = None
-    show_values_on_series: Optional[bool] = None
-    shown_as: Optional[ShownAsValue] = None
-    stickiness_days: Optional[float] = None
-
-
-class AnyPartialFilterTypeItem2(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    actions: Optional[List[Dict[str, Any]]] = None
-    aggregation_group_type_index: Optional[float] = None
-    bin_count: Optional[Union[float, str]] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_attribution_type: Optional[BreakdownAttributionType] = None
-    breakdown_attribution_value: Optional[float] = None
-    breakdown_group_type_index: Optional[float] = None
-    breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = None
-    breakdowns: Optional[List[Breakdown]] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    drop_off: Optional[bool] = None
-    entity_id: Optional[Union[str, float]] = None
-    entity_math: Optional[str] = None
-    entity_type: Optional[EntityType] = None
-    entrance_period_start: Optional[str] = None
-    events: Optional[List[Dict[str, Any]]] = None
-    exclusions: Optional[List[FunnelStepRangeEntityFilter]] = None
-    explicit_date: Optional[Union[bool, str]] = Field(
-        None,
-        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
-    )
-    filter_test_accounts: Optional[bool] = None
-    from_dashboard: Optional[Union[bool, float]] = None
-    funnel_advanced: Optional[bool] = None
-    funnel_aggregate_by_hogql: Optional[str] = None
-    funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted] = None
-    funnel_correlation_person_entity: Optional[Dict[str, Any]] = None
-    funnel_custom_steps: Optional[List[float]] = None
-    funnel_from_step: Optional[float] = None
-    funnel_order_type: Optional[StepOrderValue] = None
-    funnel_step: Optional[float] = None
-    funnel_step_breakdown: Optional[Union[str, List[float], float]] = None
-    funnel_step_reference: Optional[FunnelStepReference] = None
-    funnel_to_step: Optional[float] = None
-    funnel_viz_type: Optional[FunnelVizType] = None
-    funnel_window_interval: Optional[float] = None
-    funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
-    insight: Optional[InsightType] = None
-    interval: Optional[IntervalType] = None
-    layout: Optional[FunnelLayout] = None
-    new_entity: Optional[List[Dict[str, Any]]] = None
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = None
-    sampling_factor: Optional[float] = None
-
-
-class AnyPartialFilterTypeItem3(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    actions: Optional[List[Dict[str, Any]]] = None
-    aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
-    breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = None
-    breakdowns: Optional[List[Breakdown]] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    edge_limit: Optional[float] = None
-    end_point: Optional[str] = None
-    entity_id: Optional[Union[str, float]] = None
-    entity_math: Optional[str] = None
-    entity_type: Optional[EntityType] = None
-    events: Optional[List[Dict[str, Any]]] = None
-    exclude_events: Optional[List[str]] = None
-    explicit_date: Optional[Union[bool, str]] = Field(
-        None,
-        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
-    )
-    filter_test_accounts: Optional[bool] = None
-    from_dashboard: Optional[Union[bool, float]] = None
-    funnel_filter: Optional[Dict[str, Any]] = None
-    funnel_paths: Optional[FunnelPathType] = None
-    include_event_types: Optional[List[PathType]] = None
-    insight: Optional[InsightType] = None
-    interval: Optional[IntervalType] = None
-    local_path_cleaning_filters: Optional[List[PathCleaningFilter]] = None
-    max_edge_weight: Optional[float] = None
-    min_edge_weight: Optional[float] = None
-    new_entity: Optional[List[Dict[str, Any]]] = None
-    path_dropoff_key: Optional[str] = None
-    path_end_key: Optional[str] = None
-    path_groupings: Optional[List[str]] = None
-    path_replacements: Optional[bool] = None
-    path_start_key: Optional[str] = None
-    path_type: Optional[PathType] = None
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = None
-    sampling_factor: Optional[float] = None
-    start_point: Optional[str] = None
-    step_limit: Optional[float] = None
-
-
-class AnyPartialFilterTypeItem4(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    actions: Optional[List[Dict[str, Any]]] = None
-    aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
-    breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = None
-    breakdowns: Optional[List[Breakdown]] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    entity_id: Optional[Union[str, float]] = None
-    entity_math: Optional[str] = None
-    entity_type: Optional[EntityType] = None
-    events: Optional[List[Dict[str, Any]]] = None
-    explicit_date: Optional[Union[bool, str]] = Field(
-        None,
-        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
-    )
-    filter_test_accounts: Optional[bool] = None
-    from_dashboard: Optional[Union[bool, float]] = None
-    insight: Optional[InsightType] = None
-    interval: Optional[IntervalType] = None
-    new_entity: Optional[List[Dict[str, Any]]] = None
-    period: Optional[RetentionPeriod] = None
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = None
-    retention_reference: Optional[RetentionReference] = None
-    retention_type: Optional[RetentionType] = None
-    returning_entity: Optional[Dict[str, Any]] = None
-    sampling_factor: Optional[float] = None
-    target_entity: Optional[Dict[str, Any]] = None
-    total_intervals: Optional[float] = None
-
-
-class AnyPartialFilterTypeItem5(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    actions: Optional[List[Dict[str, Any]]] = None
-    aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
-    breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = None
-    breakdowns: Optional[List[Breakdown]] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    entity_id: Optional[Union[str, float]] = None
-    entity_math: Optional[str] = None
-    entity_type: Optional[EntityType] = None
-    events: Optional[List[Dict[str, Any]]] = None
-    explicit_date: Optional[Union[bool, str]] = Field(
-        None,
-        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
-    )
-    filter_test_accounts: Optional[bool] = None
-    from_dashboard: Optional[Union[bool, float]] = None
-    insight: Optional[InsightType] = None
-    interval: Optional[IntervalType] = None
-    new_entity: Optional[List[Dict[str, Any]]] = None
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = None
-    sampling_factor: Optional[float] = None
-    show_values_on_series: Optional[bool] = None
-    shown_as: Optional[ShownAsValue] = None
-    toggledLifecycles: Optional[List[LifecycleToggle]] = None
-
-
-class AnyPartialFilterTypeItem6(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    actions: Optional[List[Dict[str, Any]]] = None
-    aggregation_group_type_index: Optional[float] = None
-    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
-    breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = None
-    breakdowns: Optional[List[Breakdown]] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    entity_id: Optional[Union[str, float]] = None
-    entity_math: Optional[str] = None
-    entity_type: Optional[EntityType] = None
-    events: Optional[List[Dict[str, Any]]] = None
-    explicit_date: Optional[Union[bool, str]] = Field(
-        None,
-        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
-    )
-    filter_test_accounts: Optional[bool] = None
-    from_dashboard: Optional[Union[bool, float]] = None
-    insight: Optional[InsightType] = None
-    interval: Optional[IntervalType] = None
-    new_entity: Optional[List[Dict[str, Any]]] = None
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = None
-    sampling_factor: Optional[float] = None
-
-
 class FunnelsQuery(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -1446,22 +1022,6 @@ class FunnelsQuery(BaseModel):
     ] = Field(None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
-
-
-class LegacyQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    filters: Union[
-        AnyPartialFilterTypeItem,
-        AnyPartialFilterTypeItem1,
-        AnyPartialFilterTypeItem2,
-        AnyPartialFilterTypeItem3,
-        AnyPartialFilterTypeItem4,
-        AnyPartialFilterTypeItem5,
-        AnyPartialFilterTypeItem6,
-    ]
-    kind: str = Field("LegacyQuery", const=True)
 
 
 class LifecycleQuery(BaseModel):
@@ -1546,7 +1106,6 @@ class Model(BaseModel):
     __root__: Union[
         DataTableNode,
         InsightVizNode,
-        LegacyQuery,
         TrendsQuery,
         FunnelsQuery,
         RetentionQuery,
