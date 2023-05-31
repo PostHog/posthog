@@ -109,6 +109,8 @@ class TraversingVisitor(Visitor):
             self.visit(expr)
         self.visit(node.limit),
         self.visit(node.offset),
+        for expr in (node.window_exprs or {}).values():
+            self.visit(expr)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         for expr in node.select_queries:
@@ -355,6 +357,9 @@ class CloningVisitor(Visitor):
             limit_with_ties=node.limit_with_ties,
             offset=self.visit(node.offset),
             distinct=node.distinct,
+            window_exprs={name: self.visit(expr) for name, expr in node.window_exprs.items()}
+            if node.window_exprs
+            else None,
         )
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):

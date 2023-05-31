@@ -176,8 +176,10 @@ class _Printer(Visitor):
 
         columns = [self.visit(column) for column in node.select] if node.select else ["1"]
         window = (
-            f"{self._print_identifier(node.window_name)} AS ({self.visit(node.window_expr)})"
-            if node.window_name is not None and node.window_expr is not None
+            ", ".join(
+                [f"{self._print_identifier(name)} AS ({self.visit(expr)})" for name, expr in node.window_exprs.items()]
+            )
+            if node.window_exprs
             else None
         )
         prewhere = self.visit(node.prewhere) if node.prewhere else None
@@ -189,11 +191,11 @@ class _Printer(Visitor):
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
             f"FROM {' '.join(joined_tables)}" if len(joined_tables) > 0 else None,
-            "WINDOW " + window if window else None,
             "PREWHERE " + prewhere if prewhere else None,
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
             "HAVING " + having if having else None,
+            "WINDOW " + window if window else None,
             f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]
 
@@ -707,7 +709,8 @@ class _Printer(Visitor):
         return " ".join(strings)
 
     def visit_window_function(self, node: ast.WindowFunction):
-        return f"{self._print_identifier(node.name)}({', '.join(self.visit(expr) for expr in node.args)}) OVER ({self.visit(node.over_expr)})"
+        over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
+        return f"{self._print_identifier(node.name)}({', '.join(self.visit(expr) for expr in node.args)}) OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         if node.frame_type == "PRECEDING":

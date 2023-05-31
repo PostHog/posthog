@@ -87,7 +87,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
-
         select_query = ast.SelectQuery(
             macros=self.visit(ctx.withClause()) if ctx.withClause() else None,
             select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
@@ -98,9 +97,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             having=self.visit(ctx.havingClause()) if ctx.havingClause() else None,
             group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
             order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
-            window_name=self.visit(ctx.windowClause().identifier()) if ctx.windowClause() else None,
-            window_expr=self.visit(ctx.windowClause().windowExpr()) if ctx.windowClause() else None,
         )
+
+        if ctx.windowClause():
+            select_query.window_exprs = {}
+            for index, window_expr in enumerate(ctx.windowClause().windowExpr()):
+                name = self.visit(ctx.windowClause().identifier()[index])
+                select_query.window_exprs[name] = self.visit(window_expr)
 
         if ctx.limitClause():
             limit_clause = ctx.limitClause()

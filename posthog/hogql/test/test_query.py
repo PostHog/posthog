@@ -778,7 +778,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
                 flush_persons_and_events()
 
-        # sample funnel table, testing window functions
         query = f"""
            select distinct_id,
                   timestamp,
@@ -819,93 +818,79 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ]
         self.assertEqual(response.results, expected)
 
-    def test_window_functions_complex_funnel(self):
-        with freeze_time("2020-01-10"):
-            self._create_random_events()
-            # sample funnel table, testing window functions
+    def test_window_functions_with_window(self):
+        random_uuid = str(UUIDT())
+        for person in range(5):
+            distinct_id = f"person_{person}_{random_uuid}"
+            with freeze_time("2020-01-10 00:00:00"):
+                _create_person(
+                    properties={"name": f"Person {person}", "random_uuid": random_uuid},
+                    team=self.team,
+                    distinct_ids=[distinct_id],
+                    is_identified=True,
+                )
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="random event",
+                    team=self.team,
+                    properties={"character": "Luigi"},
+                )
+                flush_persons_and_events()
+            with freeze_time("2020-01-10 00:10:00"):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="random bla",
+                    team=self.team,
+                    properties={"character": "Luigi"},
+                )
+                flush_persons_and_events()
+            with freeze_time("2020-01-10 00:20:00"):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="random boo",
+                    team=self.team,
+                    properties={"character": "Luigi"},
+                )
+                flush_persons_and_events()
 
-        query = """
-        SELECT countIf(steps = 1) step_1,
-               countIf(steps = 2) step_2,
-               countIf(steps = 3) step_3,
-               avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
-               avg(step_2_average_conversion_time_inner) step_2_average_conversion_time,
-               median(step_1_median_conversion_time_inner) step_1_median_conversion_time,
-               median(step_2_median_conversion_time_inner) step_2_median_conversion_time
-          FROM (
-                SELECT aggregation_target,
-                       steps,
-                       avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-                       avg(step_2_conversion_time) step_2_average_conversion_time_inner,
-                       median(step_1_conversion_time) step_1_median_conversion_time_inner,
-                       median(step_2_conversion_time) step_2_median_conversion_time_inner
-                  FROM (
-                        SELECT aggregation_target,
-                               steps,
-                               max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time
-                          FROM (
-                                SELECT *,
-                                       if(latest_0 < latest_1 AND latest_1 <= latest_0 + INTERVAL 14 DAY AND latest_1 <= latest_2 AND latest_2 <= latest_0 + INTERVAL 14 DAY, 3, if(latest_0 < latest_1 AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1)) AS steps ,
-                                       if(isNotNull(latest_1) AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', latest_0, latest_1), NULL) step_1_conversion_time,
-                                       if(isNotNull(latest_2) AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', latest_1, latest_2), NULL) step_2_conversion_time
-                                  FROM (
-                                        SELECT aggregation_target,
-                                               timestamp,
-                                               step_0,
-                                               latest_0,
-                                               step_1,
-                                               latest_1,
-                                               step_2,
-                                               min(latest_2) over (PARTITION by aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
-                                          FROM (
-                                                SELECT aggregation_target,
-                                                       timestamp,
-                                                       step_0,
-                                                       latest_0,
-                                                       step_1,
-                                                       latest_1,
-                                                       step_2,
-                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
-                                                  FROM (
-                                                        SELECT aggregation_target,
-                                                               timestamp,
-                                                               step_0,
-                                                               latest_0,
-                                                               step_1,
-                                                               min(latest_1) over (PARTITION by aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) latest_1,
-                                                               step_2,
-                                                               min(latest_2) over (PARTITION by aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
-                                                          FROM (
-                                                                SELECT e.timestamp as timestamp,
-                                                                       e.person.id as aggregation_target,
-                                                                       e.person.id as person_id ,
-                                                                       if(event = '$pageview', 1, 0) as step_0,
-                                                                       if(step_0 = 1, timestamp, null) as latest_0,
-                                                                       if(event = '$pageview', 1, 0) as step_1,
-                                                                       if(step_1 = 1, timestamp, null) as latest_1,
-                                                                       if(event = '$autocapture', 1, 0) as step_2,
-                                                                       if(step_2 = 1, timestamp, null) as latest_2
-                                                                  FROM events e
-                                                                 WHERE event IN ['$autocapture', '$pageview']
-                                                                   AND timestamp >= toDateTime('2020-01-05 00:00:00')
-                                                                   AND timestamp <= toDateTime('2020-01-15 23:59:59')
-                                                                   AND (step_0 = 1 OR step_1 = 1 OR step_2 = 1)
-                                                               )
-                                                       )
-                                               )
-                                       )
-                                 WHERE step_0 = 1
-                               )
-                       )
-                 GROUP BY aggregation_target,
-                          steps
-                HAVING steps = max_steps
-               )
+        query = f"""
+           select distinct_id,
+                  timestamp,
+                  event,
+                  groupArray(event) OVER w1 AS two_before,
+                  groupArray(event) OVER w2 AS two_after
+             from events
+            where timestamp > toDateTime('2020-01-09 00:00:00')
+              and distinct_id like '%_{random_uuid}'
+           window w1 as (PARTITION BY distinct_id ORDER BY timestamp ASC ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING),
+                  w2 as (PARTITION BY distinct_id ORDER BY timestamp ASC ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING)
+         order by distinct_id, timestamp
         """
-        response = execute_hogql_query(
-            query,
-            team=self.team,
-        )
-        self.assertEqual(response.results, [(0, 0, 0, None, None, None, None)])
+        response = execute_hogql_query(query, team=self.team)
+
+        expected = []
+        for person in range(5):
+            expected += [
+                (
+                    f"person_{person}_{random_uuid}",
+                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=pytz.UTC),
+                    "random event",
+                    [],
+                    ["random bla", "random boo"],
+                ),
+                (
+                    f"person_{person}_{random_uuid}",
+                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=pytz.UTC),
+                    "random bla",
+                    ["random event"],
+                    ["random boo"],
+                ),
+                (
+                    f"person_{person}_{random_uuid}",
+                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=pytz.UTC),
+                    "random boo",
+                    ["random event", "random bla"],
+                    [],
+                ),
+            ]
+        self.assertEqual(response.results, expected)
