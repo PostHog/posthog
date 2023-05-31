@@ -178,6 +178,8 @@ export const startBatchConsumer = async ({
                 // the implementation of `eachBatch`.
                 await eachBatch(messages)
 
+                messagesProcessed += messages.length
+
                 if (autoCommit) {
                     commitOffsetsForMessages(messages, consumer)
                 }

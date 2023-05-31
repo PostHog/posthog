@@ -20,7 +20,7 @@ import { FunnelsQuery } from '~/queries/schema'
 import { isStepsEmpty } from 'scenes/funnels/funnelUtils'
 import { isInsightQueryNode } from '~/queries/utils'
 
-const FUNNEL_STEP_COUNT_LIMIT = 20
+export const FUNNEL_STEP_COUNT_LIMIT = 20
 
 export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element | null {
     const { querySource, series } = useValues(funnelDataLogic(insightProps))

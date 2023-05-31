@@ -2,12 +2,9 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionDocument from '@tiptap/extension-document'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import MonacoEditor from '@monaco-editor/react'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import './Notebook.scss'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
@@ -20,10 +17,11 @@ import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import { sampleOne } from 'lib/utils'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { NotFound } from 'lib/components/NotFound'
+import clsx from 'clsx'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 export type NotebookProps = {
     shortId: string
-    sourceMode?: boolean
     editable?: boolean
 }
 
@@ -33,14 +31,23 @@ const CustomDocument = ExtensionDocument.extend({
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({ shortId, sourceMode, editable = false }: NotebookProps): JSX.Element {
+export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading } = useValues(logic)
     const { setEditorRef, onEditorUpdate } = useActions(logic)
 
+    const { isExpanded } = useValues(notebookSettingsLogic)
+
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
-    const editor = useEditor({
+    // Whenever our content changes, we want to ignore the next update (which is caused by the editor itself)
+    const ignoreUpdateRef = useRef(true)
+    useEffect(() => {
+        ignoreUpdateRef.current = true
+    }, [content])
+
+    // NOTE: We shouldn't use this reference as it can be that it is null in many of the contexts
+    const _editor = useEditor({
         extensions: [
             CustomDocument,
             StarterKit.configure({
@@ -71,17 +78,23 @@ export function Notebook({ shortId, sourceMode, editable = false }: NotebookProp
             // Ensure this is last as a fallback for all PostHog links
             // LinkExtension.configure({}),
         ],
-        // This is only the default content. It is not reactive
         content,
         editorProps: {
             attributes: {
                 class: 'NotebookEditor',
             },
             handleDrop: (view, event, _slice, moved) => {
+                const editor = logic.values.editor // Only for type checking - should never be null
+                if (!editor) {
+                    return false
+                }
+
                 if (!moved && event.dataTransfer) {
                     const text = event.dataTransfer.getData('text/plain')
+                    const node = event.dataTransfer.getData('node')
+                    const properties = event.dataTransfer.getData('properties')
 
-                    if (text.indexOf(window.location.origin) === 0) {
+                    if (text.indexOf(window.location.origin) === 0 || node) {
                         // PostHog link - ensure this gets input as a proper link
                         const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
 
@@ -89,8 +102,17 @@ export function Notebook({ shortId, sourceMode, editable = false }: NotebookProp
                             return false
                         }
 
-                        editor?.chain().focus().setTextSelection(coordinates.pos).run()
-                        view.pasteText(text)
+                        if (node) {
+                            editor
+                                .chain()
+                                .focus()
+                                .setTextSelection(coordinates.pos)
+                                .insertContent({ type: node, attrs: JSON.parse(properties) })
+                                .run()
+                        } else {
+                            editor?.chain().focus().setTextSelection(coordinates.pos).run()
+                            view.pasteText(text)
+                        }
 
                         return true
                     }
@@ -110,25 +132,29 @@ export function Notebook({ shortId, sourceMode, editable = false }: NotebookProp
             },
         },
         onUpdate: ({}) => {
+            if (ignoreUpdateRef.current) {
+                ignoreUpdateRef.current = false
+                return
+            }
             onEditorUpdate()
         },
     })
 
     useEffect(() => {
-        if (editor) {
-            setEditorRef(editor)
+        if (_editor) {
+            setEditorRef(_editor)
         }
-    }, [editor])
+    }, [_editor])
 
     useEffect(() => {
-        editor?.setEditable(editable && !!notebook)
-    }, [editable, editor, notebook])
+        _editor?.setEditable(editable && !!notebook, false)
+    }, [editable, _editor, notebook])
 
     // TODO - Render a special state if the notebook is empty
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div className="Notebook">
+            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
                 {/* {editor && (
                 <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex items-center gap-2">
                     <LemonButton
@@ -169,29 +195,8 @@ export function Notebook({ shortId, sourceMode, editable = false }: NotebookProp
                     </div>
                 ) : !notebook ? (
                     <NotFound object={'recording'} />
-                ) : !sourceMode ? (
-                    <EditorContent editor={editor} className="flex flex-col flex-1 overflow-y-auto" />
                 ) : (
-                    <AutoSizer disableWidth>
-                        {({ height }) => (
-                            <MonacoEditor
-                                theme="vs-light"
-                                language="json"
-                                value={JSON.stringify(editor?.getJSON(), null, 2) ?? ''}
-                                height={height}
-                                loading={<Spinner />}
-                                onChange={(value) => {
-                                    if (value) {
-                                        try {
-                                            editor?.chain().setContent(JSON.parse(value)).run()
-                                        } catch (e) {
-                                            console.error(e)
-                                        }
-                                    }
-                                }}
-                            />
-                        )}
-                    </AutoSizer>
+                    <EditorContent editor={_editor} className="flex flex-col flex-1" />
                 )}
             </div>
         </BindLogic>
