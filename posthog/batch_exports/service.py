@@ -60,12 +60,11 @@ DESTINATION_WORKFLOWS = {
 
 
 @async_to_sync
-async def create_schedule(temporal, id: str, schedule: Schedule, search_attributes: dict):
+async def create_schedule(temporal, id: str, schedule: Schedule):
     """Create a Temporal Schedule."""
     return await temporal.create_schedule(
         id=id,
         schedule=schedule,
-        search_attributes=search_attributes,
     )
 
 
@@ -193,16 +192,6 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
 
     workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
 
-    # These attributes allow us to filter Workflows in Temporal.
-    # Temporal adds TemporalScheduledById (the Schedule's id) and TemporalScheduledStartTime (the Action's timestamp).
-    common_search_attributes = {
-        "DestinationId": [str(batch_export.destination.id)],
-        "DestinationType": [batch_export.destination.type],
-        "TeamId": [batch_export.team.id],
-        "TeamName": [batch_export.team.name],
-        "BatchExportId": [str(batch_export.id)],
-    }
-
     state = ScheduleState(
         note=f"Schedule created for BatchExport {batch_export.id} to Destination {batch_export.destination.id} in Team {batch_export.team.id}.",
         paused=batch_export.paused,
@@ -227,12 +216,10 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
                 ),
                 id=str(batch_export.id),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
-                search_attributes=common_search_attributes,
             ),
             spec=ScheduleSpec(),
             state=state,
         ),
-        search_attributes=common_search_attributes,
     )
 
     return batch_export
@@ -242,7 +229,7 @@ async def acreate_batch_export(team_id: int, interval: str, name: str, destinati
     """
     Create a BatchExport and its underlying Schedule.
     """
-    return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)
+    return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)  # type: ignore
 
 
 def fetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[BatchExportRun]:
@@ -256,4 +243,4 @@ async def afetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> l
     """
     Fetch the BatchExportRuns for a given BatchExport.
     """
-    return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)
+    return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)  # type: ignore

@@ -13,9 +13,6 @@ from temporalio.client import Client as TemporalClient
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from django.conf import settings
-from temporalio.api.enums.v1 import IndexedValueType
-from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
-from temporalio.api.workflowservice.v1 import GetSearchAttributesRequest
 from posthog.batch_exports.models import BatchExport
 
 
@@ -57,57 +54,6 @@ class ThreadedWorker(Worker):
         finally:
             loop.run_until_complete(loop.shutdown_asyncgens())
             loop.close()
-
-
-@async_to_sync
-async def get_search_attributes(client: TemporalClient, request):
-    """Wrapper for workflow_service.get_search_attributes.
-
-    This function is but async_to_sync fails to recognize it as such and fails on a type check.
-    So, we wrap it in our own function to pass that to async_to_sync.
-    """
-    return await client.workflow_service.get_search_attributes(request)
-
-
-@async_to_sync
-async def add_search_attributes(client: TemporalClient, request):
-    """Wrapper for workflow_service.add_search_attributes.
-
-    This function is but async_to_sync fails to recognize it as such and fails on a type check.
-    So, we wrap it in our own function to pass that to async_to_sync.
-    """
-    return await client.operator_service.add_search_attributes(request)
-
-
-def ensure_search_attributes(temporal: TemporalClient):
-    """Ensure custom search attributes are present adding them if not."""
-    resp = get_search_attributes(temporal, GetSearchAttributesRequest())
-    custom_search_attributes = {
-        "DestinationId": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-        "DestinationType": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-        "TeamId": IndexedValueType.INDEXED_VALUE_TYPE_INT,
-        "TeamName": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-        "BatchExportId": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-    }
-    are_present = all(k in resp.keys.keys() for k in custom_search_attributes.keys())
-
-    if are_present:
-        return
-
-    request = AddSearchAttributesRequest(search_attributes=custom_search_attributes)
-    add_search_attributes(temporal, request)
-    resp = get_search_attributes(temporal, GetSearchAttributesRequest())
-    custom_search_attributes = {
-        "DestinationId": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-        "DestinationType": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-        "TeamId": IndexedValueType.INDEXED_VALUE_TYPE_INT,
-        "TeamName": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-        "BatchExportId": IndexedValueType.INDEXED_VALUE_TYPE_TEXT,
-    }
-
-    are_present = all(k in resp.keys.keys() for k in custom_search_attributes.keys())
-
-    assert are_present is True
 
 
 @async_to_sync
@@ -154,7 +100,6 @@ def start_test_worker(temporal: TemporalClient):
         workflow_runner=UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=dt.timedelta(seconds=5),
     ).run_in_thread():
-        ensure_search_attributes(temporal)
         yield
 
 

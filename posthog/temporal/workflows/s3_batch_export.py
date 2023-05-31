@@ -3,6 +3,7 @@ import json
 from dataclasses import dataclass
 from string import Template
 import tempfile
+from typing import TYPE_CHECKING, List
 from aiochclient import ChClient
 
 from django.conf import settings
@@ -19,6 +20,10 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
+
+if TYPE_CHECKING:
+    from mypy_boto3_s3.type_defs import CompletedPartTypeDef
+
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -78,6 +83,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     be a very big date range and time consuming, better to split into multiple
     runs, timing out after say 30 seconds or something and upload multiple
     files.
+
+    TODO: at the moment this doesn't do anything about catching data that might
+    be late being ingested into the specified time range. To work around this,
+    as a little bit of a hack we should export data only up to an hour ago with
+    the assumption that that will give it enough time to settle. I is a little
+    tricky with the existing setup to properly partition the data into data we
+    have or haven't processed yet. We have `_timestamp` in the events table, but
+    this is the time
     """
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
@@ -135,15 +148,15 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             aws_secret_access_key=inputs.aws_secret_access_key,
             endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
         )
-        response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
-        upload_id = response["UploadId"]
+        multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
+        upload_id = multipart_response["UploadId"]
 
         # Iterate through chunks of results from ClickHouse and push them to S3
         # as a multipart upload. The intention here is to keep memory usage low,
         # even if the entire results set is large. We receive results from
         # ClickHouse, write them to a local file, and then upload the file to S3
         # when it reaches 50MB in size.
-        parts = []
+        parts: List[CompletedPartTypeDef] = []
         part_number = 1
         results_iterator = client.iterate(
             query_template.safe_substitute(fields="*"),
@@ -173,7 +186,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 local_results_file.flush()
 
                 # Write results to S3 when the file reaches 50MB and reset the
-                # file.
+                # file, or if there is nothing else to write.
                 if local_results_file.tell() > 50 * 1024 * 1024:
                     activity.logger.info("Uploading part %s", part_number)
 
