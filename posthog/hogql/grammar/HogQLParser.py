@@ -23,7 +23,7 @@ def serializedATN():
         1,1,1,1,5,1,135,8,1,10,1,12,1,138,9,1,1,2,1,2,1,2,1,2,1,2,3,2,145,
         8,2,1,3,3,3,148,8,3,1,3,1,3,3,3,152,8,3,1,3,3,3,155,8,3,1,3,1,3,
         3,3,159,8,3,1,3,3,3,162,8,3,1,3,3,3,165,8,3,1,3,3,3,168,8,3,1,3,
-        3,3,171,8,3,1,3,3,3,174,8,3,1,3,1,3,3,3,178,8,3,1,3,1,3,3,3,182,
+        3,3,171,8,3,1,3,1,3,3,3,175,8,3,1,3,1,3,3,3,179,8,3,1,3,3,3,182,
         8,3,1,3,3,3,185,8,3,1,3,3,3,188,8,3,1,3,3,3,191,8,3,1,3,3,3,194,
         8,3,1,4,1,4,1,4,1,5,1,5,1,5,1,5,3,5,203,8,5,1,6,1,6,1,6,1,7,3,7,
         209,8,7,1,7,1,7,1,7,1,7,1,8,1,8,1,8,1,8,1,8,1,8,1,8,1,8,1,8,1,8,
@@ -124,14 +124,14 @@ def serializedATN():
         0,0,152,154,1,0,0,0,153,155,3,10,5,0,154,153,1,0,0,0,154,155,1,0,
         0,0,155,156,1,0,0,0,156,158,3,72,36,0,157,159,3,12,6,0,158,157,1,
         0,0,0,158,159,1,0,0,0,159,161,1,0,0,0,160,162,3,14,7,0,161,160,1,
-        0,0,0,161,162,1,0,0,0,162,164,1,0,0,0,163,165,3,16,8,0,164,163,1,
-        0,0,0,164,165,1,0,0,0,165,167,1,0,0,0,166,168,3,18,9,0,167,166,1,
-        0,0,0,167,168,1,0,0,0,168,170,1,0,0,0,169,171,3,20,10,0,170,169,
-        1,0,0,0,170,171,1,0,0,0,171,173,1,0,0,0,172,174,3,22,11,0,173,172,
-        1,0,0,0,173,174,1,0,0,0,174,177,1,0,0,0,175,176,5,188,0,0,176,178,
-        7,0,0,0,177,175,1,0,0,0,177,178,1,0,0,0,178,181,1,0,0,0,179,180,
-        5,188,0,0,180,182,5,168,0,0,181,179,1,0,0,0,181,182,1,0,0,0,182,
-        184,1,0,0,0,183,185,3,24,12,0,184,183,1,0,0,0,184,185,1,0,0,0,185,
+        0,0,0,161,162,1,0,0,0,162,164,1,0,0,0,163,165,3,18,9,0,164,163,1,
+        0,0,0,164,165,1,0,0,0,165,167,1,0,0,0,166,168,3,20,10,0,167,166,
+        1,0,0,0,167,168,1,0,0,0,168,170,1,0,0,0,169,171,3,22,11,0,170,169,
+        1,0,0,0,170,171,1,0,0,0,171,174,1,0,0,0,172,173,5,188,0,0,173,175,
+        7,0,0,0,174,172,1,0,0,0,174,175,1,0,0,0,175,178,1,0,0,0,176,177,
+        5,188,0,0,177,179,5,168,0,0,178,176,1,0,0,0,178,179,1,0,0,0,179,
+        181,1,0,0,0,180,182,3,24,12,0,181,180,1,0,0,0,181,182,1,0,0,0,182,
+        184,1,0,0,0,183,185,3,16,8,0,184,183,1,0,0,0,184,185,1,0,0,0,185,
         187,1,0,0,0,186,188,3,26,13,0,187,186,1,0,0,0,187,188,1,0,0,0,188,
         190,1,0,0,0,189,191,3,30,15,0,190,189,1,0,0,0,190,191,1,0,0,0,191,
         193,1,0,0,0,192,194,3,32,16,0,193,192,1,0,0,0,193,194,1,0,0,0,194,
@@ -363,7 +363,7 @@ def serializedATN():
         1,0,0,0,909,912,3,118,59,0,910,912,5,115,0,0,911,909,1,0,0,0,911,
         910,1,0,0,0,912,121,1,0,0,0,913,914,5,198,0,0,914,915,5,211,0,0,
         915,916,3,106,53,0,916,123,1,0,0,0,117,126,136,144,147,151,154,158,
-        161,164,167,170,173,177,181,184,187,190,193,202,208,229,246,265,
+        161,164,167,170,174,178,181,184,187,190,193,202,208,229,246,265,
         273,276,282,290,293,299,301,305,310,313,316,320,324,327,329,332,
         336,340,343,345,347,350,355,366,372,377,384,389,393,397,402,409,
         417,420,423,442,456,472,484,496,504,508,515,521,529,534,543,547,
@@ -1035,10 +1035,6 @@ class HogQLParser ( Parser ):
             return self.getTypedRuleContext(HogQLParser.ArrayJoinClauseContext,0)
 
 
-        def windowClause(self):
-            return self.getTypedRuleContext(HogQLParser.WindowClauseContext,0)
-
-
         def prewhereClause(self):
             return self.getTypedRuleContext(HogQLParser.PrewhereClauseContext,0)
 
@@ -1058,6 +1054,10 @@ class HogQLParser ( Parser ):
 
         def havingClause(self):
             return self.getTypedRuleContext(HogQLParser.HavingClauseContext,0)
+
+
+        def windowClause(self):
+            return self.getTypedRuleContext(HogQLParser.WindowClauseContext,0)
 
 
         def orderByClause(self):
@@ -1156,42 +1156,34 @@ class HogQLParser ( Parser ):
             self.state = 164
             self._errHandler.sync(self)
             _la = self._input.LA(1)
-            if _la==187:
+            if _la==128:
                 self.state = 163
-                self.windowClause()
+                self.prewhereClause()
 
 
             self.state = 167
             self._errHandler.sync(self)
             _la = self._input.LA(1)
-            if _la==128:
+            if _la==186:
                 self.state = 166
-                self.prewhereClause()
+                localctx.where = self.whereClause()
 
 
             self.state = 170
             self._errHandler.sync(self)
             _la = self._input.LA(1)
-            if _la==186:
-                self.state = 169
-                localctx.where = self.whereClause()
-
-
-            self.state = 173
-            self._errHandler.sync(self)
-            _la = self._input.LA(1)
             if _la==72:
-                self.state = 172
+                self.state = 169
                 self.groupByClause()
 
 
-            self.state = 177
+            self.state = 174
             self._errHandler.sync(self)
-            la_ = self._interp.adaptivePredict(self._input,12,self._ctx)
+            la_ = self._interp.adaptivePredict(self._input,11,self._ctx)
             if la_ == 1:
-                self.state = 175
+                self.state = 172
                 self.match(HogQLParser.WITH)
-                self.state = 176
+                self.state = 173
                 _la = self._input.LA(1)
                 if not(_la==31 or _la==140):
                     self._errHandler.recoverInline(self)
@@ -1200,22 +1192,30 @@ class HogQLParser ( Parser ):
                     self.consume()
 
 
-            self.state = 181
+            self.state = 178
             self._errHandler.sync(self)
             _la = self._input.LA(1)
             if _la==188:
-                self.state = 179
+                self.state = 176
                 self.match(HogQLParser.WITH)
-                self.state = 180
+                self.state = 177
                 self.match(HogQLParser.TOTALS)
+
+
+            self.state = 181
+            self._errHandler.sync(self)
+            _la = self._input.LA(1)
+            if _la==73:
+                self.state = 180
+                self.havingClause()
 
 
             self.state = 184
             self._errHandler.sync(self)
             _la = self._input.LA(1)
-            if _la==73:
+            if _la==187:
                 self.state = 183
-                self.havingClause()
+                self.windowClause()
 
 
             self.state = 187

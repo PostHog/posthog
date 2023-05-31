@@ -15,11 +15,11 @@ selectStmt:
     columns=columnExprList
     from=fromClause?
     arrayJoinClause?
-    windowClause?
     prewhereClause?
     where=whereClause?
     groupByClause? (WITH (CUBE | ROLLUP))? (WITH TOTALS)?
     havingClause?
+    windowClause?
     orderByClause?
     limitClause?
     settingsClause?
