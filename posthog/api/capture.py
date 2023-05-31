@@ -56,7 +56,7 @@ SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
-    "Events received by capture, both session and analytics events.",
+    "Events received by capture, tagged by resource type.",
     labelnames=[LABEL_RESOURCE_TYPE],
 )
 
