@@ -23,7 +23,7 @@ export const ProductEmptyState = ({
 }): JSX.Element => {
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border-light w-full p-8 flex justify-center rounded-md mt-2">
+        <div className="border-2 border-dashed border-border w-full p-8 flex justify-center rounded-md mt-2">
             <div className="flex items-center gap-x-8">
                 <div>
                     <div className="w-40 mx-auto mb-4">
