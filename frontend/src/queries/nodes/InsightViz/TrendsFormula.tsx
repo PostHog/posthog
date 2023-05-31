@@ -11,7 +11,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
     const { formula, hasFormula } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const [value, setValue] = useState(formula)
+    const [value, setValue] = useState(formula ? formula : undefined)
 
     useEffect(() => {
         // Don't clear the formula so that the value is still there after toggling the formula switch
@@ -26,7 +26,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                 className="flex-1"
                 placeholder="Example: (A + B) / 100"
                 autoFocus
-                value={value}
+                value={value ? value : undefined}
                 onChange={(value) => {
                     let changedValue = value.toLocaleUpperCase()
                     // Only allow typing of allowed characters
