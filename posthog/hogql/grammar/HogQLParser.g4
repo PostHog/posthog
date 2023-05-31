@@ -29,7 +29,7 @@ withClause: WITH withExprList;
 topClause: TOP DECIMAL_LITERAL (WITH TIES)?;
 fromClause: FROM joinExpr;
 arrayJoinClause: (LEFT | INNER)? ARRAY JOIN columnExprList;
-windowClause: WINDOW identifier AS LPAREN windowExpr RPAREN;
+windowClause: WINDOW identifier AS LPAREN windowExpr RPAREN (COMMA identifier AS LPAREN windowExpr RPAREN)*;
 prewhereClause: PREWHERE columnExpr;
 whereClause: WHERE columnExpr;
 groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnExprList);
