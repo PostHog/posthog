@@ -12,47 +12,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="BatchExport",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
-                    ),
-                ),
-                ("name", models.TextField(help_text="A human-readable name for this BatchExport.")),
-                (
-                    "interval",
-                    models.CharField(
-                        choices=[("hour", "hour"), ("day", "day"), ("week", "week")],
-                        default="hour",
-                        help_text="The interval at which to export data.",
-                        max_length=64,
-                    ),
-                ),
-                ("paused", models.BooleanField(default=False, help_text="Whether this BatchExport is paused or not.")),
-                (
-                    "deleted",
-                    models.BooleanField(default=False, help_text="Whether this BatchExport is deleted or not."),
-                ),
-                (
-                    "created_at",
-                    models.DateTimeField(
-                        auto_now_add=True, help_text="The timestamp at which this BatchExport was created."
-                    ),
-                ),
-                (
-                    "last_updated_at",
-                    models.DateTimeField(
-                        auto_now=True, help_text="The timestamp at which this BatchExport was last updated."
-                    ),
-                ),
-            ],
-            options={
-                "abstract": False,
-            },
-        ),
-        migrations.CreateModel(
             name="BatchExportDestination",
             fields=[
                 (
@@ -87,6 +46,63 @@ class Migration(migrations.Migration):
                     "last_updated_at",
                     models.DateTimeField(
                         auto_now=True, help_text="The timestamp at which this BatchExportDestination was last updated."
+                    ),
+                ),
+            ],
+            options={
+                "abstract": False,
+            },
+        ),
+        migrations.CreateModel(
+            name="BatchExport",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(
+                        help_text="The team this belongs to.",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.team",
+                    ),
+                ),
+                ("name", models.TextField(help_text="A human-readable name for this BatchExport.")),
+                (
+                    "destination",
+                    models.ForeignKey(
+                        help_text="The destination to export data to.",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.batchexportdestination",
+                    ),
+                ),
+                (
+                    "interval",
+                    models.CharField(
+                        choices=[("hour", "hour"), ("day", "day"), ("week", "week")],
+                        default="hour",
+                        help_text="The interval at which to export data.",
+                        max_length=64,
+                    ),
+                ),
+                ("paused", models.BooleanField(default=False, help_text="Whether this BatchExport is paused or not.")),
+                (
+                    "deleted",
+                    models.BooleanField(default=False, help_text="Whether this BatchExport is deleted or not."),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, help_text="The timestamp at which this BatchExport was created."
+                    ),
+                ),
+                (
+                    "last_updated_at",
+                    models.DateTimeField(
+                        auto_now=True, help_text="The timestamp at which this BatchExport was last updated."
                     ),
                 ),
             ],
@@ -161,21 +177,5 @@ class Migration(migrations.Migration):
             options={
                 "abstract": False,
             },
-        ),
-        migrations.AddField(
-            model_name="batchexport",
-            name="destination",
-            field=models.ForeignKey(
-                help_text="The destination to export data to.",
-                on_delete=django.db.models.deletion.CASCADE,
-                to="posthog.batchexportdestination",
-            ),
-        ),
-        migrations.AddField(
-            model_name="batchexport",
-            name="team",
-            field=models.ForeignKey(
-                help_text="The team this belongs to.", on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-            ),
         ),
     ]
