@@ -19,7 +19,18 @@ import { DataTableNode, NodeKind } from '~/queries/schema'
 import { surveysLogic } from './surveysLogic'
 
 export interface NewSurvey
-    extends Pick<Survey, 'name' | 'description' | 'type' | 'questions' | 'start_date' | 'end_date' | 'targeting_flag'> {
+    extends Pick<
+        Survey,
+        | 'name'
+        | 'description'
+        | 'type'
+        | 'conditions'
+        | 'questions'
+        | 'start_date'
+        | 'end_date'
+        | 'linked_flag'
+        | 'targeting_flag'
+    > {
     linked_flag_id: number | undefined
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
@@ -31,9 +42,11 @@ const NEW_SURVEY: NewSurvey = {
     type: SurveyType.Popover,
     linked_flag_id: undefined,
     targeting_flag_filters: undefined,
+    linked_flag: null,
     targeting_flag: null,
     start_date: null,
     end_date: null,
+    conditions: null,
 }
 
 export interface SurveyLogicProps {
