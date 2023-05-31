@@ -8,7 +8,7 @@ import { Form } from 'kea-forms'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import { PersonsScene } from 'scenes/persons/Persons'
-import { IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconClose, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { useState } from 'react'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -19,7 +19,7 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { PersonsLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
-import { Col, Popconfirm } from 'antd'
+import { Col, Popconfirm, Row } from 'antd'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -140,9 +140,19 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             info={<>A feature flag will be generated from feature name if not provided</>}
                         >
                             {({ value, onChange }) => (
-                                <div>
+                                <Row>
                                     <FlagSelector value={value} onChange={onChange} />
-                                </div>
+                                    {value && (
+                                        <LemonButton
+                                            className="ml-2"
+                                            icon={<IconClose />}
+                                            size="small"
+                                            status="stealth"
+                                            onClick={() => onChange(undefined)}
+                                            aria-label="close"
+                                        />
+                                    )}
+                                </Row>
                             )}
                         </Field>
                     )}
