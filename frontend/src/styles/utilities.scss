@@ -80,6 +80,38 @@
         padding: #{$space * 0.25}rem;
     }
 
+    .inset-#{escape-number($space)} {
+        top: #{$space * 0.25}rem;
+        right: #{$space * 0.25}rem;
+        bottom: #{$space * 0.25}rem;
+        left: #{$space * 0.25}rem;
+    }
+
+    .inset-x-#{escape-number($space)} {
+        left: #{$space * 0.25}rem;
+        right: #{$space * 0.25}rem;
+    }
+
+    .inset-y-#{escape-number($space)} {
+        top: #{$space * 0.25}rem;
+        bottom: #{$space * 0.25}rem;
+    }
+    .top-#{escape-number($space)} {
+        top: #{$space * 0.25}rem;
+    }
+
+    .bottom-#{escape-number($space)} {
+        bottom: #{$space * 0.25}rem;
+    }
+
+    .right-#{escape-number($space)} {
+        right: #{$space * 0.25}rem;
+    }
+
+    .left-#{escape-number($space)} {
+        left: #{$space * 0.25}rem;
+    }
+
     @each $side in $sides {
         .m#{str-slice($side, 0, 1)}-#{escape-number($space)} {
             margin-#{$side}: #{$space * 0.25}rem;
@@ -153,6 +185,10 @@
     }
 }
 
+.border {
+    border-width: 1px;
+}
+
 // Margins/padding
 @each $kind in ('margin', 'padding') {
     $char: str-slice($kind, 0, 1);
@@ -195,9 +231,6 @@
 }
 
 // Border
-.border {
-    border-width: 1px;
-}
 .border-0 {
     border-width: 0px;
 }
@@ -512,39 +545,6 @@ $decorations: underline, overline, line-through, no-underline;
 
 .grow-0 {
     flex-grow: 0;
-}
-
-.inset-0 {
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-}
-
-.inset-x-0 {
-    left: 0;
-    right: 0;
-}
-
-.inset-y-0 {
-    top: 0;
-    bottom: 0;
-}
-
-.top-0 {
-    top: 0;
-}
-
-.bottom-0 {
-    bottom: 0;
-}
-
-.right-0 {
-    right: 0;
-}
-
-.left-0 {
-    left: 0;
 }
 
 .justify-start {

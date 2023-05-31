@@ -19,7 +19,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { SessionRecordingsFiltersV2 } from '../filters/SessionRecordingsFiltersV2'
+import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -53,8 +53,15 @@ export function RecordingsLists({
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
     } = useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev, setFilters, maybeLoadSessionRecordings, setShowFilters } =
-        useActions(logic)
+    const {
+        setSelectedRecordingId,
+        loadNext,
+        loadPrev,
+        setFilters,
+        maybeLoadSessionRecordings,
+        setShowFilters,
+        resetFilters,
+    } = useActions(logic)
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -201,10 +208,11 @@ export function RecordingsLists({
                     }
                     subheader={
                         showFilters ? (
-                            <SessionRecordingsFiltersV2
+                            <SessionRecordingsFilters
                                 filters={filters}
                                 setFilters={setFilters}
                                 showPropertyFilters={!personUUID}
+                                onReset={totalFiltersCount ? () => resetFilters() : undefined}
                             />
                         ) : null
                     }
