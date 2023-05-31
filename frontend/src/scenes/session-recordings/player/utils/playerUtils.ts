@@ -63,7 +63,7 @@ export async function addRecordingToPlaylist(
         lemonToast.success('Recording added to playlist', {
             button: {
                 label: 'View playlist',
-                action: () => router.actions.push(urls.sessionRecordingPlaylist(playlistId)),
+                action: () => router.actions.push(urls.replayPlaylist(playlistId)),
             },
         })
     }

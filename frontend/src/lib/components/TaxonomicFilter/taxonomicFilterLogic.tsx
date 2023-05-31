@@ -41,7 +41,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { InlineHogQLEditor } from '~/queries/QueryEditor/InlineHogQLEditor'
+import { InlineHogQLEditor } from './InlineHogQLEditor'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -617,9 +617,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (
                 results.count > 0 &&
                 (groupType === TaxonomicFilterGroupType.EventProperties ||
+                    groupType === TaxonomicFilterGroupType.PersonProperties ||
                     groupType === TaxonomicFilterGroupType.NumericalEventProperties)
             ) {
-                updatePropertyDefinitions(results.results as PropertyDefinition[])
+                const propertyDefinitions: PropertyDefinition[] = results.results as PropertyDefinition[]
+                const apiType = groupType === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
+                const newPropertyDefinitions = Object.fromEntries(
+                    propertyDefinitions.map((propertyDefinition) => [
+                        `${apiType}/${propertyDefinition.name}`,
+                        propertyDefinition,
+                    ])
+                )
+                updatePropertyDefinitions(newPropertyDefinitions)
             }
         },
     }),

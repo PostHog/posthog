@@ -1,9 +1,13 @@
-import { actions, kea, reducers, path, listeners } from 'kea'
+import { actions, kea, reducers, path, listeners, connect } from 'kea'
 import { NotebookNodeType } from '../Nodes/types'
 import { notebookLogic } from './notebookLogic'
 
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
 import { urlToAction } from 'kea-router'
+import { notebooksListLogic } from './notebooksListLogic'
+import { RefObject } from 'react'
+import posthog from 'posthog-js'
+import { subscriptions } from 'kea-subscriptions'
 
 export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookSidebarLogic']),
@@ -11,26 +15,22 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         setNotebookSideBarShown: (shown: boolean) => ({ shown }),
         setFullScreen: (full: boolean) => ({ full }),
         addNodeToNotebook: (type: NotebookNodeType, properties: Record<string, any>) => ({ type, properties }),
-        createNotebook: (id: string) => ({ id }),
-        deleteNotebook: (id: string) => ({ id }),
-        renameNotebook: (id: string, name: string) => ({ id, name }),
         selectNotebook: (id: string) => ({ id }),
+        onResize: (event: { originX: number; desiredX: number; finished: boolean }) => event,
+        setDesiredWidth: (width: number) => ({ width }),
+        setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
+    }),
+
+    connect({
+        actions: [notebooksListLogic, ['createNotebookSuccess']],
     }),
 
     reducers(() => ({
-        notebooks: [
-            ['scratchpad', 'RFC: Notebooks', 'Feature Flag overview', 'HoqQL examples'] as string[],
-            {
-                createNotebook: (state, { id }) => [...state, id],
-                deleteNotebook: (state, { id }) => state.filter((notebook) => notebook !== id),
-            },
-        ],
         selectedNotebook: [
             'scratchpad',
             { persist: true },
             {
                 selectNotebook: (_, { id }) => id,
-                createNotebook: (_, { id }) => id,
             },
         ],
         notebookSideBarShown: [
@@ -47,30 +47,61 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
                 setNotebookSideBarShown: (state, { shown }) => (!shown ? false : state),
             },
         ],
+        desiredWidth: [
+            750,
+            { persist: true },
+            {
+                setDesiredWidth: (_, { width }) => width,
+            },
+        ],
+
+        elementRef: [
+            null as RefObject<HTMLElement> | null,
+            {
+                setElementRef: (_, { element }) => element,
+            },
+        ],
     })),
 
-    listeners(({ values, actions }) => ({
+    subscriptions({
+        notebookSideBarShown: (value, oldvalue) => {
+            if (oldvalue !== undefined && value !== oldvalue) {
+                posthog.capture(`notebook sidebar ${value ? 'shown' : 'hidden'}`)
+            }
+        },
+    }),
+
+    listeners(({ values, actions, cache }) => ({
         addNodeToNotebook: ({ type, properties }) => {
-            notebookLogic({ id: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
-
+            notebookLogic({ shortId: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
             actions.setNotebookSideBarShown(true)
+        },
 
-            // if (!values.editor) {
-            //     return
-            // }
-            // values.editor
-            //     .chain()
-            //     .focus()
-            //     .insertContent({
-            //         type,
-            //         attrs: props,
-            //     })
-            //     .run()
+        createNotebookSuccess: ({ notebooks }) => {
+            // NOTE: This is temporary: We probably only want to select it if it is created from the sidebar
+            actions.selectNotebook(notebooks[notebooks.length - 1].short_id)
+        },
+
+        onResize: ({ originX, desiredX, finished }) => {
+            if (!values.elementRef?.current) {
+                return
+            }
+            if (!cache.originalWidth) {
+                cache.originalWidth = values.elementRef.current.getBoundingClientRect().width
+            }
+
+            if (finished) {
+                cache.originalWidth = undefined
+                actions.setDesiredWidth(values.elementRef.current.getBoundingClientRect().width)
+            } else {
+                actions.setDesiredWidth(cache.originalWidth - (desiredX - originX))
+            }
         },
     })),
 
     urlToAction(({ actions }) => ({
         '/*': () => {
+            // Any navigation should trigger exiting full screen
             actions.setFullScreen(false)
         },
     })),

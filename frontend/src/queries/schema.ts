@@ -1,5 +1,4 @@
 import {
-    AnyPartialFilterType,
     AnyPropertyFilter,
     Breakdown,
     BreakdownKeyType,
@@ -19,6 +18,7 @@ import {
     StickinessFilterType,
     LifecycleFilterType,
     LifecycleToggle,
+    HogQLMathType,
 } from '~/types'
 
 /**
@@ -44,7 +44,6 @@ export enum NodeKind {
     // Interface nodes
     DataTableNode = 'DataTableNode',
     InsightVizNode = 'InsightVizNode',
-    LegacyQuery = 'LegacyQuery',
 
     // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
@@ -76,7 +75,6 @@ export type QuerySchema =
     // Interface nodes
     | DataTableNode
     | InsightVizNode
-    | LegacyQuery
 
     // New queries, not yet implemented
     | TrendsQuery
@@ -124,8 +122,9 @@ export interface HogQLQuery extends DataNode {
 export interface EntityNode extends DataNode {
     name?: string
     custom_name?: string
-    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType
+    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
     math_property?: string
+    math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
@@ -471,13 +470,6 @@ export interface RecentPerformancePageViewNode extends DataNode {
 }
 
 export type HogQLExpression = string
-
-// Legacy queries
-
-export interface LegacyQuery extends Node {
-    kind: NodeKind.LegacyQuery
-    filters: AnyPartialFilterType
-}
 
 // Various utility types below
 

@@ -221,7 +221,7 @@ export function InsightsTableComponent({
             )
 
         columns.push({
-            title: <BreakdownColumnTitle breakdown={breakdown?.breakdown} />,
+            title: <BreakdownColumnTitle breakdownFilter={breakdown} />,
             render: (_, item) => (
                 <BreakdownColumnItem
                     item={item}

@@ -36,7 +36,7 @@ import {
     PropertyOperator,
     Resource,
     FeatureFlagType,
-    SessionRecordingsTabs,
+    ReplayTabs,
     FeatureFlagGroupType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
@@ -75,9 +75,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import clsx from 'clsx'
 
 export const scene: SceneExport = {
@@ -378,6 +375,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         ) : (
                             <>
                                 <PageHeader
+                                    notebookProps={{
+                                        href: urls.featureFlag(id),
+                                    }}
                                     title={
                                         <div className="flex items-center gap-2 mb-2">
                                             {featureFlag.key || 'Untitled'}
@@ -441,7 +441,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
                                                     <>
                                                         <LemonButton
-                                                            to={urls.sessionRecordings(SessionRecordingsTabs.Recent, {
+                                                            to={urls.replay(ReplayTabs.Recent, {
                                                                 events: defaultEntityFilterOnFlag(featureFlag.key)
                                                                     .events,
                                                             })}
@@ -462,7 +462,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     onClick={() => {
                                                         deleteFeatureFlag(featureFlag)
                                                     }}
-                                                    disabled={featureFlagLoading || !featureFlag.can_edit}
+                                                    disabledReason={
+                                                        featureFlagLoading
+                                                            ? 'Loading...'
+                                                            : !featureFlag.can_edit
+                                                            ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                            : (featureFlag.features?.length || 0) > 0
+                                                            ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                            : null
+                                                    }
                                                 >
                                                     Delete feature flag
                                                 </LemonButton>
@@ -481,15 +489,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
-                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                                                    <span>
-                                                        <AddToNotebook
-                                                            node={NotebookNodeType.FeatureFlag}
-                                                            properties={{ flag: id }}
-                                                            type="secondary"
-                                                        />
-                                                    </span>
-                                                </FlaggedFeature>
                                             </div>
                                         </>
                                     }

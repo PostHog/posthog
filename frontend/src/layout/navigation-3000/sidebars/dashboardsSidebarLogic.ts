@@ -63,7 +63,7 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                                       nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
                                   }
                                 : null,
-                            menuItems: [
+                            menuItems: (initiateRename) => [
                                 {
                                     items: [
                                         {
@@ -97,6 +97,11 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                                 {
                                     items: [
                                         {
+                                            onClick: initiateRename,
+                                            label: 'Rename',
+                                            keyboardShortcut: ['enter'],
+                                        },
+                                        {
                                             onClick: () => {
                                                 actions.showDeleteDashboardModal(dashboard.id)
                                             },
@@ -106,6 +111,9 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                                     ],
                                 },
                             ],
+                            onRename: async (newName) => {
+                                await dashboardsModel.asyncActions.updateDashboard({ id: dashboard.id, name: newName })
+                            },
                         } as ExtendedListItem)
                 ),
         ],

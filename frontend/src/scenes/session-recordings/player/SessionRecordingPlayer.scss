@@ -136,6 +136,16 @@
             }
         }
     }
+
+    &--inspector-hidden {
+        .SessionRecordingPlayer__main {
+            padding-right: 0;
+        }
+
+        .SessionRecordingPlayer__inspector {
+            display: none;
+        }
+    }
 }
 
 .PlayerControlSeekIcon {

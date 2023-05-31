@@ -13,6 +13,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
 import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { PropertyDefinitionType } from '~/types'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -26,6 +27,7 @@ interface BasePropertyType {
 interface ValueDisplayType extends BasePropertyType {
     value: any
     useDetectedPropertyType?: boolean
+    type: PropertyDefinitionType
 }
 
 function EditTextValueComponent({
@@ -48,6 +50,7 @@ function EditTextValueComponent({
 }
 
 function ValueDisplay({
+    type,
     value,
     rootKey,
     onEdit,
@@ -65,7 +68,7 @@ function ValueDisplay({
 
     let propertyType
     if (rootKey && useDetectedPropertyType) {
-        propertyType = describeProperty(rootKey)
+        propertyType = describeProperty(rootKey, type)
     }
     const valueType: Type = value === null ? 'null' : typeof value // typeof null returns 'object' ¯\_(ツ)_/¯
 
@@ -149,6 +152,7 @@ interface PropertiesTableType extends BasePropertyType {
     useDetectedPropertyType?: boolean
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
     highlightedKeys?: string[]
+    type: PropertyDefinitionType
 }
 
 export function PropertiesTable({
@@ -165,6 +169,7 @@ export function PropertiesTable({
     useDetectedPropertyType,
     tableProps,
     highlightedKeys,
+    type,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const [filtered, setFiltered] = useState(false)
@@ -176,6 +181,7 @@ export function PropertiesTable({
                     properties.map((item, index) => (
                         <PropertiesTable
                             key={index}
+                            type={type}
                             properties={item}
                             nestingLevel={nestingLevel + 1}
                             useDetectedPropertyType={
@@ -189,6 +195,45 @@ export function PropertiesTable({
             </div>
         )
     }
+
+    const objectProperties = useMemo(() => {
+        if (!(properties instanceof Object)) {
+            return []
+        }
+        let entries = Object.entries(properties)
+        if (searchTerm) {
+            const normalizedSearchTerm = searchTerm.toLowerCase()
+            entries = entries.filter(
+                ([key, value]) =>
+                    key.toLowerCase().includes(normalizedSearchTerm) ||
+                    JSON.stringify(value).toLowerCase().includes(normalizedSearchTerm)
+            )
+        }
+
+        if (filterable && filtered) {
+            entries = entries.filter(([key]) => !key.startsWith('$') && !keyMappingKeys.includes(key))
+        }
+
+        if (sortProperties) {
+            entries.sort(([aKey], [bKey]) => {
+                if (highlightedKeys) {
+                    const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
+                    const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
+                    if (aHighlightValue !== bHighlightValue) {
+                        return aHighlightValue - bHighlightValue
+                    }
+                }
+                return aKey.localeCompare(bKey)
+            })
+        } else if (highlightedKeys) {
+            entries.sort(([aKey], [bKey]) => {
+                const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
+                const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
+                return aHighlightValue - bHighlightValue
+            })
+        }
+        return entries
+    }, [properties, sortProperties, searchTerm, filtered])
 
     if (properties instanceof Object) {
         const columns: LemonTableColumns<Record<string, any>> = [
@@ -210,6 +255,7 @@ export function PropertiesTable({
                 render: function Value(_, item: any): JSX.Element {
                     return (
                         <PropertiesTable
+                            type={type}
                             properties={item[1]}
                             rootKey={item[0]}
                             onEdit={onEdit}
@@ -272,45 +318,6 @@ export function PropertiesTable({
             })
         }
 
-        const objectProperties = useMemo(() => {
-            if (!(properties instanceof Object)) {
-                return []
-            }
-            let entries = Object.entries(properties)
-            if (searchTerm) {
-                const normalizedSearchTerm = searchTerm.toLowerCase()
-                entries = entries.filter(
-                    ([key, value]) =>
-                        key.toLowerCase().includes(normalizedSearchTerm) ||
-                        JSON.stringify(value).toLowerCase().includes(normalizedSearchTerm)
-                )
-            }
-
-            if (filterable && filtered) {
-                entries = entries.filter(([key]) => !key.startsWith('$') && !keyMappingKeys.includes(key))
-            }
-
-            if (sortProperties) {
-                entries.sort(([aKey], [bKey]) => {
-                    if (highlightedKeys) {
-                        const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
-                        const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
-                        if (aHighlightValue !== bHighlightValue) {
-                            return aHighlightValue - bHighlightValue
-                        }
-                    }
-                    return aKey.localeCompare(bKey)
-                })
-            } else if (highlightedKeys) {
-                entries.sort(([aKey], [bKey]) => {
-                    const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
-                    const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
-                    return aHighlightValue - bHighlightValue
-                })
-            }
-            return entries
-        }, [properties, sortProperties, searchTerm, filtered])
-
         return (
             <>
                 {(searchable || filterable) && (
@@ -320,7 +327,6 @@ export function PropertiesTable({
                                 <LemonInput
                                     type="search"
                                     placeholder="Search for property keys and values"
-                                    autoFocus
                                     value={searchTerm || ''}
                                     onChange={setSearchTerm}
                                 />
@@ -384,6 +390,7 @@ export function PropertiesTable({
     // if none of above, it's a value
     return (
         <ValueDisplay
+            type={type}
             value={properties}
             rootKey={rootKey}
             onEdit={onEdit}

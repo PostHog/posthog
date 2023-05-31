@@ -13,14 +13,14 @@ export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'
 export function deserializeAnnotation(annotation: RawAnnotationType, projectTimezone: string): AnnotationType {
     return {
         ...annotation,
-        date_marker: dayjsUtcToTimezone(annotation.date_marker, projectTimezone),
+        date_marker: annotation.date_marker ? dayjsUtcToTimezone(annotation.date_marker, projectTimezone) : null,
     }
 }
 
 export function serializeAnnotation(annotation: AnnotationType): RawAnnotationType {
     return {
         ...annotation,
-        date_marker: annotation.date_marker.toISOString(),
+        date_marker: annotation.date_marker ? annotation.date_marker.toISOString() : null,
     }
 }
 

@@ -32,16 +32,34 @@ class TestSharing(APIBaseTest):
         assert SharingConfiguration.objects.count() == 0
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
-        assert SharingConfiguration.objects.count() == 1
+        assert SharingConfiguration.objects.count() == 0
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data == {"access_token": data["access_token"], "created_at": "2022-01-01T00:00:00Z", "enabled": False}
+        assert data == {"access_token": data["access_token"], "created_at": None, "enabled": False}
 
-        assert len(data["access_token"]) > 0
-
-        response2 = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
-        assert data["access_token"] == response2.json()["access_token"]
+    @freeze_time("2022-01-01")
+    def test_does_not_change_token_when_toggling_enabled_state(self):
+        assert SharingConfiguration.objects.count() == 0
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing", {"enabled": True}
+        )
+        initial_data = response.json()
         assert SharingConfiguration.objects.count() == 1
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
+        assert response.json() == {
+            "access_token": initial_data["access_token"],
+            "created_at": "2022-01-01T00:00:00Z",
+            "enabled": True,
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing", {"enabled": False}
+        )
+        assert response.json() == {
+            "access_token": initial_data["access_token"],
+            "created_at": "2022-01-01T00:00:00Z",
+            "enabled": False,
+        }
 
     def test_can_edit_enabled_state(self):
         response = self.client.patch(

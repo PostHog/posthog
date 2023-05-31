@@ -28,6 +28,7 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
+from django.db import DEFAULT_DB_ALIAS, connections
 
 import lzstring
 import posthoganalytics
@@ -42,6 +43,7 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
+from prometheus_client import Counter
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
@@ -71,6 +73,12 @@ logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+
+counter_lz64_compressed_event = Counter(
+    "ingestion_lz64_compressed_event",
+    """Number of events compressed using lz64,
+    the theory is that we aren't receiving any of these and we can remove support to save on posthog-js bundle size""",
+)
 
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
@@ -104,7 +112,11 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if provided_url.hostname and provided_url.scheme:
         site_url = urlparse(settings.SITE_URL)
         provided_url = provided_url
-        if site_url.hostname != provided_url.hostname:
+        if (
+            site_url.hostname != provided_url.hostname
+            or site_url.port != provided_url.port
+            or site_url.scheme != provided_url.scheme
+        ):
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
@@ -171,13 +183,13 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
         at,
         datetime.time.max,
         tzinfo=pytz.UTC,
-    )  # very end of the previous day
+    )  # very end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=pytz.UTC,
-    )  # very start of the previous day
+    )  # very start of the reference day
 
     return (period_start, period_end)
 
@@ -637,6 +649,7 @@ def decompress(data: Any, compression: str):
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
+        counter_lz64_compressed_event.inc()
         if not isinstance(data, str):
             data = data.decode()
         data = data.replace(" ", "+")
@@ -752,6 +765,22 @@ def compact_number(value: Union[int, float]) -> str:
         magnitude += 1
         value /= 1000.0
     return f"{value:f}".rstrip("0").rstrip(".") + ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
+
+
+@lru_cache(maxsize=1)
+def is_postgres_connected_cached_check(_ttl: int) -> bool:
+    """
+    The setting will change way less frequently than it will be called
+    _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
+    """
+    # Uses the same check as in the healthcheck
+    try:
+        with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
+            cursor.execute("SELECT 1")
+        return True
+    except Exception:
+        logger.exception("postgres_connection_failure")
+        return False
 
 
 def is_postgres_alive() -> bool:

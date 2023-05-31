@@ -134,7 +134,7 @@ export async function createHub(
     const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig as KafkaConfig)
     const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
 
-    const kafkaProducer = new KafkaProducerWrapper(producer)
+    const kafkaProducer = new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
     status.info('👍', `Kafka ready`)
 
     status.info('🤔', `Connecting to Postgresql...`)

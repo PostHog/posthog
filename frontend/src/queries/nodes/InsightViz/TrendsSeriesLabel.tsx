@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { QueryEditorFilterProps } from '~/types'
+import { EditorFilterProps } from '~/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -8,7 +8,7 @@ import { IconCalculate } from 'lib/lemon-ui/icons'
 import { isTrendsQuery } from '~/queries/utils'
 import { getDisplay } from './utils'
 
-export function TrendsSeriesLabel({ query, insightProps }: QueryEditorFilterProps): JSX.Element {
+export function TrendsSeriesLabel({ query, insightProps }: EditorFilterProps): JSX.Element {
     const { isFormulaOn } = useValues(trendsLogic(insightProps))
     const { setIsFormulaOn } = useActions(trendsLogic(insightProps))
 

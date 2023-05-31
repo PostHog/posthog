@@ -27,6 +27,7 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
 import { InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -355,7 +356,7 @@ export interface ActionType {
 }
 
 /** Sync with plugin-server/src/types.ts */
-export enum ActionStepUrlMatching {
+export enum StringMatching {
     Contains = 'contains',
     Regex = 'regex',
     Exact = 'exact',
@@ -363,15 +364,21 @@ export enum ActionStepUrlMatching {
 
 export interface ActionStepType {
     event?: string | null
-    href?: string | null
     id?: number
     name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
+    /** @deprecated Only `selector` should be used now. */
     tag_name?: string
     text?: string | null
+    /** @default StringMatching.Exact */
+    text_matching?: StringMatching | null
+    href?: string | null
+    /** @default StringMatching.Exact */
+    href_matching?: StringMatching | null
     url?: string | null
-    url_matching?: ActionStepUrlMatching
+    /** @default StringMatching.Contains */
+    url_matching?: StringMatching | null
     isNew?: string
 }
 
@@ -447,7 +454,7 @@ export enum SavedInsightsTabs {
     History = 'history',
 }
 
-export enum SessionRecordingsTabs {
+export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
     FilePlayback = 'file-playback',
@@ -459,10 +466,11 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
-export enum ExperimentStatus {
+export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
+    All = 'all',
 }
 
 export enum PropertyFilterType {
@@ -646,6 +654,7 @@ export enum SessionRecordingPlayerTab {
 }
 
 export enum SessionPlayerState {
+    READY = 'ready',
     BUFFER = 'buffer',
     PLAY = 'play',
     PAUSE = 'pause',
@@ -653,6 +662,8 @@ export enum SessionPlayerState {
     SKIP = 'skip',
     ERROR = 'error',
 }
+
+export type AutoplayDirection = 'newer' | 'older' | null
 
 /** Sync with plugin-server/src/types.ts */
 export type ActionStepProperties =
@@ -1444,8 +1455,8 @@ export enum AnnotationScope {
 export interface RawAnnotationType {
     id: number
     scope: AnnotationScope
-    content: string
-    date_marker: string
+    content: string | null
+    date_marker: string | null
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
@@ -1457,6 +1468,10 @@ export interface RawAnnotationType {
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+    date_marker: dayjs.Dayjs | null
+}
+
+export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
     date_marker: dayjs.Dayjs
 }
 
@@ -1696,40 +1711,29 @@ export enum RecordingWindowFilter {
     All = 'all',
 }
 
-export type InsightEditorFilterGroup<T = InsightEditorFilter> = {
-    title?: string
-    count?: number
-    editorFilters: T[]
-    defaultExpanded?: boolean
-}
-
 export interface EditorFilterProps {
-    insight: Partial<InsightModel>
-    insightProps: InsightLogicProps
-    filters: Partial<FilterType>
-    value: any
-}
-
-export interface QueryEditorFilterProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
     insightProps: InsightLogicProps
 }
 
-export interface InsightEditorFilter<T = EditorFilterProps> {
+export interface InsightEditorFilter {
     key: string
-    label?: string | ((props: T) => JSX.Element | null)
+    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
-    component?: (props: T) => JSX.Element | null
+    component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
-export type QueryInsightEditorFilter = InsightEditorFilter<QueryEditorFilterProps>
-
-export type QueryInsightEditorFilterGroup = InsightEditorFilterGroup<QueryInsightEditorFilter>
+export type InsightEditorFilterGroup = {
+    title?: string
+    count?: number
+    editorFilters: InsightEditorFilter[]
+    defaultExpanded?: boolean
+}
 
 export interface SystemStatusSubrows {
     columns: string[]
@@ -1775,6 +1779,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
+    math_hogql?: string
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
@@ -1803,7 +1808,7 @@ export interface TrendResult {
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
-    filter?: FilterType
+    filter?: TrendsFilterType
 }
 
 interface Person {
@@ -1968,6 +1973,8 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    /** Temporary hack to disable data exploration to enable result fetching. */
+    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {
@@ -1975,6 +1982,54 @@ export interface SetInsightOptions {
     overrideFilter?: boolean
     /** calling with this updates the "last saved" filters */
     fromPersistentApi?: boolean
+}
+
+export interface Survey {
+    /** UUID */
+    id: string
+    name: string
+    description: string
+    type: SurveyType
+    linked_flag: FeatureFlagBasicType | null
+    targeting_flag: FeatureFlagBasicType | null
+    conditions: { url: string; selector: string } | null
+    appearance: SurveyAppearance
+    questions: SurveyQuestion[]
+    created_at: string
+    created_by: UserBasicType | null
+    start_date: string | null
+    end_date: string | null
+    archived: boolean
+}
+
+export enum SurveyType {
+    Popover = 'popover',
+    Button = 'button',
+    FullScreen = 'full_screen',
+    Email = 'email',
+}
+
+export interface SurveyAppearance {
+    background_color?: string
+    button_color?: string
+    text_color?: string
+}
+
+export interface SurveyQuestion {
+    type: SurveyQuestionType
+    question: string
+    required?: boolean
+    link?: string | null
+    choices?: string[] | null
+}
+
+export enum SurveyQuestionType {
+    Open = 'open',
+    MultipleChoiceSingle = 'multiple_single',
+    MultipleChoiceMulti = 'multiple_multi',
+    NPS = 'nps',
+    Rating = 'rating',
+    Link = 'link',
 }
 
 export interface FeatureFlagGroupType {
@@ -2022,7 +2077,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: string[] | null
-    features: EarlyAccsesFeatureType[] | null
+    features: EarlyAccessFeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -2049,7 +2104,7 @@ export enum EarlyAccessFeatureStage {
     GeneralAvailability = 'general-availability',
 }
 
-export interface EarlyAccsesFeatureType {
+export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
     feature_flag: FeatureFlagBasicType
@@ -2061,7 +2116,7 @@ export interface EarlyAccsesFeatureType {
     created_at: string
 }
 
-export interface NewEarlyAccessFeatureType extends Omit<EarlyAccsesFeatureType, 'id' | 'created_at' | 'feature_flag'> {
+export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
     feature_flag_id: number | undefined
 }
 
@@ -2210,6 +2265,12 @@ export enum PropertyType {
     Selector = 'Selector',
 }
 
+export enum PropertyDefinitionType {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+}
+
 export interface PropertyDefinition {
     id: string
     name: string
@@ -2222,6 +2283,7 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_seen_on_filtered_events?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: PropertyType
+    type?: PropertyDefinitionType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
     example?: string
@@ -2282,10 +2344,17 @@ export interface Experiment {
     updated_at: string | null
 }
 
-export interface ExperimentVariant {
+export interface FunnelExperimentVariant {
     key: string
     success_count: number
     failure_count: number
+}
+
+export interface TrendExperimentVariant {
+    key: string
+    count: number
+    exposure: number
+    absolute_exposure: number
 }
 
 interface BaseExperimentResults {
@@ -2296,17 +2365,18 @@ interface BaseExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
-    variants: ExperimentVariant[]
 }
 
 export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
+    variants: TrendExperimentVariant[]
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
+    variants: FunnelExperimentVariant[]
 }
 
 export interface TrendsExperimentResults {
@@ -2556,6 +2626,9 @@ export enum CountPerActorMathType {
     P99 = 'p99_count_per_actor',
 }
 
+export enum HogQLMathType {
+    HogQL = 'hogql',
+}
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
@@ -2811,3 +2884,25 @@ export type PromptFlag = {
     locationCSS?: Partial<CSSStyleDeclaration>
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
+
+export type NotebookListItemType = {
+    // id: string
+    short_id: string
+    title?: string
+    created_at: string
+    created_by: UserBasicType | null
+    last_modified_at?: string
+    last_modified_by?: UserBasicType | null
+}
+
+export type NotebookType = NotebookListItemType & {
+    content: JSONContent // TODO: Type this better
+    version: number
+}
+
+export enum NotebookMode {
+    View = 'view',
+    Edit = 'edit',
+}
+
+export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'

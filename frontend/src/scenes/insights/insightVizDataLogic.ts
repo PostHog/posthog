@@ -53,7 +53,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['insight', 'isUsingDataExploration'],
+            ['insight'],
             insightDataLogic,
             ['query'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
@@ -192,13 +192,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
         updateDisplay: ({ display }) => {
-            const localQuerySource = values.querySource
-                ? values.querySource
-                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
-            if (isInsightQueryNode(localQuerySource)) {
-                const newQuerySource = { ...localQuerySource, display }
-                actions.updateQuerySource(newQuerySource)
-            }
+            actions.updateInsightFilter({ display })
         },
         updateInsightFilter: ({ insightFilter }) => {
             const localQuerySource = values.querySource
@@ -226,11 +220,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
         setQuery: ({ query }) => {
-            // safeguard against accidentally overwriting filters for non-flagged users
-            if (!values.isUsingDataExploration) {
-                return
-            }
-
             if (isInsightVizNode(query)) {
                 const querySource = query.source
                 const filters = queryNodeToFilter(querySource)
@@ -238,10 +227,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
         loadData: async ({ queryId }, breakpoint) => {
-            if (!values.isUsingDataExploration) {
-                return
-            }
-
             actions.setTimedOutQueryId(null)
 
             await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
@@ -268,7 +253,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
          * that haven't been refactored to use the data exploration yet.
          */
         insightData: (insightData: Record<string, any> | null) => {
-            if (!values.isUsingDataExploration || insightData === null) {
+            if (insightData === null) {
                 return
             }
             if (isInsightVizNode(values.query)) {

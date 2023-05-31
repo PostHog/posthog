@@ -22,7 +22,9 @@ export async function processError(
     event?: PluginEvent | ProcessedPluginEvent | null
 ): Promise<void> {
     if (!pluginConfig) {
-        captureException(new Error('Tried to process error for nonexistent plugin config!'))
+        captureException(new Error('Tried to process error for nonexistent plugin config!'), {
+            tags: { team_id: event?.team_id },
+        })
         return
     }
 

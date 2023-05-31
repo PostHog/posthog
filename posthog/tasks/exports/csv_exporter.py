@@ -142,8 +142,8 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
         elif isinstance(first_result.get("data"), list):
             csv_rows = []
             # TRENDS LIKE
-            for item in items:
-                line = {"series": item["label"]}
+            for index, item in enumerate(items):
+                line = {"series": item.get("label", f"Series #{index + 1}")}
                 if item.get("action", {}).get("custom_name"):
                     line["custom name"] = item.get("action").get("custom_name")
                 if item.get("aggregated_value"):
@@ -173,8 +173,12 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     all_csv_rows: List[Any] = []
 
     if resource.get("source"):
+        from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+
         query = resource.get("source")
-        query_response = process_query(team=exported_asset.team, query_json=query, is_hogql_enabled=True)
+        query_response = process_query(
+            team=exported_asset.team, query_json=query, default_limit=MAX_SELECT_RETURNED_ROWS
+        )
         all_csv_rows = _convert_response_to_csv_data(query_response)
 
     else:

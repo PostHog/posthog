@@ -37,6 +37,7 @@ MathType = Literal[
     "p90_count_per_actor",
     "p95_count_per_actor",
     "p99_count_per_actor",
+    "hogql",
 ]
 
 
@@ -54,6 +55,7 @@ class Entity(PropertyMixin):
     custom_name: Optional[str]
     math: Optional[MathType]
     math_property: Optional[str]
+    math_hogql: Optional[str]
     math_group_type_index: Optional[GroupTypeIndex]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
     # Used for identifying entities within a single query during query building,
@@ -77,6 +79,7 @@ class Entity(PropertyMixin):
         self.custom_name = custom_name
         self.math = data.get("math")
         self.math_property = data.get("math_property")
+        self.math_hogql = data.get("math_hogql")
         self.math_group_type_index = validate_group_type_index(
             "math_group_type_index", data.get("math_group_type_index")
         )
@@ -96,6 +99,7 @@ class Entity(PropertyMixin):
             "custom_name": self.custom_name,
             "math": self.math,
             "math_property": self.math_property,
+            "math_hogql": self.math_hogql,
             "math_group_type_index": self.math_group_type_index,
             "properties": self.property_groups.to_dict(),
         }
@@ -145,7 +149,9 @@ class Entity(PropertyMixin):
         except:
             raise ValidationError(f"Action ID {self.id} does not exist!")
 
-    __repr__ = sane_repr("id", "type", "order", "name", "custom_name", "math", "math_property", "properties")
+    __repr__ = sane_repr(
+        "id", "type", "order", "name", "custom_name", "math", "math_property", "math_hogql", "properties"
+    )
 
 
 class ExclusionEntity(Entity, FunnelFromToStepsMixin):
@@ -158,7 +164,6 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
         super().__init__(data)
 
     def to_dict(self) -> Dict[str, Any]:
-
         ret = super().to_dict()
 
         for _, func in inspect.getmembers(self, inspect.ismethod):

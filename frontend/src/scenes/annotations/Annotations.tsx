@@ -21,6 +21,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { AnnotationModal } from './AnnotationModal'
 import { shortTimeZone } from 'lib/utils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -44,13 +45,13 @@ export function Annotations(): JSX.Element {
             },
         },
         {
-            title: `Date and time (${shortTimeZone(timezone)})`,
+            title: `Date and time (${shortTimeZone(timezone)})`,
             dataIndex: 'date_marker',
             render: function RenderDateMarker(_, annotation: AnnotationType): string {
                 // Format marker. Minute precision is used, because that's as detailed as our graphs can be
-                return annotation.date_marker.format(ANNOTATION_DAYJS_FORMAT)
+                return annotation.date_marker?.format(ANNOTATION_DAYJS_FORMAT) || ''
             },
-            sorter: (a, b) => a.date_marker.diff(b.date_marker),
+            sorter: (a, b) => a.date_marker?.diff(b.date_marker) || 1,
         },
         {
             title: 'Scope',
@@ -145,32 +146,46 @@ export function Annotations(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <LemonTable
-                data-attr="annotations-table"
-                rowKey="id"
-                dataSource={annotations}
-                columns={columns}
-                defaultSorting={{
-                    columnKey: 'date_marker',
-                    order: -1,
-                }}
-                noSortingCancellation
-                loading={annotationsLoading}
-                emptyState="No annotations yet"
-            />
-            {next && (
-                <div className="flex justify-center mt-6">
-                    <LemonButton
-                        type="primary"
-                        loading={loadingNext}
-                        onClick={(): void => {
-                            loadAnnotationsNext()
-                        }}
-                    >
-                        Load more annotations
-                    </LemonButton>
-                </div>
-            )}
+            <div data-attr={'annotations-content'}>
+                {annotations.length > 0 || annotationsLoading ? (
+                    <>
+                        <LemonTable
+                            data-attr="annotations-table"
+                            rowKey="id"
+                            dataSource={annotations}
+                            columns={columns}
+                            defaultSorting={{
+                                columnKey: 'date_marker',
+                                order: -1,
+                            }}
+                            noSortingCancellation
+                            loading={annotationsLoading}
+                            emptyState="No annotations yet"
+                        />
+                        {next && (
+                            <div className="flex justify-center mt-6">
+                                <LemonButton
+                                    type="primary"
+                                    loading={loadingNext}
+                                    onClick={(): void => {
+                                        loadAnnotationsNext()
+                                    }}
+                                >
+                                    Load more annotations
+                                </LemonButton>
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <ProductEmptyState
+                        productName="Annotations"
+                        thingName="annotation"
+                        description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
+                        docsURL="https://posthog.com/docs/data/annotations"
+                        action={() => openModalToCreateAnnotation()}
+                    />
+                )}
+            </div>
             <AnnotationModal />
         </>
     )

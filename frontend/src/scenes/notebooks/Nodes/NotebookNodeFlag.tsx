@@ -4,41 +4,61 @@ import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { IconFlag } from 'lib/lemon-ui/icons'
+import { IconFlag, IconRecording } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
+import { posthogNodePasteRule } from './utils'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const id = props.node.attrs.flag
+    const { id } = props.node.attrs
     const logic = featureFlagLogic({ id })
-
-    const { featureFlag } = useValues(logic)
-
-    const previewContent = (
-        <div className="p-4 flex items-center gap-2 justify-between">
-            <IconFlag className="text-lg" />
-            <span className="text-lg flex-1">{featureFlag.name}</span>
-
-            <span className={clsx('text-white p-2 rounded', featureFlag.active ? 'bg-success' : 'bg-muted-alt')}>
-                {featureFlag.active ? 'Enabled' : 'Disabled'}
-            </span>
-        </div>
-    )
-
-    console.log({ id })
+    const { featureFlag, featureFlagLoading } = useValues(logic)
 
     return (
         <NodeWrapper
-            className={NotebookNodeType.FeatureFlag}
+            nodeType={NotebookNodeType.FeatureFlag}
             title="FeatureFlag"
             {...props}
-            preview={previewContent}
             href={urls.featureFlag(id)}
+            heightEstimate={'3rem'}
         >
-            {previewContent}
-            <LemonDivider />
-            <p>More info here!</p>
+            <div className="border rounded bg-inverse">
+                <div className="flex items-center gap-2 p-4">
+                    <IconFlag className="text-lg" />
+                    {featureFlagLoading ? (
+                        <LemonSkeleton className="h-6 flex-1" />
+                    ) : (
+                        <>
+                            <span className="flex-1 font-semibold truncate">{featureFlag.name}</span>
+                            <span
+                                className={clsx(
+                                    'text-white rounded px-1',
+                                    featureFlag.active ? 'bg-success' : 'bg-muted-alt'
+                                )}
+                            >
+                                {featureFlag.active ? 'Enabled' : 'Disabled'}
+                            </span>
+                        </>
+                    )}
+                </div>
+
+                {props.selected ? (
+                    <>
+                        <LemonDivider className="my-0" />
+                        <div className="p-2">
+                            <p>More info here!</p>
+                        </div>
+                        <LemonDivider className="my-0" />
+                        <div className="p-2 flex justify-end">
+                            <LemonButton type="secondary" size="small" icon={<IconRecording />}>
+                                View Replays
+                            </LemonButton>
+                        </div>
+                    </>
+                ) : null}
+            </div>
         </NodeWrapper>
     )
 }
@@ -51,7 +71,7 @@ export const NotebookNodeFlag = Node.create({
 
     addAttributes() {
         return {
-            flag: {},
+            id: {},
         }
     },
 
@@ -69,5 +89,17 @@ export const NotebookNodeFlag = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            posthogNodePasteRule({
+                find: urls.featureFlag('') + '(.+)',
+                type: this.type,
+                getAttributes: (match) => {
+                    return { id: match[1] }
+                },
+            }),
+        ]
     },
 })

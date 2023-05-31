@@ -16,9 +16,11 @@ export function NotebookButton(): JSX.Element {
               type: 'secondary',
           }
         : {}
+
     return (
         <LemonButton
             icon={<IconJournal />}
+            type={notebookSideBarShown ? 'primary' : 'tertiary'}
             onClick={() => setNotebookSideBarShown(!notebookSideBarShown)}
             status="primary-alt"
             {...overrides3000}

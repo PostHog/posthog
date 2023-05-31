@@ -19,6 +19,7 @@ from . import (
     instance_status,
     integration,
     kafka_inspector,
+    notebook,
     organization,
     organization_domain,
     organization_invite,
@@ -34,7 +35,6 @@ from . import (
     team,
     uploaded_media,
     user,
-    person_communication,
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
@@ -204,7 +204,7 @@ projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
-projects_router.register(
+project_session_recordings_router = projects_router.register(
     r"session_recordings",
     SessionRecordingViewSet,
     "project_session_recordings",
@@ -245,9 +245,16 @@ project_insights_router.register(
     ["team_id", "insight_id"],
 )
 
+project_session_recordings_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_recording_sharing",
+    ["team_id", "recording_id"],
+)
+
 projects_router.register(
-    r"person_communications",
-    person_communication.PersonCommunicationViewSet,
-    "project_person_communications",
+    r"notebooks",
+    notebook.NotebookViewSet,
+    "project_notebooks",
     ["team_id"],
 )

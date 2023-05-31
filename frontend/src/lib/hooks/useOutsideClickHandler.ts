@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 
-const exceptions = ['.ant-select-dropdown *', '.click-outside-block', '.click-outside-block *']
+export const CLICK_OUTSIDE_BLOCK_CLASS = 'click-outside-block'
+
+const exceptions = ['.ant-select-dropdown *', `.${CLICK_OUTSIDE_BLOCK_CLASS}`, `.${CLICK_OUTSIDE_BLOCK_CLASS} *`]
 
 export function useOutsideClickHandler(
     refOrRefs: string | React.MutableRefObject<any> | (React.MutableRefObject<any> | string)[],
@@ -12,7 +14,7 @@ export function useOutsideClickHandler(
 
     useEffect(() => {
         function handleClick(event: Event): void {
-            if (exceptions.some((exception) => (event.target as Element).matches(exception))) {
+            if (exceptions.some((exception) => (event.target as Element)?.matches(exception))) {
                 return
             }
             if (

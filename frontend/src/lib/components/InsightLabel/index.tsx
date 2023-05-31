@@ -45,10 +45,11 @@ interface InsightsLabelProps {
 interface MathTagProps {
     math: string | undefined
     mathProperty: string | undefined
+    mathHogQL: string | undefined
     mathGroupTypeIndex: number | null | undefined
 }
 
-function MathTag({ math, mathProperty, mathGroupTypeIndex }: MathTagProps): JSX.Element {
+function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagProps): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
@@ -72,6 +73,13 @@ function MathTag({ math, mathProperty, mathGroupTypeIndex }: MathTagProps): JSX.
                     </>
                 )}
             </>
+        )
+    }
+    if (math === 'hogql') {
+        return (
+            <Tag title={String(mathHogQL)} className="max-w-60 text-ellipsis overflow-hidden">
+                {String(mathHogQL)}
+            </Tag>
         )
     }
     return <Tag>{capitalizeFirstLetter(math)}</Tag>
@@ -153,6 +161,7 @@ export function InsightLabel({
                         <MathTag
                             math={action?.math}
                             mathProperty={action?.math_property}
+                            mathHogQL={action?.math_hogql}
                             mathGroupTypeIndex={action?.math_group_type_index}
                         />
                     )}

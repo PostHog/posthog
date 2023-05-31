@@ -76,6 +76,8 @@ export enum KafkaSaslMechanism {
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
+    INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
+    INGESTION_BATCH_SIZE: number // kafka consumer batch size
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     POSTHOG_DB_NAME: string | null
@@ -103,10 +105,13 @@ export interface PluginsServerConfig {
     KAFKA_SASL_PASSWORD: string | null
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
-    KAFKA_CONSUMPTION_MAX_WAIT_MS: number
+    KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
+    KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: number // fetch.error.backoff.ms rdkafka parameter
+    KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
+    KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
@@ -187,8 +192,6 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
-
-    SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -670,8 +673,6 @@ export interface Person extends BasePerson {
     version: number
 }
 
-export type IngestionPersonData = Pick<Person, 'id' | 'uuid' | 'team_id' | 'properties' | 'created_at'>
-
 /** Clickhouse Person model. */
 export interface ClickHousePerson {
     id: string
@@ -828,7 +829,7 @@ export interface CohortPropertyFilter extends PropertyFilterBase {
 export type PropertyFilter = EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
-export enum ActionStepUrlMatching {
+export enum StringMatching {
     Contains = 'contains',
     Regex = 'regex',
     Exact = 'exact',
@@ -839,10 +840,15 @@ export interface ActionStep {
     action_id: number
     tag_name: string | null
     text: string | null
+    /** @default StringMatching.Exact */
+    text_matching: StringMatching | null
     href: string | null
+    /** @default StringMatching.Exact */
+    href_matching: StringMatching | null
     selector: string | null
     url: string | null
-    url_matching: ActionStepUrlMatching | null
+    /** @default StringMatching.Contains */
+    url_matching: StringMatching | null
     name: string | null
     event: string | null
     properties: PropertyFilter[] | null

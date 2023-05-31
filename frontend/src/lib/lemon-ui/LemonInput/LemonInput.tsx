@@ -20,6 +20,7 @@ interface LemonInputPropsBase
         | 'autoCorrect'
         | 'autoCapitalize'
         | 'spellCheck'
+        | 'inputMode'
     > {
     ref?: React.Ref<HTMLInputElement>
     id?: string
@@ -123,6 +124,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         allowClear && value ? (
             <LemonButton
                 size="small"
+                noPadding
                 icon={<IconClose />}
                 status="primary-alt"
                 tooltip="Clear input"

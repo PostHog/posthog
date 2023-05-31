@@ -15,6 +15,8 @@ import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/D
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { NotebooksTable } from 'scenes/notebooks/NotebooksList/NotebooksList'
+import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -24,10 +26,12 @@ export const scene: SceneExport = {
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, currentTab, filters } = useValues(dashboardsLogic)
+    const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { notebooksLoading } = useValues(notebooksListLogic)
+    const { createNotebook } = useActions(notebooksListLogic)
 
     const notebooksEnabled = featureFlags[FEATURE_FLAGS.NOTEBOOKS]
 
@@ -44,7 +48,7 @@ export function Dashboards(): JSX.Element {
     if (notebooksEnabled) {
         enabledTabs.splice(1, 0, {
             key: DashboardsTab.Notebooks,
-            label: 'Notebooks',
+            label: 'Notebooks (beta)',
         })
     }
 
@@ -54,26 +58,39 @@ export function Dashboards(): JSX.Element {
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
             <PageHeader
-                title="Dashboards"
+                title={'Dashboards' + (notebooksEnabled ? ' & Notebooks' : '')}
                 buttons={
-                    <LemonButton
-                        data-attr={'new-dashboard'}
-                        onClick={() => {
-                            closePrompts()
-                            showNewDashboardModal()
-                        }}
-                        type="primary"
-                    >
-                        New dashboard
-                    </LemonButton>
+                    currentTab === DashboardsTab.Notebooks ? (
+                        <LemonButton
+                            data-attr={'new-notebook'}
+                            onClick={() => {
+                                createNotebook(true)
+                            }}
+                            type="primary"
+                            disabledReason={notebooksLoading ? 'Loading...' : undefined}
+                        >
+                            New notebook
+                        </LemonButton>
+                    ) : (
+                        <LemonButton
+                            data-attr={'new-dashboard'}
+                            onClick={() => {
+                                closePrompts()
+                                showNewDashboardModal()
+                            }}
+                            type="primary"
+                        >
+                            New dashboard
+                        </LemonButton>
+                    )
                 }
             />
             <LemonTabs activeKey={currentTab} onChange={(newKey) => setCurrentTab(newKey)} tabs={enabledTabs} />
             {currentTab === DashboardsTab.Templates ? (
                 <DashboardTemplatesTable />
             ) : currentTab === DashboardsTab.Notebooks ? (
-                <div>Coming soon...</div>
-            ) : dashboardsLoading || dashboards.length > 0 || filters.search ? (
+                <NotebooksTable />
+            ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
                 <DashboardsTable />
             ) : (
                 <NoDashboards />

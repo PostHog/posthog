@@ -267,6 +267,18 @@ export function IconSelectEvents(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Material Design Select All icon. */
+export function IconSelectAll(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zm-2-4h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2zM7 17h10V7H7v10zm2-8h6v6H9V9z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Logout icon. */
 export function IconLogout(props: LemonIconProps): JSX.Element {
     return (
@@ -609,6 +621,18 @@ export function IconFlag(props: LemonIconProps): JSX.Element {
             <path
                 d="m12.36 6 .08.39.32 1.61h5.24v6h-3.36l-.08-.39-.32-1.61h-7.24v-6zm1.64-2h-9v17h2v-7h5.6l.4 2h7v-10h-5.6z"
                 fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design Redeem icon. */
+export function IconRedeem(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                fill="currentColor"
+                d="M20 6h-2.18c.11-.31.18-.65.18-1 0-1.66-1.34-3-3-3-1.05 0-1.96.54-2.5 1.35l-.5.67-.5-.68C10.96 2.54 10.05 2 9 2 7.34 2 6 3.34 6 5c0 .35.07.69.18 1H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-5-2c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zM9 4c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm11 15H4v-2h16v2zm0-5H4V8h5.08L7 10.83 8.62 12 11 8.76l1-1.36 1 1.36L15.38 12 17 10.83 14.92 8H20v6z"
             />
         </LemonIconBase>
     )
@@ -1296,18 +1320,6 @@ export function IconQueryEditor(props: LemonIconProps): JSX.Element {
     )
 }
 
-/** Material Design Preview icon. */
-export function IconPageview(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path
-                d="M19,3H5C3.89,3,3,3.9,3,5v14c0,1.1,0.89,2,2,2h14c1.1,0,2-0.9,2-2V5C21,3.9,20.11,3,19,3z M19,19H5V7h14V19z M12,10.5 c1.84,0,3.48,0.96,4.34,2.5c-0.86,1.54-2.5,2.5-4.34,2.5S8.52,14.54,7.66,13C8.52,11.46,10.16,10.5,12,10.5 M12,9 c-2.73,0-5.06,1.66-6,4c0.94,2.34,3.27,4,6,4s5.06-1.66,6-4C17.06,10.66,14.73,9,12,9L12,9z M12,14.5c-0.83,0-1.5-0.67-1.5-1.5 s0.67-1.5,1.5-1.5s1.5,0.67,1.5,1.5S12.83,14.5,12,14.5z"
-                fill="currentColor"
-            />
-        </LemonIconBase>
-    )
-}
-
 /** Material Design Ads Click and Auto Fix High icons combined. */
 export function IconAutocapture(props: LemonIconProps): JSX.Element {
     return (
@@ -1603,24 +1615,6 @@ export function IconVerifiedEvent(props: LemonIconProps): JSX.Element {
             />
             <path
                 d="M17.7289 6.04489L16.0628 4.37164L15 5.44166L17.7289 8.17774L23 2.89228L21.9372 1.82227L17.7289 6.04489Z"
-                fill="currentColor"
-            />
-        </LemonIconBase>
-    )
-}
-
-export function ActionEvent(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M14 3H4.8C3.81 3 3 3.81 3 4.8V12C3 12.99 3.81 13.8 4.8 13.8H19.2C20.19 13.8 21 12.99 21 12V11H19.2V12H4.8V4.8H14V3ZM19.2 17.4H4.8V15.6H19.2V17.4ZM17.4 21H6.6V19.2H17.4V21Z"
-                fill="currentColor"
-            />
-            <path d="M19 8L20.37 7.37L21 6L21.63 7.37L23 8L21.63 8.63L21 10L20.37 8.63L19 8Z" fill="currentColor" />
-            <path
-                d="M18.94 3.94L18 6L17.06 3.94L15 3L17.06 2.06L18 0L18.94 2.06L21 3L18.94 3.94Z"
                 fill="currentColor"
             />
         </LemonIconBase>
@@ -2087,6 +2081,18 @@ export function IconCoffee(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Material Design Preview icon. */
+export function IconPreview(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                fill="currentColor"
+                d="M19,3H5C3.89,3,3,3.9,3,5v14c0,1.1,0.89,2,2,2h14c1.1,0,2-0.9,2-2V5C21,3.9,20.11,3,19,3z M19,19H5V7h14V19z M12,10.5 c1.84,0,3.48,0.96,4.34,2.5c-0.86,1.54-2.5,2.5-4.34,2.5S8.52,14.54,7.66,13C8.52,11.46,10.16,10.5,12,10.5 M12,9 c-2.73,0-5.06,1.66-6,4c0.94,2.34,3.27,4,6,4s5.06-1.66,6-4C17.06,10.66,14.73,9,12,9L12,9z M12,14.5c-0.83,0-1.5-0.67-1.5-1.5 s0.67-1.5,1.5-1.5s1.5,0.67,1.5,1.5S12.83,14.5,12,14.5z"
+            />
+        </LemonIconBase>
+    )
+}
+
 export function IconEyeHidden(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
@@ -2393,6 +2399,40 @@ export function IconBugShield(props: LemonIconProps): JSX.Element {
                 d="M9.9 6.6L9.1 7.4L10.3 8.6C9.8 8.9 9.4 9.4 9.2 10H7V11H9V12H7V13H9V14H7V15H9.2C9.6 16.2 10.7 17 12 17S14.4 16.2 14.8 15H17V14H15V13H17V12H15V11H17V10H14.8C14.6 9.4 14.2 8.9 13.7 8.5L14.9 7.3L14.2 6.6L12.8 8H12C11.8 8 11.5 8 11.3 8.1L9.9 6.6M11 11H13V12H11V11M11 13H13V14H11V13M21 11C21 16.5 17.2 21.7 12 23C6.8 21.7 3 16.5 3 11V5L12 1L21 5V11M12 21C15.8 20 19 15.5 19 11.2V6.3L12 3.2L5 6.3V11.2C5 15.5 8.2 20 12 21Z"
                 fill="currentColor"
             />
+        </LemonIconBase>
+    )
+}
+
+export function IconDocumentExpand({ mode, ...props }: LemonIconProps & { mode: 'expand' | 'collapse' }): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M3 2.58828C3 2.26328 3.26328 2 3.58828 2C3.91328 2 4.17656 2.26328 4.17656 2.58828V21.4117C4.17656 21.7367 3.91328 22 3.58828 22C3.26328 22 3 21.7367 3 21.4117V2.58828ZM19.4704 2.58828C19.4704 2.26328 19.7337 2 20.0587 2C20.3837 2 20.6469 2.26328 20.6469 2.58828V21.4117C20.6469 21.7367 20.3837 22 20.0587 22C19.7337 22 19.4704 21.7367 19.4704 21.4117V2.58828ZM7.1172 13.1765C6.79298 13.1765 6.5297 12.9132 6.5297 12.5882C6.5297 12.2632 6.79298 11.9999 7.1172 11.9999H16.5296C16.8538 11.9999 17.1171 12.2632 17.1171 12.5882C17.1171 12.9132 16.8538 13.1765 16.5296 13.1765H7.1172ZM7.1172 16.1179C6.79298 16.1179 6.5297 15.8538 6.5297 15.5296C6.5297 15.2046 6.79298 14.9413 7.1172 14.9413H16.5296C16.8538 14.9413 17.1171 15.2046 17.1171 15.5296C17.1171 15.8538 16.8538 16.1179 16.5296 16.1179H7.1172ZM7.1172 19.0585C6.79298 19.0585 6.5297 18.7952 6.5297 18.4702C6.5297 18.146 6.79298 17.8819 7.1172 17.8819H16.5296C16.8538 17.8819 17.1171 18.146 17.1171 18.4702C17.1171 18.7952 16.8538 19.0585 16.5296 19.0585H7.1172Z"
+                fill="currentColor"
+            />
+            {mode === 'collapse' ? (
+                <>
+                    <path
+                        d="M6.47654 6.12116L8.44086 4.15683C8.65013 3.94756 8.98943 3.94756 9.19838 4.15683C9.40765 4.3661 9.40765 4.70539 9.19838 4.91435L8.14871 5.96401L11.9942 5.96429C12.29 5.96429 12.5332 6.20426 12.5332 6.50002C12.5332 6.79578 12.29 7.03575 11.9942 7.03575H8.14871L9.19867 8.08541C9.40794 8.29468 9.40794 8.63397 9.19867 8.84293C8.9894 9.0522 8.6501 9.0522 8.44115 8.84293L6.47682 6.8786C6.26755 6.66961 6.26755 6.33039 6.47654 6.12116Z"
+                        fill="currentColor"
+                    />
+                    <path
+                        d="M17.0947 6.12116L15.1304 4.15683C14.9211 3.94756 14.5818 3.94756 14.3729 4.15683C14.1636 4.3661 14.1636 4.70539 14.3729 4.91435L15.4225 5.96401L11.6771 5.96429C11.3813 5.96429 11.0371 6.20426 11.0371 6.50002C11.0371 6.79578 11.3813 7.03575 11.6771 7.03575H15.4225L14.3726 8.08541C14.1633 8.29468 14.1633 8.63397 14.3726 8.84293C14.5818 9.0522 14.9211 9.0522 15.1301 8.84293L17.0944 6.8786C17.3037 6.66961 17.3037 6.33039 17.0947 6.12116Z"
+                        fill="currentColor"
+                    />
+                </>
+            ) : (
+                <>
+                    <path
+                        d="M12.4765 6.12116L14.4408 4.15683C14.6501 3.94756 14.9894 3.94756 15.1984 4.15683C15.4076 4.3661 15.4076 4.70539 15.1984 4.91435L14.1487 5.96401L16.9942 5.96429C17.29 5.96429 17.5332 6.20426 17.5332 6.50002C17.5332 6.79578 17.29 7.03575 16.9942 7.03575H14.1487L15.1986 8.08541C15.4079 8.29468 15.4079 8.63397 15.1986 8.84293C14.9894 9.0522 14.6501 9.0522 14.4411 8.84293L12.4768 6.8786C12.2675 6.66961 12.2675 6.33039 12.4765 6.12116Z"
+                        fill="currentColor"
+                    />
+                    <path
+                        d="M11.3818 6.12116L9.4175 4.15683C9.20823 3.94756 8.86894 3.94756 8.65998 4.15683C8.45071 4.3661 8.45071 4.70539 8.65998 4.91435L9.70965 5.96401L6.96422 5.96429C6.66846 5.96429 6.32422 6.20426 6.32422 6.50002C6.32422 6.79578 6.66846 7.03575 6.96422 7.03575H9.70965L8.6597 8.08541C8.45043 8.29468 8.45043 8.63397 8.6597 8.84293C8.86896 9.0522 9.20826 9.0522 9.41721 8.84293L11.3815 6.8786C11.5908 6.66961 11.5908 6.33039 11.3818 6.12116Z"
+                        fill="currentColor"
+                    />
+                </>
+            )}
         </LemonIconBase>
     )
 }

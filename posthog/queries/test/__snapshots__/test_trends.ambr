@@ -46,6 +46,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['x'], replaceRegexpAll(JSONExtractRaw(properties, '$bool_prop'), '^"|"$', ''))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -667,6 +672,11 @@
                     (SELECT id
                      FROM person
                      WHERE team_id = 2
+                       AND id IN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                            AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
                      AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))))
@@ -747,6 +757,11 @@
                                 (SELECT id
                                  FROM person
                                  WHERE team_id = 2
+                                   AND id IN
+                                     (SELECT id
+                                      FROM person
+                                      WHERE team_id = 2
+                                        AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
                                  GROUP BY id
                                  HAVING max(is_deleted) = 0
                                  AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))))
@@ -1178,10 +1193,10 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2023-05-11 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC')), toDateTime('2023-05-11 23:59:59', 'UTC')))
+               toStartOfDay(toDateTime('2020-01-02 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), toDateTime('2020-01-02 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC'))
+                         toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
@@ -1196,18 +1211,18 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
            GROUP BY id
-           HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+           HAVING max(is_deleted) = 0
+           AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'event_name'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-11 23:59:59', 'UTC')
-          AND (pdi.person_id IN
-                 (SELECT DISTINCT person_id
-                  FROM cohortpeople
-                  WHERE team_id = 2
-                    AND cohort_id = 2
-                    AND version = 0 ))
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1243,29 +1258,18 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2023-05-11 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC')), toDateTime('2023-05-11 23:59:59', 'UTC')))
+               toStartOfDay(toDateTime('2020-01-02 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), toDateTime('2020-01-02 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC'))
+                         toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        LEFT OUTER JOIN
-          (SELECT argMax(override_person_id, version) as person_id,
-                  old_person_id
-           FROM person_overrides
-           WHERE team_id = 2
-           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
         WHERE team_id = 2
           AND event = 'event_name'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2023-05-04 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-11 23:59:59', 'UTC')
-          AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
-                 (SELECT DISTINCT person_id
-                  FROM cohortpeople
-                  WHERE team_id = 2
-                    AND cohort_id = 2
-                    AND version = 0 ))
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+          AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', '')))
           AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
@@ -1410,6 +1414,11 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(properties, 'filter_prop'), '^"|"$', ''))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', '')))) person ON pdi.person_id = person.id
@@ -1481,6 +1490,11 @@
                            argMax(properties, version) as person_props
                     FROM person
                     WHERE team_id = 2
+                      AND id IN
+                        (SELECT id
+                         FROM person
+                         WHERE team_id = 2
+                           AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(properties, 'filter_prop'), '^"|"$', ''))) )
                     GROUP BY id
                     HAVING max(is_deleted) = 0
                     AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -1656,6 +1670,11 @@
                     (SELECT id
                      FROM person
                      WHERE team_id = 2
+                       AND id IN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
                      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
@@ -1714,6 +1733,11 @@
                           (SELECT id
                            FROM person
                            WHERE team_id = 2
+                             AND id IN
+                               (SELECT id
+                                FROM person
+                                WHERE team_id = 2
+                                  AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                            GROUP BY id
                            HAVING max(is_deleted) = 0
                            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
@@ -1747,6 +1771,11 @@
                     (SELECT id
                      FROM person
                      WHERE team_id = 2
+                       AND id IN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
                      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
@@ -1806,6 +1835,11 @@
                           (SELECT id
                            FROM person
                            WHERE team_id = 2
+                             AND id IN
+                               (SELECT id
+                                FROM person
+                                WHERE team_id = 2
+                                  AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                            GROUP BY id
                            HAVING max(is_deleted) = 0
                            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))
@@ -1848,6 +1882,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -1888,6 +1927,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -1955,6 +1999,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['person1'], "pmat_name")) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
@@ -2022,6 +2071,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['person1'], "pmat_name")) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
@@ -3506,6 +3560,12 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', ''))
+                     OR has(['safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', ''))
@@ -3565,6 +3625,12 @@
                      argMax(properties, version) as person_props
               FROM person
               WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', ''))
+                           OR has(['safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))) )
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', ''))
@@ -3606,6 +3672,13 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', ''))
+                      AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+                    AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', ''))
@@ -3665,6 +3738,13 @@
                      argMax(properties, version) as person_props
               FROM person
               WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', ''))
+                            AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+                          AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) )
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', ''))
@@ -3740,6 +3820,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -4711,6 +4796,32 @@
   ORDER BY breakdown_value
   '
 ---
+# name: TestTrends.test_trends_with_hogql_math
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'))
+        UNION ALL SELECT plus(avg(toInt64OrNull(nullIf(nullIf(events.`$session_id`, ''), 'null'))), 1000) AS total,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
   '
   
@@ -5259,6 +5370,11 @@
                 (SELECT id
                  FROM person
                  WHERE team_id = 2
+                   AND id IN
+                     (SELECT id
+                      FROM person
+                      WHERE team_id = 2
+                        AND (has(['person-1', 'person-2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
                  GROUP BY id
                  HAVING max(is_deleted) = 0
                  AND (has(['person-1', 'person-2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -5315,6 +5431,11 @@
                 (SELECT id
                  FROM person
                  WHERE team_id = 2
+                   AND id IN
+                     (SELECT id
+                      FROM person
+                      WHERE team_id = 2
+                        AND (has(['person-1', 'person-2'], "pmat_name")) )
                  GROUP BY id
                  HAVING max(is_deleted) = 0
                  AND (has(['person-1', 'person-2'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id

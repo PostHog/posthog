@@ -34,6 +34,11 @@
     (SELECT id
      FROM person
      WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -79,6 +84,11 @@
            (SELECT id
             FROM person
             WHERE team_id = 2
+              AND id IN
+                (SELECT id
+                 FROM person
+                 WHERE team_id = 2
+                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
             GROUP BY id
             HAVING max(is_deleted) = 0
             AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
@@ -105,7 +115,7 @@
     AND event = 'event_name'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
-    AND (((match(elements_chain, '(^|;)label(\\.|$|;|:)'))))
+    AND ((match(elements_chain, '(^|;)label(\\.|$|;|:)')))
   '
 ---
 # name: TestEventQuery.test_element.1
@@ -116,7 +126,7 @@
     AND event = 'event_name'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
-    AND (0 = 192)
+    AND (0 = 191)
   '
 ---
 # name: TestEventQuery.test_entity_filtered_by_cohort
@@ -145,6 +155,11 @@
            (SELECT id
             FROM person
             WHERE team_id = 2
+              AND id IN
+                (SELECT id
+                 FROM person
+                 WHERE team_id = 2
+                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
             GROUP BY id
             HAVING max(is_deleted) = 0
             AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
@@ -260,6 +275,11 @@
     (SELECT id
      FROM person
      WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))))) person ON person.id = pdi.person_id

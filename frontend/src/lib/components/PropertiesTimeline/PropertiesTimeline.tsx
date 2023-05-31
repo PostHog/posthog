@@ -8,6 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { humanList } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import { PropertyDefinitionType } from '~/types'
 
 export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): JSX.Element {
     const logic = propertiesTimelineLogic({ actor, filter })
@@ -72,6 +73,7 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
             />
             <LemonDivider className="h-0" />
             <PropertiesTable
+                type={actor.type /* "person" or "group" */ as PropertyDefinitionType}
                 properties={propertiesShown}
                 nestingLevel={1}
                 highlightedKeys={crucialPropertyKeys}

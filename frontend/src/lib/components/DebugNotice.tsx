@@ -35,6 +35,7 @@ export function DebugNotice(): JSX.Element | null {
                     status="primary-alt"
                     icon={<IconClose />}
                     size="small"
+                    noPadding
                     onClick={() => setNoticeHidden(true)}
                 />
             </div>

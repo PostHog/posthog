@@ -7,24 +7,27 @@ import {
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { urls } from 'scenes/urls'
+import { posthogNodePasteRule } from './utils'
+
+const HEIGHT = 500
 
 const Component = (props: NodeViewProps): JSX.Element => {
+    const id = props.node.attrs.id
     const recordingLogicProps: SessionRecordingPlayerProps = {
-        embedded: true,
-        sessionRecordingId: props.node.attrs.sessionRecordingId,
-        playerKey: `notebook-${props.node.attrs.sessionRecordingId}`,
+        sessionRecordingId: id,
+        playerKey: `notebook-${id}`,
+        autoPlay: false,
     }
 
     return (
         <NodeWrapper
             {...props}
-            className={NotebookNodeType.Recording}
+            nodeType={NotebookNodeType.Recording}
             title="Recording"
-            href={urls.sessionRecording(recordingLogicProps.sessionRecordingId)}
-            // TODO: Fix "meta" preview
-            // preview={<PlayerMeta {...recordingLogicProps} />}
+            href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
+            heightEstimate={HEIGHT}
         >
-            <div style={{ height: 500 }}>
+            <div style={{ height: HEIGHT }}>
                 <SessionRecordingPlayer {...recordingLogicProps} />
             </div>
         </NodeWrapper>
@@ -39,7 +42,7 @@ export const NotebookNodeRecording = Node.create({
 
     addAttributes() {
         return {
-            sessionRecordingId: {
+            id: {
                 default: null,
             },
         }
@@ -59,5 +62,17 @@ export const NotebookNodeRecording = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            posthogNodePasteRule({
+                find: urls.replaySingle('') + '(.+)',
+                type: this.type,
+                getAttributes: (match) => {
+                    return { id: match[1] }
+                },
+            }),
+        ]
     },
 })

@@ -381,7 +381,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         ) => ({ correlationType, action, props }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
-        reportRecordingsListFetched: (loadTime: number) => ({ loadTime }),
+        reportRecordingsListFetched: (loadTime: number, listingVersion: '1' | '2' | '3') => ({
+            loadTime,
+            listingVersion,
+        }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
         reportRecordingPlayerSeekbarEventHovered: true,
@@ -526,6 +529,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFlagsCodeExampleLanguage: (language: string) => ({
             language,
         }),
+        // This is temporary for use with the NEW_EMPTY_STATES experiment and should be removed when that is.
+        reportEmptyStateShown: (product: string) => ({
+            product,
+        }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -555,7 +562,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 /* Report one event per annotation */
                 const properties = {
                     total_items_count: annotations.length,
-                    content_length: annotation.content.length,
+                    content_length: annotation.content?.length || 0,
                     scope: annotation.scope,
                     deleted: annotation.deleted,
                     created_by_me: annotation.created_by && annotation.created_by?.uuid === userLogic.values.user?.uuid,
@@ -984,8 +991,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
-        reportRecordingsListFetched: ({ loadTime }) => {
-            posthog.capture('recording list fetched', { load_time: loadTime })
+        reportRecordingsListFetched: ({ loadTime, listingVersion }) => {
+            posthog.capture('recording list fetched', { load_time: loadTime, listing_version: listingVersion })
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
             posthog.capture('recording list properties fetched', { load_time: loadTime })
@@ -1279,6 +1286,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFlagsCodeExampleLanguage: ({ language }) => {
             posthog.capture('flags code example language selected', {
                 language,
+            })
+        },
+        reportEmptyStateShown: ({ product }) => {
+            posthog.capture('product empty state shown', {
+                product,
             })
         },
     }),
