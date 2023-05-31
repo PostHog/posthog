@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, List, Optional, cast
 
 from django.db.models import QuerySet
+from django.db.models.query_utils import Q
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -25,6 +26,7 @@ from posthog.models.feature_flag import (
     get_all_feature_flags,
     get_user_blast_radius,
 )
+from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -308,6 +310,10 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
         if self.action == "list":
             queryset = queryset.filter(deleted=False).prefetch_related("experiment_set").prefetch_related("features")
+            survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
+                "targeting_flag_id", flat=True
+            )
+            queryset = queryset.exclude(Q(id__in=survey_targeting_flags))
 
         return queryset.select_related("created_by").order_by("-created_at")
 
