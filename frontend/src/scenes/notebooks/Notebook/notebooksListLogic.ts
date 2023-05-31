@@ -8,7 +8,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 
-const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
+export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
     title: 'Scratchpad',
     created_at: '',

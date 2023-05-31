@@ -15,7 +15,7 @@ import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
-import { notebooksListLogic } from './notebooksListLogic'
+import { notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookSyncStatus, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
@@ -77,7 +77,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     // NOTE: This is all hacky and temporary until we have a backend
                     let response: NotebookType | undefined
 
-                    if (props.shortId === 'scratchpad') {
+                    if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
                         response = {
                             ...values.scratchpadNotebook,
                             content: {},
@@ -158,7 +158,7 @@ export const notebookLogic = kea<notebookLogicType>([
     sharedListeners(({ values, actions }) => ({
         onNotebookChange: () => {
             // Keep the list logic up to date with any changes
-            if (values.notebook) {
+            if (values.notebook && values.notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
                 actions.receiveNotebookUpdate(values.notebook)
             }
         },
