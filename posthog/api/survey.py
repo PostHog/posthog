@@ -66,6 +66,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "created_by",
             "start_date",
             "end_date",
+            "archived",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 

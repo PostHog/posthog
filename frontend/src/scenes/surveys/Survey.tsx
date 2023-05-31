@@ -21,10 +21,10 @@ import { useState } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { surveysLogic } from './surveysLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { dayjs } from 'lib/dayjs'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { cohortsModel } from '~/models/cohortsModel'
+import { TZLabel } from 'lib/components/TZLabel'
 
 export const scene: SceneExport = {
     component: Survey,
@@ -218,8 +218,8 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
 }
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, isSurveyRunning, dataTableQuery } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey } = useActions(surveyLogic)
+    const { survey, dataTableQuery } = useValues(surveyLogic)
+    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { cohortsById } = useValues(cohortsModel)
 
@@ -234,10 +234,18 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         <More
                             overlay={
                                 <>
-                                    <LemonButton data-attr="edit-survey" fullWidth onClick={() => editingSurvey(true)}>
-                                        Edit
-                                    </LemonButton>
-                                    <LemonDivider />
+                                    {!survey.end_date && (
+                                        <>
+                                            <LemonButton
+                                                data-attr="edit-survey"
+                                                fullWidth
+                                                onClick={() => editingSurvey(true)}
+                                            >
+                                                Edit
+                                            </LemonButton>
+                                            <LemonDivider />
+                                        </>
+                                    )}
                                     <LemonButton status="danger" onClick={() => deleteSurvey(id)}>
                                         Delete survey
                                     </LemonButton>
@@ -245,14 +253,20 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             }
                         />
                         <LemonDivider vertical />
-                        {!isSurveyRunning ? (
-                            <LemonButton type="primary" onClick={() => {}}>
+                        {!survey.start_date ? (
+                            <LemonButton type="primary" onClick={() => launchSurvey()}>
                                 Launch
                             </LemonButton>
-                        ) : (
-                            <LemonButton type="primary" onClick={() => {}}>
-                                Stop
+                        ) : survey.end_date && !survey.archived ? (
+                            <LemonButton type="secondary" onClick={() => archiveSurvey()}>
+                                Archive
                             </LemonButton>
+                        ) : (
+                            !survey.archived && (
+                                <LemonButton type="secondary" status="danger" onClick={() => stopSurvey()}>
+                                    Stop
+                                </LemonButton>
+                            )
                         )}
                     </div>
                 }
@@ -291,103 +305,116 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 ) : (
                                     <span>None</span>
                                 )}
-                                <div className="flex flex-col mt-4">
-                                    <span className="font-medium border-b pb-1">Targeting</span>
-                                    {survey.conditions?.url && (
-                                        <>
-                                            <span className="card-secondary mt-4 mb-1 underline">Url</span>
-                                            <span>{survey.conditions.url}</span>
-                                            {(survey.conditions?.selector || survey.targeting_flag) && (
-                                                <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
-                                            )}
-                                        </>
-                                    )}
-                                    {survey.conditions?.selector && (
-                                        <>
-                                            <span className="card-secondary mt-4">Selector</span>
-                                            <span>{survey.conditions.selector}</span>
-                                        </>
-                                    )}
+                                <div className="flex flex-row gap-8">
                                     {survey.start_date && (
-                                        <>
+                                        <div className="flex flex-col">
                                             <span className="card-secondary mt-4">Start date</span>
-                                            <span>{dayjs(survey.start_date)}</span>
-                                        </>
+                                            <TZLabel time={survey.start_date} />
+                                        </div>
                                     )}
-                                    {survey.targeting_flag && (
-                                        <>
-                                            <span className="card-secondary mt-4 pb-1 underline">
-                                                Release conditions
-                                            </span>
-                                            {survey.targeting_flag.filters.groups.map((group, index) => (
-                                                <>
-                                                    {index > 0 && (
-                                                        <div className="text-primary-alt font-semibold text-xs ml-2 py-1">
-                                                            OR
-                                                        </div>
-                                                    )}
-                                                    {group.properties.map((property, idx) => (
-                                                        <>
-                                                            <div className="feature-flag-property-display" key={idx}>
-                                                                {idx === 0 ? (
-                                                                    <LemonButton
-                                                                        icon={
-                                                                            <IconSubArrowRight className="arrow-right" />
-                                                                        }
-                                                                        status="muted"
-                                                                        size="small"
-                                                                    />
-                                                                ) : (
-                                                                    <LemonButton
-                                                                        icon={<span className="text-sm">&</span>}
-                                                                        status="muted"
-                                                                        size="small"
-                                                                    />
-                                                                )}
-                                                                <span className="simple-tag tag-light-blue text-primary-alt">
-                                                                    {property.type === 'cohort'
-                                                                        ? 'Cohort'
-                                                                        : property.key}{' '}
-                                                                </span>
-                                                                {isPropertyFilterWithOperator(property) ? (
-                                                                    <span>
-                                                                        {allOperatorsToHumanName(property.operator)}{' '}
-                                                                    </span>
-                                                                ) : null}
-
-                                                                {property.type === 'cohort' ? (
-                                                                    <a
-                                                                        href={urls.cohort(property.value)}
-                                                                        target="_blank"
-                                                                        rel="noopener"
-                                                                        className="simple-tag tag-light-blue text-primary-alt display-value"
-                                                                    >
-                                                                        {(property.value &&
-                                                                            cohortsById[property.value]?.name) ||
-                                                                            `ID ${property.value}`}
-                                                                    </a>
-                                                                ) : (
-                                                                    [
-                                                                        ...(Array.isArray(property.value)
-                                                                            ? property.value
-                                                                            : [property.value]),
-                                                                    ].map((val, idx) => (
-                                                                        <span
-                                                                            key={idx}
-                                                                            className="simple-tag tag-light-blue text-primary-alt display-value"
-                                                                        >
-                                                                            {val}
-                                                                        </span>
-                                                                    ))
-                                                                )}
-                                                            </div>
-                                                        </>
-                                                    ))}
-                                                </>
-                                            ))}
-                                        </>
+                                    {survey.end_date && (
+                                        <div className="flex flex-col">
+                                            <span className="card-secondary mt-4">End date</span>
+                                            <TZLabel time={survey.end_date} />
+                                        </div>
                                     )}
                                 </div>
+                                {(survey.conditions || survey.targeting_flag) && (
+                                    <div className="flex flex-col mt-6">
+                                        <span className="font-medium text-lg">Targeting</span>
+                                        {survey.conditions?.url && (
+                                            <>
+                                                <span className="card-secondary mt-4 mb-1 underline">Url</span>
+                                                <span>{survey.conditions.url}</span>
+                                                {(survey.conditions?.selector || survey.targeting_flag) && (
+                                                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
+                                                )}
+                                            </>
+                                        )}
+                                        {survey.conditions?.selector && (
+                                            <>
+                                                <span className="card-secondary mt-4">Selector</span>
+                                                <span>{survey.conditions.selector}</span>
+                                            </>
+                                        )}
+                                        {survey.targeting_flag && (
+                                            <>
+                                                <span className="card-secondary mt-4 pb-1 underline">
+                                                    Release conditions
+                                                </span>
+                                                {survey.targeting_flag.filters.groups.map((group, index) => (
+                                                    <>
+                                                        {index > 0 && (
+                                                            <div className="text-primary-alt font-semibold text-xs ml-2 py-1">
+                                                                OR
+                                                            </div>
+                                                        )}
+                                                        {group.properties.map((property, idx) => (
+                                                            <>
+                                                                <div
+                                                                    className="feature-flag-property-display"
+                                                                    key={idx}
+                                                                >
+                                                                    {idx === 0 ? (
+                                                                        <LemonButton
+                                                                            icon={
+                                                                                <IconSubArrowRight className="arrow-right" />
+                                                                            }
+                                                                            status="muted"
+                                                                            size="small"
+                                                                        />
+                                                                    ) : (
+                                                                        <LemonButton
+                                                                            icon={<span className="text-sm">&</span>}
+                                                                            status="muted"
+                                                                            size="small"
+                                                                        />
+                                                                    )}
+                                                                    <span className="simple-tag tag-light-blue text-primary-alt">
+                                                                        {property.type === 'cohort'
+                                                                            ? 'Cohort'
+                                                                            : property.key}{' '}
+                                                                    </span>
+                                                                    {isPropertyFilterWithOperator(property) ? (
+                                                                        <span>
+                                                                            {allOperatorsToHumanName(property.operator)}{' '}
+                                                                        </span>
+                                                                    ) : null}
+
+                                                                    {property.type === 'cohort' ? (
+                                                                        <a
+                                                                            href={urls.cohort(property.value)}
+                                                                            target="_blank"
+                                                                            rel="noopener"
+                                                                            className="simple-tag tag-light-blue text-primary-alt display-value"
+                                                                        >
+                                                                            {(property.value &&
+                                                                                cohortsById[property.value]?.name) ||
+                                                                                `ID ${property.value}`}
+                                                                        </a>
+                                                                    ) : (
+                                                                        [
+                                                                            ...(Array.isArray(property.value)
+                                                                                ? property.value
+                                                                                : [property.value]),
+                                                                        ].map((val, idx) => (
+                                                                            <span
+                                                                                key={idx}
+                                                                                className="simple-tag tag-light-blue text-primary-alt display-value"
+                                                                            >
+                                                                                {val}
+                                                                            </span>
+                                                                        ))
+                                                                    )}
+                                                                </div>
+                                                            </>
+                                                        ))}
+                                                    </>
+                                                ))}
+                                            </>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         ),
                         key: 'overview',

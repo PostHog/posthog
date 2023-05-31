@@ -48,6 +48,14 @@ export const surveysLogic = kea<surveysLogicType>([
                 },
             ],
         ],
+        nonArchivedSurveys: [
+            (s) => [s.surveys],
+            (surveys: Survey[]): Survey[] => surveys.filter((survey) => !survey.archived),
+        ],
+        archivedSurveys: [
+            (s) => [s.surveys],
+            (surveys: Survey[]): Survey[] => surveys.filter((survey) => survey.archived),
+        ],
     }),
     afterMount(async ({ actions }) => {
         await actions.loadSurveys()

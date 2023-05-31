@@ -10,15 +10,24 @@ import { Survey } from '~/types'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { useState } from 'react'
 
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
 }
 
+export enum SurveysTabs {
+    All = 'all',
+    Yours = 'yours',
+    Archived = 'archived',
+}
+
 export function Surveys(): JSX.Element {
-    const { surveys } = useValues(surveysLogic)
+    const { nonArchivedSurveys, archivedSurveys } = useValues(surveysLogic)
     const { deleteSurvey } = useActions(surveysLogic)
+    const [tab, setSurveyTab] = useState(SurveysTabs.All)
 
     return (
         <div className="mt-10">
@@ -29,6 +38,14 @@ export function Surveys(): JSX.Element {
                         New survey
                     </LemonButton>
                 }
+            />
+            <LemonTabs
+                activeKey={tab}
+                onChange={(newTab) => setSurveyTab(newTab)}
+                tabs={[
+                    { key: SurveysTabs.All, label: 'All surveys' },
+                    { key: SurveysTabs.Archived, label: 'Archived surveys' },
+                ]}
             />
             <LemonTable
                 className="mt-6"
@@ -63,10 +80,10 @@ export function Surveys(): JSX.Element {
                         title: 'Status',
                         width: 100,
                         render: function Render(_, survey: Survey) {
-                            const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
+                            const statusColors = { running: 'success', draft: 'default', complete: 'purple' }
                             const status = getSurveyStatus(survey)
                             return (
-                                <LemonTag color={statusColors[status]} style={{ fontWeight: 600 }}>
+                                <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }}>
                                     {status.toUpperCase()}
                                 </LemonTag>
                             )
@@ -101,7 +118,7 @@ export function Surveys(): JSX.Element {
                         },
                     },
                 ]}
-                dataSource={surveys}
+                dataSource={tab === SurveysTabs.Archived ? archivedSurveys : nonArchivedSurveys}
                 defaultSorting={{
                     columnKey: 'created_at',
                     order: -1,

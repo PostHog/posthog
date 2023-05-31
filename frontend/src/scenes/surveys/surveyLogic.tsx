@@ -17,6 +17,7 @@ import {
 import type { surveyLogicType } from './surveyLogicType'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { surveysLogic } from './surveysLogic'
+import { dayjs } from 'lib/dayjs'
 
 export interface NewSurvey
     extends Pick<
@@ -30,6 +31,7 @@ export interface NewSurvey
         | 'end_date'
         | 'linked_flag'
         | 'targeting_flag'
+        | 'archived'
     > {
     linked_flag_id: number | undefined
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
@@ -47,6 +49,7 @@ const NEW_SURVEY: NewSurvey = {
     start_date: null,
     end_date: null,
     conditions: null,
+    archived: false,
 }
 
 export interface SurveyLogicProps {
@@ -83,6 +86,9 @@ export const surveyLogic = kea<surveyLogicType>([
         editingSurvey: (editing: boolean) => ({ editing }),
         updateTargetingFlagFilters: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
         addConditionSet: true,
+        launchSurvey: true,
+        stopSurvey: true,
+        archiveSurvey: true,
     }),
     loaders(({ props, values }) => ({
         survey: {
@@ -143,6 +149,17 @@ export const surveyLogic = kea<surveyLogicType>([
             lemonToast.success(<>Survey {survey.name} updated</>)
             actions.editingSurvey(false)
             router.actions.replace(urls.survey(survey.id))
+        },
+        launchSurvey: async () => {
+            const startDate = dayjs()
+            actions.updateSurvey({ start_date: startDate.toISOString() })
+        },
+        stopSurvey: async () => {
+            const endDate = dayjs()
+            actions.updateSurvey({ end_date: endDate.toISOString() })
+        },
+        archiveSurvey: async () => {
+            actions.updateSurvey({ archived: true })
         },
     })),
     reducers({
