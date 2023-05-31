@@ -64,6 +64,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_BATCH_SIZE: 500,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
+        SENTRY_SEND_PII: false,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
         STATSD_HOST: null,
         STATSD_PORT: 8125,
