@@ -56,7 +56,7 @@ describe('dateFilterLogic', () => {
             key: 'test',
             onChange,
             dateFrom: '-1dStart',
-            dateTo: 'dStart',
+            dateTo: '-1dEnd',
             dateOptions: dateMapping,
             isDateFormatted: false,
         }
