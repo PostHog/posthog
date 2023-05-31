@@ -15,7 +15,6 @@ import {
     RawClickHouseEvent,
     RawPerformanceEvent,
     RawSessionRecordingEvent,
-    Team,
     TimestampFormat,
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
@@ -80,16 +79,11 @@ export class EventsProcessor {
             // We know `normalizeEvent` has been called here.
             const properties: Properties = data.properties!
 
-            const team = await this.teamManager.fetchTeam(teamId)
-            if (!team) {
-                throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
-            }
-
             const captureTimeout = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', {
                 eventUuid,
             })
             try {
-                result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
+                result = await this.capture(eventUuid, ip, teamId, data['event'], distinctId, properties, timestamp)
                 this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                     team_id: teamId.toString(),
                 })
@@ -105,7 +99,7 @@ export class EventsProcessor {
     private async capture(
         eventUuid: string,
         ip: string | null,
-        team: Team,
+        teamId: number,
         event: string,
         distinctId: string,
         properties: Properties,
@@ -120,24 +114,25 @@ export class EventsProcessor {
             delete properties['$elements']
         }
 
-        if (ip && !team.anonymize_ips && !('$ip' in properties)) {
+        if (ip && !('$ip' in properties)) {
+            // team.anonymize_ips is handled during populateTeamDataStep
             properties['$ip'] = ip
         }
 
         try {
-            await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+            await this.propertyDefinitionsManager.updateEventNamesAndProperties(teamId, event, properties)
         } catch (err) {
-            Sentry.captureException(err, { tags: { team_id: team.id } })
+            Sentry.captureException(err, { tags: { team_id: teamId } })
             status.warn('⚠️', 'Failed to update property definitions for an event', {
                 event,
                 properties,
                 err,
             })
         }
-        properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
+        properties = await addGroupProperties(teamId, properties, this.groupTypeManager)
 
         if (event === '$groupidentify') {
-            await this.upsertGroup(team.id, properties, timestamp)
+            await this.upsertGroup(teamId, properties, timestamp)
         }
 
         return {
@@ -148,7 +143,7 @@ export class EventsProcessor {
             properties,
             timestamp: timestamp.toISO() as ISOTimestamp,
             elementsList,
-            teamId: team.id,
+            teamId: teamId,
         }
     }
 
