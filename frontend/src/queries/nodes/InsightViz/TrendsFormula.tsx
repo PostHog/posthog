@@ -1,18 +1,14 @@
 import { useEffect, useState } from 'react'
 import { EditorFilterProps } from '~/types'
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LemonInput } from '@posthog/lemon-ui'
-import { isTrendsQuery } from '~/queries/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 // When updating this regex, remember to update the regex with the same name in mixins/common.py
 const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z\ \-\*\^0-9\+\/\(\)\.]+$/
 
-export function TrendsFormula({ query, insightProps }: EditorFilterProps): JSX.Element | null {
-    const { isFormulaOn } = useValues(trendsLogic(insightProps))
-    const formula = isTrendsQuery(query) ? query.trendsFilter?.formula : null
-
+export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element | null {
+    const { formula, hasFormula } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const [value, setValue] = useState(formula)
@@ -24,7 +20,7 @@ export function TrendsFormula({ query, insightProps }: EditorFilterProps): JSX.E
         }
     }, [formula])
 
-    return isFormulaOn ? (
+    return hasFormula ? (
         <div className="flex items-center gap-2">
             <LemonInput
                 className="flex-1"
