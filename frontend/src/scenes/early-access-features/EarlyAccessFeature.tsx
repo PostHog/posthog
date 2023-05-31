@@ -19,7 +19,7 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { PersonsLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
-import { Col, Popconfirm, Row } from 'antd'
+import { Col, Popconfirm } from 'antd'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -140,7 +140,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             info={<>A feature flag will be generated from feature name if not provided</>}
                         >
                             {({ value, onChange }) => (
-                                <Row>
+                                <div className="flex">
                                     <FlagSelector value={value} onChange={onChange} />
                                     {value && (
                                         <LemonButton
@@ -152,7 +152,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                             aria-label="close"
                                         />
                                     )}
-                                </Row>
+                                </div>
                             )}
                         </Field>
                     )}
