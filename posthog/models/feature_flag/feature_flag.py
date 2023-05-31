@@ -41,6 +41,12 @@ class FeatureFlag(models.Model):
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     usage_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
+    dashboards: models.ManyToManyField = models.ManyToManyField(
+        "Dashboard",
+        through="FeatureFlagDashboards",
+        related_name="dashboards",
+        related_query_name="dashboard",
+    )
 
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
@@ -311,3 +317,15 @@ def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFl
             return None
 
     return None
+
+
+class FeatureFlagDashboards(models.Model):
+    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["feature_flag", "dashboard"], name="unique feature flag for a dashboard")
+        ]

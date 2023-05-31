@@ -12,6 +12,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.dashboards.dashboard import Dashboard
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import FeatureFlag
@@ -21,6 +22,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
     FeatureFlagMatcher,
+    FeatureFlagDashboards,
     can_user_edit_feature_flag,
     get_all_feature_flags,
     get_user_blast_radius,
@@ -57,6 +59,11 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
+    dashboards = serializers.PrimaryKeyRelatedField(
+        many=True,
+        required=False,
+        queryset=Dashboard.objects.all(),
+    )
 
     name = serializers.CharField(
         required=False,
@@ -86,6 +93,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "can_edit",
             "tags",
             "usage_dashboard",
+            "dashboards",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -234,6 +242,13 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         if validated_key:
             FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
         self._update_filters(validated_data)
+
+        dashboards = validated_data.pop("dashboards", None)
+
+        if dashboards is not None:
+            for dashboard in dashboards:
+                FeatureFlagDashboards.objects.create(dashboard=dashboard, feature_flag=instance)
+
         instance = super().update(instance, validated_data)
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
