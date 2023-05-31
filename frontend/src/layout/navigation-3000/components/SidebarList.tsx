@@ -65,19 +65,19 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
     const { onRename } = item
     const menuItems = useMemo(() => {
         if (item.onRename) {
-            if (typeof item.menuItems !== 'function' || item.menuItems.length !== 1) {
-                throw new Error(
-                    'menuItems must be a single-argument function for renamable items, so that the "Rename" item is shown'
-                )
+            if (typeof item.menuItems !== 'function') {
+                throw new Error('menuItems must be a function for renamable items so that the "Rename" item is shown')
             }
             return item.menuItems(() => setRenamingName(item.name))
         }
-        return typeof item.menuItems === 'function' ? item.menuItems() : item.menuItems
+        return typeof item.menuItems === 'function'
+            ? item.menuItems(() => console.error('Cannot rename item without onRename handler'))
+            : item.menuItems
     }, [item, setRenamingName])
 
     const completeRename = onRename
         ? async (newName: string): Promise<void> => {
-              if (newName === item.name) {
+              if (!newName || newName === item.name) {
                   // No change to be saved
                   setRenamingName(null)
                   return
