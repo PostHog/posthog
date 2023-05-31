@@ -87,13 +87,10 @@ def process_in_batches(get_pg, get_ch, get_key, sync_fn, log_every_nth: int) -> 
         # If the current PostgreSQL ID is greater than the last ID we got from ClickHouse, fetch a new chunk from ClickHouse
         # If we didn't get any more new data, we'll mark the last id as the max possible to avoid useless fetches
         if key > last_clickhouse_id:
-            ch_obj_to_version = get_ch(key)
-            logger.info(f"Fetched from CH after {key}, got {len(ch_obj_to_version)} objects")
-
-            if ch_obj_to_version:
-                last_clickhouse_id = ch_obj_to_version[-1][0]
-            else:
-                last_clickhouse_id = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+            rows = get_ch(key)
+            logger.info(f"Fetched from CH after {key}, got {len(rows)} objects")
+            ch_obj_to_version = {row[0]: row[1] for row in rows}
+            last_clickhouse_id = str(rows[-1][0]) if rows else "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
         # If the current PostgreSQL ID is not in ClickHouse IDs or the version is smaller then sync it
         ch_version = ch_obj_to_version.get(key, None)
@@ -124,12 +121,22 @@ def run_person_sync(
     def get_ch(last_id):
         rows = sync_execute(
             """
-            SELECT id, max(version) FROM person WHERE team_id = %(team_id)s AND id > %(last_id)s GROUP BY id HAVING max(is_deleted) = 0 ORDER BY id LIMIT %(batch_size)s
+            SELECT id, max(version)
+            FROM person
+            WHERE
+                team_id = %(team_id)s
+                AND id > %(last_id)s
+            GROUP BY id
+            HAVING max(is_deleted) = 0
+            ORDER BY id
+            LIMIT %(batch_size)s
         """,
             {"team_id": team_id, "last_id": last_id, "batch_size": batch_size_ch},
         )
+        return rows
         ch_persons_to_version = {row[0]: row[1] for row in rows}
-        return ch_persons_to_version
+        last_id = rows[-1][0] if rows else None
+        return (ch_persons_to_version, last_id)
 
     def get_key(person: Person):
         return str(person.uuid)
@@ -195,12 +202,22 @@ def run_distinct_id_sync(
     def get_ch(last_id):
         rows = sync_execute(
             """
-            SELECT distinct_id, max(version) FROM person_distinct_id2 WHERE team_id = %(team_id)s AND distinct_id > %(last_id)s GROUP BY distinct_id HAVING max(is_deleted) = 0 ORDER BY distinct_id LIMIT %(batch_size)s
+            SELECT distinct_id, max(version)
+            FROM person_distinct_id2
+            WHERE
+                team_id = %(team_id)s
+                AND distinct_id > %(last_id)s
+            GROUP BY distinct_id
+            HAVING max(is_deleted) = 0
+            ORDER BY distinct_id
+            LIMIT %(batch_size)s
         """,
             {"team_id": team_id, "last_id": last_id, "batch_size": batch_size_ch},
         )
-        ch_persons_to_version = {row[0]: row[1] for row in rows}
-        return ch_persons_to_version
+        return rows
+        ch_obj_to_version = {row[0]: row[1] for row in rows}
+        last_id = rows[-1][0] if rows else None
+        return (ch_obj_to_version, last_id)
 
     def get_key(person_distinct_id: PersonDistinctId):
         return str(person_distinct_id.distinct_id)
@@ -263,12 +280,19 @@ def run_person_override_sync(
     def get_ch(last_id):
         rows = sync_execute(
             """
-            SELECT old_person_id, max(version) FROM person_overrides WHERE team_id = %(team_id)s AND old_person_id > %(last_id)s GROUP BY old_person_id HAVING max(is_deleted) = 0 ORDER BY old_person_id LIMIT %(batch_size)s
+            SELECT old_person_id, max(version)
+            FROM person_overrides
+            WHERE
+                team_id = %(team_id)s
+                AND old_person_id > %(last_id)s
+            GROUP BY old_person_id
+            HAVING max(is_deleted) = 0
+            ORDER BY old_person_id
+            LIMIT %(batch_size)s
         """,
             {"team_id": team_id, "last_id": last_id, "batch_size": batch_size_ch},
         )
-        ch_persons_to_version = {row[0]: row[1] for row in rows}
-        return ch_persons_to_version
+        return rows
 
     def get_key(pg_override: PersonOverride):
         return str(pg_override.old_person_id.uuid)
