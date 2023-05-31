@@ -8,13 +8,12 @@ export function Resizer(props: ResizerLogicProps): JSX.Element {
     const { isResizeInProgress } = useValues(logic)
     const { beginResize } = useActions(logic)
 
-    console.log({ isResizeInProgress })
     return (
         <div
             className={clsx('Resizer', isResizeInProgress && 'Resizer--resizing')}
             onMouseDown={(e) => {
                 if (e.button === 0) {
-                    beginResize(e)
+                    beginResize(e.pageX)
                 }
             }}
         >

@@ -11,7 +11,7 @@ export const resizerLogic = kea<resizerLogicType>([
     path(['components', 'resizer', 'resizerLogic']),
     props({} as ResizerLogicProps),
     actions({
-        beginResize: (event: MouseEvent) => ({ event }),
+        beginResize: (startX: number) => ({ startX }),
         endResize: true,
     }),
     reducers({
@@ -24,9 +24,8 @@ export const resizerLogic = kea<resizerLogicType>([
         ],
     }),
     listeners(({ cache }) => ({
-        beginResize: ({ event }) => {
-            cache.originX = event.pageX
-            // actions.setSidebarOverslide(values.isSidebarShown ? 0 : -MINIMUM_SIDEBAR_WIDTH_PX)
+        beginResize: ({ startX }) => {
+            cache.originX = startX
         },
     })),
     subscriptions(({ cache, actions, props }) => ({
