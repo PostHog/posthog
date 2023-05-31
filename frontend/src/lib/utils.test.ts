@@ -288,7 +288,7 @@ describe('dateFilterToText()', () => {
             expect(dateFilterToText('-24h', null, 'default')).toEqual('Last 24 hours')
             expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
             expect(dateFilterToText('-1d', null, 'default')).toEqual('Last 1 day')
-            expect(dateFilterToText('-1dStart', 'dStart', 'default')).toEqual('Yesterday')
+            expect(dateFilterToText('-1dStart', '-1dEnd', 'default')).toEqual('Yesterday')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
         })
 
