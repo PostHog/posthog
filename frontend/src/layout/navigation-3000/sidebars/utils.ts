@@ -5,7 +5,7 @@ import { SearchMatch } from '../types'
  * This provides highlighting for server-side search, which does not return data on how the search term was matched.
  */
 export function findSearchTermInItemName(name: string, searchTerm: string): SearchMatch | null {
-    if (!searchTerm) {
+    if (!searchTerm || !name) {
         return null
     }
     const ranges: [number, number][] = []
