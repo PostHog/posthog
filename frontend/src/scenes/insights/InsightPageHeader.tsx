@@ -67,14 +67,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         isUsingDashboardQueries,
         getInsightRefreshButtonDisabledReason,
     } = useValues(logic)
-    const { setInsightMetadata, saveAs, loadResults } = useActions(logic)
+    const { setInsightMetadata, saveAs } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
     const { query, queryChanged, showQueryEditor } = useValues(insightDataLogic(insightProps))
-    const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
+    const {
+        saveInsight: saveQueryBasedInsight,
+        toggleQueryEditorPanel,
+        loadData,
+    } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -150,7 +154,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         <>
                                             <LemonButton
                                                 status="stealth"
-                                                onClick={() => loadResults(true)}
+                                                onClick={() => loadData(true)}
                                                 fullWidth
                                                 data-attr="refresh-insight-from-insight-view"
                                                 disabledReason={insightRefreshButtonDisabledReason}
@@ -169,7 +173,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         <>
                                             <LemonButton
                                                 status="stealth"
-                                                onClick={() => loadResults(true)}
+                                                onClick={() => loadData(true)}
                                                 fullWidth
                                                 data-attr="refresh-insight-from-insight-view"
                                                 disabledReason={insightRefreshButtonDisabledReason}

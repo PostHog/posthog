@@ -46,6 +46,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
         actions: [
             insightLogic,
             ['setInsight', 'loadInsightSuccess', 'loadResultsSuccess', 'saveInsight as insightLogicSaveInsight'],
+            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
+            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            ['loadData'],
         ],
         logic: [insightDataTimingLogic(props)],
     })),
