@@ -85,3 +85,19 @@ def backfill_batch_export_ok(client: TestClient, team_id: int, batch_export_id: 
     response = backfill_batch_export(client, team_id, batch_export_id, start_at, end_at)
     assert response.status_code == status.HTTP_200_OK, response.json()
     return response.json()
+
+
+def put_batch_export(client, team_id, batch_export_id, new_batch_export_data):
+    return client.put(
+        f"/api/projects/{team_id}/batch_exports/{batch_export_id}/",
+        new_batch_export_data,
+        content_type="application/json",
+    )
+
+
+def patch_batch_export(client, team_id, batch_export_id, new_batch_export_data):
+    return client.patch(
+        f"/api/projects/{team_id}/batch_exports/{batch_export_id}/",
+        new_batch_export_data,
+        content_type="application/json",
+    )

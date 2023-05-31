@@ -89,6 +89,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return create_batch_export(team_id=team_id, interval=interval, name=name, destination_data=destination_data)
 
+    def update(self, instance: BatchExport, validated_data: dict) -> BatchExport:
+        """Update a BatchExport."""
+        destination_data = validated_data.pop("destination", None)
+
+        if destination_data:
+            instance.destination.type = destination_data.get("type", instance.destination.type)
+            instance.destination.config = {**instance.destination.config, **destination_data.get("config", {})}
+            instance.destination.save()
+
+        instance.name = validated_data.get("name", instance.name)
+        instance.interval = validated_data.get("interval", instance.interval)
+        instance.save()
+
+        return instance
+
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = BatchExport.objects.all()
