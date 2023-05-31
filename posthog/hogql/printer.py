@@ -432,8 +432,8 @@ class _Printer(Visitor):
                 )
 
             # check that we're not running inside another aggregate
-            for stack_node in self.stack[:-1]:
-                if isinstance(stack_node, ast.Call) and stack_node.name in HOGQL_AGGREGATIONS:
+            for stack_node in self.stack:
+                if stack_node != node and isinstance(stack_node, ast.Call) and stack_node.name in HOGQL_AGGREGATIONS:
                     raise HogQLException(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
