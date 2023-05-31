@@ -4,6 +4,7 @@ from posthog.models.utils import UUIDModel, sane_repr
 
 class EarlyAccessFeature(UUIDModel):
     class Stage(models.TextChoices):
+        DRAFT = "draft", "draft"
         CONCEPT = "concept", "concept"
         ALPHA = "alpha", "alpha"
         BETA = "beta", "beta"

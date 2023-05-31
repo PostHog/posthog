@@ -32,7 +32,7 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote, deleteEarlyAccessFeature } =
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, releaseBeta, deleteEarlyAccessFeature } =
         useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
@@ -61,7 +61,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     }}
                                     loading={isEarlyAccessFeatureSubmitting}
                                 >
-                                    Save
+                                    {isNewEarlyAccessFeature ? 'Save Draft' : 'Save'}
                                 </LemonButton>
                             </>
                         ) : (
@@ -163,18 +163,27 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <Col>
                                 <b>Stage</b>
                                 <div>
-                                    <LemonTag type="highlight" className="mt-2 uppercase">
+                                    <LemonTag
+                                        type={
+                                            earlyAccessFeature.stage === 'beta'
+                                                ? 'warning'
+                                                : earlyAccessFeature.stage === 'general-availability'
+                                                ? 'success'
+                                                : 'default'
+                                        }
+                                        className="mt-2 uppercase"
+                                    >
                                         {earlyAccessFeature.stage}
                                     </LemonTag>
                                 </div>
                             </Col>
-                            {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
+                            {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
                                 <LemonButton
-                                    onClick={() => promote()}
-                                    tooltip={'Make feature generally available'}
+                                    onClick={() => releaseBeta()}
+                                    tooltip={'Make beta feature available'}
                                     type="secondary"
                                 >
-                                    Promote
+                                    Release Beta
                                 </LemonButton>
                             )}
                         </div>
@@ -312,7 +321,7 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
                 showExportAction={false}
                 emptyState={
                     <div>
-                        No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
+                        No manual opt-ins. Manually opted-in people will appear here once beta is available. Start by{' '}
                         <a onClick={toggleImplementOptInInstructionsModal}>implementing public opt-in</a>
                     </div>
                 }
