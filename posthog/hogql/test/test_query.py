@@ -1,5 +1,6 @@
 from uuid import UUID
 
+import pytz
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
@@ -741,3 +742,155 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     )
                 ],
             )
+
+    def test_window_functions_simple(self):
+        random_uuid = str(UUIDT())
+        for person in range(5):
+            distinct_id = f"person_{person}_{random_uuid}"
+            with freeze_time("2020-01-10 00:00:00"):
+                _create_person(
+                    properties={"name": f"Person {person}", "random_uuid": random_uuid},
+                    team=self.team,
+                    distinct_ids=[distinct_id],
+                    is_identified=True,
+                )
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="random event",
+                    team=self.team,
+                    properties={"character": "Luigi"},
+                )
+                flush_persons_and_events()
+            with freeze_time("2020-01-10 00:10:00"):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="random bla",
+                    team=self.team,
+                    properties={"character": "Luigi"},
+                )
+                flush_persons_and_events()
+            with freeze_time("2020-01-10 00:20:00"):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="random boo",
+                    team=self.team,
+                    properties={"character": "Luigi"},
+                )
+                flush_persons_and_events()
+
+        query = f"""
+           select distinct_id,
+                  timestamp,
+                  event,
+                  groupArray(event) OVER (PARTITION BY distinct_id ORDER BY timestamp ASC ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING) AS two_before,
+                  groupArray(event) OVER (PARTITION BY distinct_id ORDER BY timestamp ASC ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) AS two_after
+             from events
+            where timestamp > toDateTime('2020-01-09 00:00:00')
+              and distinct_id like '%_{random_uuid}'
+         order by distinct_id, timestamp
+        """
+        response = execute_hogql_query(query, team=self.team)
+
+        expected = []
+        for person in range(5):
+            expected += [
+                (
+                    f"person_{person}_{random_uuid}",
+                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=pytz.UTC),
+                    "random event",
+                    [],
+                    ["random bla", "random boo"],
+                ),
+                (
+                    f"person_{person}_{random_uuid}",
+                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=pytz.UTC),
+                    "random bla",
+                    ["random event"],
+                    ["random boo"],
+                ),
+                (
+                    f"person_{person}_{random_uuid}",
+                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=pytz.UTC),
+                    "random boo",
+                    ["random event", "random bla"],
+                    [],
+                ),
+            ]
+        self.assertEqual(response.results, expected)
+
+    def test_window_functions_with_window(self):
+        random_uuid = str(UUIDT())
+        for person in range(5):
+            distinct_id = f"person_{person}_{random_uuid}"
+            with freeze_time("2020-01-10 00:00:00"):
+                _create_person(
+                    properties={"name": f"Person {person}", "random_uuid": random_uuid},
+                    team=self.team,
+                    distinct_ids=[distinct_id],
+                    is_identified=True,
+                )
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="random event",
+                    team=self.team,
+                    properties={"character": "Luigi"},
+                )
+                flush_persons_and_events()
+            with freeze_time("2020-01-10 00:10:00"):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="random bla",
+                    team=self.team,
+                    properties={"character": "Luigi"},
+                )
+                flush_persons_and_events()
+            with freeze_time("2020-01-10 00:20:00"):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="random boo",
+                    team=self.team,
+                    properties={"character": "Luigi"},
+                )
+                flush_persons_and_events()
+
+        query = f"""
+           select distinct_id,
+                  timestamp,
+                  event,
+                  groupArray(event) OVER w1 AS two_before,
+                  groupArray(event) OVER w2 AS two_after
+             from events
+            where timestamp > toDateTime('2020-01-09 00:00:00')
+              and distinct_id like '%_{random_uuid}'
+           window w1 as (PARTITION BY distinct_id ORDER BY timestamp ASC ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING),
+                  w2 as (PARTITION BY distinct_id ORDER BY timestamp ASC ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING)
+         order by distinct_id, timestamp
+        """
+        response = execute_hogql_query(query, team=self.team)
+
+        expected = []
+        for person in range(5):
+            expected += [
+                (
+                    f"person_{person}_{random_uuid}",
+                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=pytz.UTC),
+                    "random event",
+                    [],
+                    ["random bla", "random boo"],
+                ),
+                (
+                    f"person_{person}_{random_uuid}",
+                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=pytz.UTC),
+                    "random bla",
+                    ["random event"],
+                    ["random boo"],
+                ),
+                (
+                    f"person_{person}_{random_uuid}",
+                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=pytz.UTC),
+                    "random boo",
+                    ["random event", "random bla"],
+                    [],
+                ),
+            ]
+        self.assertEqual(response.results, expected)

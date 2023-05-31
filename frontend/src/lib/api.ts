@@ -40,6 +40,8 @@ import {
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
     Survey,
+    NotebookType,
+    PropertyDefinitionType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -53,13 +55,15 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { encodeParams } from 'kea-router'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
 export interface PaginatedResponse<T> {
     results: T[]
-    next?: string
-    previous?: string
+    next?: string | null
+    previous?: string | null
     missing_persons?: number
 }
 
@@ -285,6 +289,10 @@ class ApiRequest {
             .addPathComponent(String(playlistId))
     }
 
+    public recordingSharing(id: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.recording(id, teamId).addPathComponent('sharing')
+    }
+
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboards')
@@ -461,6 +469,15 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
     }
 
+    // Notebooks
+    public notebooks(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('notebooks')
+    }
+
+    public notebook(id: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebooks(teamId).addPathComponent(id)
+    }
+
     // Request finalization
 
     public async get(options?: ApiMethodOptions): Promise<any> {
@@ -493,6 +510,23 @@ const normalizeUrl = (url: string): string => {
         url = url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
     }
     return url
+}
+
+const prepareUrl = (url: string): string => {
+    let output = normalizeUrl(url)
+
+    const exporterContext = getCurrentExporterData()
+
+    if (exporterContext && exporterContext.accessToken) {
+        output =
+            output +
+            (output.indexOf('?') === -1 ? '?' : '&') +
+            encodeParams({
+                sharing_access_token: exporterContext.accessToken,
+            })
+    }
+
+    return output
 }
 
 const PROJECT_ID_REGEX = /\/api\/projects\/(\w+)(?:$|[/?#])/
@@ -718,6 +752,7 @@ const api = {
             excluded_properties?: string[]
             properties?: string[]
             filter_by_event_names?: boolean
+            type?: PropertyDefinitionType
             limit?: number
             offset?: number
             teamId?: TeamType['id']
@@ -745,7 +780,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            type?: 'event' | 'person' | 'group'
+            type?: PropertyDefinitionType
             group_type_index?: number
         }): string {
             return new ApiRequest()
@@ -949,14 +984,18 @@ const api = {
         async get({
             dashboardId,
             insightId,
+            recordingId,
         }: {
             dashboardId?: DashboardType['id']
             insightId?: InsightModel['id']
+            recordingId?: SessionRecordingType['id']
         }): Promise<SharingConfigurationType | null> {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
                 : insightId
                 ? new ApiRequest().insightSharing(insightId).get()
+                : recordingId
+                ? new ApiRequest().recordingSharing(recordingId).get()
                 : null
         },
 
@@ -964,9 +1003,11 @@ const api = {
             {
                 dashboardId,
                 insightId,
+                recordingId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: InsightModel['id']
+                recordingId?: SessionRecordingType['id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
@@ -974,6 +1015,8 @@ const api = {
                 ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
                 : insightId
                 ? new ApiRequest().insightSharing(insightId).update({ data })
+                : recordingId
+                ? new ApiRequest().recordingSharing(recordingId).update({ data })
                 : null
         },
     },
@@ -1105,6 +1148,24 @@ const api = {
                 .withAction('recordings')
                 .withAction(session_recording_id)
                 .delete()
+        },
+    },
+
+    notebooks: {
+        async get(notebookId: NotebookType['short_id']): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).get()
+        },
+        async update(
+            notebookId: NotebookType['short_id'],
+            data: Pick<NotebookType, 'version' | 'content' | 'title'>
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).update({ data })
+        },
+        async list(): Promise<PaginatedResponse<NotebookType>> {
+            return await new ApiRequest().notebooks().get()
+        },
+        async create(data?: Pick<NotebookType, 'content'>): Promise<NotebookType> {
+            return await new ApiRequest().notebooks().create({ data })
         },
     },
 
@@ -1279,7 +1340,7 @@ const api = {
     },
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
         const startTime = new Date().getTime()
@@ -1298,7 +1359,7 @@ const api = {
     },
 
     async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
@@ -1329,7 +1390,7 @@ const api = {
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
@@ -1355,7 +1416,7 @@ const api = {
     },
 
     async delete(url: string): Promise<any> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const startTime = new Date().getTime()
         const response = await fetch(url, {

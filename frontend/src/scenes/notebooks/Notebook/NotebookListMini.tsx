@@ -44,7 +44,7 @@ export function NotebookListMini({
         {
             items: notebooks.length
                 ? notebooks.map((notebook) => ({
-                      label: notebook.title ?? notebook.short_id,
+                      label: notebook.title ?? `Untitled (${notebook.short_id})`,
                       onClick: () => onSelectNotebook(notebook),
                       active: notebook.short_id === selectedNotebookId,
                   }))

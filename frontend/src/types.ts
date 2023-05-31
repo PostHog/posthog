@@ -27,6 +27,7 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
 import { InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -355,7 +356,7 @@ export interface ActionType {
 }
 
 /** Sync with plugin-server/src/types.ts */
-export enum ActionStepUrlMatching {
+export enum StringMatching {
     Contains = 'contains',
     Regex = 'regex',
     Exact = 'exact',
@@ -363,15 +364,21 @@ export enum ActionStepUrlMatching {
 
 export interface ActionStepType {
     event?: string | null
-    href?: string | null
     id?: number
     name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
+    /** @deprecated Only `selector` should be used now. */
     tag_name?: string
     text?: string | null
+    /** @default StringMatching.Exact */
+    text_matching?: StringMatching | null
+    href?: string | null
+    /** @default StringMatching.Exact */
+    href_matching?: StringMatching | null
     url?: string | null
-    url_matching?: ActionStepUrlMatching
+    /** @default StringMatching.Contains */
+    url_matching?: StringMatching | null
     isNew?: string
 }
 
@@ -463,6 +470,7 @@ export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
+    All = 'all',
 }
 
 export enum PropertyFilterType {
@@ -1703,40 +1711,29 @@ export enum RecordingWindowFilter {
     All = 'all',
 }
 
-export type InsightEditorFilterGroup<T = InsightEditorFilter> = {
-    title?: string
-    count?: number
-    editorFilters: T[]
-    defaultExpanded?: boolean
-}
-
 export interface EditorFilterProps {
-    insight: Partial<InsightModel>
-    insightProps: InsightLogicProps
-    filters: Partial<FilterType>
-    value: any
-}
-
-export interface QueryEditorFilterProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
     insightProps: InsightLogicProps
 }
 
-export interface InsightEditorFilter<T = EditorFilterProps> {
+export interface InsightEditorFilter {
     key: string
-    label?: string | ((props: T) => JSX.Element | null)
+    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
-    component?: (props: T) => JSX.Element | null
+    component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
-export type QueryInsightEditorFilter = InsightEditorFilter<QueryEditorFilterProps>
-
-export type QueryInsightEditorFilterGroup = InsightEditorFilterGroup<QueryInsightEditorFilter>
+export type InsightEditorFilterGroup = {
+    title?: string
+    count?: number
+    editorFilters: InsightEditorFilter[]
+    defaultExpanded?: boolean
+}
 
 export interface SystemStatusSubrows {
     columns: string[]
@@ -1782,6 +1779,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
+    math_hogql?: string
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
@@ -1975,8 +1973,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** If showing a shared insight/dashboard, we need the access token for refreshing. */
-    sharingAccessToken?: string
     /** Temporary hack to disable data exploration to enable result fetching. */
     disableDataExploration?: boolean
 }
@@ -2270,6 +2266,12 @@ export enum PropertyType {
     Selector = 'Selector',
 }
 
+export enum PropertyDefinitionType {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+}
+
 export interface PropertyDefinition {
     id: string
     name: string
@@ -2282,6 +2284,7 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_seen_on_filtered_events?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: PropertyType
+    type?: PropertyDefinitionType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
     example?: string
@@ -2624,6 +2627,9 @@ export enum CountPerActorMathType {
     P99 = 'p99_count_per_actor',
 }
 
+export enum HogQLMathType {
+    HogQL = 'hogql',
+}
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
@@ -2891,7 +2897,8 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    content: any // TODO: Type this better
+    content: JSONContent // TODO: Type this better
+    version: number
 }
 
 export enum NotebookMode {

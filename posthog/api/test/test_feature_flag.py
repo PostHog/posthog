@@ -2642,9 +2642,9 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):
-
+        # execute so we capture queries in snapshots
+        execute(*args, **kwargs)
         raise OperationalError("canceling statement due to statement timeout")
-        # return execute(*args, **kwargs)
 
 
 def slow_query(execute, sql, *args, **kwargs):
@@ -2653,8 +2653,12 @@ def slow_query(execute, sql, *args, **kwargs):
     return execute(f"SELECT pg_sleep(1); {sql}", *args, **kwargs)
 
 
+@patch("posthog.models.feature_flag.flag_matching.is_postgres_connected_cached_check", return_value=True)
 class TestResiliency(TransactionTestCase, QueryMatchingTest):
-    def test_feature_flags_v3_with_group_properties(self):
+    def setUp(self) -> None:
+        return super().setUp()
+
+    def test_feature_flags_v3_with_group_properties(self, *args):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -2725,7 +2729,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
             # # now db is down, but decide was sent correct group property overrides
             with self.assertNumQueries(1):
-                # this query is "None", not executed
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
@@ -2739,7 +2742,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
             # # now db is down, but decide was sent different group property overrides
             with self.assertNumQueries(1):
-                # this query is "None", not executed
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "exam",
@@ -2752,7 +2754,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_with_person_properties(self, mock_counter):
+    def test_feature_flags_v3_with_person_properties(self, mock_counter, *args):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -2837,7 +2839,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
                 mock_counter.labels.assert_not_called()
 
-    def test_feature_flags_v3_with_a_working_slow_db(self):
+    def test_feature_flags_v3_with_a_working_slow_db(self, mock_postgres_check):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -2882,8 +2884,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         serialized_data.save()
 
         with self.assertNumQueries(2):
-            # 1 query to get person properties
             # 1 query to set statement timeout
+            # 1 query to get person properties
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue(all_flags["property-flag"])
@@ -2894,6 +2896,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
             "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
         ):
+            mock_postgres_check.return_value = False
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
@@ -2919,7 +2922,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertFalse(errors)
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self, mock_counter):
+    def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self, mock_counter, *args):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -3002,7 +3005,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             )
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_with_group_properties_and_slow_db(self, mock_counter):
+    def test_feature_flags_v3_with_group_properties_and_slow_db(self, mock_counter, *args):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "randomXYZ@test.com", "password", "first_name")
@@ -3109,7 +3112,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_with_experience_continuity_working_slow_db(self, mock_counter):
+    def test_feature_flags_v3_with_experience_continuity_working_slow_db(self, mock_counter, *args):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random12@test.com", "password", "first_name")

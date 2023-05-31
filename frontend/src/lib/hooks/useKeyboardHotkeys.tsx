@@ -44,7 +44,7 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
             const key = event.key
 
             // Ignore explicit hotkey exceptions
-            if (exceptions.some((exception) => (event.target as Element).matches(exception))) {
+            if (exceptions.some((exception) => (event.target as Element)?.matches(exception))) {
                 return
             }
 

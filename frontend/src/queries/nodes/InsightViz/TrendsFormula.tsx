@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { QueryEditorFilterProps } from '~/types'
+import { EditorFilterProps } from '~/types'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LemonInput } from '@posthog/lemon-ui'
@@ -9,7 +9,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 // When updating this regex, remember to update the regex with the same name in mixins/common.py
 const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z\ \-\*\^0-9\+\/\(\)\.]+$/
 
-export function TrendsFormula({ query, insightProps }: QueryEditorFilterProps): JSX.Element | null {
+export function TrendsFormula({ query, insightProps }: EditorFilterProps): JSX.Element | null {
     const { isFormulaOn } = useValues(trendsLogic(insightProps))
     const formula = isTrendsQuery(query) ? query.trendsFilter?.formula : null
 
