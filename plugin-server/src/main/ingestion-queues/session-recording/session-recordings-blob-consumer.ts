@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
+import { CODES, HighLevelProducer as RdKafkaProducer, Message, TopicPartition } from 'node-rdkafka-acosom'
 import path from 'path'
 import { Gauge } from 'prom-client'
 
@@ -100,14 +100,7 @@ export class SessionRecordingBlobIngester {
         const highWaterMarkSpan = sentrySpan?.startChild({
             op: 'checkHighWaterMark',
         })
-        if (
-            await this.sessionOffsetHighWaterMark.isBelowHighWaterMark(
-                event.metadata.topic,
-                event.metadata.partition,
-                event.session_id,
-                event.metadata.offset
-            )
-        ) {
+        if (await this.sessionOffsetHighWaterMark.isBelowHighWaterMark({ topic, partition }, session_id, offset)) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
@@ -131,7 +124,7 @@ export class SessionRecordingBlobIngester {
                 async (offsets) => {
                     const committedOffset = this.offsetManager?.removeOffsets(topic, partition, offsets)
                     if (committedOffset) {
-                        await this.sessionOffsetHighWaterMark.onCommit(topic, partition, committedOffset)
+                        await this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, committedOffset)
                     }
                 }
             )
@@ -328,7 +321,7 @@ export class SessionRecordingBlobIngester {
                  * As a result, we need to drop all sessions currently managed for the revoked partitions
                  */
 
-                const revokedPartitions = topicPartitions.map((x) => x.partition).sort()
+                const revokedPartitions = topicPartitions.map((x) => x.partition)
                 if (!revokedPartitions.length) {
                     return
                 }
@@ -345,6 +338,11 @@ export class SessionRecordingBlobIngester {
                 revokedPartitions.forEach((partition) => {
                     gaugeLagMilliseconds.remove({ partition: partition.toString() })
                 })
+
+                topicPartitions.forEach((topicPartition: TopicPartition) => {
+                    this.sessionOffsetHighWaterMark.revoke(topicPartition)
+                })
+
                 return
             }
 
