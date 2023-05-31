@@ -65,7 +65,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         exporterResourceParams,
         isUsingDataExploration,
         isUsingDashboardQueries,
-        getInsightRefreshButtonDisabledReason,
     } = useValues(logic)
     const { setInsightMetadata, saveAs } = useActions(logic)
 
@@ -73,7 +72,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor } = useValues(insightDataLogic(insightProps))
+    const { query, queryChanged, showQueryEditor, getInsightRefreshButtonDisabledReason } = useValues(
+        insightDataLogic(insightProps)
+    )
     const {
         saveInsight: saveQueryBasedInsight,
         toggleQueryEditorPanel,
