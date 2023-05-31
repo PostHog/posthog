@@ -413,82 +413,74 @@ class _Printer(Visitor):
             raise HogQLException(f"Unknown Type, can not print {type(node.type).__name__}")
 
     def visit_call(self, node: ast.Call):
-        self.call_stack.append(node.name)
-        try:
-            if node.name in HOGQL_AGGREGATIONS:
-                required_arg_count = HOGQL_AGGREGATIONS[node.name]
+        if node.name in HOGQL_AGGREGATIONS:
+            required_arg_count = HOGQL_AGGREGATIONS[node.name]
 
-                if isinstance(required_arg_count, int) and required_arg_count != len(node.args):
+            if isinstance(required_arg_count, int) and required_arg_count != len(node.args):
+                raise HogQLException(
+                    f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
+                )
+            if isinstance(required_arg_count, tuple) and (
+                (required_arg_count[0] is not None and len(node.args) < required_arg_count[0])
+                or (required_arg_count[1] is not None and len(node.args) > required_arg_count[1])
+            ):
+                if required_arg_count[1] is None:
                     raise HogQLException(
-                        f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
+                        f"Aggregation '{node.name}' requires at least {required_arg_count[0]} argument{'s' if required_arg_count[0] != 1 else ''}, found {len(node.args)}"
                     )
-                if isinstance(required_arg_count, tuple) and (
-                    (required_arg_count[0] is not None and len(node.args) < required_arg_count[0])
-                    or (required_arg_count[1] is not None and len(node.args) > required_arg_count[1])
+                raise HogQLException(
+                    f"Aggregation '{node.name}' requires between {required_arg_count[0] or '0'} and {required_arg_count[1] or 'unlimited'} arguments, found {len(node.args)}"
+                )
+
+            # check that we're not running inside another aggregate
+            for stack_node in self.stack[:-1]:
+                if isinstance(stack_node, ast.Call) and stack_node.name in HOGQL_AGGREGATIONS:
+                    raise HogQLException(
+                        f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
+                    )
+
+            translated_args = ", ".join([self.visit(arg) for arg in node.args])
+            if node.distinct:
+                translated_args = f"DISTINCT {translated_args}"
+            return f"{node.name}({translated_args})"
+
+        elif node.name in CLICKHOUSE_FUNCTIONS:
+            clickhouse_name, min_args, max_args = CLICKHOUSE_FUNCTIONS[node.name]
+            args = [self.visit(arg) for arg in node.args]
+
+            if min_args is not None and len(args) < min_args:
+                if min_args == max_args:
+                    raise HogQLException(f"Function '{node.name}' expects {min_args} arguments. Passed {len(args)}.")
+                raise HogQLException(
+                    f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(args)}."
+                )
+
+            if max_args is not None and len(args) > max_args:
+                if min_args == max_args:
+                    raise HogQLException(f"Function '{node.name}' expects {max_args} arguments. Passed {len(args)}.")
+                raise HogQLException(
+                    f"Function '{node.name}' expects at most least {max_args} arguments. Passed {len(args)}."
+                )
+
+            if self.dialect == "clickhouse":
+                if (clickhouse_name == "now64" and len(args) == 0) or (
+                    clickhouse_name == "parseDateTime64BestEffortOrNull" and len(args) == 1
                 ):
-                    if required_arg_count[1] is None:
-                        raise HogQLException(
-                            f"Aggregation '{node.name}' requires at least {required_arg_count[0]} argument{'s' if required_arg_count[0] != 1 else ''}, found {len(node.args)}"
-                        )
-                    raise HogQLException(
-                        f"Aggregation '{node.name}' requires between {required_arg_count[0] or '0'} and {required_arg_count[1] or 'unlimited'} arguments, found {len(node.args)}"
-                    )
-
-                # check that we're not running inside another aggregate
-                for stack_node in self.call_stack[:-1]:
-                    if stack_node in HOGQL_AGGREGATIONS:
-                        raise HogQLException(
-                            f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node}'."
-                        )
-
-                translated_args = ", ".join([self.visit(arg) for arg in node.args])
-                if node.distinct:
-                    translated_args = f"DISTINCT {translated_args}"
-                return f"{node.name}({translated_args})"
-
-            elif node.name in CLICKHOUSE_FUNCTIONS:
-                clickhouse_name, min_args, max_args = CLICKHOUSE_FUNCTIONS[node.name]
-                args = [self.visit(arg) for arg in node.args]
-
-                if min_args is not None and len(args) < min_args:
-                    if min_args == max_args:
-                        raise HogQLException(
-                            f"Function '{node.name}' expects {min_args} arguments. Passed {len(args)}."
-                        )
-                    raise HogQLException(
-                        f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(args)}."
-                    )
-
-                if max_args is not None and len(args) > max_args:
-                    if min_args == max_args:
-                        raise HogQLException(
-                            f"Function '{node.name}' expects {max_args} arguments. Passed {len(args)}."
-                        )
-                    raise HogQLException(
-                        f"Function '{node.name}' expects at most least {max_args} arguments. Passed {len(args)}."
-                    )
-
-                if self.dialect == "clickhouse":
-                    if (clickhouse_name == "now64" and len(args) == 0) or (
-                        clickhouse_name == "parseDateTime64BestEffortOrNull" and len(args) == 1
-                    ):
-                        # must add precision if adding timezone in the next step
-                        args.append("6")
-                    if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
-                        args.append(self.visit(ast.Constant(value=self._get_timezone())))
-                    return f"{clickhouse_name}({', '.join(args)})"
-                else:
-                    return f"{node.name}({', '.join(args)})"
+                    # must add precision if adding timezone in the next step
+                    args.append("6")
+                if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
+                    args.append(self.visit(ast.Constant(value=self._get_timezone())))
+                return f"{clickhouse_name}({', '.join(args)})"
             else:
-                all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
-                close_matches = get_close_matches(node.name, all_function_names, 1)
-                if len(close_matches) > 0:
-                    raise HogQLException(
-                        f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
-                    )
-                raise HogQLException(f"Unsupported function call '{node.name}(...)'")
-        finally:
-            self.call_stack.pop()
+                return f"{node.name}({', '.join(args)})"
+        else:
+            all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
+            close_matches = get_close_matches(node.name, all_function_names, 1)
+            if len(close_matches) > 0:
+                raise HogQLException(
+                    f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
+                )
+            raise HogQLException(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
         raise HogQLException(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
