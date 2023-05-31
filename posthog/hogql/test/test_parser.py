@@ -993,16 +993,16 @@ class TestParser(BaseTest):
         )
 
     def test_window_functions(self):
-        query = "SELECT person.id, min(latest_1) over (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) latest_1 FROM events"
+        query = "SELECT person.id, min(timestamp) over (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS timestamp FROM events"
         expr = parse_select(query)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(chain=["person", "id"]),
                 ast.Alias(
-                    alias="latest_1",
+                    alias="timestamp",
                     expr=ast.WindowFunction(
                         name="min",
-                        args=[ast.Field(chain=["latest_1"])],
+                        args=[ast.Field(chain=["timestamp"])],
                         over_expr=ast.WindowExpr(
                             partition_by=[ast.Field(chain=["person", "id"])],
                             order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
@@ -1018,16 +1018,16 @@ class TestParser(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_window_functions_with_window(self):
-        query = "SELECT person.id, min(latest_1) over win1 latest_1 FROM events WINDOW win1 as (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
+        query = "SELECT person.id, min(timestamp) over win1 AS timestamp FROM events WINDOW win1 as (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
         expr = parse_select(query)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(chain=["person", "id"]),
                 ast.Alias(
-                    alias="latest_1",
+                    alias="timestamp",
                     expr=ast.WindowFunction(
                         name="min",
-                        args=[ast.Field(chain=["latest_1"])],
+                        args=[ast.Field(chain=["timestamp"])],
                         over_identifier="win1",
                     ),
                 ),
