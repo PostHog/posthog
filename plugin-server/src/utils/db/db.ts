@@ -725,6 +725,14 @@ export class DB {
                 'insertPerson',
                 client
             )
+            // Put an entry for the resulting id and version of the person into
+            // the person outbox. This is within the transaction so if the
+            // transaction fails, the outbox entry will be rolled back.
+            await this.postgresQuery(
+                'INSERT INTO posthog_personoutput (person_id, version) VALUES ($1, $2)',
+                [insertResult.rows[0].id, 0],
+                'insertPersonOutbox'
+            )
             const personCreated = insertResult.rows[0] as RawPerson
             const person = {
                 ...personCreated,
@@ -745,6 +753,16 @@ export class DB {
         })
 
         await this.kafkaProducer.queueMessages(kafkaMessages)
+
+        // Remove output for the inserted person.id and person.version.
+        // This is done outside of the transaction so we do not introduce long
+        // running transactions.
+        await this.postgresQuery(
+            'DELETE FROM posthog_personoutput WHERE person_id = $1 AND version = $2',
+            [person.id, person.version],
+            'deletePersonOutbox'
+        )
+
         return person
     }
 
@@ -790,6 +808,15 @@ export class DB {
         if (versionDisparity > 0) {
             this.statsd?.increment('person_update_version_mismatch', { versionDisparity: String(versionDisparity) })
         }
+
+        // Insert an entry for the new version of the person into the person
+        // outbox.
+        await this.postgresQuery(
+            'INSERT INTO posthog_personoutput (person_id, version) VALUES ($1, $2)',
+            [updatedPerson.id, updatedPerson.version],
+            'insertPersonOutbox',
+            client
+        )
 
         const kafkaMessages = []
         const message = generateKafkaPersonUpdateMessage(

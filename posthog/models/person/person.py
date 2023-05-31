@@ -90,6 +90,12 @@ class Person(models.Model):
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
 
+class PersonOutbox(models.Model):
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    version = models.BigIntegerField()
+    timestamp = models.DateTimeField(auto_now_add=True, blank=True)
+
+
 class PersonDistinctId(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
