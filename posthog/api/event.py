@@ -178,7 +178,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error"}, status=400
             )
         query_result = query_with_columns(
-            SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")}, team_id=self.team.pk,
+            SELECT_ONE_EVENT_SQL,
+            {"team_id": self.team.pk, "event_id": pk.replace("-", "")},
+            team_id=self.team.pk,
         )
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")

@@ -130,7 +130,7 @@ def query_with_columns(
     columns_to_rename: Optional[Dict[str, str]] = None,
     *,
     workload: Workload = Workload.DEFAULT,
-    team_id=None
+    team_id=None,
 ) -> List[Dict]:
     if columns_to_remove is None:
         columns_to_remove = []
