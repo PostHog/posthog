@@ -12,9 +12,10 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import React from 'react'
 import { NotebookListMini } from './NotebookListMini'
-import { notebooksListLogic } from './notebooksListLogic'
+import { SCRATCHPAD_NOTEBOOK, notebooksListLogic } from './notebooksListLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function NotebookSideBar({ children }: { children: React.ReactElement<any> }): JSX.Element {
     const { notebookSideBarShown, fullScreen, selectedNotebook, desiredWidth } = useValues(notebookSidebarLogic)
@@ -116,6 +117,13 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                     </LemonButton>
                                 </span>
                             </header>
+
+                            {selectedNotebook === SCRATCHPAD_NOTEBOOK.short_id ? (
+                                <LemonBanner type="info" dismissKey="notebook-sidebar-scratchpad" className="m-2">
+                                    This is your scratchpad. It is only visible to you and is persisted only in this
+                                    browser. It's a great place to gather ideas before turning into a saved Notebook!
+                                </LemonBanner>
+                            ) : null}
                             <div className="flex flex-col flex-1 overflow-y-auto p-4">
                                 <Notebook key={selectedNotebook} shortId={selectedNotebook} editable={isEditable} />
                             </div>

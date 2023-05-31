@@ -1,4 +1,4 @@
-import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { BindLogic, useValues } from 'kea'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -6,7 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId, ItemMode } from '~/types'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-import { createUrlRegex } from './utils'
+import { posthogNodePasteRule } from './utils'
 import { urls } from 'scenes/urls'
 
 const Component = (props: NodeViewProps): JSX.Element => {
@@ -16,7 +16,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const href = `/insights/${props.node.attrs.id}`
 
     return (
-        <NodeWrapper className={NotebookNodeType.Insight} title="Insight" href={href} heightEstimate="16rem" {...props}>
+        <NodeWrapper nodeType={NotebookNodeType.Insight} title="Insight" href={href} heightEstimate="16rem" {...props}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer
@@ -62,8 +62,8 @@ export const NotebookNodeInsight = Node.create({
 
     addPasteRules() {
         return [
-            nodePasteRule({
-                find: createUrlRegex(urls.insightView('(.+)' as InsightShortId)),
+            posthogNodePasteRule({
+                find: urls.insightView('(.+)' as InsightShortId),
                 type: this.type,
                 getAttributes: (match) => {
                     return { id: match[1] }
