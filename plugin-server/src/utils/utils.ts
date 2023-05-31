@@ -13,6 +13,7 @@ import {
     Plugin,
     PluginConfigId,
     PluginsServerConfig,
+    RedisConfig,
     RedisPool,
     TimestampFormat,
 } from '../types'
@@ -338,8 +339,7 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         return await callback()
     }
 }
-
-export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
+export async function createRedis(serverConfig: RedisConfig): Promise<Redis.Redis> {
     const credentials: Partial<RedisOptions> | undefined = serverConfig.POSTHOG_REDIS_HOST
         ? {
               password: serverConfig.POSTHOG_REDIS_PASSWORD,
@@ -372,7 +372,7 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
     return redis
 }
 
-export function createRedisPool(serverConfig: PluginsServerConfig): RedisPool {
+export function createRedisPool(serverConfig: RedisConfig): RedisPool {
     return createPool<Redis.Redis>(
         {
             create: () => createRedis(serverConfig),

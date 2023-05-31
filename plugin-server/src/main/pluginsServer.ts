@@ -9,7 +9,7 @@ import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
-import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
+import { Hub, PluginServerCapabilities, PluginsServerConfig, RedisConfig } from '../types'
 import { createHub, KafkaConfig } from '../utils/db/hub'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
@@ -379,7 +379,17 @@ export async function startPluginsServer(
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
-            const redisPool = hub?.db.redisPool ?? createRedisPool(serverConfig)
+            // prefer the SESSION_RECORDING_REDIS_URL if it's set, otherwise use the default redis pool
+            const redisPool = serverConfig.SESSION_RECORDING_REDIS_URL
+                ? createRedisPool({
+                      REDIS_URL: serverConfig.SESSION_RECORDING_REDIS_URL,
+                      REDIS_POOL_MIN_SIZE: serverConfig.REDIS_POOL_MIN_SIZE,
+                      REDIS_POOL_MAX_SIZE: serverConfig.REDIS_POOL_MAX_SIZE,
+                      POSTHOG_REDIS_PASSWORD: '',
+                      POSTHOG_REDIS_HOST: '',
+                      POSTHOG_REDIS_PORT: 6379,
+                  } satisfies RedisConfig)
+                : hub?.db.redisPool ?? createRedisPool(serverConfig)
 
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")

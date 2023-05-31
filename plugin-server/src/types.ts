@@ -73,7 +73,16 @@ export enum KafkaSaslMechanism {
     ScramSha512 = 'scram-sha-512',
 }
 
-export interface PluginsServerConfig {
+export interface RedisConfig {
+    REDIS_URL: string
+    POSTHOG_REDIS_PASSWORD: string
+    POSTHOG_REDIS_HOST: string
+    POSTHOG_REDIS_PORT: number
+    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
+    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
+}
+
+export interface PluginsServerConfig extends RedisConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
@@ -115,10 +124,6 @@ export interface PluginsServerConfig {
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
-    REDIS_URL: string
-    POSTHOG_REDIS_PASSWORD: string
-    POSTHOG_REDIS_HOST: string
-    POSTHOG_REDIS_PORT: number
     BASE_DIR: string // base path for resolving local plugins
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     LOG_LEVEL: LogLevel
@@ -128,8 +133,6 @@ export interface PluginsServerConfig {
     STATSD_PORT: number
     STATSD_PREFIX: string
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
-    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
-    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
@@ -193,6 +196,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
     SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
+    SESSION_RECORDING_REDIS_URL: string
 }
 
 export interface Hub extends PluginsServerConfig {
