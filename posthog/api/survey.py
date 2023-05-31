@@ -85,20 +85,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         if validated_data.get("targeting_flag_filters", None):
-            # create a new feature flag using the targeting flag filters
-            targeting_flag_filters = validated_data["targeting_flag_filters"]
-            feature_flag_key = slugify(f"survey-targeting-{validated_data['name']}")
-            feature_flag_serializer = FeatureFlagSerializer(
-                data={
-                    "key": feature_flag_key,
-                    "name": f"Targeting flag for survey {validated_data['name']}",
-                    "filters": targeting_flag_filters,
-                },
-                context=self.context,
+            targeting_feature_flag = self._create_new_targeting_flag(
+                validated_data["name"], validated_data["targeting_flag_filters"]
             )
-
-            feature_flag_serializer.is_valid(raise_exception=True)
-            targeting_feature_flag = feature_flag_serializer.save()
             validated_data["targeting_flag_id"] = targeting_feature_flag.id
             validated_data.pop("targeting_flag_filters")
 
@@ -109,7 +98,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters", None):
             if instance.targeting_flag:
-                existing_targeting_flag = FeatureFlag.objects.get(pk=instance.targeting_flag.id)
+                existing_targeting_flag = instance.targeting_flag
                 serialized_data_filters = {
                     **existing_targeting_flag.filters,
                     **validated_data["targeting_flag_filters"],
@@ -123,20 +112,25 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
             else:
-                targeting_flag_key = slugify(f"survey-targeting-{instance.name}")
-                new_flag_serializer = FeatureFlagSerializer(
-                    data={
-                        "key": targeting_flag_key,
-                        "name": f"Targeting flag for survey {instance.name}",
-                        "filters": validated_data["targeting_flag_filters"],
-                    },
-                    context=self.context,
-                )
-                new_flag_serializer.is_valid(raise_exception=True)
-                new_flag = new_flag_serializer.save()
+                new_flag = self._create_new_targeting_flag(instance.name, validated_data["targeting_flag_filters"])
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
         return super().update(instance, validated_data)
+
+    def _create_new_targeting_flag(self, name, filters):
+        feature_flag_key = slugify(f"survey-targeting-{name}")
+        feature_flag_serializer = FeatureFlagSerializer(
+            data={
+                "key": feature_flag_key,
+                "name": f"Targeting flag for survey {name}",
+                "filters": filters,
+            },
+            context=self.context,
+        )
+
+        feature_flag_serializer.is_valid(raise_exception=True)
+        targeting_feature_flag = feature_flag_serializer.save()
+        return targeting_feature_flag
 
 
 class SurveyViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
