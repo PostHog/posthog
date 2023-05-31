@@ -319,7 +319,7 @@ describe('dateFilterToText()', () => {
                 'February 29 - March 2, 2012'
             )
             expect(dateFilterToText('-1d', null, 'default', dateMapping, true)).toEqual('March 1 - March 2, 2012')
-            expect(dateFilterToText('-1dStart', 'dStart', 'default', dateMapping, true)).toEqual('March 1, 2012')
+            expect(dateFilterToText('-1dStart', '-1dEnd', 'default', dateMapping, true)).toEqual('March 1, 2012')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default', dateMapping, true)).toEqual(
                 'March 1 - March 31, 2012'
             )
