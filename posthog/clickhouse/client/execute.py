@@ -79,7 +79,7 @@ def sync_execute(
     flush=True,
     *,
     workload: Workload = Workload.DEFAULT,
-    team_id: int = None,
+    team_id: Optional[int] = None,
 ):
     if TEST and flush:
         try:
