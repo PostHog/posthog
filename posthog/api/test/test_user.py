@@ -57,7 +57,6 @@ class TestUserAPI(APIBaseTest):
     # RETRIEVING USER
 
     def test_retrieve_current_user(self):
-
         response = self.client.get("/api/users/@me/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -242,32 +241,6 @@ class TestUserAPI(APIBaseTest):
             groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
-    @patch("posthog.api.user.is_email_available", return_value=True)
-    @patch("posthog.tasks.email.send_email_change_emails.delay")
-    def test_notifications_sent_when_user_email_is_changed_and_email_available(
-        self, mock_send_email_change_emails, mock_is_email_available
-    ):
-        self.user.email = "alpha@example.com"
-        self.user.save()
-
-        with freeze_time("2020-01-01T21:37:00+00:00"):
-            response = self.client.patch(
-                "/api/users/@me/",
-                {
-                    "email": "beta@example.com",
-                },
-            )
-        response_data = response.json()
-        self.user.refresh_from_db()
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response_data["email"] == "beta@example.com"
-        assert self.user.email == "beta@example.com"
-        mock_is_email_available.assert_called_once()
-        mock_send_email_change_emails.assert_called_once_with(
-            "2020-01-01T21:37:00+00:00", self.user.first_name, "alpha@example.com", "beta@example.com"
-        )
-
     @patch("posthog.api.user.is_email_available", return_value=False)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_no_notifications_when_user_email_is_changed_and_email_not_available(
@@ -291,12 +264,11 @@ class TestUserAPI(APIBaseTest):
         mock_is_email_available.assert_called_once()
         mock_send_email_change_emails.assert_not_called()
 
-    @patch("posthoganalytics.get_feature_flag", return_value="test")
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     @patch("posthog.tasks.email.send_email_verification.delay")
-    def test_update_current_user_email_with_email_verification(
-        self, mock_send_email_verification, mock_send_email_change_emails, mock_is_email_available, mock_feature_enabled
+    def test_notifications_sent_when_user_email_is_changed_and_email_available(
+        self, mock_send_email_verification, mock_send_email_change_emails, mock_is_email_available
     ):
         """Test that when a user updates their email, they receive a verification email before the switch actually happens."""
         self.user.email = "alpha@example.com"
@@ -522,7 +494,6 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     def test_user_can_update_password(self, mock_capture, mock_identify):
-
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
 
@@ -606,7 +577,6 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     def test_cant_update_to_insecure_password(self, mock_capture, mock_identify):
-
         response = self.client.patch("/api/users/@me/", {"current_password": self.CONFIG_PASSWORD, "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -681,7 +651,6 @@ class TestUserAPI(APIBaseTest):
         self.assertFalse(self.user.check_password("hijacked"))
 
     def test_user_cannot_update_password_with_incorrect_current_password_and_ratelimit_to_prevent_attacks(self):
-
         for _ in range(7):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
@@ -692,7 +661,6 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
 
     def test_no_ratelimit_for_get_requests_for_users(self):
-
         for _ in range(6):
             response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -777,7 +745,6 @@ class TestStaffUserAPI(APIBaseTest):
         cls.user.save()
 
     def test_can_list_staff_users(self):
-
         response = self.client.get("/api/users/?is_staff=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()

@@ -6,20 +6,24 @@ import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarL
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconFullScreen, IconChevronRight, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 import { CSSTransition } from 'react-transition-group'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import React from 'react'
 import { NotebookListMini } from './NotebookListMini'
-import { notebooksListLogic } from './notebooksListLogic'
+import { SCRATCHPAD_NOTEBOOK, notebooksListLogic } from './notebooksListLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function NotebookSideBar({ children }: { children: React.ReactElement<any> }): JSX.Element {
-    const { notebookSideBarShown, fullScreen, selectedNotebook } = useValues(notebookSidebarLogic)
-    const { setNotebookSideBarShown, setFullScreen, selectNotebook } = useActions(notebookSidebarLogic)
+    const { notebookSideBarShown, fullScreen, selectedNotebook, desiredWidth } = useValues(notebookSidebarLogic)
+    const { setNotebookSideBarShown, setFullScreen, selectNotebook, onResize, setElementRef } =
+        useActions(notebookSidebarLogic)
     const { createNotebook } = useActions(notebooksListLogic)
 
+    const ref = useRef<HTMLDivElement>(null)
     const [isEditable, setIsEditable] = useState(true)
 
     // NOTE: This doesn't work for some reason, possibly due to the way the editor is rendered
@@ -40,6 +44,12 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
         style: fullScreen ? { display: 'none', visibility: 'hidden' } : {},
     })
 
+    useEffect(() => {
+        if (ref.current) {
+            setElementRef(ref)
+        }
+    }, [ref.current])
+
     return (
         <>
             {clonedChild}
@@ -51,7 +61,19 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                     unmountOnExit
                     classNames="NotebookSidebar-"
                 >
-                    <div className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}>
+                    <div
+                        ref={ref}
+                        className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={
+                            !fullScreen
+                                ? {
+                                      width: desiredWidth,
+                                  }
+                                : {}
+                        }
+                    >
+                        <Resizer onResize={onResize} />
                         <div className="NotebookSidebar__content">
                             <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
                                 <span className="flex items-center gap-1 text-primary-alt">
@@ -95,6 +117,13 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                     </LemonButton>
                                 </span>
                             </header>
+
+                            {selectedNotebook === SCRATCHPAD_NOTEBOOK.short_id ? (
+                                <LemonBanner type="info" dismissKey="notebook-sidebar-scratchpad" className="m-2">
+                                    This is your scratchpad. It is only visible to you and is persisted only in this
+                                    browser. It's a great place to gather ideas before turning into a saved Notebook!
+                                </LemonBanner>
+                            ) : null}
                             <div className="flex flex-col flex-1 overflow-y-auto p-4">
                                 <Notebook key={selectedNotebook} shortId={selectedNotebook} editable={isEditable} />
                             </div>

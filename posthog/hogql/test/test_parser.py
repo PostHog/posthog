@@ -991,3 +991,56 @@ class TestParser(BaseTest):
                 ],
             ),
         )
+
+    def test_window_functions(self):
+        query = "SELECT person.id, min(timestamp) over (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS timestamp FROM events"
+        expr = parse_select(query)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["person", "id"]),
+                ast.Alias(
+                    alias="timestamp",
+                    expr=ast.WindowFunction(
+                        name="min",
+                        args=[ast.Field(chain=["timestamp"])],
+                        over_expr=ast.WindowExpr(
+                            partition_by=[ast.Field(chain=["person", "id"])],
+                            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                            frame_method="ROWS",
+                            frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+                            frame_end=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=1),
+                        ),
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        )
+        self.assertEqual(expr, expected)
+
+    def test_window_functions_with_window(self):
+        query = "SELECT person.id, min(timestamp) over win1 AS timestamp FROM events WINDOW win1 as (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
+        expr = parse_select(query)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["person", "id"]),
+                ast.Alias(
+                    alias="timestamp",
+                    expr=ast.WindowFunction(
+                        name="min",
+                        args=[ast.Field(chain=["timestamp"])],
+                        over_identifier="win1",
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            window_exprs={
+                "win1": ast.WindowExpr(
+                    partition_by=[ast.Field(chain=["person", "id"])],
+                    order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                    frame_method="ROWS",
+                    frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+                    frame_end=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=1),
+                )
+            },
+        )
+        self.assertEqual(expr, expected)

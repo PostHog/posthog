@@ -129,11 +129,6 @@ export class SessionManager {
             return
         }
 
-        this.buffer.oldestKafkaTimestamp = Math.min(
-            this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
-            message.metadata.timestamp
-        )
-
         if (this.lastProcessedOffset === null) {
             this.lastProcessedOffset = (await this.offsetHighWaterMark.get(this.sessionId)) ?? -Infinity
         }
@@ -357,6 +352,11 @@ export class SessionManager {
      */
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
         try {
+            this.buffer.oldestKafkaTimestamp = Math.min(
+                this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
+                message.metadata.timestamp
+            )
+
             const messageData = convertToPersistedMessage(message)
             this.setEventsRangeFrom(message)
 

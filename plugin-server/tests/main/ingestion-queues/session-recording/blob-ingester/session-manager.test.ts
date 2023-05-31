@@ -80,17 +80,19 @@ describe('session-manager', () => {
 
     it('adds a message', async () => {
         const payload = JSON.stringify([{ simple: 'data' }])
+        const timestamp = DateTime.now().toMillis() - 10000
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
+            metadata: {
+                timestamp: timestamp,
+            } as any,
         })
 
-        const messageTimestamp = DateTime.now().toMillis() - 10000
-        event.metadata.timestamp = messageTimestamp
         await sessionManager.add(event)
 
         expect(sessionManager.buffer).toEqual({
             count: 1,
-            oldestKafkaTimestamp: messageTimestamp,
+            oldestKafkaTimestamp: timestamp,
             file: expect.any(String),
             id: expect.any(String),
             size: 61, // The size of the event payload - this may change when test data changes
@@ -105,19 +107,76 @@ describe('session-manager', () => {
         expect(writeFileSync).toHaveBeenCalledWith(sessionManager.buffer.file, '', 'utf-8')
     })
 
-    it('does not flush if it has received a message recently', async () => {
+    it('chunks do not affect oldest message timestamp', async () => {
         const payload = JSON.stringify([{ simple: 'data' }])
         const event = createIncomingRecordingMessage({
             data: compressToString(payload),
+            chunk_count: 2,
+            metadata: {
+                timestamp: DateTime.now().toMillis() - 10000,
+            } as any,
         })
 
+        await sessionManager.add(event)
+
+        expect(sessionManager.buffer).toHaveProperty('oldestKafkaTimestamp', null)
+    })
+
+    it('chunks affect oldest message timestamp once completed', async () => {
+        const payload = JSON.stringify([{ simple: 'data' }])
+
+        await sessionManager.add(
+            createIncomingRecordingMessage({
+                data: compressToString(payload),
+                chunk_count: 2,
+                metadata: {
+                    timestamp: 5000, // this is the oldest message timestamp
+                } as any,
+            })
+        )
+
+        await sessionManager.add(
+            createIncomingRecordingMessage({
+                data: compressToString(payload),
+                chunk_count: 1,
+                metadata: {
+                    timestamp: 7000, // this is the effective oldest message timestamp because the chunk wasn't applied
+                } as any,
+            })
+        )
+
+        expect(sessionManager.buffer).toHaveProperty('oldestKafkaTimestamp', 7000)
+
+        await sessionManager.add(
+            createIncomingRecordingMessage({
+                data: compressToString(payload),
+                chunk_count: 2,
+                chunk_index: 1,
+                metadata: {
+                    timestamp: 9000,
+                } as any,
+            })
+        )
+
+        expect(sessionManager.buffer).toHaveProperty('oldestKafkaTimestamp', 5000)
+    })
+
+    it('does not flush if it has received a message recently', async () => {
         const flushThreshold = 2500 // any value here...
         const now = DateTime.now()
-        event.metadata.timestamp = now
-            .minus({
-                milliseconds: flushThreshold - 10, // less than the threshold
-            })
-            .toMillis()
+
+        const payload = JSON.stringify([{ simple: 'data' }])
+        const event = createIncomingRecordingMessage({
+            data: compressToString(payload),
+            metadata: {
+                timestamp: now
+                    .minus({
+                        milliseconds: flushThreshold - 10, // less than the threshold
+                    })
+                    .toMillis(),
+            } as any,
+        })
+
         await sessionManager.add(event)
 
         await sessionManager.flushIfSessionBufferIsOld(now.toMillis(), flushThreshold)
@@ -127,6 +186,7 @@ describe('session-manager', () => {
     })
 
     it('does flush if it has not received a message recently', async () => {
+        const flushThreshold = 2500 // any value here...
         const firstTimestamp = 1679568043305
         const lastTimestamp = 1679568043305 + 4000
 
@@ -142,6 +202,9 @@ describe('session-manager', () => {
                     data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
                 },
             ],
+            metadata: {
+                timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
+            } as any,
         })
         const eventTwo = createIncomingRecordingMessage({
             metadata: { offset: 12344 } as any,
@@ -153,12 +216,12 @@ describe('session-manager', () => {
                     data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
                 },
             ],
+            metadata: {
+                timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
+            } as any,
         })
 
-        const flushThreshold = 2500 // any value here...
-        eventOne.metadata.timestamp = DateTime.now().minus({ milliseconds: flushThreshold }).toMillis()
         await sessionManager.add(eventOne)
-        eventTwo.metadata.timestamp = DateTime.now().minus({ milliseconds: flushThreshold }).toMillis()
         await sessionManager.add(eventTwo)
 
         await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), flushThreshold)
@@ -179,16 +242,18 @@ describe('session-manager', () => {
     })
 
     it('does not flush a short session even when lagging if within threshold', async () => {
-        const payload = JSON.stringify([{ simple: 'data' }])
-        const event = createIncomingRecordingMessage({
-            data: compressToString(payload),
-        })
-
         // a timestamp that means the message is older than threshold and all-things-being-equal should flush
         // uses timestamps offset from now to show this logic still works even if the consumer is running behind
         const aDayInMilliseconds = 24 * 60 * 60 * 1000
         const now = DateTime.now()
-        event.metadata.timestamp = now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis()
+
+        const payload = JSON.stringify([{ simple: 'data' }])
+        const event = createIncomingRecordingMessage({
+            data: compressToString(payload),
+            metadata: {
+                timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
+            } as any,
+        })
 
         await sessionManager.add(event)
 

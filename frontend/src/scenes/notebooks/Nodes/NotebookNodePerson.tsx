@@ -1,11 +1,11 @@
-import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { createUrlRegex } from './utils'
+import { posthogNodePasteRule } from './utils'
 import { PersonHeader } from '@posthog/apps-common'
 import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -19,7 +19,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const { person, personLoading } = useValues(logic)
 
     return (
-        <NodeWrapper className={NotebookNodeType.Person} title="Person" {...props} href={urls.person(id)}>
+        <NodeWrapper nodeType={NotebookNodeType.Person} title="Person" {...props} href={urls.person(id)}>
             <div className="border bg-inverse rounded">
                 <div className="p-4">
                     {personLoading ? (
@@ -77,8 +77,8 @@ export const NotebookNodePerson = Node.create({
 
     addPasteRules() {
         return [
-            nodePasteRule({
-                find: createUrlRegex(urls.person('') + '(.+)'),
+            posthogNodePasteRule({
+                find: urls.person('') + '(.+)',
                 type: this.type,
                 getAttributes: (match) => {
                     return { id: match[1] }
