@@ -77,7 +77,7 @@ export async function startPluginsServer(
     // 2. this queue consumes from the plugin_events_ingestion topic.
     // 3. update or creates people in the Persons table in pg with the new event
     //    data.
-    // 4. passes he event through `processEvent` on any plugins that the team
+    // 4. passes the event through `processEvent` on any plugins that the team
     //    has enabled.
     // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
     //    listening.
