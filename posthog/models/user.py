@@ -139,6 +139,7 @@ class User(AbstractUser, UUIDClassicModel):
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
     is_email_verified: models.BooleanField = models.BooleanField(null=True, blank=True)
+    requested_password_reset_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     # DEPRECATED
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
 
@@ -239,7 +240,6 @@ class User(AbstractUser, UUIDClassicModel):
                 self.save()
 
     def get_analytics_metadata(self):
-
         team_member_count_all: int = (
             OrganizationMembership.objects.filter(organization__in=self.organizations.all())
             .values("user_id")
