@@ -69,6 +69,7 @@ export const capture = async ({
     topic = ['$performance_event', '$snapshot'].includes(event)
         ? 'session_recording_events'
         : 'events_plugin_ingestion',
+    ip = '',
 }: {
     teamId: number | null
     distinctId: string
@@ -82,6 +83,7 @@ export const capture = async ({
     topic?: string
     $set?: object
     $set_once?: object
+    ip?: string
 }) => {
     // WARNING: this capture method is meant to simulate the ingestion of events
     // from the capture endpoint, but there is no guarantee that is is 100%
@@ -92,7 +94,7 @@ export const capture = async ({
             JSON.stringify({
                 token,
                 distinct_id: distinctId,
-                ip: '',
+                ip: ip,
                 site_url: '',
                 team_id: teamId,
                 now: now,
@@ -333,7 +335,8 @@ export const createTeam = async (
     organizationId: string,
     slack_incoming_webhook?: string,
     token?: string,
-    sessionRecordingOptIn = true
+    sessionRecordingOptIn = true,
+    anonymize_ips = false
 ) => {
     const team = await insertRow(postgres, 'posthog_team', {
         organization_id: organizationId,
@@ -346,7 +349,7 @@ export const createTeam = async (
         event_properties_numerical: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        anonymize_ips: false,
+        anonymize_ips: anonymize_ips,
         completed_snippet_onboarding: true,
         ingested_event: true,
         uuid: new UUIDT().toString(),

@@ -38,6 +38,13 @@ export async function populateTeamDataStep(
 
     // If a team_id is present (event captured from an app), trust it and return the event as is.
     if (event.team_id) {
+        // Because of ip anonymization even if we have teamId already we need to fetch the team
+        const team = await runner.hub.teamManager.fetchTeam(event.team_id)
+        event = {
+            ...event,
+            // default to anonymizing if we can't fetch the team
+            ip: team ? (team.anonymize_ips ? null : event.ip) : null,
+        }
         return event as PluginEvent
     }
 

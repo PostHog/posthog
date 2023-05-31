@@ -800,22 +800,6 @@ test('capture new person', async () => {
     )
 })
 
-test('capture bad team', async () => {
-    await expect(
-        eventsProcessor.processEvent(
-            'asdfasdfasdf',
-            '',
-            {
-                event: '$pageview',
-                properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any as PluginEvent,
-            1337,
-            now,
-            new UUIDT().toString()
-        )
-    ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
-})
-
 test('capture no element', async () => {
     await createPerson(hub, team, ['asdfasdfasdf'])
 

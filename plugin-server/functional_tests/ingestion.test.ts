@@ -149,6 +149,60 @@ test.concurrent(`event ingestion: handles $groupidentify with no properties`, as
     )
 })
 
+test.concurrent(`event ingestion: ip kept if not anonymize`, async () => {
+    const teamId = await createTeam(organizationId)
+    const distinctId = new UUIDT().toString()
+    const firstUuid = new UUIDT().toString()
+
+    await capture({
+        teamId,
+        distinctId,
+        uuid: firstUuid,
+        event: 'random',
+        ip: '123.12.12.23',
+    })
+
+    await waitForExpect(async () => {
+        const [event] = await fetchEvents(teamId, firstUuid)
+        expect(event).toEqual(
+            expect.objectContaining({
+                event: 'random',
+                ip: '123.12.12.23',
+                distinctId: distinctId,
+                uuid: firstUuid,
+                teamId: teamId,
+            })
+        )
+    })
+})
+
+test.concurrent(`event ingestion: anonymize ip respected`, async () => {
+    const teamId = await createTeam(organizationId, '', '', false, true)
+    const distinctId = new UUIDT().toString()
+    const firstUuid = new UUIDT().toString()
+
+    await capture({
+        teamId,
+        distinctId,
+        uuid: firstUuid,
+        event: 'random',
+        ip: '123.12.12.23',
+    })
+
+    await waitForExpect(async () => {
+        const [event] = await fetchEvents(teamId, firstUuid)
+        expect(event).toEqual(
+            expect.objectContaining({
+                event: 'random',
+                ip: null,
+                distinctId: distinctId,
+                uuid: firstUuid,
+                teamId: teamId,
+            })
+        )
+    })
+})
+
 test.concurrent(`event ingestion: can $set and update person properties`, async () => {
     const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
