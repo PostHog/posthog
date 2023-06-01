@@ -86,35 +86,29 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                 <span className="flex items-center gap-1 px-1">
                                     {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
-                                    <NotebookExpandButton status="primary-alt" size="small" noPadding />
+                                    <NotebookExpandButton status="primary-alt" size="small" />
 
                                     <LemonButton
                                         size="small"
                                         onClick={() => setIsEditable(!isEditable)}
                                         status="primary-alt"
                                         type={!isEditable ? 'primary' : undefined}
-                                        noPadding
-                                    >
-                                        <div className="m-1">{!isEditable ? <IconLock /> : <IconLockOpen />}</div>
-                                    </LemonButton>
+                                        icon={!isEditable ? <IconLock /> : <IconLockOpen />}
+                                    />
 
                                     <LemonButton
                                         size="small"
                                         onClick={() => setFullScreen(!fullScreen)}
                                         status="primary-alt"
-                                        noPadding
-                                    >
-                                        <IconFullScreen className="text-lg m-1" />
-                                    </LemonButton>
+                                        icon={<IconFullScreen />}
+                                    />
 
                                     <LemonButton
                                         size="small"
                                         onClick={() => setNotebookSideBarShown(false)}
                                         status="primary-alt"
-                                        noPadding
-                                    >
-                                        <IconChevronRight className="text-lg" />
-                                    </LemonButton>
+                                        icon={<IconChevronRight />}
+                                    />
                                 </span>
                             </header>
 
