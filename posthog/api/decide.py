@@ -1,6 +1,7 @@
 import re
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
+from posthog.api.decide_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
 
 import structlog
@@ -205,6 +206,10 @@ def get_decide(request: HttpRequest):
             # NOTE: Whenever you add something to decide response, update this test:
             # `test_decide_doesnt_error_out_when_database_is_down`
             # which ensures that decide doesn't error out when the database is down
+
+            if feature_flags:
+                # Billing analytics for decide requests with feature flags
+                increment_request_count(team)
 
             # Analytics for decide requests with feature flags
             # Only send once flag definitions are loaded

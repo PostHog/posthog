@@ -18,6 +18,7 @@ from prometheus_client import Gauge
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
 from posthog.redis import get_client
+from posthog.tasks.decide_usage import calculate_decide_usage
 from posthog.utils import get_crontab
 
 # set the default Django settings module for the 'celery' program.
@@ -94,6 +95,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
         # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
+
+        # Every hour, send decide request counts to the main posthog instance
+        sender.add_periodic_task(60 * 60, calculate_decide_usage.s())
 
     # if is_cloud() or settings.DEMO:
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
