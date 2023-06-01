@@ -51,7 +51,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                             } as BasicListItem
                         }),
                         loading: personsLoading,
-                        loadMore: persons.next ? () => actions.loadPersons(persons.next) : undefined, // FIXME
+                        loadMore: persons.next ? () => actions.loadPersons(persons.next) : undefined,
                     } as Accordion,
                     ...groupTypes.map(
                         (groupType) =>
