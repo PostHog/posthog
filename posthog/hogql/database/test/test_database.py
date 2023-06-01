@@ -10,7 +10,7 @@ from posthog.queries.insight import insight_sync_execute
 from django.test import override_settings
 from freezegun import freeze_time
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import (
+from posthog.hogql.database.database import (
     Table,
     StringDatabaseField,
     IntegerDatabaseField,
@@ -93,6 +93,7 @@ class TestDatabase(BaseTest):
             serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
             assert json.dumps(serialized_database, indent=4) == self.snapshot
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_sql_expr_fields(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()
@@ -108,6 +109,7 @@ class TestDatabase(BaseTest):
                 clickhouse_context.values,
                 with_column_types=True,
                 query_type="hogql_query",
+                team_id=self.team.pk,
             )
             self.assertEqual(
                 results,
@@ -117,12 +119,11 @@ class TestDatabase(BaseTest):
             )
             self.assertEqual(
                 clickhouse_sql,
-                f"SELECT events.event, %(hogql_val_0)s, upper(events.event), "
-                f"plus(1, 2), concat(events.event, %(hogql_val_1)s, "
-                f"replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_2)s), '^\"|\"$', '')) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) "
-                f"ORDER BY upper(events.event) ASC "
-                f"LIMIT 1",
+                f"SELECT events.event, %(hogql_val_0)s AS custom_field_1, upper(events.event) AS custom_field_2, "
+                f"plus(1, 2) AS custom_field_3, concat(events.event, %(hogql_val_1)s, "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', '')) "
+                f"AS custom_field_4 FROM events WHERE equals(events.team_id, {self.team.pk}) "
+                f"ORDER BY upper(events.event) AS custom_field_2 ASC LIMIT 1",
             )
 
     def test_sql_expr_properties(self):
@@ -140,6 +141,7 @@ class TestDatabase(BaseTest):
                 clickhouse_context.values,
                 with_column_types=True,
                 query_type="hogql_query",
+                team_id=self.team.pk,
             )
             self.assertEqual(
                 results,
@@ -168,6 +170,7 @@ class TestDatabase(BaseTest):
                 clickhouse_context.values,
                 with_column_types=True,
                 query_type="hogql_query",
+                team_id=self.team.pk,
             )
             self.assertEqual(
                 results,
