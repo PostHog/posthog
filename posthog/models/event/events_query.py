@@ -71,7 +71,7 @@ def run_events_query(
 
     for column in select_input:
         expr = parse_expr(column)
-        #
+        # Split between fields to select or group by
         if has_aggregation(expr):
             aggregations.append(expr)
         else:
