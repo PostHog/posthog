@@ -7,6 +7,7 @@ import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
 import clsx from 'clsx'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconJournalPlus } from 'lib/lemon-ui/icons'
 
 export type DraggableToNotebookProps = {
     href?: string
@@ -43,7 +44,12 @@ export function DraggableToNotebook({
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
                 <span
-                    className={clsx('DraggableToNotebook', className, noOverflow && 'DraggableToNotebook--no-overflow')}
+                    className={clsx(
+                        'DraggableToNotebook',
+                        className,
+                        noOverflow && 'DraggableToNotebook--no-overflow',
+                        keyHeld && 'DraggableToNotebook--highlighted'
+                    )}
                     draggable={draggable}
                     onDragStart={
                         draggable
@@ -61,8 +67,11 @@ export function DraggableToNotebook({
                     }
                 >
                     {keyHeld ? (
-                        <div className="DraggableToNotebook__indicator">
-                            <div className="DraggableToNotebook__indicator__text">Drag to notebook</div>
+                        <div className="DraggableToNotebook__highlighter">
+                            <div className="DraggableToNotebook__highlighter__info">
+                                <span className="DraggableToNotebook__highlighter__info__text">Drag to notebook</span>
+                                <IconJournalPlus />
+                            </div>
                         </div>
                     ) : null}
                     {children}
