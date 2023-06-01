@@ -17,14 +17,14 @@ export type PathNodeCardProps = {
 }
 
 export function PathNodeCardDataExploration({ insightProps, ...props }: PathNodeCardProps): JSX.Element | null {
-    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
     // TODO: convert to data exploration
     const { openPersonsModal, viewPathToFunnel } = useActions(pathsLogic(insightProps))
 
     return (
         <PathNodeCardComponent
-            filter={(insightFilter as PathsFilterType) || ({} as PathsFilterType)}
+            filter={pathsFilter || {}}
             setFilter={updateInsightFilter}
             openPersonsModal={openPersonsModal}
             viewPathToFunnel={viewPathToFunnel}
