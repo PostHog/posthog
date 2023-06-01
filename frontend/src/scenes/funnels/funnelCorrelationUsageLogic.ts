@@ -7,7 +7,7 @@ import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilit
 
 import type { funnelCorrelationUsageLogicType } from './funnelCorrelationUsageLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { parseEventAndProperty } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { funnelDataLogic } from './funnelDataLogic'
@@ -27,7 +27,7 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
         actions: [
             insightLogic(props),
             ['loadResultsSuccess'],
-            insightDataLogic(props),
+            insightVizDataLogic(props),
             ['loadDataSuccess'],
             funnelLogic(props),
             ['hideSkewWarning as legacyHideSkewWarning', 'openCorrelationPersonsModal'],

@@ -7,6 +7,7 @@ import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/Activity
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import clsx from 'clsx'
+import { ProductEmptyState } from '../ProductEmptyState/ProductEmptyState'
 
 export interface ActivityLogProps {
     scope: ActivityScope
@@ -16,27 +17,18 @@ export interface ActivityLogProps {
     caption?: string | JSX.Element
 }
 
-const Empty = ({ scope, idExists }: { scope: string; idExists: boolean }): JSX.Element => {
+const Empty = ({ scope }: { scope: string }): JSX.Element => {
     const noun = scope
         .replace(/([A-Z])/g, ' $1')
         .trim()
         .toLowerCase()
 
-    // KLUDGE: Appending 's' to the noun works with all values for ActivityScope at the moment, but might not make sense as more models are added
     return (
-        <div className="empty">
-            {idExists ? (
-                <>
-                    <h1>There is no history for this {noun}</h1>
-                    <div>As changes are made to this {noun}, they'll show up here</div>
-                </>
-            ) : (
-                <>
-                    <h1>There is no history yet for {noun + 's'}</h1>
-                    <div>As changes are made to {noun + 's'}, they'll show up here</div>
-                </>
-            )}
-        </div>
+        <ProductEmptyState
+            productName={noun.toUpperCase()}
+            thingName={'history record'}
+            description={`History shows any ${noun} changes that have been made. After making changes you'll see them logged here.`}
+        />
     )
 }
 
@@ -111,7 +103,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
                 </>
             ) : (
-                <Empty scope={scope} idExists={typeof id !== 'undefined'} />
+                <Empty scope={scope} />
             )}
         </div>
     )

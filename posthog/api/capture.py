@@ -242,11 +242,12 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
                 if settings.QUOTA_LIMITING_ENABLED:
                     continue
 
-        elif token in limited_tokens_events:
+        else:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="events").inc()
-            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
-            if settings.QUOTA_LIMITING_ENABLED:
-                continue
+            if token in limited_tokens_events:
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
+                if settings.QUOTA_LIMITING_ENABLED:
+                    continue
 
         results.append(event)
 

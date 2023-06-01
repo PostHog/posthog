@@ -26,7 +26,7 @@ export interface LoginForm {
 }
 
 export interface TwoFactorForm {
-    token: number | null
+    token: string
 }
 
 export enum LoginStep {
@@ -57,9 +57,13 @@ export const login2FALogic = kea<login2FALogicType>([
     }),
     forms(({ actions }) => ({
         twofactortoken: {
-            defaults: { token: null } as TwoFactorForm,
+            defaults: { token: '' } as TwoFactorForm,
             errors: ({ token }) => ({
-                token: !token ? 'Please enter a token to continued' : undefined,
+                token: !token
+                    ? 'Please enter a token to continue'
+                    : token.length !== 6 || isNaN(parseInt(token))
+                    ? 'A token must consist of 6 digits'
+                    : null,
             }),
             submit: async ({ token }, breakpoint) => {
                 await breakpoint()

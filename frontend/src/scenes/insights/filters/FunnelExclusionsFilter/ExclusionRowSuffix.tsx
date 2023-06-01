@@ -1,6 +1,5 @@
 import { Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, FunnelsFilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -10,7 +9,19 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { getClampedStepRangeFilterDataExploration } from 'scenes/funnels/funnelUtils'
 
-export function ExclusionRowSuffixDataExploration(props: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
+type ExclusionRowSuffixComponentBaseProps = {
+    filter: ActionFilterType | FunnelStepRangeEntityFilter
+    index: number
+    onClose?: () => void
+    isVertical: boolean
+}
+
+export function ExclusionRowSuffix({
+    filter,
+    index,
+    onClose,
+    isVertical,
+}: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { querySource, insightFilter, exclusionDefaultStepRange, isFunnelWithEnoughSteps, series } = useValues(
         funnelDataLogic(insightProps)
@@ -32,63 +43,9 @@ export function ExclusionRowSuffixDataExploration(props: ExclusionRowSuffixCompo
         })
     }
 
-    return (
-        <ExclusionRowSuffixComponent
-            exclusions={(insightFilter as FunnelsFilterType)?.exclusions}
-            isFunnelWithEnoughSteps={isFunnelWithEnoughSteps}
-            numberOfSeries={series?.length || 0}
-            exclusionDefaultStepRange={exclusionDefaultStepRange}
-            setOneEventExclusionFilter={setOneEventExclusionFilter}
-            {...props}
-        />
-    )
-}
+    const exclusions = (insightFilter as FunnelsFilterType)?.exclusions
+    const numberOfSeries = series?.length || 0
 
-export function ExclusionRowSuffix(props: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const { filters, isFunnelWithEnoughSteps, numberOfSeries, exclusionDefaultStepRange } = useValues(
-        funnelLogic(insightProps)
-    )
-    const { setOneEventExclusionFilter } = useActions(funnelLogic(insightProps))
-
-    return (
-        <ExclusionRowSuffixComponent
-            exclusions={filters.exclusions}
-            isFunnelWithEnoughSteps={isFunnelWithEnoughSteps}
-            numberOfSeries={numberOfSeries}
-            exclusionDefaultStepRange={exclusionDefaultStepRange}
-            setOneEventExclusionFilter={setOneEventExclusionFilter}
-            {...props}
-        />
-    )
-}
-
-type ExclusionRowSuffixComponentBaseProps = {
-    filter: ActionFilterType | FunnelStepRangeEntityFilter
-    index: number
-    onClose?: () => void
-    isVertical: boolean
-}
-
-type ExclusionRowSuffixComponentProps = ExclusionRowSuffixComponentBaseProps & {
-    isFunnelWithEnoughSteps: boolean
-    numberOfSeries: number
-    exclusionDefaultStepRange: Omit<FunnelStepRangeEntityFilter, 'id' | 'name'>
-    exclusions?: FunnelStepRangeEntityFilter[]
-    setOneEventExclusionFilter: (eventFilter: FunnelStepRangeEntityFilter, index: number) => void
-}
-
-export function ExclusionRowSuffixComponent({
-    filter,
-    index,
-    onClose,
-    isVertical,
-    isFunnelWithEnoughSteps,
-    numberOfSeries,
-    exclusionDefaultStepRange,
-    exclusions,
-    setOneEventExclusionFilter,
-}: ExclusionRowSuffixComponentProps): JSX.Element | null {
     const stepRange = {
         funnel_from_step: exclusions?.[index]?.funnel_from_step ?? exclusionDefaultStepRange.funnel_from_step,
         funnel_to_step: exclusions?.[index]?.funnel_to_step ?? exclusionDefaultStepRange.funnel_to_step,

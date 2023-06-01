@@ -131,6 +131,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 return response
             },
         ],
+        shouldShowEmptyState: [
+            (s) => [s.featureFlagsLoading, s.searchedFeatureFlags, s.searchTerm],
+            (featureFlagsLoading, searchedFeatureFlags, searchTerm): boolean => {
+                return searchedFeatureFlags && searchedFeatureFlags?.length == 0 && !featureFlagsLoading && !searchTerm
+            },
+        ],
     },
     reducers: {
         searchTerm: {
