@@ -16,6 +16,7 @@ import {
     RolloutConditionType,
     FeatureFlagGroupType,
     UserBlastRadiusType,
+    DashboardType,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -35,6 +36,7 @@ import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -198,6 +200,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
             userLogic,
             ['hasAvailableFeature'],
+            dashboardsLogic,
+            ['dashboards'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -787,6 +791,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 })
 
                 return Math.min(total, 100)
+            },
+        ],
+        filteredDashboards: [
+            (s) => [s.dashboards, s.featureFlag],
+            (dashboards, featureFlag) => {
+                if (!featureFlag) {
+                    return dashboards
+                }
+
+                return dashboards.filter((dashboard: DashboardType) => {
+                    return featureFlag.dashboards?.includes(dashboard.id)
+                })
             },
         ],
     }),

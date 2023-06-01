@@ -76,7 +76,7 @@ import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponen
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import clsx from 'clsx'
-import { DashboardTemplateChooser } from 'scenes/dashboard/NewDashboardModal'
+import { AnalysisTab } from './FeatureFlagAnalysisTab'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -558,14 +558,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 )}
             </div>
         </>
-    )
-}
-
-function AnalysisTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
-    return (
-        <div className="NewDashboardModal">
-            <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id} />
-        </div>
     )
 }
 

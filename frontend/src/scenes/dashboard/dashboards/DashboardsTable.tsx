@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
@@ -24,10 +24,27 @@ import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 
-export function DashboardsTable(): JSX.Element {
+export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { dashboards, filters } = useValues(dashboardsLogic)
+
+    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} filters={filters} />
+}
+
+interface DashboardsTableProps {
+    dashboards: DashboardType[]
+    filters: DashboardsFilters
+    dashboardsLoading: boolean
+    extraActions?: JSX.Element | JSX.Element[]
+}
+
+export function DashboardsTable({
+    dashboards,
+    dashboardsLoading,
+    filters,
+    extraActions,
+}: DashboardsTableProps): JSX.Element {
+    const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { setFilters } = useActions(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -228,6 +245,7 @@ export function DashboardsTable(): JSX.Element {
                             dropdownMatchSelectWidth={false}
                         />
                     </div>
+                    {extraActions}
                 </div>
             </div>
             <LemonTable

@@ -5,7 +5,7 @@ import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/d
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
-import { DashboardTemplateScope, DashboardTemplateType } from '~/types'
+import { DashboardTemplateScope, DashboardTemplateType, FeatureFlagType } from '~/types'
 import { useState } from 'react'
 
 import { pluralize } from 'lib/utils'
@@ -147,11 +147,18 @@ export function DashboardTemplateChooser({
     )
 }
 
-export function NewDashboardModal(): JSX.Element {
-    const { hideNewDashboardModal } = useActions(newDashboardLogic)
-    const { newDashboardModalVisible } = useValues(newDashboardLogic)
+export function NewDashboardModal({ featureFlag }: { featureFlag?: FeatureFlagType }): JSX.Element {
+    const _newDashboardLogic = featureFlag ? newDashboardLogic({ featureFlagId: featureFlag.id }) : newDashboardLogic
+    const { hideNewDashboardModal } = useActions(_newDashboardLogic)
+    const { newDashboardModalVisible } = useValues(_newDashboardLogic)
 
-    const { activeDashboardTemplate } = useValues(newDashboardLogic)
+    const { activeDashboardTemplate } = useValues(_newDashboardLogic)
+
+    const _dashboardTemplateChooser = featureFlag ? (
+        <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id} />
+    ) : (
+        <DashboardTemplateChooser />
+    )
 
     return (
         <LemonModal
@@ -170,7 +177,7 @@ export function NewDashboardModal(): JSX.Element {
             }
         >
             <div className="NewDashboardModal">
-                {activeDashboardTemplate ? <DashboardTemplatePreview /> : <DashboardTemplateChooser />}
+                {activeDashboardTemplate ? <DashboardTemplatePreview /> : _dashboardTemplateChooser}
             </div>
         </LemonModal>
     )
