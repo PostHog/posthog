@@ -90,7 +90,7 @@ function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
     return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
 }
 
-export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
+export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
     if (!isFunnelsFilter(filters) && !isTrendsFilter(filters)) {
         // The legacy InsightContainer should only be used in Experiments,
         // where we only have funnel and trend insights, allowing us already

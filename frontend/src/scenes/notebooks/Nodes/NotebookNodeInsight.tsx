@@ -1,7 +1,7 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { BindLogic, useValues } from 'kea'
-import { InsightContainer } from 'scenes/insights/InsightContainer'
+import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId, ItemMode } from '~/types'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -19,9 +19,8 @@ const Component = (props: NodeViewProps): JSX.Element => {
         <NodeWrapper nodeType={NotebookNodeType.Insight} title="Insight" href={href} heightEstimate="16rem" {...props}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <div className="insights-container" data-attr="insight-view">
-                    <InsightContainer
+                    <LegacyInsightContainer
                         insightMode={ItemMode.Sharing}
-                        disableCorrelationTable
                         disableHeader
                         disableLastComputation
                         disableTable
