@@ -89,12 +89,28 @@ export async function eachBatchParallelIngestion(
                 }
 
                 // Process every message sequentially, stash promises to await on later
+                const processingPromises = []
+
                 for (const message of currentBatch) {
-                    const result = await eachMessage(message, queue)
+                    // Don't await here, but add the Promise to our array instead
+                    processingPromises.push(eachMessage(message, queue))
+                }
+
+                // Await all the eachMessage invocations to complete
+                const results = await Promise.all(processingPromises)
+
+                // Then, you can handle the results, which each might contain additional promises
+                for (const result of results) {
                     if (result.promises) {
                         processingPromises.push(...result.promises)
                     }
                 }
+                // for (const message of currentBatch) {
+                //     const result = await eachMessage(message, queue)
+                //     if (result.promises) {
+                //         processingPromises.push(...result.promises)
+                //     }
+                // }
 
                 // Emit the Kafka heartbeat if needed then close the micro-batch
                 await heartbeat()
