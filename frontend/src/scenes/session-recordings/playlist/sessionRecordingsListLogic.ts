@@ -43,6 +43,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     events: [],
     actions: [],
     date_from: '-7d',
+    date_to: null,
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
