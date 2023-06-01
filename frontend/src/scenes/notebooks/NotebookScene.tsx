@@ -35,8 +35,8 @@ export function NotebookScene(): JSX.Element {
     }
 
     return (
-        <div className="NotebookScene mt-4">
-            <div className="flex items-center justify-between">
+        <div className="NotebookScene">
+            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-white z-10">
                 <div className="flex gap-2 items-center">
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                 </div>
@@ -79,8 +79,6 @@ export function NotebookScene(): JSX.Element {
                     )}
                 </div>
             </div>
-
-            <LemonDivider className="mt-2 mb-6" />
 
             <Notebook key={notebookId} shortId={notebookId} editable={mode === NotebookMode.Edit} />
         </div>
