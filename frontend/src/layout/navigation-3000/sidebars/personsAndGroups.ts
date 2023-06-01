@@ -1,7 +1,7 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import type { personsAndGroupsSidebarLogicType } from './personsAndGroupsSidebarLogicType'
+import type { personsAndGroupsSidebarLogicType } from './personsAndGroupsType'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { navigation3000Logic } from '../navigationLogic'

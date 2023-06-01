@@ -7,8 +7,7 @@ import { InsightModel } from '~/types'
 import { subscriptions } from 'kea-subscriptions'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-
-import type { insightsSidebarLogicType } from './insightsSidebarLogicType'
+import type { insightsSidebarLogicType } from './insightsType'
 import { findSearchTermInItemName } from './utils'
 
 export interface SearchMatch {
