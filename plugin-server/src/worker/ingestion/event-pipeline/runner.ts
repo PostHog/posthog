@@ -16,10 +16,6 @@ import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { runAsyncHandlersStep } from './runAsyncHandlersStep'
 
-const silentFailuresEventsPipeline = new Counter({
-    name: 'event_pipeline_silent_failure',
-    help: 'Number silent failures from the events pipeline.',
-})
 const silentFailuresAsyncHandlers = new Counter({
     name: 'async_handlers_silent_failure',
     help: 'Number silent failures from async handlers.',
@@ -72,32 +68,16 @@ export class EventPipelineRunner {
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
-        try {
-            let result: EventPipelineResult
-            const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
-            if (eventWithTeam != null) {
-                result = await this.runEventPipelineSteps(eventWithTeam)
-            } else {
-                result = this.registerLastStep('populateTeamDataStep', null, [event])
-            }
-
-            this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
-            return result
-        } catch (error) {
-            if (error instanceof DependencyUnavailableError) {
-                // If this is an error with a dependency that we control, we want to
-                // ensure that the caller knows that the event was not processed,
-                // for a reason that we control and that is transient.
-                throw error
-            }
-            silentFailuresEventsPipeline.inc()
-            Sentry.captureException(error, {
-                tags: { location: 'runEventPipeline' },
-                extra: { originalEvent: this.originalEvent },
-            })
-
-            return { lastStep: error.step, args: [], error: error.message }
+        let result: EventPipelineResult
+        const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
+        if (eventWithTeam != null) {
+            result = await this.runEventPipelineSteps(eventWithTeam)
+        } else {
+            result = this.registerLastStep('populateTeamDataStep', null, [event])
         }
+
+        this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+        return result
     }
 
     async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
