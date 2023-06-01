@@ -5,6 +5,7 @@ import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
+import { stringToBoolean } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
@@ -42,11 +43,15 @@ export class EventPipelineRunner {
 
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
     poEEmbraceJoin: boolean
+    private delayAcks: boolean
 
     constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
         this.hub = hub
         this.originalEvent = originalEvent
         this.poEEmbraceJoin = poEEmbraceJoin
+
+        // TODO: remove after successful rollout
+        this.delayAcks = stringToBoolean(process.env.INGESTION_DELAY_WRITE_ACKS)
     }
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
@@ -102,7 +107,12 @@ export class EventPipelineRunner {
             [this, preparedEvent, person],
             event.team_id
         )
-        return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
+        if (this.delayAcks) {
+            return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
+        } else {
+            await eventAck
+            return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person])
+        }
     }
 
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
