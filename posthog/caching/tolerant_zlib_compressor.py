@@ -5,8 +5,19 @@ from django_redis.compressors.base import BaseCompressor
 from django.conf import settings
 
 import structlog
+from prometheus_client import Counter
 
 logger = structlog.get_logger(__name__)
+
+COULD_NOT_DECOMPRESS_VALUE_COUNTER = Counter(
+    "posthog_redis_could_not_decompress_value_counter",
+    """
+    Number of times decompression from redis failed while the setting was on.
+    This is probably a sign that either there are still uncompressed values in redis
+    or a value that was too small to compress and so doesn't need decompressing
+    and so, seeing positive values here isn't necessarily an error.
+    """,
+)
 
 
 class TolerantZlibCompressor(BaseCompressor):
@@ -30,6 +41,8 @@ class TolerantZlibCompressor(BaseCompressor):
         try:
             return zlib.decompress(value)
         except zlib.error:
+            if settings.USE_REDIS_COMPRESSION:
+                COULD_NOT_DECOMPRESS_VALUE_COUNTER.inc()
             # if the decompression fails, behave like the IdentityCompressor
-            logger.warning("tolerant_zlib_compressor - failed to decompress value from redis, returning original value")
+            # this way if the compressor is turned off we can still read values
             return value

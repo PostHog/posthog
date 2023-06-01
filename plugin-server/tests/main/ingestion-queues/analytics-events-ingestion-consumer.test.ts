@@ -64,7 +64,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
             },
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
-                runEventPipeline: jest.fn(),
+                runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
     })
