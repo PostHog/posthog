@@ -1,5 +1,5 @@
 import { Card, Col, Row } from 'antd'
-import { InsightDisplayConfig } from 'scenes/insights/InsightDisplayConfig'
+import { LegacyInsightDisplayConfig } from 'scenes/insights/InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
@@ -190,7 +190,7 @@ export function LegacyInsightContainer({
             <Card
                 title={
                     disableHeader ? null : (
-                        <InsightDisplayConfig
+                        <LegacyInsightDisplayConfig
                             activeView={activeView as InsightType}
                             insightMode={insightMode || ItemMode.View}
                             filters={filters}
