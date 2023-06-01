@@ -9,13 +9,13 @@ from prometheus_client import Counter
 
 logger = structlog.get_logger(__name__)
 
-decompression_failed_counter = Counter(
-    "posthog_redis_decompression_failed_total",
+COULD_NOT_DECOMPRESS_VALUE_COUNTER = Counter(
+    "posthog_redis_could_not_decompress_value_counter",
     """
     Number of times decompression from redis failed while the setting was on.
     This is probably a sign that either there are still uncompressed values in redis
     or a value that was too small to compress and so doesn't need decompressing
-    and so, seeing postive values here isn't necessarily an error.
+    and so, seeing positive values here isn't necessarily an error.
     """,
 )
 
@@ -42,7 +42,7 @@ class TolerantZlibCompressor(BaseCompressor):
             return zlib.decompress(value)
         except zlib.error:
             if settings.USE_REDIS_COMPRESSION:
-                decompression_failed_counter.inc()
+                COULD_NOT_DECOMPRESS_VALUE_COUNTER.inc()
             # if the decompression fails, behave like the IdentityCompressor
             # this way if the compressor is turned off we can still read values
             return value
