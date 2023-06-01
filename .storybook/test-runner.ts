@@ -5,7 +5,8 @@ import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/react'
 
-type SupportedBrowserName = 'chromium' | 'firefox' | 'webkit'
+// 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
+type SupportedBrowserName = 'chromium' | 'webkit'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/react' {
@@ -67,7 +68,7 @@ module.exports = {
 
         browserContext.setDefaultTimeout(1000) // Reduce the default timeout from 30 s to 1 s to pre-empt Jest timeouts
         if (!skip) {
-            const currentBrowser = browserContext.browser()!.browserType().name() as 'chromium' | 'firefox' | 'webkit'
+            const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
             if (snapshotBrowsers.includes(currentBrowser)) {
                 await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
             }

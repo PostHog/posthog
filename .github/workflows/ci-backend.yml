@@ -133,7 +133,7 @@ jobs:
             - name: Check static typing
               run: |
                   cd current
-                  mypy . --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py
+                  mypy -p posthog --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py
 
             - name: Check if "schema.py" is up to date
               run: |

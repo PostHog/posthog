@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
-import { exponentialBuckets, Histogram } from 'prom-client'
+import { Counter, exponentialBuckets, Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
@@ -15,6 +15,17 @@ import { latestOffsetTimestampGauge } from '../metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
+
+// The following two counters can be used to see how often we start,
+// but fail to commit offsets, which can cause duplicate events
+const kafkaBatchStart = new Counter({
+    name: 'ingestion_kafka_batch_start',
+    help: 'Number of times we have started working on a kafka batch',
+})
+const kafkaBatchOffsetCommitted = new Counter({
+    name: 'ingestion_kafka_batch_committed_offsets',
+    help: 'Number of times we have committed kafka offsets',
+})
 
 export enum IngestionOverflowMode {
     Disabled,
@@ -124,6 +135,7 @@ export async function eachBatchParallelIngestion(
                 overflow_mode: IngestionOverflowMode[overflowMode],
             })
             .observe(splitBatch.toProcess.length)
+        kafkaBatchStart.inc() // just before processing any events
         const tasks = [...Array(parallelism)].map(() => processMicroBatches(splitBatch.toProcess))
         if (splitBatch.toOverflow.length > 0) {
             const overflowSpan = transaction.startChild({
@@ -152,6 +164,7 @@ export async function eachBatchParallelIngestion(
                 .set(Number.parseInt(lastMessage.timestamp))
         }
         commitSpan.finish()
+        kafkaBatchOffsetCommitted.inc() // and we successfully committed the offsets
 
         status.debug(
             '🧩',
