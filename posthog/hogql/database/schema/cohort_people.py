@@ -2,26 +2,28 @@ from typing import Dict, Any, List
 
 from posthog.hogql.database.models import StringDatabaseField, IntegerDatabaseField, Table, LazyJoin, LazyTable
 from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
-from posthog.hogql.parser import parse_expr
 
 
-def select_from_cohort_people_table(requested_fields: Dict[str, Any]):
+def select_from_cohort_people_table(requested_fields: Dict[str, List[str]]):
     from posthog.hogql import ast
 
-    if not requested_fields:
-        requested_fields = {}
-    if "person_id" not in requested_fields:
-        requested_fields["person_id"] = ast.Field(chain=["person_id"])
-    if "cohort_id" not in requested_fields:
-        requested_fields["cohort_id"] = ast.Field(chain=["cohort_id"])
+    table_name = "raw_cohort_people"
 
-    fields: List[ast.Expr] = [expr for expr in requested_fields.values()]
+    requested_fields = {"person_id": ["person_id"], "cohort_id": ["cohort_id"], **requested_fields}
+
+    fields: List[ast.Expr] = [
+        ast.Alias(alias=name, expr=ast.Field(chain=[table_name] + chain)) for name, chain in requested_fields.items()
+    ]
 
     return ast.SelectQuery(
         select=fields,
-        select_from=ast.JoinExpr(table=ast.Field(chain=["raw_cohort_people"])),
+        select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
         group_by=fields,
-        having=parse_expr("sum(sign) > 0"),
+        having=ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Call(name="sum", args=[ast.Field(chain=[table_name, "sign"])]),
+            right=ast.Constant(value=0),
+        ),
     )
 
 

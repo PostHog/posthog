@@ -88,7 +88,7 @@ class LazyTable(Table):
     class Config:
         extra = Extra.forbid
 
-    def lazy_select(self, requested_fields: Dict[str, Any]) -> Any:
+    def lazy_select(self, requested_fields: Dict[str, List[str]]) -> Any:
         raise NotImplementedException("LazyTable.lazy_select not overridden")
 
 

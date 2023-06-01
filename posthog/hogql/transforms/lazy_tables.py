@@ -15,7 +15,7 @@ def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] =
 
 @dataclasses.dataclass
 class JoinToAdd:
-    fields_accessed: Dict[str, ast.Expr]
+    fields_accessed: Dict[str, List[str]]
     lazy_join: LazyJoin
     from_table: str
     to_table: str
@@ -23,7 +23,7 @@ class JoinToAdd:
 
 @dataclasses.dataclass
 class TableToAdd:
-    fields_accessed: Dict[str, ast.Expr]
+    fields_accessed: Dict[str, List[str]]
     lazy_table: LazyTable
 
 
@@ -138,9 +138,9 @@ class LazyTableResolver(TraversingVisitor):
                         if property is not None:
                             chain.extend(property.chain)
                             property.joined_subquery_field_name = f"{field.name}___{'___'.join(property.chain)}"
-                            new_join.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
+                            new_join.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
-                            new_join.fields_accessed[field.name] = ast.Field(chain=chain)
+                            new_join.fields_accessed[field.name] = chain
                 elif isinstance(table_type, ast.LazyTableType):
                     table_name = self._get_long_table_name(select_type, table_type)
                     if table_name not in tables_to_add:
@@ -155,17 +155,17 @@ class LazyTableResolver(TraversingVisitor):
                         if property is not None:
                             chain.extend(property.chain)
                             property.joined_subquery_field_name = f"{field.name}___{'___'.join(property.chain)}"
-                            new_table.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
+                            new_table.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
-                            new_table.fields_accessed[field.name] = ast.Field(chain=chain)
+                            new_table.fields_accessed[field.name] = chain
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
         for new_join in joins_to_add.values():
             if new_join.from_table in joins_to_add:
-                joins_to_add[new_join.from_table].fields_accessed[new_join.lazy_join.from_field] = ast.Field(
-                    chain=[new_join.lazy_join.from_field]
-                )
+                joins_to_add[new_join.from_table].fields_accessed[new_join.lazy_join.from_field] = [
+                    new_join.lazy_join.from_field
+                ]
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
