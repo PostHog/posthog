@@ -44,7 +44,7 @@ concurrency:
 jobs:
     code-quality:
         name: Code quality
-        runs-on: ubuntu-22.04
+        runs-on: buildjet-4vcpu-ubuntu-2204
         defaults:
             run:
                 working-directory: 'plugin-server'
@@ -58,7 +58,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
                   cache: pnpm
@@ -74,7 +74,7 @@ jobs:
 
     tests:
         name: Tests (${{matrix.shard}})
-        runs-on: ubuntu-22.04
+        runs-on: buildjet-4vcpu-ubuntu-2204
 
         strategy:
             fail-fast: false
@@ -100,7 +100,7 @@ jobs:
               run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v4
+              uses: buildjet/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
@@ -130,7 +130,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
                   cache: pnpm
@@ -187,7 +187,7 @@ jobs:
               run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v4
+              uses: buildjet/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
@@ -218,7 +218,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
                   cache: pnpm
@@ -284,7 +284,7 @@ jobs:
               run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v4
+              uses: buildjet/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
@@ -315,7 +315,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
                   cache: pnpm
