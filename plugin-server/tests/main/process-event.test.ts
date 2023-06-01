@@ -117,7 +117,7 @@ async function processEvent(
     ip: string | null,
     _siteUrl: string,
     data: Partial<PluginEvent>,
-    teamId: number,
+    teamId: number | null,
     timestamp: DateTime,
     eventUuid: string
 ): Promise<void> {
@@ -779,7 +779,6 @@ test('capture new person', async () => {
                 property_type: 'String',
                 property_type_format: null,
                 query_usage_30_day: null,
-                team_id: 2,
                 type: 2,
                 group_type_index: null,
                 volume_30_day: null,
@@ -889,9 +888,10 @@ test('anonymized ip capture', async () => {
         '',
         {
             event: '$pageview',
-            properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
+            properties: { distinct_id: 'asdfasdfasdf' },
+            token: team.api_token,
         } as any as PluginEvent,
-        team.id,
+        null,
         now,
         new UUIDT().toString()
     )
