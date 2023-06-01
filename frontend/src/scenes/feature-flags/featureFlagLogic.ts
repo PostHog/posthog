@@ -34,6 +34,7 @@ import { dayjs } from 'lib/dayjs'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -189,7 +190,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
     key(({ id }) => id ?? 'unknown'),
-    connect({
+    connect((props: FeatureFlagLogicProps) => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -198,7 +199,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             userLogic,
             ['hasAvailableFeature'],
         ],
-    }),
+        actions: [
+            newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
+            ['submitNewDashboardSuccessWithResult'],
+        ],
+    })),
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         setFeatureFlagMissing: true,
@@ -528,6 +533,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     })),
     listeners(({ actions, values, props }) => ({
+        submitNewDashboardSuccessWithResult: async ({ result }) => {
+            // TODO: attach dashboard to flag
+            await api.update(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlag.id}`, {
+                dashboards: [...(values.featureFlag.dashboards || []), result.id],
+            })
+        },
         generateUsageDashboard: async () => {
             if (props.id) {
                 await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)

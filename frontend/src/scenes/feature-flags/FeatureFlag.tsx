@@ -561,10 +561,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function AnalysisTab({}: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
+function AnalysisTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
     return (
         <div className="NewDashboardModal">
-            <DashboardTemplateChooser scope="feature_flag" />
+            <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id} />
         </div>
     )
 }

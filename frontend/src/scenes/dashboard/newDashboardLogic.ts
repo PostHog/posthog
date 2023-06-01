@@ -1,4 +1,4 @@
-import { actions, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { DashboardTemplateType, DashboardType, DashboardTemplateVariableType, DashboardTile, JsonType } from '~/types'
@@ -25,6 +25,10 @@ const defaultFormValues: NewDashboardForm = {
     show: false,
     useTemplate: '',
     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
+}
+
+export interface NewDashboardLogicProps {
+    featureFlagId?: number
 }
 
 // Currently this is a very generic recursive function incase we want to add template variables to aspects beyond events
@@ -57,6 +61,8 @@ function makeTilesUsingVariables(tiles: DashboardTile[], variables: DashboardTem
 }
 
 export const newDashboardLogic = kea<newDashboardLogicType>([
+    props({} as NewDashboardLogicProps),
+    key(({ featureFlagId }) => featureFlagId ?? 'new'),
     path(['scenes', 'dashboard', 'newDashboardLogic']),
     connect({ logic: [dashboardsModel], values: [featureFlagLogic, ['featureFlags']] }),
     actions({
@@ -70,6 +76,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             template,
             variables,
         }),
+        submitNewDashboardSuccessWithResult: (result: DashboardType) => ({ result }),
     }),
     reducers({
         isLoading: [
@@ -118,6 +125,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
                     dashboardsModel.actions.addDashboardSuccess(result)
+                    actions.submitNewDashboardSuccessWithResult(result)
                     if (show) {
                         breakpoint()
                         router.actions.push(urls.dashboard(result.id))
@@ -160,6 +168,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
                 dashboardsModel.actions.addDashboardSuccess(result)
+                actions.submitNewDashboardSuccessWithResult(result)
                 router.actions.push(urls.dashboard(result.id))
             } catch (e: any) {
                 if (!isBreakpoint(e)) {

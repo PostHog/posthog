@@ -80,15 +80,20 @@ export function DashboardTemplatePreview(): JSX.Element {
 
 interface DashboardTemplateChooserProps {
     scope?: DashboardTemplateScope
+    featureFlagId?: number
 }
 
-export function DashboardTemplateChooser({ scope = 'global' }: DashboardTemplateChooserProps): JSX.Element {
+export function DashboardTemplateChooser({
+    scope = 'global',
+    featureFlagId,
+}: DashboardTemplateChooserProps): JSX.Element {
     const templatesLogic = dashboardTemplatesLogic({ scope })
     const { allTemplates } = useValues(templatesLogic)
 
-    const { isLoading } = useValues(newDashboardLogic)
+    const _newDashboardLogic = newDashboardLogic({ featureFlagId })
+    const { isLoading } = useValues(_newDashboardLogic)
     const { setActiveDashboardTemplate, createDashboardFromTemplate, addDashboard, setIsLoading } =
-        useActions(newDashboardLogic)
+        useActions(_newDashboardLogic)
 
     return (
         <div>
