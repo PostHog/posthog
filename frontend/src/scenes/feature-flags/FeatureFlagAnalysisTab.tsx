@@ -14,7 +14,7 @@ export function AnalysisTab({ featureFlag }: { id: string; featureFlag: FeatureF
             {featureFlag.dashboards && featureFlag.dashboards.length > 0 ? (
                 <FeatureFlagDashboardsTableContainer featureFlag={featureFlag} />
             ) : (
-                <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id} />
+                featureFlag.id && <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id} />
             )}
         </div>
     )
@@ -22,14 +22,12 @@ export function AnalysisTab({ featureFlag }: { id: string; featureFlag: FeatureF
 
 function FeatureFlagDashboardsTableContainer({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const { filteredDashboards } = useValues(featureFlagLogic)
-    const _newDashboardLogic = newDashboardLogic({ featureFlagId: featureFlag.id })
-    const { newDashboardModalVisible } = useValues(_newDashboardLogic)
+    const _newDashboardLogic = newDashboardLogic({ featureFlagId: featureFlag.id as number })
     const { showNewDashboardModal } = useActions(_newDashboardLogic)
 
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { filters } = useValues(dashboardsLogic)
 
-    console.log(newDashboardModalVisible)
     return (
         <>
             <DashboardsTable

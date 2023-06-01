@@ -538,9 +538,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
-            // TODO: attach dashboard to flag
             await api.update(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlag.id}`, {
-                dashboards: [...(values.featureFlag.dashboards || []), result.id],
+                dashboards: [result.id],
             })
         },
         generateUsageDashboard: async () => {
