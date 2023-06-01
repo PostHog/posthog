@@ -4,6 +4,7 @@ import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import {
     RecordingsLists,
+    SessionRecordingsPlaylist,
     SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { posthogNodePasteRule, useJsonNodeState } from './utils'
