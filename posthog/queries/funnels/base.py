@@ -272,6 +272,7 @@ class ClickhouseFunnelBase(ABC):
             {**self.params, **self._filter.hogql_context.values},
             query_type=self.QUERY_TYPE,
             filter=self._filter,
+            team_id=self._team.pk,
         )
 
     def _get_timestamp_outer_select(self) -> str:

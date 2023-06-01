@@ -46,7 +46,7 @@ export const cohortsModel = kea<cohortsModelType>({
                 if (!cohort) {
                     return state
                 }
-                return [...state].map((flag) => (flag.id === cohort.id ? cohort : flag))
+                return [...state].map((existingCohort) => (existingCohort.id === cohort.id ? cohort : existingCohort))
             },
             cohortCreated: (state = [], { cohort }) => {
                 if (!cohort) {

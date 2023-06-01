@@ -5,6 +5,7 @@ import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
+import { stringToBoolean } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
@@ -14,10 +15,13 @@ import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { runAsyncHandlersStep } from './runAsyncHandlersStep'
 
-// Only used in tests
-// TODO: update to test for side-effects of running the pipeline rather than
-// this return type.
 export type EventPipelineResult = {
+    // Promises that the batch handler should await on before committing offsets,
+    // contains the Kafka producer ACKs, to avoid blocking after every message.
+    promises?: Array<Promise<void>>
+    // Only used in tests
+    // TODO: update to test for side-effects of running the pipeline rather than
+    // this return type.
     lastStep: string
     args: any[]
     error?: string
@@ -39,18 +43,22 @@ export class EventPipelineRunner {
 
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
     poEEmbraceJoin: boolean
+    private delayAcks: boolean
 
     constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
         this.hub = hub
         this.originalEvent = originalEvent
         this.poEEmbraceJoin = poEEmbraceJoin
+
+        // TODO: remove after successful rollout
+        this.delayAcks = stringToBoolean(process.env.INGESTION_DELAY_WRITE_ACKS)
     }
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
-            let result: EventPipelineResult | null = null
+            let result: EventPipelineResult
             const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
             if (eventWithTeam != null) {
                 result = await this.runEventPipelineSteps(eventWithTeam)
@@ -94,8 +102,17 @@ export class EventPipelineRunner {
 
         const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent], event.team_id)
 
-        const rawClickhouseEvent = await this.runStep(createEventStep, [this, preparedEvent, person], event.team_id)
-        return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person])
+        const [rawClickhouseEvent, eventAck] = await this.runStep(
+            createEventStep,
+            [this, preparedEvent, person],
+            event.team_id
+        )
+        if (this.delayAcks) {
+            return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
+        } else {
+            await eventAck
+            return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person])
+        }
     }
 
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
@@ -116,12 +133,17 @@ export class EventPipelineRunner {
         }
     }
 
-    registerLastStep(stepName: string, teamId: number | null, args: any[]): EventPipelineResult {
+    registerLastStep(
+        stepName: string,
+        teamId: number | null,
+        args: any[],
+        promises?: Array<Promise<void>>
+    ): EventPipelineResult {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
             step: stepName,
             team_id: String(teamId), // NOTE: potentially high cardinality
         })
-        return { lastStep: stepName, args }
+        return { promises: promises, lastStep: stepName, args }
     }
 
     protected runStep<Step extends (...args: any[]) => any>(

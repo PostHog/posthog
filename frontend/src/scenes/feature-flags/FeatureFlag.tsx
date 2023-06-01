@@ -55,7 +55,7 @@ import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { FeatureFlagsTabs } from './featureFlagsLogic'
+import { FeatureFlagsTab } from './featureFlagsLogic'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
@@ -111,7 +111,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
+    const [activeTab, setActiveTab] = useState(FeatureFlagsTab.OVERVIEW)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
@@ -496,7 +496,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <Tabs
                                     activeKey={activeTab}
                                     destroyInactiveTabPane
-                                    onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
+                                    onChange={(t) => setActiveTab(t as FeatureFlagsTab)}
                                 >
                                     <Tabs.TabPane tab="Overview" key="overview">
                                         <Row>
