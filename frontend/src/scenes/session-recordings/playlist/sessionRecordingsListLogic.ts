@@ -124,6 +124,7 @@ export interface SessionRecordingListLogicProps {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     autoPlay?: boolean
+    onFiltersChange?: (filters: RecordingFilters) => void
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
@@ -315,6 +316,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             } else {
                 actions.getSessionRecordings()
             }
+
+            props.onFiltersChange?.(values.filters)
         },
         replaceFilters: () => {
             if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]) {

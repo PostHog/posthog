@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingFilters, SessionRecordingType, ReplayTabs } from '~/types'
 import {
     DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
+    SessionRecordingListLogicProps,
     sessionRecordingsListLogic,
 } from './sessionRecordingsListLogic'
 import './SessionRecordingsPlaylist.scss'
@@ -298,26 +299,21 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         autoPlay = true,
     } = props
 
-    const logicProps = {
+    const logicProps: SessionRecordingListLogicProps = {
         playlistShortId,
         personUUID,
         filters: defaultFilters,
         updateSearchParams,
         autoPlay,
+        onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, filters } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
         750: 'medium',
     })
-
-    useEffect(() => {
-        if (filters !== defaultFilters) {
-            onFiltersChange?.(filters)
-        }
-    }, [filters])
 
     return (
         <>
