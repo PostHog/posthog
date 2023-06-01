@@ -16,25 +16,36 @@ def select_from_person_distinct_ids_table(requested_fields: Dict[str, Any]):
     from posthog.hogql import ast
 
     if not requested_fields:
-        requested_fields = {"person_id": ast.Field(chain=["person_id"])}
+        requested_fields = {}
+
+    table_name = "raw_person_distinct_ids"
+    group_fields = ["distinct_id"]
+    argmax_field = "version"
+
+    for key in group_fields:
+        if key not in requested_fields:
+            requested_fields[key] = ast.Field(chain=[table_name, key])
+
+    argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
+        name="argMax", args=[field, ast.Field(chain=[argmax_field])]
+    )
 
     fields_to_select: List[ast.Expr] = []
-    argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
-        name="argMax", args=[field, ast.Field(chain=["version"])]
-    )
+    fields_to_group: List[ast.Expr] = []
     for field, expr in requested_fields.items():
-        if field != "distinct_id":
+        if field in group_fields or field == argmax_field:
+            fields_to_select.append(ast.Alias(alias=field, expr=expr))
+            fields_to_group.append(expr)
+        else:
             fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
 
-    distinct_id = ast.Field(chain=["distinct_id"])
-
     return ast.SelectQuery(
-        select=fields_to_select + [distinct_id],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["raw_person_distinct_ids"])),
-        group_by=[distinct_id],
+        select=fields_to_select,
+        select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+        group_by=fields_to_group,
         having=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=argmax_version(ast.Field(chain=["is_deleted"])),
+            left=argmax_version(ast.Field(chain=[table_name, "is_deleted"])),
             right=ast.Constant(value=0),
         ),
     )

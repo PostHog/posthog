@@ -17,23 +17,30 @@ def select_from_person_overrides_table(requested_fields: Dict[str, Any]):
         requested_fields = {}
 
     table_name = "raw_person_overrides"
-    required_fields = ["old_person_id", "override_person_id"]
-    for key in requested_fields:
-        if key in required_fields:
+    group_fields = ["old_person_id"]
+    argmax_field = "version"
+
+    for key in group_fields:
+        if key not in requested_fields:
             requested_fields[key] = ast.Field(chain=[table_name, key])
 
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
-        name="argMax", args=[field, ast.Field(chain=[table_name, "version"])]
+        name="argMax", args=[field, ast.Field(chain=[argmax_field])]
     )
 
-    fields_to_select: List[ast.Expr] = [
-        ast.Alias(alias=field, expr=argmax_version(expr)) for field, expr in requested_fields.items()
-    ]
+    fields_to_select: List[ast.Expr] = []
+    fields_to_group: List[ast.Expr] = []
+    for field, expr in requested_fields.items():
+        if field in group_fields or field == argmax_field:
+            fields_to_select.append(ast.Alias(alias=field, expr=expr))
+            fields_to_group.append(ast.Field(chain=[table_name, field]))
+        else:
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
 
     return ast.SelectQuery(
         select=fields_to_select,
         select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
-        group_by=[ast.Field(chain=[table_name, "override_person_id"])],
+        group_by=fields_to_group,
     )
 
 

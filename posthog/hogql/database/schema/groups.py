@@ -15,18 +15,23 @@ def select_from_groups_table(requested_fields: Dict[str, Any]):
 
     if not requested_fields:
         requested_fields = {}
-    if "index" not in requested_fields:
-        requested_fields["index"] = ast.Field(chain=["index"])
-    if "key" not in requested_fields:
-        requested_fields["key"] = ast.Field(chain=["key"])
+
+    table_name = "raw_groups"
+    group_fields = ["index", "key"]
+    argmax_field = "updated_at"
+
+    for key in group_fields:
+        if key not in requested_fields:
+            requested_fields[key] = ast.Field(chain=[table_name, key])
+
+    argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
+        name="argMax", args=[field, ast.Field(chain=[table_name, argmax_field])]
+    )
 
     fields_to_select: List[ast.Expr] = []
     fields_to_group: List[ast.Expr] = []
-    argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
-        name="argMax", args=[field, ast.Field(chain=["updated_at"])]
-    )
     for field, expr in requested_fields.items():
-        if field == "index" or field == "key" or field == "updated_at":
+        if field in group_fields or field == argmax_field:
             fields_to_select.append(ast.Alias(alias=field, expr=expr))
             fields_to_group.append(expr)
         else:
@@ -34,7 +39,7 @@ def select_from_groups_table(requested_fields: Dict[str, Any]):
 
     return ast.SelectQuery(
         select=fields_to_select,
-        select_from=ast.JoinExpr(table=ast.Field(chain=["raw_groups"])),
+        select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
         group_by=fields_to_group,
     )
 
