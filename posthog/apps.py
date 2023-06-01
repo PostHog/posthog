@@ -45,6 +45,7 @@ class PostHogConfig(AppConfig):
             if SELF_CAPTURE and local_api_key:
                 posthoganalytics.api_key = local_api_key
                 posthoganalytics.host = settings.SITE_URL
+                posthoganalytics.debug = True
             else:
                 posthoganalytics.disabled = True
 
