@@ -407,6 +407,9 @@ class _Printer(Visitor):
             return ".".join([self._print_identifier(identifier) for identifier in node.chain])
 
         if node.type is not None:
+            if isinstance(node.type, ast.LazyJoinType):
+                raise HogQLException(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
+
             return self.visit(node.type)
         else:
             raise HogQLException(f"Unknown Type, can not print {type(node.type).__name__}")
@@ -561,7 +564,7 @@ class _Printer(Visitor):
                     field_sql = "person_props"
 
         else:
-            raise HogQLException(f"Unknown FieldType table type: {type(type.table_type).__name__}")
+            raise HogQLException(f"Unknown FieldType table type: {type.table_type.__class__.__name__}")
 
         return field_sql
 

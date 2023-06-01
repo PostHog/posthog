@@ -251,6 +251,7 @@ class TestPrinter(BaseTest):
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
+        self._assert_expr_error("person", "Can't select a table when a column is expected: person")
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "Syntax error at line 1, column 1: no viable alternative at input '('")
