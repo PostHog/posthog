@@ -95,10 +95,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 },
             ],
         ],
-        isUsingDataExploration: [
-            (s) => [s.insightLogicRef],
-            (insightLogicRef) => !!insightLogicRef?.logic.values.isUsingDataExploration,
-        ],
     })),
     sharedListeners(({ actions, values }) => ({
         reloadInsightLogic: () => {
@@ -206,8 +202,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     )
 
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
-                } else if (filters && !values.isUsingDataExploration) {
-                    values.insightLogicRef?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
             }
 

@@ -28,7 +28,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             insightVizDataLogic(props.insightProps),
             ['querySource'],
             insightLogic(props.insightProps),
-            ['filters', 'isUsingDataExploration'],
+            ['filters'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -94,21 +94,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
         },
     })),
     subscriptions(({ values, actions }) => ({
-        filters: (filters) => {
-            if (values.isUsingDataExploration) {
-                return
-            }
-
-            const newSamplingPercentage = filters.sampling_factor ? filters.sampling_factor * 100 : null
-            if (newSamplingPercentage !== values.samplingPercentage) {
-                actions.setSamplingPercentage(newSamplingPercentage)
-            }
-        },
         querySource: (querySource) => {
-            if (!values.isUsingDataExploration) {
-                return
-            }
-
             const newSamplingPercentage = querySource?.samplingFactor ? querySource.samplingFactor * 100 : null
             if (newSamplingPercentage !== values.samplingPercentage) {
                 actions.setSamplingPercentage(newSamplingPercentage)
