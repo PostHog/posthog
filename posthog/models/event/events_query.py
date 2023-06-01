@@ -65,10 +65,32 @@ def run_events_query(
         else:
             select_input.append(col)
 
-    select: List[ast.Expr] = [parse_expr(column) for column in select_input]
-    group_by: List[ast.Expr] = [column for column in select if not has_aggregation(column)]
-    aggregations: List[ast.Expr] = [column for column in select if has_aggregation(column)]
+    select: List[ast.Expr] = []
+    group_by: List[ast.Expr] = []
+    aggregations: List[ast.Expr] = []
+
+    for column in select_input:
+        expr = parse_expr(column)
+        #
+        if has_aggregation(expr):
+            aggregations.append(expr)
+        else:
+            group_by.append(expr)
+
+        # Make sure each column has an alias
+        if isinstance(expr, ast.Alias):
+            select.append(expr)
+        elif isinstance(expr, ast.Field):
+            select.append(ast.Alias(expr=expr, alias=expr.chain[-1]))
+        else:
+            select.append(ast.Alias(expr=expr, alias=column))
+
     has_any_aggregation = len(aggregations) > 0
+
+    # select column names
+    for expr in select:
+        if not isinstance(expr, ast.Alias):
+            expr.alias = expr.expr.name
 
     # filters
     where_input = query.where or []
@@ -140,6 +162,14 @@ def run_events_query(
         limit=ast.Constant(value=limit),
         offset=ast.Constant(value=offset),
     )
+
+    if len(order_by) > 0:
+        stmt = ast.SelectQuery(
+            select=[ast.Field(chain=["*"])],
+            select_from=ast.JoinExpr(table=stmt),
+            order_by=order_by,
+            limit=ast.Constant(value=limit),
+        )
 
     query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.ONLINE, query_type="EventsQuery")
 
