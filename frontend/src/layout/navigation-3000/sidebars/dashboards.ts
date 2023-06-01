@@ -3,7 +3,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { ExtendedListItem } from '../types'
+import { SidebarCategory, ExtendedListItem } from '../types'
 import type { dashboardsSidebarLogicType } from './dashboardsType'
 import Fuse from 'fuse.js'
 import { DashboardType } from '~/types'
@@ -46,80 +46,88 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
         ],
     }),
     selectors(({ actions }) => ({
-        isLoading: [(s) => [s.dashboardsLoading], (dashboardsLoading) => dashboardsLoading],
         contents: [
-            (s) => [s.relevantDashboards],
-            (relevantDashboards) =>
-                relevantDashboards.map(
-                    ([dashboard, matches]) =>
-                        ({
-                            key: dashboard.id,
-                            name: dashboard.name,
-                            url: urls.dashboard(dashboard.id),
-                            marker: dashboard.pinned ? { type: 'fold' } : undefined,
-                            searchMatch: matches
-                                ? {
-                                      matchingFields: matches.map((match) => match.key),
-                                      nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                                  }
-                                : null,
-                            menuItems: (initiateRename) => [
-                                {
-                                    items: [
-                                        {
-                                            to: urls.dashboard(dashboard.id),
-                                            onClick: () => {
-                                                dashboardLogic({ id: dashboard.id }).mount()
-                                                dashboardLogic({ id: dashboard.id }).actions.setDashboardMode(
-                                                    DashboardMode.Edit,
-                                                    DashboardEventSource.DashboardsList
-                                                )
+            (s) => [s.relevantDashboards, s.dashboardsLoading],
+            (relevantDashboards, dashboardsLoading) => [
+                {
+                    key: 'dashboards',
+                    title: 'Dashboards',
+                    items: relevantDashboards.map(
+                        ([dashboard, matches]) =>
+                            ({
+                                key: dashboard.id,
+                                name: dashboard.name,
+                                url: urls.dashboard(dashboard.id),
+                                marker: dashboard.pinned ? { type: 'fold' } : undefined,
+                                searchMatch: matches
+                                    ? {
+                                          matchingFields: matches.map((match) => match.key),
+                                          nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                      }
+                                    : null,
+                                menuItems: (initiateRename) => [
+                                    {
+                                        items: [
+                                            {
+                                                to: urls.dashboard(dashboard.id),
+                                                onClick: () => {
+                                                    dashboardLogic({ id: dashboard.id }).mount()
+                                                    dashboardLogic({ id: dashboard.id }).actions.setDashboardMode(
+                                                        DashboardMode.Edit,
+                                                        DashboardEventSource.DashboardsList
+                                                    )
+                                                },
+                                                label: 'Edit',
                                             },
-                                            label: 'Edit',
-                                        },
-                                        {
-                                            onClick: () => {
-                                                actions.showDuplicateDashboardModal(dashboard.id, dashboard.name)
+                                            {
+                                                onClick: () => {
+                                                    actions.showDuplicateDashboardModal(dashboard.id, dashboard.name)
+                                                },
+                                                label: 'Duplicate',
                                             },
-                                            label: 'Duplicate',
-                                        },
-                                    ],
+                                        ],
+                                    },
+                                    {
+                                        items: [
+                                            {
+                                                onClick: () => {
+                                                    ;(dashboard.pinned ? actions.unpinDashboard : actions.pinDashboard)(
+                                                        dashboard.id,
+                                                        DashboardEventSource.MoreDropdown
+                                                    )
+                                                },
+                                                label: dashboard.pinned ? 'Unpin' : 'Pin',
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        items: [
+                                            {
+                                                onClick: initiateRename,
+                                                label: 'Rename',
+                                                keyboardShortcut: ['enter'],
+                                            },
+                                            {
+                                                onClick: () => {
+                                                    actions.showDeleteDashboardModal(dashboard.id)
+                                                },
+                                                status: 'danger',
+                                                label: 'Delete dashboard',
+                                            },
+                                        ],
+                                    },
+                                ],
+                                onRename: async (newName) => {
+                                    await dashboardsModel.asyncActions.updateDashboard({
+                                        id: dashboard.id,
+                                        name: newName,
+                                    })
                                 },
-                                {
-                                    items: [
-                                        {
-                                            onClick: () => {
-                                                ;(dashboard.pinned ? actions.unpinDashboard : actions.pinDashboard)(
-                                                    dashboard.id,
-                                                    DashboardEventSource.MoreDropdown
-                                                )
-                                            },
-                                            label: dashboard.pinned ? 'Unpin' : 'Pin',
-                                        },
-                                    ],
-                                },
-                                {
-                                    items: [
-                                        {
-                                            onClick: initiateRename,
-                                            label: 'Rename',
-                                            keyboardShortcut: ['enter'],
-                                        },
-                                        {
-                                            onClick: () => {
-                                                actions.showDeleteDashboardModal(dashboard.id)
-                                            },
-                                            status: 'danger',
-                                            label: 'Delete dashboard',
-                                        },
-                                    ],
-                                },
-                            ],
-                            onRename: async (newName) => {
-                                await dashboardsModel.asyncActions.updateDashboard({ id: dashboard.id, name: newName })
-                            },
-                        } as ExtendedListItem)
-                ),
+                            } as ExtendedListItem)
+                    ),
+                    loading: dashboardsLoading,
+                } as SidebarCategory,
+            ],
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],

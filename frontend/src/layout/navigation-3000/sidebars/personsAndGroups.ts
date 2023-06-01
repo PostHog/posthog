@@ -5,7 +5,7 @@ import type { personsAndGroupsSidebarLogicType } from './personsAndGroupsType'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { navigation3000Logic } from '../navigationLogic'
-import { Accordion, BasicListItem } from '../types'
+import { SidebarCategory, BasicListItem } from '../types'
 import { asDisplay, asLink, urls } from '@posthog/apps-common'
 import { findSearchTermInItemName } from './utils'
 import { groupsModel } from '~/models/groupsModel'
@@ -28,11 +28,10 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
         ],
         actions: [personsLogic, ['setListFilters as setPersonsListFilters', 'loadPersons']],
     })),
-    selectors(({ actions, values }) => ({
-        isLoading: [(s) => [s.personsLoading], (personsLoading) => personsLoading],
+    selectors(({ values }) => ({
         contents: [
             (s) => [s.persons, s.personsLoading, s.groupTypes, s.groups, s.groupsLoading],
-            (persons, personsLoading, groupTypes, groups, groupsLoading): Accordion[] => {
+            (persons, personsLoading, groupTypes, groups, groupsLoading): SidebarCategory[] => {
                 return [
                     {
                         key: 'persons',
@@ -51,8 +50,8 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                             } as BasicListItem
                         }),
                         loading: personsLoading,
-                        loadMore: persons.next ? () => actions.loadPersons(persons.next) : undefined,
-                    } as Accordion,
+                        // FIXME: Add remote
+                    } as SidebarCategory,
                     ...groupTypes.map(
                         (groupType) =>
                             ({
@@ -69,8 +68,8 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                                     } as BasicListItem
                                 }),
                                 loading: groupsLoading[groupType.group_type_index],
-                                // FIXME: Add loadMore
-                            } as Accordion)
+                                // FIXME: Add remote
+                            } as SidebarCategory)
                     ),
                 ]
             },

@@ -5,7 +5,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { ExtendedListItem } from '../types'
+import { SidebarCategory, ExtendedListItem } from '../types'
 import type { featureFlagsSidebarLogicType } from './featureFlagsType'
 import Fuse from 'fuse.js'
 import { FeatureFlagType } from '~/types'
@@ -42,101 +42,110 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
         actions: [featureFlagsLogic, ['updateFeatureFlag', 'loadFeatureFlags']],
     }),
     selectors(({ actions }) => ({
-        isLoading: [(s) => [s.featureFlagsLoading], (featureFlagsLoading) => featureFlagsLoading],
         contents: [
-            (s) => [s.relevantFeatureFlags, s.currentTeamId],
-            (relevantFeatureFlags, currentTeamId) =>
-                relevantFeatureFlags.map(([featureFlag, matches]) => {
-                    if (!featureFlag.id) {
-                        throw new Error('Feature flag ID should never be missing in the sidebar')
-                    }
-                    return {
-                        key: featureFlag.id,
-                        name: featureFlag.key,
-                        url: urls.featureFlag(featureFlag.id),
-                        summary: featureFlag.active ? groupFilters(featureFlag.filters.groups, true) : <i>Disabled</i>,
-                        extraContextTop: dayjs(featureFlag.created_at),
-                        extraContextBottom: `by ${featureFlag.created_by?.first_name || 'unknown'}`,
-                        marker: { type: 'ribbon', status: featureFlag.active ? 'success' : 'danger' },
-                        searchMatch: matches
-                            ? {
-                                  matchingFields: matches.map((match) =>
-                                      match.key === 'name' ? 'description' : match.key
-                                  ),
-                                  nameHighlightRanges: matches.find((match) => match.key === 'key')?.indices,
-                              }
-                            : null,
-                        menuItems: [
-                            {
-                                items: [
-                                    {
-                                        label: 'Edit',
-                                        to: urls.featureFlag(featureFlag.id as number),
-                                        onClick: () => {
-                                            featureFlagLogic({ id: featureFlag.id as number }).mount()
-                                            featureFlagLogic({ id: featureFlag.id as number }).actions.editFeatureFlag(
-                                                true
-                                            )
+            (s) => [s.relevantFeatureFlags, s.featureFlagsLoading, s.currentTeamId],
+            (relevantFeatureFlags, featureFlagsLoading, currentTeamId) => [
+                {
+                    key: 'feature-flags',
+                    title: 'Feature Flags',
+                    items: relevantFeatureFlags.map(([featureFlag, matches]) => {
+                        if (!featureFlag.id) {
+                            throw new Error('Feature flag ID should never be missing in the sidebar')
+                        }
+                        return {
+                            key: featureFlag.id,
+                            name: featureFlag.key,
+                            url: urls.featureFlag(featureFlag.id),
+                            summary: featureFlag.active ? (
+                                groupFilters(featureFlag.filters.groups, true)
+                            ) : (
+                                <i>Disabled</i>
+                            ),
+                            extraContextTop: dayjs(featureFlag.created_at),
+                            extraContextBottom: `by ${featureFlag.created_by?.first_name || 'unknown'}`,
+                            marker: { type: 'ribbon', status: featureFlag.active ? 'success' : 'danger' },
+                            searchMatch: matches
+                                ? {
+                                      matchingFields: matches.map((match) =>
+                                          match.key === 'name' ? 'description' : match.key
+                                      ),
+                                      nameHighlightRanges: matches.find((match) => match.key === 'key')?.indices,
+                                  }
+                                : null,
+                            menuItems: [
+                                {
+                                    items: [
+                                        {
+                                            label: 'Edit',
+                                            to: urls.featureFlag(featureFlag.id as number),
+                                            onClick: () => {
+                                                featureFlagLogic({ id: featureFlag.id as number }).mount()
+                                                featureFlagLogic({
+                                                    id: featureFlag.id as number,
+                                                }).actions.editFeatureFlag(true)
+                                            },
+                                            disabledReason: !featureFlag.can_edit
+                                                ? "You don't have permission to edit this feature flag."
+                                                : null,
                                         },
-                                        disabledReason: !featureFlag.can_edit
-                                            ? "You don't have permission to edit this feature flag."
-                                            : null,
-                                    },
-                                ],
-                            },
-                            {
-                                items: [
-                                    {
-                                        label: `${featureFlag.active ? 'Disable' : 'Enable'} flag`,
-                                        onClick: () =>
-                                            actions.updateFeatureFlag({
-                                                id: featureFlag.id as number,
-                                                payload: { active: !featureFlag.active },
+                                    ],
+                                },
+                                {
+                                    items: [
+                                        {
+                                            label: `${featureFlag.active ? 'Disable' : 'Enable'} flag`,
+                                            onClick: () =>
+                                                actions.updateFeatureFlag({
+                                                    id: featureFlag.id as number,
+                                                    payload: { active: !featureFlag.active },
+                                                }),
+                                            disabledReason: !featureFlag.can_edit
+                                                ? "You don't have permission to edit this feature flag."
+                                                : null,
+                                        },
+                                        {
+                                            label: 'Copy flag key',
+                                            onClick: () => {
+                                                copyToClipboard(featureFlag.key, 'feature flag key')
+                                            },
+                                        },
+                                        {
+                                            label: 'Try out in Insights',
+                                            to: urls.insightNew({
+                                                events: [
+                                                    { id: '$pageview', name: '$pageview', type: 'events', math: 'dau' },
+                                                ],
+                                                breakdown_type: 'event',
+                                                breakdown: `$feature/${featureFlag.key}`,
                                             }),
-                                        disabledReason: !featureFlag.can_edit
-                                            ? "You don't have permission to edit this feature flag."
-                                            : null,
-                                    },
-                                    {
-                                        label: 'Copy flag key',
-                                        onClick: () => {
-                                            copyToClipboard(featureFlag.key, 'feature flag key')
+                                            'data-attr': 'usage',
                                         },
-                                    },
-                                    {
-                                        label: 'Try out in Insights',
-                                        to: urls.insightNew({
-                                            events: [
-                                                { id: '$pageview', name: '$pageview', type: 'events', math: 'dau' },
-                                            ],
-                                            breakdown_type: 'event',
-                                            breakdown: `$feature/${featureFlag.key}`,
-                                        }),
-                                        'data-attr': 'usage',
-                                    },
-                                ],
-                            },
-                            {
-                                items: [
-                                    {
-                                        label: 'Delete feature flag',
-                                        onClick: () => {
-                                            deleteWithUndo({
-                                                endpoint: `projects/${currentTeamId}/feature_flags`,
-                                                object: { name: featureFlag.key, id: featureFlag.id },
-                                                callback: actions.loadFeatureFlags,
-                                            })
+                                    ],
+                                },
+                                {
+                                    items: [
+                                        {
+                                            label: 'Delete feature flag',
+                                            onClick: () => {
+                                                deleteWithUndo({
+                                                    endpoint: `projects/${currentTeamId}/feature_flags`,
+                                                    object: { name: featureFlag.key, id: featureFlag.id },
+                                                    callback: actions.loadFeatureFlags,
+                                                })
+                                            },
+                                            disabledReason: !featureFlag.can_edit
+                                                ? "You don't have permission to edit this feature flag."
+                                                : null,
+                                            status: 'danger',
                                         },
-                                        disabledReason: !featureFlag.can_edit
-                                            ? "You don't have permission to edit this feature flag."
-                                            : null,
-                                        status: 'danger',
-                                    },
-                                ],
-                            },
-                        ],
-                    } as ExtendedListItem
-                }),
+                                    ],
+                                    loading: featureFlagsLoading,
+                                },
+                            ],
+                        } as ExtendedListItem
+                    }),
+                } as SidebarCategory,
+            ],
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],

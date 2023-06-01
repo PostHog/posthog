@@ -69,8 +69,6 @@
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 2rem;
-    --sidebar-basic-leaf-row-height: 2rem;
-    --sidebar-extended-leaf-row-height: 2.875rem;
     --sidebar-background: var(--bg-3000);
     position: relative;
     // This border is just for sizing, the visible border is on the content and slider
@@ -229,8 +227,9 @@
 .Accordion {
     --accordion-arrow-size: 1rem;
     --accordion-row-height: 1.75rem;
-    --accordion-inset: 1.25rem;
+    --accordion-inset-expandable: 1.25rem;
     --accordion-header-background: var(--accent-3000);
+    --accordion-inset: 0rem;
     min-height: var(--accordion-row-height);
     flex-shrink: 0;
     flex-basis: 0;
@@ -239,7 +238,11 @@
     [theme='dark'] & {
         --accordion-header-background: var(--bg-3000);
     }
-    &.Accordion--expanded {
+    &[aria-expanded] {
+        // This means: if accordion is expandable
+        --accordion-inset: var(--accordion-inset-expandable);
+    }
+    &:not([aria-expanded='false']) {
         flex-grow: 1;
         &:not(:last-child) {
             border-bottom-width: 1px;
@@ -260,8 +263,6 @@
 }
 
 .Accordion__header {
-    position: sticky;
-    top: 0;
     z-index: 1;
     display: flex;
     align-items: center;
@@ -278,18 +279,11 @@
         transition: 50ms ease transform;
         font-size: var(--accordion-arrow-size);
         flex-shrink: 0;
-        .Accordion--expanded & {
+        margin-right: calc(var(--accordion-inset-expandable) - var(--accordion-arrow-size));
+        .Accordion[aria-expanded='true'] & {
             transform: rotate(90deg);
         }
     }
-    h4 {
-        margin-left: calc(var(--accordion-inset) - var(--accordion-arrow-size));
-    }
-}
-
-.Accordion__content {
-    overflow-x: hidden;
-    overflow-y: auto;
 }
 
 .SidebarListItem {
@@ -300,10 +294,10 @@
     position: relative;
     color: var(--muted);
     line-height: 1.125rem;
-    height: var(--sidebar-basic-leaf-row-height);
     opacity: 0.9; // Make items slightly lower contrast when not hovered
     background: var(--sidebar-list-item-background);
     border-bottom-width: 1px;
+    list-style: none;
 
     &:hover,
     &[aria-current='page'] {
@@ -339,10 +333,6 @@
                 );
             }
         }
-    }
-
-    &.SidebarListItem--extended {
-        height: var(--sidebar-extended-leaf-row-height);
     }
 
     &.SidebarListItem--marker-fold,
