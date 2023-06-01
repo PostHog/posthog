@@ -71,17 +71,16 @@ export function SessionRecordingsPlaylistFilters({
         />
     )
 
-    const isActiveFilters =
-        listingVersion === '3' ? (
-            <IsActiveFilter
-                onChange={(newFilter: IsSessionRecordingActiveFilter) => {
-                    // TODO why not report the selection as well?
-                    reportRecordingsListFilterAdded(SessionRecordingFilterType.IsActive)
-                    setFilters({ include_active_sessions_filter: newFilter })
-                }}
-                initialFilter={filters.include_active_sessions_filter}
-            />
-        ) : null
+    const isActiveFilters = (
+        <IsActiveFilter
+            onChange={(newFilter: IsSessionRecordingActiveFilter) => {
+                // TODO why not report the selection as well?
+                reportRecordingsListFilterAdded(SessionRecordingFilterType.IsActive)
+                setFilters({ include_active_sessions_filter: newFilter })
+            }}
+            initialFilter={filters.include_active_sessions_filter}
+        />
+    )
 
     return (
         <div className={clsx('flex flex-wrap items-end justify-between gap-4 mb-4')}>
@@ -137,7 +136,7 @@ export function SessionRecordingsPlaylistFilters({
                     <LemonLabel>Duration</LemonLabel>
                     {durationFilter}
                 </div>
-                {isActiveFilters ? (
+                {listingVersion === '3' ? (
                     <div className="flex gap-2">
                         <LemonLabel>Include</LemonLabel>
                         {isActiveFilters}
