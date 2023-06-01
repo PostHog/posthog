@@ -83,13 +83,12 @@ Check out our [tutorials](https://posthog.com/docs/apps) for step-by-step guides
 
 Learn more about getting the most out of PostHog's features in [our product manual](https://posthog.com/using-posthog).
 
-[Ask a question](https://posthog.com/questions) or join our [Slack community](https://posthog.com/slack) to get support.
+[Ask a question](https://posthog.com/questions) to get support.
 
 ## Contributing
 
 We <3 contributions big and small. In priority order (although everything is appreciated) with the most helpful first:
 
-- Give us feedback in our [Slack community](https://posthog.com/slack)
 - Vote on features or get early access to beta functionality in our [roadmap](https://posthog.com/roadmap)
 - Open a PR (see our instructions on [developing PostHog locally](https://posthog.com/handbook/engineering/developing-locally))
 - Submit a [feature request](https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement%2C+feature&template=feature_request.md) or [bug report](https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md)
