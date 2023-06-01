@@ -2,10 +2,10 @@ from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.test.base import APIBaseTest
+from asgiref.sync import sync_to_async
 
 
 class TestOrganizationAPI(APIBaseTest):
-
     # Retrieving organization
 
     def test_get_current_organization(self):
@@ -143,3 +143,12 @@ def create_organization(name: str) -> Organization:
     with real world scenarios.
     """
     return Organization.objects.create(name=name)
+
+
+async def acreate_organization(name: str) -> Organization:
+    """
+    Helper that just creates an organization. It currently uses the orm, but we
+    could use either the api, or django admin to create, to get better parity
+    with real world scenarios.
+    """
+    return await sync_to_async(create_organization)(name)  # type: ignore

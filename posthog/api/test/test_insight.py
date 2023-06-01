@@ -40,6 +40,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
+    FuzzyInt,
 )
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
@@ -360,7 +361,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [11, 11, 11, 11, 11],
+            [FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12)],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )

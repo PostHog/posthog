@@ -1,28 +1,23 @@
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { EditorFilterProps } from '~/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconCalculate } from 'lib/lemon-ui/icons'
-import { isTrendsQuery } from '~/queries/utils'
-import { getDisplay } from './utils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-export function TrendsSeriesLabel({ query, insightProps }: EditorFilterProps): JSX.Element {
-    const { isFormulaOn } = useValues(trendsLogic(insightProps))
-    const { setIsFormulaOn } = useActions(trendsLogic(insightProps))
+export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Element {
+    const { hasFormula, isTrends, display, series } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const display = getDisplay(query)
-    const formulaModeButtonDisabled: boolean =
-        isFormulaOn &&
-        isTrendsQuery(query) &&
-        !!display &&
-        SINGLE_SERIES_DISPLAY_TYPES.includes(display) &&
-        query.series.length > 1
+    const canDisableFormula: boolean =
+        !isTrends || !display || !SINGLE_SERIES_DISPLAY_TYPES.includes(display) || series?.length === 1
+
+    const formulaModeButtonDisabled = hasFormula && !canDisableFormula
 
     return (
         <div className="flex items-center justify-between w-full">
-            <span>{isFormulaOn ? 'Variables' : 'Series'}</span>
+            <span>{hasFormula ? 'Variables' : 'Series'}</span>
             <Tooltip
                 title={
                     formulaModeButtonDisabled
@@ -34,12 +29,12 @@ export function TrendsSeriesLabel({ query, insightProps }: EditorFilterProps): J
                 <div className="-my-1">
                     <LemonButton
                         size="small"
-                        onClick={() => setIsFormulaOn(!isFormulaOn)}
+                        onClick={() => updateInsightFilter({ formula: hasFormula ? undefined : '' })}
                         disabled={formulaModeButtonDisabled}
                         icon={<IconCalculate />}
                         id="trends-formula-switch"
                     >
-                        {isFormulaOn ? 'Disable' : 'Enable'} formula mode
+                        {hasFormula ? 'Disable' : 'Enable'} formula mode
                     </LemonButton>
                 </div>
             </Tooltip>

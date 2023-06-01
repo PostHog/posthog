@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node'
+import { ProfilingIntegration } from '@sentry/profiling-node'
 import * as Tracing from '@sentry/tracing'
 import { Span, SpanContext, TransactionContext } from '@sentry/types'
 import { timestampWithMs } from '@sentry/utils'
@@ -14,6 +15,10 @@ const asyncLocalStorage = new AsyncLocalStorage<Tracing.Span>()
 // Code that runs on app start, in both the main and worker threads
 export function initSentry(config: PluginsServerConfig): void {
     if (config.SENTRY_DSN) {
+        const integrations = []
+        if (config.SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE > 0) {
+            integrations.push(new ProfilingIntegration())
+        }
         Sentry.init({
             dsn: config.SENTRY_DSN,
             normalizeDepth: 8, // Default: 3
@@ -23,7 +28,9 @@ export function initSentry(config: PluginsServerConfig): void {
                     DEPLOYMENT: config.CLOUD_DEPLOYMENT,
                 },
             },
+            integrations,
             tracesSampleRate: config.SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE,
+            profilesSampleRate: config.SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE,
         })
     }
 }

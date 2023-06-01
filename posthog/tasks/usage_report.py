@@ -12,6 +12,7 @@ from typing import (
     TypedDict,
     Union,
     cast,
+    Literal,
 )
 
 import dateutil
@@ -35,7 +36,7 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import INSTANCE_TAG
+from posthog.settings import INSTANCE_TAG, CLICKHOUSE_CLUSTER
 from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day
 from posthog.version import VERSION
 
@@ -68,6 +69,20 @@ class UsageReportCounters:
     # Feature flags
     ff_count: int
     ff_active_count: int
+    # HogQL
+    hogql_app_bytes_read: int
+    hogql_app_rows_read: int
+    hogql_app_duration_ms: int
+    hogql_api_bytes_read: int
+    hogql_api_rows_read: int
+    hogql_api_duration_ms: int
+    # Event Explorer
+    event_explorer_app_bytes_read: int
+    event_explorer_app_rows_read: int
+    event_explorer_app_duration_ms: int
+    event_explorer_api_bytes_read: int
+    event_explorer_api_rows_read: int
+    event_explorer_api_duration_ms: int
 
 
 # Instance metadata to be included in oveall report
@@ -386,6 +401,35 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     return result
 
 
+def get_teams_with_hogql_metric(
+    begin: datetime,
+    end: datetime,
+    query_types: List[str],
+    access_method: str = "",
+    metric: Literal["read_bytes", "read_rows", "query_duration_ms"] = "read_bytes",
+) -> List[Tuple[int, int]]:
+    if metric not in ["read_bytes", "read_rows", "query_duration_ms"]:
+        # :TRICKY: Inlined into the query below.
+        raise ValueError(f"Invalid metric {metric}")
+    result = sync_execute(
+        f"""
+        WITH JSONExtractInt(log_comment, 'team_id') as team_id,
+             JSONExtractString(log_comment, 'query_type') as query_type,
+             JSONExtractString(log_comment, 'access_method') as access_method
+        SELECT team_id, sum({metric}) as count
+        FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
+        WHERE (type = 'QueryFinish' OR type = 'ExceptionWhileProcessing')
+          AND is_initial_query = 1
+          AND query_type IN (%(query_types)s)
+          AND query_start_time between %(begin)s AND %(end)s
+          AND access_method = %(access_method)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end, "query_types": query_types, "access_method": access_method},
+    )
+    return result
+
+
 def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
     for row in rows:
         if "team_id" in row:
@@ -473,6 +517,90 @@ def send_all_org_usage_reports(
         teams_with_ff_active_count=list(
             FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
+        teams_with_hogql_app_bytes_read=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="read_bytes",
+            query_types=["hogql_query", "HogQLQuery"],
+            access_method="",
+        ),
+        teams_with_hogql_app_rows_read=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="read_rows",
+            query_types=["hogql_query", "HogQLQuery"],
+            access_method="",
+        ),
+        teams_with_hogql_app_duration_ms=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="query_duration_ms",
+            query_types=["hogql_query", "HogQLQuery"],
+            access_method="",
+        ),
+        teams_with_hogql_api_bytes_read=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="read_bytes",
+            query_types=["hogql_query", "HogQLQuery"],
+            access_method="personal_api_key",
+        ),
+        teams_with_hogql_api_rows_read=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="read_rows",
+            query_types=["hogql_query", "HogQLQuery"],
+            access_method="personal_api_key",
+        ),
+        teams_with_hogql_api_duration_ms=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="query_duration_ms",
+            query_types=["hogql_query", "HogQLQuery"],
+            access_method="personal_api_key",
+        ),
+        teams_with_event_explorer_app_bytes_read=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="read_bytes",
+            query_types=["EventsQuery"],
+            access_method="",
+        ),
+        teams_with_event_explorer_app_rows_read=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="read_rows",
+            query_types=["EventsQuery"],
+            access_method="",
+        ),
+        teams_with_event_explorer_app_duration_ms=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="query_duration_ms",
+            query_types=["EventsQuery"],
+            access_method="",
+        ),
+        teams_with_event_explorer_api_bytes_read=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="read_bytes",
+            query_types=["EventsQuery"],
+            access_method="personal_api_key",
+        ),
+        teams_with_event_explorer_api_rows_read=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="read_rows",
+            query_types=["EventsQuery"],
+            access_method="personal_api_key",
+        ),
+        teams_with_event_explorer_api_duration_ms=get_teams_with_hogql_metric(
+            period_start,
+            period_end,
+            metric="query_duration_ms",
+            query_types=["EventsQuery"],
+            access_method="personal_api_key",
+        ),
     )
 
     teams: Sequence[Team] = list(
@@ -506,6 +634,30 @@ def send_all_org_usage_reports(
             dashboard_tagged_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_tagged_count"]),
             ff_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_count"]),
             ff_active_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_active_count"]),
+            hogql_app_bytes_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_app_bytes_read"]),
+            hogql_app_rows_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_app_rows_read"]),
+            hogql_app_duration_ms=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_app_duration_ms"]),
+            hogql_api_bytes_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_bytes_read"]),
+            hogql_api_rows_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_rows_read"]),
+            hogql_api_duration_ms=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_duration_ms"]),
+            event_explorer_app_bytes_read=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_app_bytes_read"]
+            ),
+            event_explorer_app_rows_read=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_app_rows_read"]
+            ),
+            event_explorer_app_duration_ms=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_app_duration_ms"]
+            ),
+            event_explorer_api_bytes_read=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_api_bytes_read"]
+            ),
+            event_explorer_api_rows_read=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_api_rows_read"]
+            ),
+            event_explorer_api_duration_ms=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_explorer_api_duration_ms"]
+            ),
         )
 
         org_id = str(team.organization.id)

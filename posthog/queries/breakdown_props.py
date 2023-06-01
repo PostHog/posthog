@@ -218,6 +218,7 @@ def get_breakdown_prop_values(
         },
         query_type="get_breakdown_prop_values",
         filter=filter,
+        team_id=team.pk,
     )[0][0]
 
 
