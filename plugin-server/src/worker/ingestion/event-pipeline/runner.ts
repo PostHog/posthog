@@ -53,7 +53,7 @@ export class EventPipelineRunner {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
-            let result: EventPipelineResult | null = null
+            let result: EventPipelineResult
             const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
             if (eventWithTeam != null) {
                 result = await this.runEventPipelineSteps(eventWithTeam)
@@ -97,8 +97,12 @@ export class EventPipelineRunner {
 
         const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent], event.team_id)
 
-        const rawClickhouseEvent = await this.runStep(createEventStep, [this, preparedEvent, person], event.team_id)
-        return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person])
+        const [rawClickhouseEvent, eventAck] = await this.runStep(
+            createEventStep,
+            [this, preparedEvent, person],
+            event.team_id
+        )
+        return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
     }
 
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
@@ -119,12 +123,17 @@ export class EventPipelineRunner {
         }
     }
 
-    registerLastStep(stepName: string, teamId: number | null, args: any[]): EventPipelineResult {
+    registerLastStep(
+        stepName: string,
+        teamId: number | null,
+        args: any[],
+        promises?: Array<Promise<void>>
+    ): EventPipelineResult {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
             step: stepName,
             team_id: String(teamId), // NOTE: potentially high cardinality
         })
-        return { lastStep: stepName, args }
+        return { promises: promises, lastStep: stepName, args }
     }
 
     protected runStep<Step extends (...args: any[]) => any>(

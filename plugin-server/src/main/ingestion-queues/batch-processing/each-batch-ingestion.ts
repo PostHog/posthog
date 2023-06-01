@@ -119,13 +119,16 @@ export async function eachBatchParallelIngestion(
             .observe(splitBatch.toProcess.length)
         const tasks = [...Array(parallelism)].map(() => processMicroBatches(splitBatch.toProcess))
         if (splitBatch.toOverflow.length > 0) {
-            const overflowSpan = transaction.startChild({ op: 'emitToOverflow' })
+            const overflowSpan = transaction.startChild({
+                op: 'emitToOverflow',
+                data: { eventCount: splitBatch.toOverflow.length },
+            })
             tasks.push(emitToOverflow(queue, splitBatch.toOverflow))
             overflowSpan.finish()
         }
         await Promise.all(tasks)
 
-        const awaitSpan = transaction.startChild({ op: 'awaitACKs' })
+        const awaitSpan = transaction.startChild({ op: 'awaitACKs', data: { promiseCount: processingPromises.length } })
         await Promise.all(processingPromises)
         awaitSpan.finish()
 
