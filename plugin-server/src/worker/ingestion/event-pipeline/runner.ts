@@ -75,6 +75,7 @@ export class EventPipelineRunner {
                 // for a reason that we control and that is transient.
                 throw error
             }
+            this.hub.statsd?.increment('kafka_queue.single_event.silent_failure')
 
             return { lastStep: error.step, args: [], error: error.message }
         }
@@ -128,6 +129,8 @@ export class EventPipelineRunner {
                 // for a reason that we control and that is transient.
                 throw error
             }
+
+            this.hub.statsd?.increment('kafka_queue.async_handlers.silent_failure')
 
             return { lastStep: error.step, args: [], error: error.message }
         }
