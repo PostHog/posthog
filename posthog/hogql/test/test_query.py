@@ -951,13 +951,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                               group by col_a
                           )
                    SELECT *
-                     from PIVOT_FUNCTION_2
+                     FROM PIVOT_FUNCTION_2
+                 ORDER BY col_a
             """
             response = execute_hogql_query(
                 query,
                 team=self.team,
             )
-            self.assertEqual(response.results, [("1", [("random event", 1)]), ("0", [("random event", 1)])])
+            self.assertEqual(response.results, [("0", [("random event", 1)]), ("1", [("random event", 1)])])
             self.assertEqual(
                 response.clickhouse,
                 f"SELECT PIVOT_FUNCTION_2.col_a, PIVOT_FUNCTION_2.r FROM "
@@ -967,7 +968,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"AS col_a, events.event AS col_b, count() AS col_c FROM events WHERE equals(events.team_id, {self.team.pk}) "
                 f"GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), "
                 f"'^\"|\"$', ''), events.event) AS PIVOT_TABLE_COL_ABC GROUP BY PIVOT_TABLE_COL_ABC.col_a) AS PIVOT_FUNCTION_1 "
-                f"GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2 "
+                f"GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2 ORDER BY PIVOT_FUNCTION_2.col_a ASC "
                 f"LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
             )
 
@@ -996,13 +997,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                           ),
                           final as (select * from PIVOT_FUNCTION_2)
                    SELECT *
-                     from final
+                     FROM final
+                 ORDER BY col_a
             """
             response = execute_hogql_query(
                 query,
                 team=self.team,
             )
-            self.assertEqual(response.results, [("1", [("random event", 1)]), ("0", [("random event", 1)])])
+            self.assertEqual(response.results, [("0", [("random event", 1)]), ("1", [("random event", 1)])])
             self.assertEqual(
                 response.clickhouse,
                 f"SELECT final.col_a, final.r FROM (SELECT PIVOT_FUNCTION_2.col_a, PIVOT_FUNCTION_2.r FROM "
@@ -1012,6 +1014,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"events.event AS col_b, count() AS col_c FROM events WHERE equals(events.team_id, {self.team.pk}) "
                 f"GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), "
                 f"events.event) AS PIVOT_TABLE_COL_ABC GROUP BY PIVOT_TABLE_COL_ABC.col_a) AS PIVOT_FUNCTION_1 "
-                f"GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2) AS final LIMIT 100 "
+                f"GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2) AS final ORDER BY final.col_a ASC LIMIT 100 "
                 f"SETTINGS readonly=1, max_execution_time=60",
             )
