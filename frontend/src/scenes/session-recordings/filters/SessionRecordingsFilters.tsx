@@ -99,7 +99,7 @@ export function SessionRecordingsFilters({
                     onChange={(newFilter) => {
                         setFilters({ session_recording_duration: newFilter })
                     }}
-                    initialFilter={filters.session_recording_duration as RecordingDurationFilter}
+                    filter={filters.session_recording_duration as RecordingDurationFilter}
                     pageKey={'session-recordings'}
                 />
             </div>
