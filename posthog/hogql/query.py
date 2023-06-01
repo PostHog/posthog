@@ -84,6 +84,7 @@ def execute_hogql_query(
         with_column_types=True,
         query_type=query_type,
         workload=workload,
+        team_id=team.pk,
     )
 
     return HogQLQueryResponse(
