@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
-export enum FeatureFlagsTabs { // TODO: Rename to singular "FeatureFlagTab" in line with enum convention
+export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
     HISTORY = 'history',
     EXPOSURE = 'exposure',
@@ -38,7 +38,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setActiveTab: (tabKey: FeatureFlagsTabs) => ({ tabKey }),
+        setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
     },
     loaders: ({ values }) => ({
@@ -153,10 +153,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             deleteFlag: (state, { id }) => state.filter((flag) => flag.id !== id),
         },
         activeTab: [
-            FeatureFlagsTabs.OVERVIEW as FeatureFlagsTabs,
+            FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
             {
                 setActiveTab: (state, { tabKey }) =>
-                    Object.values<string>(FeatureFlagsTabs).includes(tabKey) ? tabKey : state,
+                    Object.values<string>(FeatureFlagsTab).includes(tabKey) ? tabKey : state,
             },
         ],
         filters: [
@@ -183,7 +183,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             }
 
             let replace = false // set a page in history
-            if (!searchParams['tab'] && values.activeTab === FeatureFlagsTabs.OVERVIEW) {
+            if (!searchParams['tab'] && values.activeTab === FeatureFlagsTab.OVERVIEW) {
                 // we are on the overview page, and have clicked the overview tab, don't set history
                 replace = true
             }
@@ -197,8 +197,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             const tabInURL = searchParams['tab']
 
             if (!tabInURL) {
-                if (values.activeTab !== FeatureFlagsTabs.OVERVIEW) {
-                    actions.setActiveTab(FeatureFlagsTabs.OVERVIEW)
+                if (values.activeTab !== FeatureFlagsTab.OVERVIEW) {
+                    actions.setActiveTab(FeatureFlagsTab.OVERVIEW)
                 }
             } else if (tabInURL !== values.activeTab) {
                 actions.setActiveTab(tabInURL)
