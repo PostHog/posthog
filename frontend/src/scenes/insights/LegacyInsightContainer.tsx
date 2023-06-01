@@ -1,5 +1,5 @@
 import { Card, Col, Row } from 'antd'
-import { LegacyInsightDisplayConfig } from 'scenes/insights/InsightDisplayConfig'
+import { LegacyInsightDisplayConfig } from 'scenes/insights/LegacyInsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
@@ -173,6 +173,13 @@ export function LegacyInsightContainer({
         }
 
         return null
+    }
+
+    if (!isFunnelsFilter(filters) && !isTrendsFilter(filters)) {
+        // The legacy InsightContainer should only be used in Experiments,
+        // where we only have funnel and trend insights, allowing us already
+        // to gradually remove the other insight types here
+        throw new Error('Unsupported insight type')
     }
 
     return (
