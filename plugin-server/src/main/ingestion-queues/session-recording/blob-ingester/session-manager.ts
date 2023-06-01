@@ -164,7 +164,11 @@ export class SessionManager {
         }
     }
 
-    public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
+    public async flushIfSessionBufferIsOld(
+        referenceNow: number,
+        flushThresholdMillis: number,
+        dropIdleChunksThreshold: number
+    ): Promise<void> {
         if (this.destroying) {
             return
         }
@@ -175,6 +179,8 @@ export class SessionManager {
             referenceTimeHumanReadable: DateTime.fromMillis(referenceNow).toISO(),
             flushThresholdMillis,
         }
+
+        this.chunks = this.handleIdleChunks(this.chunks, referenceNow, dropIdleChunksThreshold, logContext)
 
         if (this.buffer.oldestKafkaTimestamp === null) {
             // We have no messages yet, so we can't flush
@@ -187,8 +193,6 @@ export class SessionManager {
 
         const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
         logContext['bufferAge'] = bufferAge
-
-        this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
 
         if (bufferAge >= flushThresholdMillis) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {

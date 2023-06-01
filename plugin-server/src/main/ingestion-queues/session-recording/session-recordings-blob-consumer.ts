@@ -373,7 +373,8 @@ export class SessionRecordingBlobIngester {
                 void sessionManager
                     .flushIfSessionBufferIsOld(
                         referenceTime,
-                        this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+                        this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000,
+                        this.serverConfig.SESSION_RECORDING_IDLE_CHUNKS_THRESHOLD_SECONDS * 1000
                     )
                     .catch((err) => {
                         status.error(

@@ -125,6 +125,9 @@ export function getDefaultConfig(): PluginsServerConfig {
             ? 1024 // NOTE: ~1MB in dev or test, so that even with gzipped content we still flush pretty frequently
             : 1024 * 50, // ~50MB after compression in prod
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
+        // a different threshold to SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS because we want
+        // more tolerance for idle chunks to avoid dropping chunks that will eventually be completed
+        SESSION_RECORDING_IDLE_CHUNKS_THRESHOLD_SECONDS: 60 * 120, // NOTE: 2 HOURS
     }
 }
 

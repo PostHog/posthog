@@ -147,104 +147,6 @@ describe('session-manager', () => {
         expect(sessionManager.buffer).toHaveProperty('oldestKafkaTimestamp', 5000)
     })
 
-    it('does not flush if it has received a message recently', async () => {
-        const flushThreshold = 2500 // any value here...
-        const now = DateTime.now()
-
-        const payload = JSON.stringify([{ simple: 'data' }])
-        const event = createIncomingRecordingMessage({
-            data: compressToString(payload),
-            metadata: {
-                timestamp: now
-                    .minus({
-                        milliseconds: flushThreshold - 10, // less than the threshold
-                    })
-                    .toMillis(),
-            } as any,
-        })
-
-        await sessionManager.add(event)
-
-        await sessionManager.flushIfSessionBufferIsOld(now.toMillis(), flushThreshold)
-
-        // as a proxy for flush having been called or not
-        expect(createReadStream).not.toHaveBeenCalled()
-    })
-
-    it('does flush if it has not received a message recently', async () => {
-        const flushThreshold = 2500 // any value here...
-        const firstTimestamp = 1679568043305
-        const lastTimestamp = 1679568043305 + 4000
-
-        const payload = JSON.stringify([{ simple: 'data' }])
-        const eventOne = createIncomingRecordingMessage({
-            data: compressToString(payload),
-            events_summary: [
-                {
-                    timestamp: firstTimestamp,
-                    type: 4,
-                    data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
-                },
-            ],
-            metadata: {
-                timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
-            } as any,
-        })
-        const eventTwo = createIncomingRecordingMessage({
-            data: compressToString(payload),
-            events_summary: [
-                {
-                    timestamp: lastTimestamp,
-                    type: 4,
-                    data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
-                },
-            ],
-            metadata: {
-                timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
-            } as any,
-        })
-
-        await sessionManager.add(eventOne)
-        await sessionManager.add(eventTwo)
-
-        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), flushThreshold)
-
-        // as a proxy for flush having been called or not
-        expect(createReadStream).toHaveBeenCalled()
-        const mockUploadCalls = (Upload as unknown as jest.Mock).mock.calls
-        expect(mockUploadCalls.length).toBe(1)
-        expect(mockUploadCalls[0].length).toBe(1)
-        expect(mockUploadCalls[0][0]).toEqual(
-            expect.objectContaining({
-                params: expect.objectContaining({
-                    Key: `session_recordings/team_id/1/session_id/session_id_1/data/${firstTimestamp}-${lastTimestamp}`,
-                }),
-            })
-        )
-    })
-
-    it('does not flush a short session even when lagging if within threshold', async () => {
-        // a timestamp that means the message is older than threshold and all-things-being-equal should flush
-        // uses timestamps offset from now to show this logic still works even if the consumer is running behind
-        const aDayInMilliseconds = 24 * 60 * 60 * 1000
-        const now = DateTime.now()
-
-        const payload = JSON.stringify([{ simple: 'data' }])
-        const event = createIncomingRecordingMessage({
-            data: compressToString(payload),
-            metadata: {
-                timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
-            } as any,
-        })
-
-        await sessionManager.add(event)
-
-        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
-
-        // as a proxy for flush having been called or not
-        expect(createReadStream).not.toHaveBeenCalled()
-    })
-
     it('flushes messages', async () => {
         const event = createIncomingRecordingMessage()
         await sessionManager.add(event)
@@ -353,163 +255,6 @@ describe('session-manager', () => {
 
     it.each([
         [
-            'incomplete and below threshold of 1000, we keep it in the chunks buffer',
-            2000,
-            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage] },
-            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage] },
-            [],
-        ],
-        [
-            'incomplete and over the threshold, drop the chunks copying the offsets into the buffer',
-            2500,
-            {
-                '1': [
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 245 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            {},
-            [245],
-        ],
-        [
-            'over-complete and over the threshold, should not be possible - drop them',
-            2500,
-            {
-                '1': [
-                    {
-                        chunk_count: 2,
-                        chunk_index: 0,
-                        data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-                        metadata: { timestamp: 997, offset: 123 },
-                    } as IncomingRecordingMessage,
-                    //receives chunk two three times 😱
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                        metadata: { timestamp: 998, offset: 124 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 999, offset: 125 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 126 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            {},
-            [123, 124, 125, 126],
-        ],
-        [
-            'over-complete and under the threshold, do nothing',
-            1000,
-            {
-                '1': [
-                    //receives chunk two three times 😱
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                        metadata: { timestamp: 998, offset: 245 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 999, offset: 246 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 247 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            {
-                '1': [
-                    //receives chunk two three times 😱
-                    // drops one of the duplicates in the processing
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                        metadata: { timestamp: 998, offset: 245 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 999, offset: 246 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 247 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            [],
-        ],
-        [
-            'over-complete and over the threshold, but not all chunks are present, drop the chunks',
-            4000,
-            {
-                1: [
-                    //receives chunk two three times 😱
-                    // worse, the chunk is decompressible even though it is not complete
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                        metadata: { timestamp: 998, offset: 245 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 999, offset: 246 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 247 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            {},
-            [245, 246, 247],
-        ],
-    ])(
-        'correctly handles pending chunks - %s',
-        (
-            _description: string,
-            referenceNow: number,
-            chunks: Record<string, IncomingRecordingMessage[]>,
-            expectedChunks: Record<string, IncomingRecordingMessage[]>,
-            expectedBufferOffsets: number[]
-        ) => {
-            const pendingChunks = new Map<string, PendingChunks>()
-            Object.entries(chunks).forEach(([key, value]) => {
-                const pc = new PendingChunks(value[0])
-                ;(value as IncomingRecordingMessage[]).slice(1).forEach((chunk) => pc.add(chunk))
-                pendingChunks.set(key, pc)
-            })
-
-            const actualChunks = sessionManager.handleIdleChunks(pendingChunks, referenceNow, 1000, {})
-            expect(actualChunks.size).toEqual(Object.keys(expectedChunks).length)
-            Object.entries(expectedChunks).forEach(([key, value]) => {
-                expect(actualChunks.get(key)?.chunks).toEqual(value)
-            })
-            expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
-        }
-    )
-
-    it.each([
-        [
             'incomplete, we do not add to the buffer',
             [
                 { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage,
@@ -585,4 +330,328 @@ describe('session-manager', () => {
             expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
         }
     )
+
+    describe('idle flushing', () => {
+        const flushThreshold = 2500 // could be randomised...
+        const dropChunksFlushThreshold = flushThreshold * 10 // only needs to be bigger than flushThreshold
+
+        it.each([
+            [
+                'incomplete and below threshold of 1000, we keep it in the chunks buffer',
+                2000,
+                {
+                    '1': [
+                        { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage,
+                    ],
+                },
+                {
+                    '1': [
+                        { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage,
+                    ],
+                },
+                [],
+            ],
+            [
+                'incomplete and over the threshold, drop the chunks copying the offsets into the buffer',
+                2500,
+                {
+                    '1': [
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            metadata: { timestamp: 1000, offset: 245 },
+                        } as IncomingRecordingMessage,
+                    ],
+                },
+                {},
+                [245],
+            ],
+            [
+                'over-complete and over the threshold, should not be possible - drop them',
+                2500,
+                {
+                    '1': [
+                        {
+                            chunk_count: 2,
+                            chunk_index: 0,
+                            data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
+                            metadata: { timestamp: 997, offset: 123 },
+                        } as IncomingRecordingMessage,
+                        //receives chunk two three times 😱
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                            metadata: { timestamp: 998, offset: 124 },
+                        } as IncomingRecordingMessage,
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            metadata: { timestamp: 999, offset: 125 },
+                        } as IncomingRecordingMessage,
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            metadata: { timestamp: 1000, offset: 126 },
+                        } as IncomingRecordingMessage,
+                    ],
+                },
+                {},
+                [123, 124, 125, 126],
+            ],
+            [
+                'over-complete and under the threshold, do nothing',
+                1000,
+                {
+                    '1': [
+                        //receives chunk two three times 😱
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                            metadata: { timestamp: 998, offset: 245 },
+                        } as IncomingRecordingMessage,
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            metadata: { timestamp: 999, offset: 246 },
+                        } as IncomingRecordingMessage,
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            metadata: { timestamp: 1000, offset: 247 },
+                        } as IncomingRecordingMessage,
+                    ],
+                },
+                {
+                    '1': [
+                        //receives chunk two three times 😱
+                        // drops one of the duplicates in the processing
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                            metadata: { timestamp: 998, offset: 245 },
+                        } as IncomingRecordingMessage,
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            metadata: { timestamp: 999, offset: 246 },
+                        } as IncomingRecordingMessage,
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            metadata: { timestamp: 1000, offset: 247 },
+                        } as IncomingRecordingMessage,
+                    ],
+                },
+                [],
+            ],
+            [
+                'over-complete and over the threshold, but not all chunks are present, drop the chunks',
+                4000,
+                {
+                    1: [
+                        //receives chunk two three times 😱
+                        // worse, the chunk is decompressible even though it is not complete
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
+                            metadata: { timestamp: 998, offset: 245 },
+                        } as IncomingRecordingMessage,
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            metadata: { timestamp: 999, offset: 246 },
+                        } as IncomingRecordingMessage,
+                        {
+                            chunk_count: 2,
+                            chunk_index: 1,
+                            metadata: { timestamp: 1000, offset: 247 },
+                        } as IncomingRecordingMessage,
+                    ],
+                },
+                {},
+                [245, 246, 247],
+            ],
+        ])(
+            'correctly handles pending chunks - %s',
+            (
+                _description: string,
+                referenceNow: number,
+                chunks: Record<string, IncomingRecordingMessage[]>,
+                expectedChunks: Record<string, IncomingRecordingMessage[]>,
+                expectedBufferOffsets: number[]
+            ) => {
+                const pendingChunks = new Map<string, PendingChunks>()
+                Object.entries(chunks).forEach(([key, value]) => {
+                    const pc = new PendingChunks(value[0])
+                    ;(value as IncomingRecordingMessage[]).slice(1).forEach((chunk) => pc.add(chunk))
+                    pendingChunks.set(key, pc)
+                })
+
+                const actualChunks = sessionManager.handleIdleChunks(pendingChunks, referenceNow, 1000, {})
+                expect(actualChunks.size).toEqual(Object.keys(expectedChunks).length)
+                Object.entries(expectedChunks).forEach(([key, value]) => {
+                    expect(actualChunks.get(key)?.chunks).toEqual(value)
+                })
+                expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
+            }
+        )
+        it('does not flush if it has received a message recently', async () => {
+            const now = DateTime.now()
+
+            const payload = JSON.stringify([{ simple: 'data' }])
+            const event = createIncomingRecordingMessage({
+                data: compressToString(payload),
+                metadata: {
+                    timestamp: now
+                        .minus({
+                            milliseconds: flushThreshold - 10, // less than the threshold
+                        })
+                        .toMillis(),
+                } as any,
+            })
+
+            await sessionManager.add(event)
+
+            await sessionManager.flushIfSessionBufferIsOld(now.toMillis(), flushThreshold, dropChunksFlushThreshold)
+
+            // as a proxy for flush having been called or not
+            expect(createReadStream).not.toHaveBeenCalled()
+        })
+
+        it('does flush if it has not received a message recently', async () => {
+            const firstTimestamp = 1679568043305
+            const lastTimestamp = 1679568043305 + 4000
+
+            const payload = JSON.stringify([{ simple: 'data' }])
+            const eventOne = createIncomingRecordingMessage({
+                data: compressToString(payload),
+                events_summary: [
+                    {
+                        timestamp: firstTimestamp,
+                        type: 4,
+                        data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
+                    },
+                ],
+                metadata: {
+                    timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
+                } as any,
+            })
+            const eventTwo = createIncomingRecordingMessage({
+                data: compressToString(payload),
+                events_summary: [
+                    {
+                        timestamp: lastTimestamp,
+                        type: 4,
+                        data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
+                    },
+                ],
+                metadata: {
+                    timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
+                } as any,
+            })
+
+            await sessionManager.add(eventOne)
+            await sessionManager.add(eventTwo)
+
+            await sessionManager.flushIfSessionBufferIsOld(
+                DateTime.now().toMillis(),
+                flushThreshold,
+                dropChunksFlushThreshold
+            )
+
+            // as a proxy for flush having been called or not
+            expect(createReadStream).toHaveBeenCalled()
+            const mockUploadCalls = (Upload as unknown as jest.Mock).mock.calls
+            expect(mockUploadCalls.length).toBe(1)
+            expect(mockUploadCalls[0].length).toBe(1)
+            expect(mockUploadCalls[0][0]).toEqual(
+                expect.objectContaining({
+                    params: expect.objectContaining({
+                        Key: `session_recordings/team_id/1/session_id/session_id_1/data/${firstTimestamp}-${lastTimestamp}`,
+                    }),
+                })
+            )
+        })
+
+        it('does not flush a short session even when lagging if within threshold', async () => {
+            // a timestamp that means the message is older than threshold and all-things-being-equal should flush
+            // uses timestamps offset from now to show this logic still works even if the consumer is running behind
+            const aDayInMilliseconds = 24 * 60 * 60 * 1000
+            const now = DateTime.now()
+
+            const payload = JSON.stringify([{ simple: 'data' }])
+            const event = createIncomingRecordingMessage({
+                data: compressToString(payload),
+                metadata: {
+                    timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
+                } as any,
+            })
+
+            await sessionManager.add(event)
+
+            await sessionManager.flushIfSessionBufferIsOld(
+                now.minus({ milliseconds: aDayInMilliseconds }).toMillis(),
+                flushThreshold,
+                dropChunksFlushThreshold
+            )
+
+            // as a proxy for flush having been called or not
+            expect(createReadStream).not.toHaveBeenCalled()
+        })
+
+        it('can avoid dropping pending chunks even if there are no messages in buffer', async () => {
+            const now = flushThreshold + 1 // close to the flush threshold, but not over it
+            const insideIdleFLushThreshold = now - dropChunksFlushThreshold + 1
+
+            const payload = JSON.stringify([{ simple: 'data' }])
+
+            const event = createIncomingRecordingMessage({
+                data: compressToString(payload),
+                chunk_count: 2,
+                metadata: {
+                    // inside the idle flush threshold but outside the flush threshold
+                    // should not drop pending chunks
+                    timestamp: insideIdleFLushThreshold,
+                } as any,
+            })
+
+            await sessionManager.add(event)
+            expect(sessionManager.chunks.size).toEqual(1)
+
+            await sessionManager.flushIfSessionBufferIsOld(now, flushThreshold, dropChunksFlushThreshold)
+
+            // as a proxy for flush having been called or not
+            expect(createReadStream).not.toHaveBeenCalled()
+            expect(sessionManager.chunks.size).toEqual(1)
+        })
+
+        it('can drop pending chunks even if there are no messages in buffer', async () => {
+            const now = flushThreshold + 1 // close to the flush threshold, but not over it
+            const outsideTheIdleFLushThreshold = now - dropChunksFlushThreshold - 1
+
+            const payload = JSON.stringify([{ simple: 'data' }])
+            const event = createIncomingRecordingMessage({
+                data: compressToString(payload),
+                chunk_count: 2,
+                metadata: {
+                    // outside the idle flush threshold and so, outside the flush threshold
+                    // should drop pending chunks
+                    timestamp: outsideTheIdleFLushThreshold,
+                } as any,
+            })
+
+            await sessionManager.add(event)
+            expect(sessionManager.chunks.size).toEqual(1)
+
+            await sessionManager.flushIfSessionBufferIsOld(now, flushThreshold, dropChunksFlushThreshold)
+
+            // as a proxy for flush having been called or not
+            expect(createReadStream).not.toHaveBeenCalled()
+            expect(sessionManager.chunks.size).toEqual(0)
+        })
+    })
 })
