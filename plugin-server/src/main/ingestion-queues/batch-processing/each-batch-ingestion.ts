@@ -27,12 +27,19 @@ type IngestionSplitBatch = {
     toOverflow: KafkaMessage[]
 }
 
+// Subset of EventPipelineResult to make sure we don't access what's exported for the tests
+type IngestResult = {
+    // Promises that the batch handler should await on before committing offsets,
+    // contains the Kafka producer ACKs, to avoid blocking after every message.
+    promises?: Array<Promise<void>>
+}
+
 export async function eachBatchParallelIngestion(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
     queue: IngestionConsumer,
     overflowMode: IngestionOverflowMode
 ): Promise<void> {
-    async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<EventPipelineResult> {
+    async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<IngestResult> {
         return ingestEvent(queue.pluginsServer, queue.workerMethods, event)
     }
 
