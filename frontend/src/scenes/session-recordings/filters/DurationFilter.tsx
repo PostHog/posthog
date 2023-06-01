@@ -25,8 +25,8 @@ export function DurationFilter({ filter, onChange }: Props): JSX.Element {
     return (
         <Popover
             visible={isOpen}
-            placement={'bottom-end'}
-            fallbackPlacements={['bottom-start']}
+            placement={'bottom-start'}
+            fallbackPlacements={['bottom-end']}
             onClickOutside={() => setIsOpen(false)}
             overlay={
                 <div className="flex gap-2">
