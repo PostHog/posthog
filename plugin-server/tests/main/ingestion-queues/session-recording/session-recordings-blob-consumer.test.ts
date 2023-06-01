@@ -143,38 +143,4 @@ describe('ingester', () => {
             expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
         })
     })
-
-    // it('skips messages that are below the high-water mark', async () => {
-    //     mockHighWaterMark.get.mockResolvedValue(1000)
-    //
-    //     await sessionManager.add(
-    //         createIncomingRecordingMessage({
-    //             metadata: {
-    //                 offset: 998,
-    //             } as any,
-    //         })
-    //     )
-    //     expect(sessionManager.buffer.count).toEqual(0)
-    //     expect(sessionManager.buffer.offsets).toEqual([998])
-    //
-    //     await sessionManager.add(
-    //         createIncomingRecordingMessage({
-    //             metadata: {
-    //                 offset: 1000,
-    //             } as any,
-    //         })
-    //     )
-    //     expect(sessionManager.buffer.count).toEqual(0)
-    //     expect(sessionManager.buffer.offsets).toEqual([998, 1000])
-    //
-    //     await sessionManager.add(
-    //         createIncomingRecordingMessage({
-    //             metadata: {
-    //                 offset: 1001,
-    //             } as any,
-    //         })
-    //     )
-    //     expect(sessionManager.buffer.count).toEqual(1)
-    //     expect(sessionManager.buffer.offsets).toEqual([998, 1000, 1001])
-    // })
 })
