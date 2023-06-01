@@ -1,7 +1,7 @@
 import './PlayerMeta.scss'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,16 +10,14 @@ import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonButton, Link } from '@posthog/lemon-ui'
-import { playerSettingsLogic } from './playerSettingsLogic'
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { CSSTransition } from 'react-transition-group'
+import { Link } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
-import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 
 function SessionPropertyMeta(props: {
     fullScreen: boolean
@@ -72,22 +70,19 @@ function SessionPropertyMeta(props: {
     )
 }
 
-export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerMeta(): JSX.Element {
+    const { sessionRecordingId, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+
     const {
         sessionPerson,
         resolution,
         lastPageviewEvent,
         scale,
         currentWindowIndex,
-        recordingStartTime,
+        startTime,
         sessionPlayerMetaDataLoading,
-        windowIds,
-    } = useValues(playerMetaLogic(props))
-
-    const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
-    const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
-
-    const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
+        sessionProperties,
+    } = useValues(playerMetaLogic(logicProps))
 
     const { ref, size } = useResizeBreakpoints({
         0: 'compact',
@@ -96,6 +91,55 @@ export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
 
     const isSmallPlayer = size === 'compact'
 
+    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+    const whitelabel = getCurrentExporterData()?.whitelabel ?? false
+
+    const resolutionView = sessionPlayerMetaDataLoading ? (
+        <LemonSkeleton className="w-1/3" />
+    ) : resolution ? (
+        <Tooltip
+            placement="bottom"
+            title={
+                <>
+                    The resolution of the page as it was captured was{' '}
+                    <b>
+                        {resolution.width} x {resolution.height}
+                    </b>
+                    <br />
+                    You are viewing the replay at <b>{percentage(scale, 1, true)}</b> of the original size
+                </>
+            }
+        >
+            <span className="text-muted-alt text-xs">
+                {resolution && (
+                    <>
+                        {resolution.width} x {resolution.height} {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
+                    </>
+                )}
+            </span>
+        </Tooltip>
+    ) : null
+
+    if (mode === SessionRecordingPlayerMode.Sharing) {
+        if (whitelabel) {
+            return <></>
+        }
+        return (
+            <div className="PlayerMeta">
+                <div className="flex justify-between items-center m-2">
+                    {!whitelabel ? (
+                        <Tooltip title="Powered by PostHog" placement="right">
+                            <Link to={'https://posthog.com'} className="flex items-center" target="blank">
+                                <FriendlyLogo />
+                            </Link>
+                        </Tooltip>
+                    ) : null}
+                    {resolutionView}
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div
             ref={ref}
@@ -103,37 +147,31 @@ export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
                 'PlayerMeta--fullscreen': isFullScreen,
             })}
         >
-            {isFullScreen && (
-                <div className="PlayerMeta__escape">
-                    <div className="bg-muted-dark text-white px-2 py-1 rounded shadow my-1 mx-auto">
-                        Press <kbd className="font-bold">Esc</kbd> to exit full screen
-                    </div>
-                </div>
-            )}
-
             <div
                 className={clsx(
-                    'PlayerMeta__top flex items-center gap-2 shrink-0',
-                    isFullScreen ? 'px-3 p-1 text-xs' : 'p-3 border-b'
+                    'PlayerMeta__top flex items-center gap-2 shrink-0 p-2',
+                    isFullScreen ? ' text-xs' : 'border-b'
                 )}
             >
                 <div className="ph-no-capture">
                     {!sessionPerson ? (
-                        <LemonSkeleton.Circle className="w-10 h-10" />
+                        <LemonSkeleton.Circle className="w-8 h-8" />
                     ) : (
-                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xl' : 'md'} />
+                        <ProfilePicture name={asDisplay(sessionPerson)} />
                     )}
                 </div>
                 <div className="overflow-hidden ph-no-capture flex-1">
                     <div className="font-bold">
-                        {!sessionPerson || !recordingStartTime ? (
+                        {!sessionPerson || !startTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
                         ) : (
                             <div className="flex gap-1">
-                                <PersonHeader person={sessionPerson} withIcon={false} noEllipsis={true} />
+                                <span className="whitespace-nowrap truncate">
+                                    <PersonHeader person={sessionPerson} withIcon={false} noEllipsis={true} />
+                                </span>
                                 {'·'}
                                 <TZLabel
-                                    time={dayjs(recordingStartTime)}
+                                    time={dayjs(startTime)}
                                     formatDate="MMMM DD, YYYY"
                                     formatTime="h:mm A"
                                     showPopover={false}
@@ -144,71 +182,39 @@ export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
                     <div className="text-muted">
                         {sessionPlayerMetaDataLoading ? (
                             <LemonSkeleton className="w-1/4 my-1" />
-                        ) : iconProperties ? (
+                        ) : sessionProperties ? (
                             <SessionPropertyMeta
                                 fullScreen={isFullScreen}
-                                iconProperties={iconProperties}
+                                iconProperties={sessionProperties}
                                 predicate={(x) => !!x}
                             />
                         ) : null}
                     </div>
                 </div>
 
-                {!props.embedded && (
-                    <>
-                        <LemonButton
-                            className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
-                            status="stealth"
-                            active={isMetadataExpanded}
-                            onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
-                            tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
-                            tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
-                            size="small"
-                        >
-                            {isMetadataExpanded ? (
-                                <IconUnfoldLess className="text-lg text-muted-alt" />
-                            ) : (
-                                <IconUnfoldMore className="text-lg text-muted-alt" />
-                            )}
-                        </LemonButton>
-                        {props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
-                    </>
-                )}
+                {sessionRecordingId ? <PlayerMetaLinks /> : null}
             </div>
-            {sessionPerson && (
-                <CSSTransition
-                    in={isMetadataExpanded}
-                    timeout={200}
-                    classNames="PlayerMetaPersonProperties-"
-                    mountOnEnter
-                    unmountOnExit
-                >
-                    <div className="PlayerMetaPersonProperties">
-                        {Object.keys(sessionPerson.properties).length ? (
-                            <PropertiesTable properties={sessionPerson.properties} searchable filterable />
-                        ) : (
-                            <p className="text-center m-4">There are no properties.</p>
-                        )}
-                    </div>
-                </CSSTransition>
-            )}
             <div
-                className={clsx(
-                    'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
-                    {
-                        'p-2': !isFullScreen,
-                        'p-1 px-3 text-xs h-12': isFullScreen,
-                    }
-                )}
+                className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
+                    'p-2 h-10': !isFullScreen,
+                    'p-1 px-3 text-xs h-12': isFullScreen,
+                })}
             >
-                {sessionPlayerMetaDataLoading || currentWindowIndex === -1 ? (
+                {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3 my-1" />
-                ) : (
+                ) : currentWindowIndex >= 0 ? (
                     <>
-                        <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
-                        {windowIds.length > 1 && !isSmallPlayer ? (
-                            <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>
-                        ) : null}
+                        <Tooltip
+                            title={
+                                <>
+                                    Window {currentWindowIndex + 1}.
+                                    <br />
+                                    Each recording window translates to a distinct browser tab or window.
+                                </>
+                            }
+                        >
+                            <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
+                        </Tooltip>
 
                         {lastPageviewEvent?.properties?.['$current_url'] && (
                             <span className="flex items-center gap-2 truncate">
@@ -242,20 +248,9 @@ export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
                             </span>
                         )}
                     </>
-                )}
+                ) : null}
                 <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
-                {sessionPlayerMetaDataLoading ? (
-                    <LemonSkeleton className="w-1/3" />
-                ) : (
-                    <span className="text-muted-alt">
-                        {resolution && (
-                            <>
-                                Resolution: {resolution.width} x {resolution.height}{' '}
-                                {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
-                            </>
-                        )}
-                    </span>
-                )}
+                {resolutionView}
             </div>
         </div>
     )

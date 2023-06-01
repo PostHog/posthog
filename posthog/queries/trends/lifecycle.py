@@ -75,13 +75,15 @@ class Lifecycle:
             },
             query_type="lifecycle_people",
             filter=filter,
+            team_id=team.pk,
         )
         people = get_persons_by_uuids(team=team, uuids=[p[0] for p in result])
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         from posthog.api.person import PersonSerializer
 
-        return PersonSerializer(people, many=True).data
+        serializer_context = {"get_team": lambda: team}
+        return PersonSerializer(people, context=serializer_context, many=True).data
 
     def _get_persons_urls(self, filter: Filter, entity: Entity, times: List[str], status) -> List[Dict[str, Any]]:
         persons_url = []

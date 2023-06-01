@@ -56,14 +56,14 @@ describe('dateFilterLogic', () => {
             key: 'test',
             onChange,
             dateFrom: '-1dStart',
-            dateTo: 'dStart',
+            dateTo: '-1dEnd',
             dateOptions: dateMapping,
             isDateFormatted: false,
         }
         const withDateFrom = dateFilterLogic(props)
         withDateFrom.mount()
 
-        await expectLogic(withDateFrom).toMatchValues({ dateFrom: '-1dStart', dateTo: 'dStart', label: 'Yesterday' })
+        await expectLogic(withDateFrom).toMatchValues({ dateFrom: '-1dStart', dateTo: '-1dEnd', label: 'Yesterday' })
         expect(onChange).not.toHaveBeenCalled()
     })
 

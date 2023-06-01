@@ -5,12 +5,7 @@ import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import {
-    FunnelCorrelation,
-    FunnelCorrelationResultsType,
-    FunnelCorrelationType,
-    FunnelStepWithNestedBreakdown,
-} from '~/types'
+import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
@@ -28,68 +23,11 @@ import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsa
 
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { Noun } from '~/models/groupsModel'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
-
-export function FunnelCorrelationTableDataExploration(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const { steps, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
-    const { loadedEventCorrelationsTableOnce } = useValues(funnelCorrelationLogic(insightProps))
-    const { loadEventCorrelations } = useActions(funnelCorrelationLogic(insightProps))
-
-    // Load correlations only if this component is mounted, and then reload if the query changes
-    useEffect(() => {
-        // We only automatically refresh results when the query changes after the user has manually asked for the first results to be loaded
-        if (loadedEventCorrelationsTableOnce) {
-            loadEventCorrelations({})
-        }
-    }, [querySource])
-
-    return (
-        <FunnelCorrelationTableComponent
-            steps={steps}
-            aggregation_group_type_index={querySource?.aggregation_group_type_index}
-            aggregationTargetLabel={aggregationTargetLabel}
-        />
-    )
-}
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { steps, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
-    const { loadedEventCorrelationsTableOnce } = useValues(funnelCorrelationLogic(insightProps))
-    const { loadEventCorrelations } = useActions(funnelCorrelationLogic(insightProps))
-
-    // Load correlations only if this component is mounted, and then reload if filters change
-    useEffect(() => {
-        // We only automatically refresh results when filters change after the user has manually asked for the first results to be loaded
-        if (loadedEventCorrelationsTableOnce) {
-            loadEventCorrelations({})
-        }
-    }, [filters])
-
-    return (
-        <FunnelCorrelationTableComponent
-            steps={steps}
-            aggregation_group_type_index={filters?.aggregation_group_type_index}
-            aggregationTargetLabel={aggregationTargetLabel}
-        />
-    )
-}
-
-type FunnelCorrelationTableComponentProps = {
-    steps: FunnelStepWithNestedBreakdown[]
-    aggregation_group_type_index?: number | undefined
-    aggregationTargetLabel: Noun
-}
-
-export function FunnelCorrelationTableComponent({
-    steps,
-    aggregation_group_type_index,
-    aggregationTargetLabel,
-}: FunnelCorrelationTableComponentProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const { openCorrelationPersonsModal } = useActions(funnelLogic(insightProps))
+    const { steps, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
     const {
         correlationTypes,
         correlationsLoading,
@@ -107,6 +45,16 @@ export function FunnelCorrelationTableComponent({
         addNestedTableExpandedKey,
         removeNestedTableExpandedKey,
     } = useActions(funnelCorrelationLogic(insightProps))
+
+    // Load correlations only if this component is mounted, and then reload if the query changes
+    useEffect(() => {
+        // We only automatically refresh results when the query changes after the user has manually asked for the first results to be loaded
+        if (loadedEventCorrelationsTableOnce) {
+            loadEventCorrelations({})
+        }
+    }, [querySource])
+
+    const { openCorrelationPersonsModal } = useActions(funnelLogic(insightProps))
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
     const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
 
@@ -148,7 +96,7 @@ export function FunnelCorrelationTableComponent({
                 </h4>
                 <div>
                     {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                    {aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
+                    {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
                     <mark>
                         <b>
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
@@ -291,8 +239,8 @@ export function FunnelCorrelationTableComponent({
                             <Empty />
                         ) : (
                             <p style={{ margin: 'auto', maxWidth: 500 }}>
-                                Correlated events highlights events users have also performed that are likely to have
-                                affected their conversion rate within the funnel.{' '}
+                                Highlight events which are likely to have affected the conversion rate within the
+                                funnel.{' '}
                                 <Link to="https://posthog.com/manual/correlation">
                                     Learn more about correlation analysis.
                                 </Link>
@@ -323,7 +271,7 @@ export function FunnelCorrelationTableComponent({
                         expandable={{
                             expandedRowRender: (record) => renderNestedTable(record.event.event),
                             expandedRowKeys: nestedTableExpandedKeys,
-                            rowExpandable: () => aggregation_group_type_index === undefined,
+                            rowExpandable: () => querySource?.aggregation_group_type_index === undefined,
                             expandIcon: ({ expanded, onExpand, record, expandable }) => {
                                 if (!expandable) {
                                     return null
@@ -374,7 +322,7 @@ export function FunnelCorrelationTableComponent({
                                     Completed
                                     <Tooltip
                                         title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                            aggregation_group_type_index != undefined ? 'that' : 'who'
+                                            querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } performed the event and completed the entire funnel.`}
                                     >
                                         <InfoCircleOutlined className="column-info" />
@@ -394,8 +342,10 @@ export function FunnelCorrelationTableComponent({
                                         title={
                                             <>
                                                 {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                                                {aggregation_group_type_index != undefined ? 'that' : 'who'} performed
-                                                the event and did <b>not complete</b> the entire funnel.
+                                                {querySource?.aggregation_group_type_index != undefined
+                                                    ? 'that'
+                                                    : 'who'}{' '}
+                                                performed the event and did <b>not complete</b> the entire funnel.
                                             </>
                                         }
                                     >

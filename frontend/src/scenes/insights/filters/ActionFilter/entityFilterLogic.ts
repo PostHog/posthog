@@ -10,11 +10,7 @@ export type LocalFilter = ActionFilter & {
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
 export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
-    const localFilters = [
-        ...(filters[EntityTypes.ACTIONS] || []),
-        ...(filters[EntityTypes.EVENTS] || []),
-        ...(filters[EntityTypes.NEW_ENTITY] || []),
-    ]
+    const localFilters = [...(filters[EntityTypes.ACTIONS] || []), ...(filters[EntityTypes.EVENTS] || [])]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
     return localFilters.map((filter) =>
@@ -36,7 +32,6 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     return {
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
-        [EntityTypes.NEW_ENTITY]: filters.filter((filter) => filter.type === EntityTypes.NEW_ENTITY),
     } as FilterType
 }
 
@@ -65,6 +60,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             type: filter.type as EntityType,
             math: filter.math,
             math_property: filter.math_property,
+            math_hogql: filter.math_hogql,
             index: filter.index,
             math_group_type_index: filter.math_group_type_index,
         }),
@@ -166,10 +162,10 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     i === index
                         ? {
                               ...filter,
-                              id: id ?? filter.id,
-                              name: name ?? filter.name,
-                              type: type ?? filter.type,
-                              custom_name: custom_name ?? filter.custom_name,
+                              id: typeof id === 'undefined' ? filter.id : id,
+                              name: typeof name === 'undefined' ? filter.name : name,
+                              type: typeof type === 'undefined' ? filter.type : type,
+                              custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
                           }
                         : filter
                 )
@@ -200,10 +196,9 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const precedingEntity = values.localFilters[previousLength - 1] as LocalFilter | undefined
             const order = precedingEntity ? precedingEntity.order + 1 : 0
             const newFilter = {
-                id: 'empty',
-                type: EntityTypes.NEW_ENTITY,
+                id: null,
+                type: EntityTypes.EVENTS,
                 order: order,
-                name: 'empty',
                 ...props.addFilterDefaultOptions,
             }
             actions.setFilters([...values.localFilters, newFilter])
@@ -244,8 +239,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     events(({ actions, props, values }) => ({
         afterMount: () => {
             if (props.singleMode) {
-                const filter = { id: null, name: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length }
-                actions.setLocalFilters({ [`${EntityTypes.NEW_ENTITY}`]: [filter] })
+                const filter = { id: null, type: EntityTypes.EVENTS, order: values.localFilters.length }
+                actions.setLocalFilters({ [`${EntityTypes.EVENTS}`]: [filter] })
                 actions.selectFilter({ ...filter, index: 0 })
             }
         },

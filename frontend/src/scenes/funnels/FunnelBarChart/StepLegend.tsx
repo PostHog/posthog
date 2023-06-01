@@ -11,6 +11,8 @@ import { ValueInspectorButton } from '../ValueInspectorButton'
 import { FunnelStepMore, FunnelStepMoreDataExploration } from '../FunnelStepMore'
 import { userLogic } from 'scenes/userLogic'
 import { Noun } from '~/models/groupsModel'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 type StepLegendProps = {
     step: FunnelStepWithConversionMetrics
@@ -20,12 +22,27 @@ type StepLegendProps = {
 
 export function StepLegendDataExploration(props: StepLegendProps): JSX.Element {
     const { aggregationTargetLabel } = useValues(funnelLogic)
-    return <StepLegendComponent aggregationTargetLabel={aggregationTargetLabel} isUsingDataExploration {...props} />
+    const { insightProps } = useValues(insightLogic)
+    const { canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
+    return (
+        <StepLegendComponent
+            aggregationTargetLabel={aggregationTargetLabel}
+            isUsingDataExploration
+            {...props}
+            showPersonsModal={props.showPersonsModal && canOpenPersonModal}
+        />
+    )
 }
 
 export function StepLegend(props: StepLegendProps): JSX.Element {
-    const { aggregationTargetLabel } = useValues(funnelLogic)
-    return <StepLegendComponent aggregationTargetLabel={aggregationTargetLabel} {...props} />
+    const { aggregationTargetLabel, canOpenPersonModal } = useValues(funnelLogic)
+    return (
+        <StepLegendComponent
+            aggregationTargetLabel={aggregationTargetLabel}
+            {...props}
+            showPersonsModal={props.showPersonsModal && canOpenPersonModal}
+        />
+    )
 }
 
 type StepLegendComponentProps = StepLegendProps & { aggregationTargetLabel: Noun; isUsingDataExploration?: boolean }

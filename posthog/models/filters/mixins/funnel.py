@@ -43,6 +43,7 @@ from posthog.constants import (
     FunnelCorrelationType,
     FunnelOrderType,
     FunnelVizType,
+    FUNNEL_AGGREAGTE_BY_HOGQL,
 )
 from posthog.models.filters.mixins.base import BaseParamMixin, FunnelWindowIntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict
@@ -208,6 +209,16 @@ class FunnelLayoutMixin(BaseParamMixin):
     @include_dict
     def layout_to_dict(self):
         return {FUNNEL_LAYOUT: self.layout} if self.layout else {}
+
+
+class FunnelHogQLAggregationMixin(BaseParamMixin):
+    @cached_property
+    def funnel_aggregate_by_hogql(self) -> Optional[str]:
+        return self._data.get(FUNNEL_AGGREAGTE_BY_HOGQL)
+
+    @include_dict
+    def funnel_aggregate_by_hogql_to_dict(self):
+        return {FUNNEL_AGGREAGTE_BY_HOGQL: self.funnel_aggregate_by_hogql} if self.funnel_aggregate_by_hogql else {}
 
 
 class FunnelTypeMixin(BaseParamMixin):

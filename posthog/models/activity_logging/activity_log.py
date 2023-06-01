@@ -16,7 +16,15 @@ from posthog.models.utils import UUIDT, UUIDModel
 logger = structlog.get_logger(__name__)
 
 ActivityScope = Literal[
-    "FeatureFlag", "Person", "Insight", "Plugin", "PluginConfig", "SessionRecordingPlaylist", "EventDefinition"
+    "FeatureFlag",
+    "Person",
+    "Insight",
+    "Plugin",
+    "PluginConfig",
+    "SessionRecordingPlaylist",
+    "EventDefinition",
+    "PropertyDefinition",
+    "Notebook",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -43,6 +51,7 @@ class Detail:
     trigger: Optional[Trigger] = None
     name: Optional[str] = None
     short_id: Optional[str] = None
+    type: Optional[str] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
@@ -90,6 +99,7 @@ class ActivityLog(UUIDModel):
 
 
 field_exclusions: Dict[ActivityScope, List[str]] = {
+    "Notebook": ["id", "last_modified_at", "last_modified_by", "created_at", "created_by"],
     "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
     "Person": [
         "id",
@@ -137,7 +147,7 @@ field_exclusions: Dict[ActivityScope, List[str]] = {
     "EventDefinition": [
         "eventdefinition_ptr_id",
         "id",
-        "creted_at",
+        "created_at",
         "_state",
         "deprecated_tags",
         "team_id",
@@ -148,6 +158,23 @@ field_exclusions: Dict[ActivityScope, List[str]] = {
         "verified_by",
         "updated_by",
         "post_to_slack",
+    ],
+    "PropertyDefinition": [
+        "propertydefinition_ptr_id",
+        "id",
+        "created_at",
+        "_state",
+        "deprecated_tags",
+        "team_id",
+        "updated_at",
+        "owner_id",
+        "query_usage_30_day",
+        "volume_30_day",
+        "verified_at",
+        "verified_by",
+        "updated_by",
+        "post_to_slack",
+        "property_type_format",
     ],
 }
 
@@ -177,7 +204,7 @@ def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist"],
+    model_type: Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist", "Notebook"],
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> List[Change]:

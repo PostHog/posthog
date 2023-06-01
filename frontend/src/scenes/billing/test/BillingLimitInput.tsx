@@ -1,4 +1,4 @@
-import { BillingProductV2Type } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
 import { billingLogic } from '../billingLogic'
 import { convertAmountToUsage } from '../billing-utils'
 import { useActions, useValues } from 'kea'
@@ -25,8 +25,16 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
         if (value === undefined) {
             return actuallyUpdateLimit()
         }
+        const productAndAddonTiers: BillingV2TierType[][] = [
+            product.tiers,
+            ...product.addons
+                ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
+                ?.map((addon: BillingProductV2AddonType) => addon.tiers),
+        ].filter(Boolean) as BillingV2TierType[][]
 
-        const newAmountAsUsage = product.tiers ? convertAmountToUsage(`${value}`, product.tiers) : 0
+        const newAmountAsUsage = product.tiers
+            ? convertAmountToUsage(`${value}`, productAndAddonTiers, billing?.discount_percent)
+            : 0
 
         if (product.current_usage && newAmountAsUsage < product.current_usage) {
             LemonDialog.open({

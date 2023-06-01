@@ -65,6 +65,7 @@ const NEW_FLAG: FeatureFlagType = {
     rollout_percentage: null,
     ensure_experience_continuity: false,
     experiment_set: null,
+    features: [],
     rollback_conditions: [],
     performed_rollback: false,
     can_edit: true,
@@ -117,8 +118,17 @@ export const defaultPropertyOnFlag = (flagKey: string): AnyPropertyFilter[] => [
     },
 ]
 
+/** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
+export function validateFeatureFlagKey(key: string): string | undefined {
+    return !key
+        ? 'You need to set a key'
+        : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+        : undefined
+}
+
 export interface FeatureFlagLogicProps {
-    id: number | 'new'
+    id: number | 'new' | 'link'
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -230,20 +240,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         featureFlag: {
             defaults: { ...NEW_FLAG } as FeatureFlagType,
             errors: ({ key, filters }) => ({
-                key: !key
-                    ? 'You need to set a key'
-                    : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-                    : undefined,
+                key: validateFeatureFlagKey(key),
                 filters: {
                     multivariate: {
                         variants: filters?.multivariate?.variants?.map(
                             ({ key: variantKey }: MultivariateFlagVariant) => ({
-                                key: !variantKey
-                                    ? 'You need to set a key'
-                                    : !variantKey.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-                                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-                                    : undefined,
+                                key: validateFeatureFlagKey(variantKey),
                             })
                         ),
                     },
@@ -461,7 +463,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
-                if (props.id && props.id !== 'new') {
+                if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
                         const retrievedFlag: FeatureFlagType = await api.get(
                             `api/projects/${values.currentTeamId}/feature_flags/${props.id}`
@@ -541,7 +543,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
-                object: { name: featureFlag.name, id: featureFlag.id },
+                object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {
                     featureFlag.id && featureFlagsLogic.findMounted()?.actions.deleteFlag(featureFlag.id)
                     featureFlagsLogic.findMounted()?.actions.loadFeatureFlags()

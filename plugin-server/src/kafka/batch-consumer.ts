@@ -1,4 +1,4 @@
-import { GlobalConfig, Message } from 'node-rdkafka'
+import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka-acosom'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
 import { status } from '../utils/status'
@@ -11,6 +11,13 @@ import {
     instrumentConsumerMetrics,
 } from './consumer'
 
+export interface BatchConsumer {
+    consumer: KafkaConsumer
+    join: () => Promise<void>
+    stop: () => Promise<void>
+    isHealthy: () => boolean
+}
+
 export const startBatchConsumer = async ({
     connectionConfig,
     groupId,
@@ -19,8 +26,11 @@ export const startBatchConsumer = async ({
     consumerMaxBytesPerPartition,
     consumerMaxBytes,
     consumerMaxWaitMs,
+    consumerErrorBackoffMs,
     fetchBatchSize,
+    batchingTimeoutMs,
     eachBatch,
+    autoCommit = true,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -29,9 +39,12 @@ export const startBatchConsumer = async ({
     consumerMaxBytesPerPartition: number
     consumerMaxBytes: number
     consumerMaxWaitMs: number
+    consumerErrorBackoffMs: number
     fetchBatchSize: number
+    batchingTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
-}) => {
+    autoCommit?: boolean
+}): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
     // to Kafka. We commit offsets after each batch has been processed,
@@ -62,10 +75,26 @@ export const startBatchConsumer = async ({
         'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
         'fetch.message.max.bytes': consumerMaxBytes,
         'fetch.wait.max.ms': consumerMaxWaitMs,
+        'fetch.error.backoff.ms': consumerErrorBackoffMs,
         'enable.partition.eof': true,
         'queued.min.messages': 100000, // 100000 is the default
         'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
-        'partition.assignment.strategy': 'roundrobin', // KafkaJS uses round robin, and we need to be compatible with it.
+        // Use cooperative-sticky rebalancing strategy, which is the
+        // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
+        // in the Java Kafka Client. There its actually
+        // RangeAssignor,CooperativeStickyAssignor i.e. it mixes eager and
+        // cooperative strategies. This is however explicitly mentioned to not
+        // be supported in the [librdkafka library config
+        // docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md#partitionassignmentstrategy)
+        // so we just use cooperative-sticky. If there are other consumer
+        // members with other strategies already running, you'll need to delete
+        // e.g. the replicaset for them if on k8s.
+        //
+        // See
+        // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
+        // for details on the advantages of this rebalancing strategy as well as
+        // how it works.
+        'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
     })
@@ -87,6 +116,13 @@ export const startBatchConsumer = async ({
     const adminClient = createAdminClient(connectionConfig)
     await ensureTopicExists(adminClient, topic)
     adminClient.disconnect()
+
+    // The consumer has an internal pre-fetching queue that sequentially pools
+    // each partition, with the consumerMaxWaitMs timeout. We want to read big
+    // batches from this queue, but guarantee we are still running (with smaller
+    // batches) if the queue is not full enough. batchingTimeoutMs is that
+    // timeout, to return messages even if fetchBatchSize is not reached.
+    consumer.setDefaultConsumeTimeout(batchingTimeoutMs)
 
     consumer.subscribe([topic])
 
@@ -122,7 +158,16 @@ export const startBatchConsumer = async ({
 
                 status.debug('🔁', 'main_loop_consuming')
                 const messages = await consumeMessages(consumer, fetchBatchSize)
+                if (!messages) {
+                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
+                    continue
+                }
+
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
+                if (!messages.length) {
+                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
+                    continue
+                }
 
                 consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
                 for (const message of messages) {
@@ -133,7 +178,11 @@ export const startBatchConsumer = async ({
                 // the implementation of `eachBatch`.
                 await eachBatch(messages)
 
-                commitOffsetsForMessages(messages, consumer)
+                messagesProcessed += messages.length
+
+                if (autoCommit) {
+                    commitOffsetsForMessages(messages, consumer)
+                }
             }
         } catch (error) {
             status.error('🔁', 'main_loop_error', { error })
@@ -155,15 +204,15 @@ export const startBatchConsumer = async ({
 
     const isHealthy = () => {
         // We define health as the last consumer loop having run in the last
-        // minute. This might not be bullet proof, let's see.
+        // minute. This might not be bullet-proof, let's see.
         return Date.now() - lastLoopTime < 60000
     }
 
     const stop = async () => {
-        status.info('🔁', 'Stopping session recordings consumer')
+        status.info('🔁', 'Stopping kafka batch consumer')
 
         // First we signal to the mainLoop that we should be stopping. The main
-        // loop should complete one loop, flush the producer, and store it's offsets.
+        // loop should complete one loop, flush the producer, and store its offsets.
         isShuttingDown = true
 
         // Wait for the main loop to finish, but only give it 30 seconds
@@ -178,7 +227,7 @@ export const startBatchConsumer = async ({
         }
     }
 
-    return { isHealthy, stop, join }
+    return { isHealthy, stop, join, consumer }
 }
 
 export const consumerBatchSize = new Histogram({

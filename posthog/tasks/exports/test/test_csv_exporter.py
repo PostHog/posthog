@@ -4,9 +4,12 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from boto3 import resource
 from botocore.client import Config
+from dateutil.relativedelta import relativedelta
 from django.test import override_settings
+from django.utils.timezone import now
 
 from posthog.models import ExportedAsset
+from posthog.models.utils import UUIDT
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -17,7 +20,7 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import UnexpectedEmptyJsonResponse, add_query_params
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from posthog.utils import absolute_uri
 
 TEST_PREFIX = "Test-Exports"
@@ -255,6 +258,88 @@ class TestCSVExporter(APIBaseTest):
 
         with pytest.raises(UnexpectedEmptyJsonResponse, match="JSON is None when calling API for data"):
             csv_exporter.export_csv(self._create_asset())
+
+    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_hogql_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
+        random_uuid = str(UUIDT())
+        for i in range(15):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            assert (
+                content
+                == "event\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n"
+            )
+
+            assert exported_asset.content is None
+
+    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_events_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
+        random_uuid = str(UUIDT())
+        for i in range(15):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {"kind": "EventsQuery", "select": ["event", "*"], "where": [f"distinct_id = '{random_uuid}'"]}
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").split("\r\n")
+            self.assertEqual(len(lines), 12)
+            self.assertEqual(
+                lines[0],
+                "event,*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at",
+            )
+            self.assertEqual(lines[11], "")
+            first_row = lines[1].split(",")
+            self.assertEqual(first_row[0], "$pageview")
+            self.assertEqual(first_row[2], "$pageview")
+            self.assertEqual(first_row[5], str(self.team.pk))
 
     def _split_to_dict(self, url: str) -> Dict[str, Any]:
         first_split_parts = url.split("?")

@@ -1,8 +1,9 @@
-import React, { MouseEventHandler, useContext, useState } from 'react'
-import { Popover, PopoverLevelContext, PopoverProps } from './Popover'
+import React, { MouseEventHandler, useContext, useEffect, useState } from 'react'
+import { Popover, PopoverOverlayContext, PopoverProps } from './Popover'
 
 export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'visible'> {
     visible?: boolean
+    onVisibilityChange?: (visible: boolean) => void
     /**
      * Whether the dropdown should be closed on click inside.
      * @default true
@@ -20,11 +21,26 @@ export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'vis
 /** A wrapper that provides a dropdown for any element supporting `onClick`. Built on top of Popover. */
 export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.RefAttributes<HTMLDivElement>> =
     React.forwardRef<HTMLDivElement, LemonDropdownProps>(
-        ({ visible, onClickOutside, onClickInside, closeOnClickInside = true, children, ...popoverProps }, ref) => {
-            const popoverLevel = useContext(PopoverLevelContext)
+        (
+            {
+                visible,
+                onVisibilityChange,
+                onClickOutside,
+                onClickInside,
+                closeOnClickInside = true,
+                children,
+                ...popoverProps
+            },
+            ref
+        ) => {
+            const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
             const [localVisible, setLocalVisible] = useState(false)
 
             const effectiveVisible = visible ?? localVisible
+
+            useEffect(() => {
+                onVisibilityChange?.(effectiveVisible)
+            }, [effectiveVisible, onVisibilityChange])
 
             return (
                 <Popover
@@ -45,13 +61,12 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
                         onClick: (e: React.MouseEvent): void => {
                             setLocalVisible((state) => !state)
                             children.props.onClick?.(e)
-                            if (popoverLevel > 0) {
+                            if (parentPopoverLevel > -1) {
                                 // If this button is inside another popover, let's not propagate this event so that
                                 // the parent popover doesn't close
                                 e.stopPropagation()
                             }
                         },
-                        active: children.props.active || effectiveVisible,
                         'aria-haspopup': 'true',
                     })}
                 </Popover>

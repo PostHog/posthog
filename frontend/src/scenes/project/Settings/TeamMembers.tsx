@@ -6,7 +6,7 @@ import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { TeamType, UserType, FusedTeamMemberType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
@@ -24,7 +24,7 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { changeUserAccessLevel } = useActions(teamMembersLogic)
 
-    const myMembershipLevel = currentTeam ? currentTeam.effective_membership_level : null
+    const myMembershipLevel = isAuthenticatedTeam(currentTeam) ? currentTeam.effective_membership_level : null
 
     if (!user) {
         return null

@@ -59,6 +59,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                         "name": "$pageview",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -76,6 +77,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk)
         self.assertEqual(people.count(), 1)
+        self.assertEqual(cohort.count, 1)
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_trends_cohort(self, _insert_cohort_from_insight_filter):
@@ -130,6 +132,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                         "order": 0,
                         "name": "$pageview",
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -160,6 +163,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 ),
             },
         )
+        self.assertEqual(cohort.count, 1)
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_trends_cohort_arg_test(self, _insert_cohort_from_insight_filter):
@@ -231,6 +235,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                         "order": 0,
                         "name": "$pageview",
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -264,6 +269,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 ),
             },
         )
+        self.assertEqual(cohort.count, 1)
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_funnels_cohort(self, _insert_cohort_from_insight_filter):
@@ -297,6 +303,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                         "type": "events",
                         "order": 0,
                         "properties": [],
+                        "math_hogql": None,
                         "math_property": None,
                     },
                     {
@@ -306,6 +313,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                         "type": "events",
                         "order": 1,
                         "properties": [],
+                        "math_hogql": None,
                         "math_property": None,
                     },
                 ]
@@ -329,7 +337,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             cohort_id,
             {
                 "insight": "FUNNELS",
-                "events": '[{"id": "$pageview", "math": null, "name": "$pageview", "type": "events", "order": 0, "properties": [], "math_property": null}, {"id": "$another_view", "math": null, "name": "$another_view", "type": "events", "order": 1, "properties": [], "math_property": null}]',
+                "events": '[{"id": "$pageview", "math": null, "name": "$pageview", "type": "events", "order": 0, "properties": [], "math_hogql": null, "math_property": null}, {"id": "$another_view", "math": null, "name": "$another_view", "type": "events", "order": 1, "properties": [], "math_hogql": null, "math_property": null}]',
                 "display": "FunnelViz",
                 "interval": "day",
                 "layout": "horizontal",
@@ -345,3 +353,4 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         people = Person.objects.filter(cohort__id=cohort.pk)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(people.count(), 1)
+        self.assertEqual(cohort.count, 1)

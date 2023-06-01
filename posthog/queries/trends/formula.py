@@ -1,5 +1,6 @@
 import math
 from itertools import accumulate
+import re
 from string import ascii_uppercase
 from typing import Any, Dict, List
 
@@ -13,6 +14,9 @@ from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.trends.util import ensure_value_is_json_serializable, parse_response
 
+# Regex for adding the formula variable index to all params, except HogQL params
+PARAM_DISAMBIGUATION_REGEX = re.compile(r"%\((?!hogql_)")
+
 
 class TrendsFormula:
     def _run_formula_query(self, filter: Filter, team: Team):
@@ -21,10 +25,11 @@ class TrendsFormula:
         params: Dict[str, Any] = {}
         for idx, entity in enumerate(filter.entities):
             _, sql, entity_params, _ = self._get_sql_for_entity(filter, team, entity)  # type: ignore
-            sql = sql.replace("%(", f"%({idx}_")
+            sql = PARAM_DISAMBIGUATION_REGEX.sub(f"%({idx}_", sql)
             entity_params = {f"{idx}_{key}": value for key, value in entity_params.items()}
             queries.append(sql)
-            params = {**params, **entity_params}
+            params.update(entity_params)
+        params.update(filter.hogql_context.values)
 
         breakdown_value = ""
         if filter.breakdown_type == "cohort":
@@ -50,7 +55,11 @@ class TrendsFormula:
             # Need to wrap aggregates in arrays so we can still use arrayMap
             selects=", ".join(
                 [
-                    (f"[sub_{letter}.total]" if is_aggregate else f"arrayResize(sub_{letter}.total, max_length, 0)")
+                    (
+                        f"[ifNull(sub_{letter}.total, 0)]"
+                        if is_aggregate
+                        else f"arrayResize(sub_{letter}.total, max_length, 0)"
+                    )
                     for letter in letters
                 ]
             ),
@@ -77,13 +86,13 @@ class TrendsFormula:
         with push_scope() as scope:
             scope.set_context("filter", filter.to_dict())
             scope.set_tag("team", team)
-            query_params = {**params, **filter.hogql_context.values}
-            scope.set_context("query", {"sql": sql, "params": query_params})
+            scope.set_context("query", {"sql": sql, "params": params})
             result = insight_sync_execute(
                 sql,
-                query_params,
+                params,
                 query_type="trends_formula",
                 filter=filter,
+                team_id=team.pk,
             )
             response = []
             for item in result:

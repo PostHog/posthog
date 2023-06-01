@@ -50,8 +50,8 @@ jobs:
                   export BRANCH_NAME=${{ github.head_ref }}
                   export NAMESPACE=pr-$PR_NUM-${BRANCH_NAME//\//-}
 
-                  kubectl -n $NAMESPACE delete clickhouseinstallations.clickhouse.altinity.com/posthog
-                  kubectl delete namespace $NAMESPACE
+                  kubectl -n $NAMESPACE delete clickhouseinstallations.clickhouse.altinity.com/posthog || true
+                  kubectl delete namespace $NAMESPACE || true
 
             - name: delete deployment
               uses: bobheadxi/deployments@v1.4.0

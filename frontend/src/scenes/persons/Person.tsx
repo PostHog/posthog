@@ -11,7 +11,7 @@ import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonsTabType, PersonType } from '~/types'
+import { PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -41,7 +41,7 @@ const { TabPane } = Tabs
 export const scene: SceneExport = {
     component: Person,
     logic: personsLogic,
-    paramsToProps: ({ params: { _: rawUrlId } }): typeof personsLogic['props'] => ({
+    paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),
@@ -107,11 +107,20 @@ export function Person(): JSX.Element | null {
         return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
     }
 
+    const url = urls.person(urlId || person.distinct_ids[0] || String(person.id))
+
     return (
         <>
             <PageHeader
                 title={asDisplay(person)}
                 caption={<PersonCaption person={person} />}
+                notebookProps={
+                    url
+                        ? {
+                              href: url,
+                          }
+                        : undefined
+                }
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
@@ -153,6 +162,7 @@ export function Person(): JSX.Element | null {
                     key={PersonsTabType.PROPERTIES}
                 >
                     <PropertiesTable
+                        type={PropertyDefinitionType.Person}
                         properties={person.properties || {}}
                         searchable
                         onEdit={editProperty}
@@ -182,7 +192,7 @@ export function Person(): JSX.Element | null {
                             pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                             fixedFilters={{ person_id: person.id }}
                             showPersonColumn={false}
-                            sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
+                            sceneUrl={url}
                         />
                     )}
                 </TabPane>

@@ -449,7 +449,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 eventsPerRun
             )
         } catch (error) {
-            Sentry.captureException(error)
+            Sentry.captureException(error, { tags: { team_id: pluginConfig.team_id } })
 
             await handleFetchError(error, activeExportParameters, payload)
             return

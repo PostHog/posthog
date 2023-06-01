@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
 import { RecordingSegment } from '~/types'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { Timestamp } from './PlayerControllerTime'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
@@ -131,14 +131,17 @@ const PlayerSeekbarTicks = memo(
     }
 )
 
-export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
+export function Seekbar(): JSX.Element {
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
+    const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
+    const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
+
+    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
+    const { sessionPlayerData } = useValues(sessionRecordingDataLogic(logicProps))
+
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
-    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(props))
-    const { sessionPlayerData } = useValues(sessionRecordingDataLogic(props))
-    const { thumbLeftPos, bufferPercent, isScrubbing, endTimeMs } = useValues(seekbarLogic(props))
-    const { seekbarItems } = useValues(playerInspectorLogic(props))
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic(props))
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
@@ -147,11 +150,11 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
             setSlider(sliderRef)
             setThumb(thumbRef)
         }
-    }, [sliderRef.current, thumbRef.current, props.sessionRecordingId])
+    }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
     return (
         <div className="flex items-center h-8" data-attr="rrweb-controller">
-            <Timestamp {...props} />
+            <Timestamp />
             <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })}>
                 <div
                     className="PlayerSeekbar__slider"
@@ -160,9 +163,9 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
                     onTouchStart={handleDown}
                 >
                     <div className="PlayerSeekbar__segments">
-                        {sessionPlayerData?.metadata?.segments?.map((segment: RecordingSegment) => (
+                        {sessionPlayerData.segments?.map((segment: RecordingSegment) => (
                             <div
-                                key={`${segment.windowId}-${segment.startTimeEpochMs}`}
+                                key={`${segment.windowId}-${segment.startTimestamp}`}
                                 className={clsx(
                                     'PlayerSeekbar__segments__item',
                                     segment.isActive && 'PlayerSeekbar__segments__item--active'
@@ -170,9 +173,7 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
                                 title={!segment.isActive ? 'Inactive period' : 'Active period'}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    width: `${
-                                        (100 * segment.durationMs) / sessionPlayerData.metadata.recordingDurationMs
-                                    }%`,
+                                    width: `${(100 * segment.durationMs) / sessionPlayerData.durationMs}%`,
                                 }}
                             />
                         ))}
@@ -189,7 +190,7 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.metadata.recordingDurationMs} />
+                    <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.durationMs} />
                 </div>
 
                 <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />

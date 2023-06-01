@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
 import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -6,7 +6,19 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useActions, useValues } from 'kea'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { SHADOW_HEIGHT, SPRITE_SHEET_WIDTH, SPRITE_SIZE, standardAnimations } from './sprites/sprites'
+import {
+    SHADOW_HEIGHT,
+    SPRITE_SHEET_WIDTH,
+    SPRITE_SIZE,
+    standardAnimations,
+    standardAccessories,
+    AccessoryInfo,
+    accessoryGroups,
+} from './sprites/sprites'
+import { FlaggedFeature } from '../FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { HedgehogBuddyAccessory } from './components/AccessoryButton'
+import './HedgehogBuddy.scss'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
@@ -19,7 +31,7 @@ const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: 
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
 
-class HedgehogActor {
+export class HedgehogActor {
     animations = standardAnimations
     iterationCount = 0
     frameRef = 0
@@ -38,6 +50,7 @@ class HedgehogActor {
     animation = this.animations[this.animationName]
     animationFrame = 0
     animationIterations: number | null = null
+    accessories: AccessoryInfo[] = [standardAccessories.beret, standardAccessories.sunshine]
 
     constructor() {
         this.setAnimation('fall')
@@ -51,8 +64,8 @@ class HedgehogActor {
             }
 
             if (['arrowdown', 's'].includes(key)) {
-                if (this.animationName !== 'spin') {
-                    this.setAnimation('spin')
+                if (this.animationName !== 'wave') {
+                    this.setAnimation('wave')
                 }
                 this.animationIterations = null
             }
@@ -270,9 +283,10 @@ class HedgehogActor {
     }
 
     render({ onClick }: { onClick: () => void }): JSX.Element {
+        const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
         return (
             <div
-                id="hedgehog"
+                className="HedgehogBuddy"
                 onMouseDown={() => {
                     let moved = false
                     const onMouseMove = (e: any): void => {
@@ -303,7 +317,6 @@ class HedgehogActor {
                     transition: !this.isDragging ? `all ${1000 / FPS}ms` : undefined,
                     transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
                     cursor: 'pointer',
-                    zIndex: 1001,
                     margin: 0,
                 }}
             >
@@ -319,6 +332,24 @@ class HedgehogActor {
                         }px`,
                     }}
                 />
+                {this.accessories.map((accessory, index) => (
+                    <div
+                        key={index}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            imageRendering: 'pixelated',
+                            width: SPRITE_SIZE,
+                            height: SPRITE_SIZE,
+                            backgroundImage: `url(${accessory.img})`,
+                            transform: accessoryPosition
+                                ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
+                                : undefined,
+                        }}
+                    />
+                ))}
 
                 {/* We need to preload the images to avoid flashing on the first animation
                     The images are small and this is the best way I could find...  */}
@@ -339,14 +370,30 @@ class HedgehogActor {
     }
 }
 
-export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element {
+export function HedgehogBuddy({
+    actorRef: _actorRef,
+    onClose,
+    onClick: _onClick,
+    onPositionChange,
+    popoverOverlay,
+}: {
+    actorRef?: MutableRefObject<HedgehogActor | undefined>
+    onClose: () => void
+    onClick?: () => void
+    onPositionChange?: (actor: HedgehogActor) => void
+    popoverOverlay?: React.ReactNode
+}): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
     if (!actorRef.current) {
         actorRef.current = new HedgehogActor()
+        if (_actorRef) {
+            _actorRef.current = actorRef.current
+        }
     }
 
     const actor = actorRef.current
+    const { accessories } = useValues(hedgehogbuddyLogic)
 
     useEffect(() => {
         return actor.setupKeyboardListeners()
@@ -354,8 +401,11 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_, setTimerLoop] = useState(0)
-
     const [popoverVisible, setPopoverVisible] = useState(false)
+
+    useEffect(() => {
+        actor.accessories = accessories
+    }, [accessories])
 
     useEffect(() => {
         let timer: any = null
@@ -382,8 +432,12 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
         return () => document.body.classList.remove('select-none')
     }, [actor.isDragging])
 
+    useEffect(() => {
+        onPositionChange?.(actor)
+    }, [actor.x, actor.y])
+
     const onClick = (): void => {
-        !actor.isDragging && setPopoverVisible(!popoverVisible)
+        !actor.isDragging && (_onClick ? _onClick() : setPopoverVisible(!popoverVisible))
     }
     const disappear = (): void => {
         setPopoverVisible(false)
@@ -395,34 +449,65 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
         <Popover
             onClickOutside={() => {
                 setPopoverVisible(false)
-                // setAnimationName('fall')
             }}
             visible={popoverVisible}
+            placement="top"
             overlay={
-                <div className="p-2">
-                    <h3>Hello!</h3>
-                    <p>
-                        Don't mind me. I'm just here to keep you company.
-                        <br />
-                        You can move me around by clicking and dragging.
-                    </p>
-                    <div className="flex gap-2 my-2">
-                        {['jump', 'sign', 'spin', 'wave', 'walk'].map((x) => (
-                            <LemonButton key={x} type="secondary" size="small" onClick={() => actor.setAnimation(x)}>
-                                {capitalizeFirstLetter(x)}
-                            </LemonButton>
+                popoverOverlay || (
+                    <div className="HedgehogBuddyPopover p-2 max-w-140">
+                        <h3>Hi, I'm Max!</h3>
+                        <p>
+                            Don't mind me. I'm just here to keep you company.
+                            <br />
+                            You can move me around by clicking and dragging or control me with WASD / arrow keys.
+                        </p>
+
+                        {accessoryGroups.map((group) => (
+                            <div key={group}>
+                                <h4>{capitalizeFirstLetter(group)}</h4>
+
+                                <div className="flex gap-2 my-2 overflow-y-auto">
+                                    {Object.keys(standardAccessories)
+                                        .filter((acc) => standardAccessories[acc].group === group)
+                                        .map((acc) => (
+                                            <HedgehogBuddyAccessory
+                                                key={acc}
+                                                accessoryKey={acc}
+                                                accessory={standardAccessories[acc]}
+                                            />
+                                        ))}
+                                </div>
+                            </div>
                         ))}
+
+                        <FlaggedFeature flag={FEATURE_FLAGS.HEDGEHOG_MODE_DEBUG} match>
+                            <>
+                                <LemonDivider />
+                                <div className="flex gap-2 my-2 max-w-100 overflow-y-auto">
+                                    {Object.keys(standardAnimations).map((x) => (
+                                        <LemonButton
+                                            key={x}
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => actor.setAnimation(x)}
+                                        >
+                                            {capitalizeFirstLetter(x)}
+                                        </LemonButton>
+                                    ))}
+                                </div>
+                            </>
+                        </FlaggedFeature>
+                        <LemonDivider />
+                        <div className="flex justify-end gap-2">
+                            <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
+                                Good bye!
+                            </LemonButton>
+                            <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
+                                Carry on!
+                            </LemonButton>
+                        </div>
                     </div>
-                    <LemonDivider />
-                    <div className="flex justify-end gap-2">
-                        <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
-                            Good bye!
-                        </LemonButton>
-                        <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
-                            Carry on!
-                        </LemonButton>
-                    </div>
-                </div>
+                )
             }
         >
             {actor.render({ onClick })}

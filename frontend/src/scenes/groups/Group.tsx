@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { Group as IGroup, PersonsTabType, PropertyFilterType, PropertyOperator } from '~/types'
+import { Group as IGroup, PersonsTabType, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -81,6 +81,7 @@ export function Group(): JSX.Element {
                         label: <span data-attr="persons-properties-tab">Properties</span>,
                         content: (
                             <PropertiesTable
+                                type={PropertyDefinitionType.Group}
                                 properties={groupData.group_properties || {}}
                                 embedded={false}
                                 searchable

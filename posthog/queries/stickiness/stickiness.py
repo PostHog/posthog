@@ -23,7 +23,7 @@ class Stickiness:
 
         response = []
         for entity in filter.entities:
-            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+            if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
                 entity.name = Action.objects.only("name").get(team=team, pk=entity.id).name
 
             entity_resp = handle_compare(filter=filter, func=self._serialize_entity, team=team, entity=entity)
@@ -47,6 +47,7 @@ class Stickiness:
             {**event_params, **filter.hogql_context.values, "num_intervals": filter.total_intervals},
             query_type="stickiness",
             filter=filter,
+            team_id=team.pk,
         )
         return self.process_result(counts, filter, entity)
 

@@ -1,18 +1,26 @@
 .Navigation3000 {
+    --breadcrumbs-height: 3rem;
+    --scene-padding-y: 1rem;
+    --scene-padding-x: 1rem;
+
     display: flex;
     width: 100%;
-    height: 100%;
-    min-height: 100vh;
+    height: 100vh;
     background: var(--bg-3000);
+    overflow: hidden;
 
     > main {
         flex: 1;
         min-width: 0;
+        overflow: auto;
     }
 }
 
 .Navigation3000__scene {
-    margin: 0 1rem;
+    margin: var(--scene-padding-y) var(--scene-padding-x);
+    // The below is for positioning of the scene-level spinner
+    position: relative;
+    min-height: calc(100vh - var(--breadcrumbs-height) - var(--scene-padding-y) * 2);
 }
 
 // Navbar
@@ -21,7 +29,6 @@
     flex: 0 0 3rem;
     border-right: 1px solid transparent; // This is just for sizing, the visible border is on the content
     box-sizing: content-box;
-    background: var(--accent-3000);
     z-index: var(--z-main-nav);
 
     .LemonButton {
@@ -52,22 +59,29 @@
     height: 100vh;
     padding: 0 0.375rem;
     border-right-width: 1px;
+    background: var(--accent-3000);
+    overflow-y: auto;
 }
 
 // Sidebar
 
 .Sidebar3000 {
-    --sidebar-slider-padding: 0.25rem;
+    --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 2rem;
     --sidebar-basic-leaf-row-height: 2rem;
     --sidebar-extended-leaf-row-height: 2.875rem;
+    --sidebar-background: var(--bg-3000);
     position: relative;
     // This border is just for sizing, the visible border is on the content and slider
     // Hidden when the sidebar is closed
     border-right: min(1px, var(--sidebar-width)) solid transparent;
     flex: 0 0 var(--sidebar-width);
     box-sizing: content-box;
+
+    [theme='dark'] & {
+        --sidebar-background: var(--accent-3000);
+    }
 
     &.Sidebar3000--resizing {
         will-change: flex-basis;
@@ -89,19 +103,29 @@
     }
     h4 {
         font-weight: 600;
-        line-height: 2rem;
+        line-height: 1.75rem;
         font-size: 0.6875rem;
     }
     h5 {
-        font-weight: 500;
+        font-weight: 400;
         font-size: 0.75rem;
         text-transform: none;
         letter-spacing: normal;
     }
+    b {
+        font-weight: 700;
+    }
+
+    .LemonInput--type-search {
+        transition: none;
+        max-width: none;
+        border-color: transparent; // Only show border on focus here
+        border-radius: 0;
+    }
 }
 
 .Sidebar3000__content {
-    position: sticky;
+    position: fixed;
     top: 0;
     display: flex;
     flex-direction: column;
@@ -112,14 +136,16 @@
     box-sizing: content-box;
     white-space: nowrap;
     overflow: hidden;
-    background: var(--bg-3000);
-    [theme='dark'] & {
-        background: var(--accent-3000);
-    }
+    background: var(--sidebar-background);
+    // Extend the border into viewport overscroll
+    border-right: min(1px, var(--sidebar-width)) solid var(--border);
 
     .Sidebar3000--resizing & {
-        transition: none; // Increase responsiveness when resizing
         will-change: width;
+    }
+
+    > div:not(:first-child) {
+        border-top-width: 1px;
     }
 }
 
@@ -128,15 +154,17 @@
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    overflow-x: hidden;
     flex-grow: 1;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .Sidebar3000__hint {
+    z-index: 1;
+    flex: 0 0 var(--sidebar-row-height);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: var(--sidebar-row-height);
     padding: 0 var(--sidebar-horizontal-padding);
     background: var(--bg-3000);
     border-top-width: 1px;
@@ -165,13 +193,14 @@
         bottom: 0;
         left: var(--sidebar-slider-padding);
         width: 1px;
+        pointer-events: none;
     }
     &::before {
-        transition: 100ms ease transform, 100ms ease background-color;
+        transition: 100ms ease transform;
         background: var(--border);
     }
     &::after {
-        transition: 100ms ease opacity, 100ms ease transform, 100ms ease background-color;
+        transition: 100ms ease transform;
         background: var(--text-3000);
         opacity: 0;
     }
@@ -189,19 +218,32 @@
 }
 
 .Sidebar3000__header {
-    height: var(--sidebar-row-height);
+    flex: 0 0 var(--sidebar-row-height);
+    display: flex;
+    align-items: center;
     padding: 0 var(--sidebar-horizontal-padding);
-    border-bottom-width: 1px;
 }
 
 // Accordion
 
 .Accordion {
     --accordion-arrow-size: 1rem;
+    --accordion-row-height: 1.75rem;
     --accordion-inset: 1.25rem;
     --accordion-header-background: var(--accent-3000);
+    min-height: var(--accordion-row-height);
+    flex-shrink: 0;
+    flex-basis: 0;
+    display: flex;
+    flex-direction: column;
     [theme='dark'] & {
         --accordion-header-background: var(--bg-3000);
+    }
+    &.Accordion--expanded {
+        flex-grow: 1;
+        &:not(:last-child) {
+            border-bottom-width: 1px;
+        }
     }
 }
 
@@ -211,14 +253,16 @@
         &:hover {
             background: var(--accordion-header-background);
         }
-        .LemonIcon {
-            visibility: hidden;
-        }
+    }
+    &:not([aria-busy='true']) .Accordion__header .LemonIcon {
+        visibility: hidden;
     }
 }
 
 .Accordion__header {
-    transition: 100ms ease background, 100ms ease border-color;
+    position: sticky;
+    top: 0;
+    z-index: 1;
     display: flex;
     align-items: center;
     background: var(--accordion-header-background);
@@ -231,7 +275,7 @@
         background: var(--border-3000);
     }
     .LemonIcon {
-        transition: 100ms ease transform;
+        transition: 50ms ease transform;
         font-size: var(--accordion-arrow-size);
         flex-shrink: 0;
         .Accordion--expanded & {
@@ -244,53 +288,75 @@
 }
 
 .Accordion__content {
-    border-bottom-width: 1px;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
-.Accordion__meta {
-    opacity: 0.5;
-    padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--accordion-inset) + var(--sidebar-horizontal-padding));
-    line-height: var(--accordion-row-height);
-    user-select: none;
-}
-
-.SidebarList__item {
+.SidebarListItem {
     --sidebar-list-item-status-color: var(--muted);
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
+    --sidebar-list-item-background: var(--sidebar-background);
     position: relative;
-    transition: 100ms ease background;
-    padding: 0 var(--sidebar-horizontal-padding) 0
-        calc(
-            var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) +
-                var(--sidebar-list-item-marker-offset, 0px)
-        );
     color: var(--muted);
-    border-bottom-width: 1px;
     line-height: 1.125rem;
     height: var(--sidebar-basic-leaf-row-height);
-    cursor: pointer;
+    opacity: 0.9; // Make items slightly lower contrast when not hovered
+    background: var(--sidebar-list-item-background);
+    border-bottom-width: 1px;
 
     &:hover,
     &[aria-current='page'] {
-        background: var(--border-3000);
+        opacity: 1;
+        --sidebar-list-item-background: var(--border-3000);
+    }
+    &:hover,
+    &:focus-within,
+    &[aria-current='page'],
+    &.SidebarListItem--is-renaming,
+    &.SidebarListItem--is-menu-open {
+        .SidebarListItem__actions {
+            display: flex;
+        }
+        // Accommodate menu button by moving stuff out of the way
+        &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link {
+            padding-right: calc(var(--sidebar-horizontal-padding) + 1.25rem);
+        }
+        &.SidebarListItem--has-menu.SidebarListItem--extended {
+            &::after {
+                content: '';
+                position: absolute;
+                // Position 1px away so that the :focus-visible border isn't overlaid
+                top: 1px;
+                right: 1px;
+                bottom: 1px;
+                width: 3.5rem;
+                background: linear-gradient(
+                    to left,
+                    var(--sidebar-list-item-background) 0%,
+                    var(--sidebar-list-item-background) 50%,
+                    transparent 100%
+                );
+            }
+        }
     }
 
-    &.SidebarList__item--extended {
+    &.SidebarListItem--extended {
         height: var(--sidebar-extended-leaf-row-height);
     }
 
-    &.SidebarList__item--marker-fold,
-    &.SidebarList__item--marker-ribbon {
+    &.SidebarListItem--marker-fold,
+    &.SidebarListItem--marker-ribbon {
         &::before {
             content: '';
             display: block;
             position: absolute;
             top: 0;
             left: 0;
+            z-index: 1;
         }
     }
-    &.SidebarList__item--marker-fold {
+    &.SidebarListItem--marker-fold {
         &::before {
             width: 0;
             height: 0;
@@ -298,7 +364,7 @@
             border-bottom: var(--sidebar-list-item-fold-size) solid transparent;
         }
     }
-    &.SidebarList__item--marker-ribbon {
+    &.SidebarListItem--marker-ribbon {
         --sidebar-list-item-marker-offset: var(--sidebar-list-item-ribbon-width);
         &::before {
             width: var(--sidebar-list-item-ribbon-width);
@@ -306,22 +372,77 @@
             background: var(--sidebar-list-item-status-color);
         }
     }
-    &.SidebarList__item--marker-status-success {
+    &.SidebarListItem--marker-status-success {
         --sidebar-list-item-status-color: var(--success);
     }
-    &.SidebarList__item--marker-status-warning {
+    &.SidebarListItem--marker-status-warning {
         --sidebar-list-item-status-color: var(--warning);
     }
-    &.SidebarList__item--marker-status-danger {
+    &.SidebarListItem--marker-status-danger {
         --sidebar-list-item-status-color: var(--danger);
     }
+}
 
-    > a {
-        display: flex;
-        justify-content: center;
-        flex-direction: column;
-        width: 100%;
-        height: 100%;
+.SidebarListItem__link,
+.SidebarListItem__rename {
+    --sidebar-list-item-inset: calc(
+        var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) + var(--sidebar-list-item-marker-offset, 0px)
+    );
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: inherit;
+    &:focus-visible::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: -1px;
+        right: 0;
+        border: 1px solid var(--default);
+        pointer-events: none;
+    }
+}
+
+.SidebarListItem__link {
+    padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
+    &:hover {
         color: inherit;
     }
+}
+
+.SidebarListItem__rename {
+    // Pseudo-elements don't work on inputs, so we use a wrapper div
+    background: var(--bg-light);
+    input {
+        outline: none;
+        height: 100%;
+        width: 100%;
+        font-size: 0.75rem;
+        color: var(--default);
+        padding: 0 calc(var(--sidebar-horizontal-padding) + 2.5rem) 0 var(--sidebar-list-item-inset);
+        background: none;
+    }
+    &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: -1px;
+        right: 0;
+        border: 1px solid var(--default);
+        pointer-events: none;
+    }
+}
+
+.SidebarListItem__actions {
+    z-index: 1; // Show above .SidebarListItem::after gradient
+    position: absolute;
+    right: var(--sidebar-horizontal-padding);
+    top: 50%;
+    transform: translateY(-50%);
+    display: none; // Only show on hover/focus or for current page
 }

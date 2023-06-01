@@ -25,6 +25,10 @@
             rgba(0, 0, 0, 0.15) 0 1.5px 3px, rgba(0, 0, 0, 0.125) 0 2.7px 5.4px, rgba(0, 0, 0, 0.1) 0 5px 10px,
             rgba(0, 0, 0, 0.07) 0 12px 24px;
     }
+
+    & + .HedgehogBuddy {
+        z-index: 2147483020;
+    }
 }
 
 .toolbar-info-windows {
@@ -39,7 +43,7 @@
     transition: opacity ease 0.5s;
     background-color: rgba(255, 255, 255);
     border-radius: 4px;
-    border: 1px solid var(--dark-grey);
+    border: 1px solid var(--border);
 
     .toolbar-block {
         max-height: 80vh;
@@ -51,7 +55,7 @@
         display: flex;
         align-items: center;
         margin: 0 8px 0 8px;
-        border-bottom: 1px solid var(--dark-grey);
+        border-bottom: 1px solid var(--border);
 
         .toolbar-info-window-draggable {
             cursor: move;
@@ -88,7 +92,7 @@
     font-size: 11px;
     padding: 0 4px;
     line-height: 20px;
-    background: #fdedc9;
+    background: var(--mark-color);
     border-radius: 4px;
     font-weight: bold;
 }

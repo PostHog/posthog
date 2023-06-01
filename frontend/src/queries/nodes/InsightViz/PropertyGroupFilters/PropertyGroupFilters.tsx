@@ -78,19 +78,21 @@ export function PropertyGroupFilters({
                                                         }
                                                         value={group.type}
                                                     />
-                                                    <div className="flex-1 h-px mx-2 bg-dark-grey" />
-                                                    <LemonButton
-                                                        icon={<IconCopy />}
-                                                        status="primary-alt"
-                                                        onClick={() => duplicateFilterGroup(propertyGroupIndex)}
-                                                        size="small"
-                                                    />
-                                                    <LemonButton
-                                                        icon={<IconDelete />}
-                                                        status="primary-alt"
-                                                        onClick={() => removeFilterGroup(propertyGroupIndex)}
-                                                        size="small"
-                                                    />
+                                                    <LemonDivider className="flex-1 mx-2" />
+                                                    <div className="flex items-center space-x-2">
+                                                        <LemonButton
+                                                            icon={<IconCopy />}
+                                                            status="primary-alt"
+                                                            onClick={() => duplicateFilterGroup(propertyGroupIndex)}
+                                                            size="small"
+                                                        />
+                                                        <LemonButton
+                                                            icon={<IconDelete />}
+                                                            status="primary-alt"
+                                                            onClick={() => removeFilterGroup(propertyGroupIndex)}
+                                                            size="small"
+                                                        />
+                                                    </div>
                                                 </div>
                                                 <PropertyFilters
                                                     addButton={

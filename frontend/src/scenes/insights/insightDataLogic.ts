@@ -15,15 +15,17 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 import { compareFilters } from './utils/compareFilters'
+import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { insightDataTimingLogic } from './insightDataTimingLogic'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
     source: filtersToQueryNode(filters),
 })
 
-export const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
+export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
-    source: nodeKindToDefaultQuery[kind],
+    source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
 })
 
 export const insightDataLogic = kea<insightDataLogicType>([
@@ -34,18 +36,25 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['insight', 'isUsingDataExploration', 'isUsingDashboardQueries', 'savedInsight'],
+            ['filters', 'insight', 'isUsingDashboardQueries', 'savedInsight'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
+            [
+                'dataLoading as insightDataLoading',
+                'responseErrorObject as insightDataError',
+                'getInsightRefreshButtonDisabledReason',
+            ],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
         ],
         actions: [
             insightLogic,
             ['setInsight', 'loadInsightSuccess', 'loadResultsSuccess', 'saveInsight as insightLogicSaveInsight'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['loadData', 'loadDataSuccess'],
+            ['loadData'],
         ],
+        logic: [insightDataTimingLogic(props)],
     })),
 
     actions({
@@ -72,12 +81,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         query: [
-            (s) => [s.insight, s.internalQuery],
-            (insight, internalQuery) =>
+            (s) => [s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
+            (filters, insight, internalQuery, filterTestAccountsDefault) =>
                 internalQuery ||
                 insight.query ||
-                (insight.filters && insight.filters.insight ? queryFromFilters(insight.filters) : undefined) ||
-                queryFromKind(NodeKind.TrendsQuery),
+                (filters && filters.insight ? queryFromFilters(filters) : undefined) ||
+                queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
         ],
 
         isQueryBasedInsight: [
@@ -138,7 +147,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
         saveInsight: ({ redirectToViewMode }) => {
             let filters = values.insight.filters
-            if (values.isUsingDataExploration && isInsightVizNode(values.query)) {
+            if (isInsightVizNode(values.query)) {
                 const querySource = values.query.source
                 filters = queryNodeToFilter(querySource)
             } else if (values.isUsingDashboardQueries && values.isQueryBasedInsight) {

@@ -1,94 +1,42 @@
 @import '../../../styles/mixins';
 
-$sidebar-width: 40%;
-
 .NotebookSidebar {
     position: relative;
-    flex-grow: 1;
     height: 100%;
     min-height: calc(100vh - 3.5rem);
     display: flex;
-    width: 0px;
-    transition: 200ms ease width;
-    flex-shrink: 0;
-
-    .NotebookSidebar__floater {
-        position: fixed;
-        top: 3.5rem;
-        right: 0;
-        width: $sidebar-width;
-        height: calc(100vh - 3.5rem);
-        transform: translateX(100%);
-        transition: 200ms ease transform;
-        display: flex;
-    }
+    max-width: 80%;
+    min-width: 600px;
 
     .NotebookSidebar__content {
-        margin: 0.5rem;
-        flex: 1;
-        overflow: hidden;
+        height: 100%;
+        transform: translateX(0);
         display: flex;
         flex-direction: column;
-    }
-
-    &--show {
-        width: $sidebar-width;
-
-        .NotebookSidebar__floater {
-            transform: translateX(0);
-        }
-
-        &.NotebookSidebar--full-screen {
-            width: $sidebar-width;
-
-            .NotebookSidebar__floater {
-                z-index: 10;
-                width: calc(100vw - 15.5rem - 1rem); // TODO: Unhardcode this value
-
-                .SideBar--hidden & {
-                    width: calc(100vw - 1rem); // TODO: Unhardcode this value
-                }
-            }
-        }
-    }
-
-    .NotebookSidebar__content {
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
+        flex: 1;
+        overflow: hidden;
+        border-left: 1px solid var(--border);
         background-color: var(--side);
         box-shadow: var(--shadow--elevation);
     }
 
-    .Navigation3000 & {
-        flex: 0;
-        height: auto;
-        transition: 200ms ease flex;
+    &--full-screen {
+        width: auto;
+        max-width: initial;
+        flex: 1;
 
         .NotebookSidebar__content {
-            background-color: var(--accent-3000);
-            box-shadow: none;
-            margin: 0;
-            border: none;
-            border-radius: 0px;
-            border-left: 1px solid var(--border);
-        }
-
-        .NotebookSidebar__floater {
-            position: absolute;
-            height: 100%;
-            top: 0;
-            background-color: var(--bg-3000);
             width: 100%;
         }
 
-        &--show {
-            flex: 0 0 $sidebar-width;
+        .NotebookSidebar__content {
+            border-left: none;
+        }
+    }
 
-            &.NotebookSidebar--full-screen {
-                .NotebookSidebar__floater {
-                    width: calc(100vw - 3rem); // TODO: Unhardcode this value
-                }
-            }
+    .Navigation3000 & {
+        .NotebookSidebar__content {
+            background-color: var(--accent-3000);
         }
     }
 }

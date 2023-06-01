@@ -53,7 +53,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     }
 
     return (
-        <div>
+        // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
+        <div className="-mb-16">
             <PageHeader
                 title={
                     <EditableField

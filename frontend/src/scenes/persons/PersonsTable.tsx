@@ -1,6 +1,6 @@
 import { TZLabel } from 'lib/components/TZLabel'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { PersonType } from '~/types'
+import { PersonType, PropertyDefinitionType } from '~/types'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PersonHeader } from './PersonHeader'
@@ -20,6 +20,8 @@ interface PersonsTableType {
     loadPrevious?: () => void
     loadNext?: () => void
     compact?: boolean
+    extraColumns?: LemonTableColumns<PersonType>
+    emptyState?: JSX.Element
 }
 
 export function PersonsTable({
@@ -30,6 +32,8 @@ export function PersonsTable({
     loadPrevious,
     loadNext,
     compact,
+    extraColumns,
+    emptyState,
 }: PersonsTableType): JSX.Element {
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { loadPersons } = useActions(personsLogic)
@@ -42,27 +46,27 @@ export function PersonsTable({
                 return <PersonHeader withIcon person={person} />
             },
         },
-        {
-            title: 'ID',
-            key: 'id',
-            render: function Render(_, person: PersonType) {
-                return (
-                    <div className={'overflow-hidden'}>
-                        {person.distinct_ids.length && (
-                            <CopyToClipboardInline
-                                explicitValue={person.distinct_ids[0]}
-                                iconStyle={{ color: 'var(--primary)' }}
-                                description="person distinct ID"
-                            >
-                                {person.distinct_ids[0]}
-                            </CopyToClipboardInline>
-                        )}
-                    </div>
-                )
-            },
-        },
         ...(!compact
             ? ([
+                  {
+                      title: 'ID',
+                      key: 'id',
+                      render: function Render(_, person: PersonType) {
+                          return (
+                              <div className={'overflow-hidden'}>
+                                  {person.distinct_ids.length && (
+                                      <CopyToClipboardInline
+                                          explicitValue={person.distinct_ids[0]}
+                                          iconStyle={{ color: 'var(--primary)' }}
+                                          description="person distinct ID"
+                                      >
+                                          {person.distinct_ids[0]}
+                                      </CopyToClipboardInline>
+                                  )}
+                              </div>
+                          )
+                      },
+                  },
                   {
                       title: 'First seen',
                       dataIndex: 'created_at',
@@ -84,6 +88,7 @@ export function PersonsTable({
                   },
               ] as Array<LemonTableColumn<PersonType, keyof PersonType | undefined>>)
             : []),
+        ...(extraColumns || []),
     ]
 
     return (
@@ -112,14 +117,14 @@ export function PersonsTable({
                 expandable={{
                     expandedRowRender: function RenderPropertiesTable({ properties }) {
                         return Object.keys(properties).length ? (
-                            <PropertiesTable properties={properties} />
+                            <PropertiesTable type={PropertyDefinitionType.Person} properties={properties} />
                         ) : (
                             'This person has no properties.'
                         )
                     },
                 }}
                 dataSource={people}
-                emptyState="No persons"
+                emptyState={emptyState ? emptyState : 'No persons'}
                 nouns={['person', 'persons']}
             />
             <PersonDeleteModal />

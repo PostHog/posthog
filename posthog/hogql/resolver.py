@@ -4,7 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType, FieldType
-from posthog.hogql.database import Database, SQLExprField
+from posthog.hogql.database.database import Database, SQLExprField
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -91,7 +91,7 @@ class Resolver(CloningVisitor):
             select=[],
         )
 
-        # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1].
+        # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
@@ -128,6 +128,9 @@ class Resolver(CloningVisitor):
         new_node.limit_with_ties = node.limit_with_ties
         new_node.offset = self.visit(node.offset)
         new_node.distinct = node.distinct
+        new_node.window_exprs = (
+            {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
+        )
 
         self.scopes.pop()
 
@@ -251,11 +254,7 @@ class Resolver(CloningVisitor):
             raise ResolverException("Alias cannot be empty")
 
         node = super().visit_alias(node)
-
-        if not node.expr.type:
-            raise ResolverException(f"Cannot alias an expression without a type: {node.alias}")
-
-        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type)
+        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
         scope.aliases[node.alias] = node.type
         return node
 
@@ -295,6 +294,8 @@ class Resolver(CloningVisitor):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
         if len(node.chain) == 0:
             raise ResolverException("Invalid field access with empty chain")
+
+        node = super().visit_field(node)
 
         # Only look for fields in the last SELECT scope, instead of all previous select queries.
         # That's because ClickHouse does not support subqueries accessing "x.event". This is forbidden:

@@ -33,7 +33,7 @@ export function Login2FA(): JSX.Element {
                             autoFocus
                             data-attr="token"
                             placeholder="123456"
-                            type="number"
+                            inputMode="numeric"
                             autoComplete="one-time-code"
                         />
                     </Field>

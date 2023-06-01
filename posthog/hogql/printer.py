@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from difflib import get_close_matches
 from typing import List, Literal, Optional, Union, cast
 
 
@@ -14,7 +15,8 @@ from posthog.hogql.constants import (
     ADD_TIMEZONE_TO_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import Table, create_hogql_database
+from posthog.hogql.database.models import Table
+from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -173,10 +175,17 @@ class _Printer(Visitor):
             next_join = next_join.next_join
 
         columns = [self.visit(column) for column in node.select] if node.select else ["1"]
-        where = self.visit(where) if where else None
-        having = self.visit(node.having) if node.having else None
+        window = (
+            ", ".join(
+                [f"{self._print_identifier(name)} AS ({self.visit(expr)})" for name, expr in node.window_exprs.items()]
+            )
+            if node.window_exprs
+            else None
+        )
         prewhere = self.visit(node.prewhere) if node.prewhere else None
+        where = self.visit(where) if where else None
         group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
+        having = self.visit(node.having) if node.having else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
         clauses = [
@@ -186,6 +195,7 @@ class _Printer(Visitor):
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
             "HAVING " + having if having else None,
+            "WINDOW " + window if window else None,
             f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]
 
@@ -432,7 +442,6 @@ class _Printer(Visitor):
             translated_args = ", ".join([self.visit(arg) for arg in node.args])
             if node.distinct:
                 translated_args = f"DISTINCT {translated_args}"
-
             return f"{node.name}({translated_args})"
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
@@ -454,7 +463,9 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
-                if clickhouse_name == "now64" and len(args) == 0:
+                if (clickhouse_name == "now64" and len(args) == 0) or (
+                    clickhouse_name == "parseDateTime64BestEffortOrNull" and len(args) == 1
+                ):
                     # must add precision if adding timezone in the next step
                     args.append("6")
                 if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
@@ -463,6 +474,12 @@ class _Printer(Visitor):
             else:
                 return f"{node.name}({', '.join(args)})"
         else:
+            all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
+            close_matches = get_close_matches(node.name, all_function_names, 1)
+            if len(close_matches) > 0:
+                raise HogQLException(
+                    f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
+                )
             raise HogQLException(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
@@ -575,8 +592,7 @@ class _Printer(Visitor):
             materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
-                if not self.context.within_non_hogql_query:
-                    property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
+                property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
                 materialized_property_sql = property_sql
         elif (
             self.context.within_non_hogql_query
@@ -591,23 +607,26 @@ class _Printer(Visitor):
             if materialized_column:
                 materialized_property_sql = self._print_identifier(materialized_column)
 
+        args: List[str] = []
         if materialized_property_sql is not None:
+            # When reading materialized columns, treat the values "" and "null" as NULL-s.
+            # TODO: rematerialize all columns to support empty strings and "null" string values.
+            materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
+
             if len(type.chain) == 1:
                 return materialized_property_sql
             else:
-                args = [materialized_property_sql]
                 for name in type.chain[1:]:
                     key = f"hogql_val_{len(self.context.values)}"
                     self.context.values[key] = name
                     args.append(f"%({key})s")
-                return trim_quotes_expr(f"JSONExtractRaw({', '.join(args)})")
+                return self._unsafe_json_extract_trim_quotes(materialized_property_sql, args)
 
-        args = [self.visit(field_type)]
         for name in type.chain:
             key = f"hogql_val_{len(self.context.values)}"
             self.context.values[key] = name
             args.append(f"%({key})s")
-        return trim_quotes_expr(f"JSONExtractRaw({', '.join(args)})")
+        return self._unsafe_json_extract_trim_quotes(self.visit(field_type), args)
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         sample_value = self.visit_ratio_expr(node.sample_value)
@@ -645,6 +664,56 @@ class _Printer(Visitor):
     def visit_unknown(self, node: AST):
         raise HogQLException(f"Unknown AST node {type(node).__name__}")
 
+    def visit_window_expr(self, node: ast.WindowExpr):
+        strings: List[str] = []
+        if node.partition_by is not None:
+            if len(node.partition_by) == 0:
+                raise HogQLException("PARTITION BY must have at least one argument")
+            strings.append("PARTITION BY")
+            for expr in node.partition_by:
+                strings.append(self.visit(expr))
+
+        if node.order_by is not None:
+            if len(node.order_by) == 0:
+                raise HogQLException("ORDER BY must have at least one argument")
+            strings.append("ORDER BY")
+            for expr in node.order_by:
+                strings.append(self.visit(expr))
+
+        if node.frame_method is not None:
+            if node.frame_method == "ROWS":
+                strings.append("ROWS")
+            elif node.frame_method == "RANGE":
+                strings.append("RANGE")
+            else:
+                raise HogQLException(f"Invalid frame method {node.frame_method}")
+            if node.frame_start and node.frame_end is None:
+                strings.append(self.visit(node.frame_start))
+
+            elif node.frame_start is not None and node.frame_end is not None:
+                strings.append("BETWEEN")
+                strings.append(self.visit(node.frame_start))
+                strings.append("AND")
+                strings.append(self.visit(node.frame_end))
+
+            else:
+                raise HogQLException("Frame start and end must be specified together")
+        return " ".join(strings)
+
+    def visit_window_function(self, node: ast.WindowFunction):
+        over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
+        return f"{self._print_identifier(node.name)}({', '.join(self.visit(expr) for expr in node.args or [])}) OVER {over}"
+
+    def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
+        if node.frame_type == "PRECEDING":
+            return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} PRECEDING"
+        elif node.frame_type == "FOLLOWING":
+            return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} FOLLOWING"
+        elif node.frame_type == "CURRENT ROW":
+            return "CURRENT ROW"
+        else:
+            raise HogQLException(f"Invalid frame type {node.frame_type}")
+
     def _last_select(self) -> Optional[ast.SelectQuery]:
         """Find the last SELECT query in the stack."""
         for node in reversed(self.stack):
@@ -662,6 +731,9 @@ class _Printer(Visitor):
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
+    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: List[str]) -> str:
+        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field] + unsafe_args)}), ''), 'null'), '^\"|\"$', '')"
+
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
@@ -678,7 +750,3 @@ class _Printer(Visitor):
 
     def _get_timezone(self):
         return self.context.database.get_timezone() if self.context.database else "UTC"
-
-
-def trim_quotes_expr(expr: str) -> str:
-    return f"replaceRegexpAll({expr}, '^\"|\"$', '')"

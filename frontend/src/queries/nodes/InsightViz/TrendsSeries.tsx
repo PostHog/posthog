@@ -8,17 +8,10 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsQuery, FunnelsQuery, LifecycleQuery, StickinessQuery } from '~/queries/schema'
-import {
-    isLifecycleQuery,
-    isStickinessQuery,
-    isTrendsQuery,
-    isInsightQueryWithDisplay,
-    isInsightQueryNode,
-} from '~/queries/utils'
+import { isInsightQueryNode } from '~/queries/utils'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 
-import { getDisplay } from './utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 type TrendsSeriesProps = {
@@ -26,12 +19,10 @@ type TrendsSeriesProps = {
 }
 
 export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element | null {
-    const dataLogic = insightVizDataLogic(insightProps)
-    const { querySource } = useValues(dataLogic)
-    const { updateQuerySource } = useActions(dataLogic)
-    // TODO: implement isFormulaOn
-    // const { filters, isFormulaOn } = useValues(trendsLogic(insightProps))
-    const isFormulaOn = false
+    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula } = useValues(
+        insightVizDataLogic(insightProps)
+    )
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const propertiesTaxonomicGroupTypes = [
@@ -41,7 +32,7 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        ...(isTrendsQuery(querySource) ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(isTrends ? [TaxonomicFilterGroupType.Sessions] : []),
         TaxonomicFilterGroupType.HogQLExpression,
     ]
 
@@ -49,12 +40,11 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
         return null
     }
 
-    const display = getDisplay(querySource)
     const filters = queryNodeToFilter(querySource)
 
     return (
         <>
-            {isLifecycleQuery(querySource) && (
+            {isLifecycle && (
                 <div className="leading-6">
                     Showing <b>Unique users</b> who did
                 </div>
@@ -69,22 +59,18 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
                         | LifecycleQuery)
                 }}
                 typeKey={`trends_${InsightType.TRENDS}_data_exploration`}
-                buttonCopy={`Add graph ${isFormulaOn ? 'variable' : 'series'}`}
+                buttonCopy={`Add graph ${hasFormula ? 'variable' : 'series'}`}
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
-                    (isInsightQueryWithDisplay(querySource) &&
-                        display &&
-                        SINGLE_SERIES_DISPLAY_TYPES.includes(display) &&
-                        !isFormulaOn) ||
-                    isLifecycleQuery(querySource)
+                    (display && SINGLE_SERIES_DISPLAY_TYPES.includes(display) && !hasFormula) || isLifecycle
                         ? 1
                         : alphabet.length
                 }
                 mathAvailability={
-                    isLifecycleQuery(querySource)
+                    isLifecycle
                         ? MathAvailability.None
-                        : isStickinessQuery(querySource)
+                        : isStickiness
                         ? MathAvailability.ActorsOnly
                         : MathAvailability.All
                 }

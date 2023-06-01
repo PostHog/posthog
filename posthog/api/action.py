@@ -38,7 +38,9 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
             "event",
             "tag_name",
             "text",
+            "text_matching",
             "href",
+            "href_matching",
             "selector",
             "url",
             "name",
@@ -212,7 +214,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
         if request.accepted_renderer.format == "csv":
             content = [
                 {
-                    "Name": get_person_name(person),
+                    "Name": get_person_name(team, person),
                     "Distinct ID": person.distinct_ids[0] if person.distinct_ids else "",
                     "Internal ID": str(person.uuid),
                     "Email": person.properties.get("email"),

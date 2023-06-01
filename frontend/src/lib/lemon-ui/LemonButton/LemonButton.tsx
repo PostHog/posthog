@@ -6,7 +6,7 @@ import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
-import { PopoverPlacementContext } from '../Popover'
+import { PopoverReferenceContext } from '../Popover'
 
 export type LemonButtonDropdown = Omit<LemonDropdownProps, 'children'>
 
@@ -102,7 +102,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             },
             ref
         ): JSX.Element => {
-            const popoverPlacement = useContext(PopoverPlacementContext)
+            const [popoverVisibility, popoverPlacement] = useContext(PopoverReferenceContext) || [false, null]
+
+            if (!active && popoverVisibility) {
+                active = true
+            }
 
             if (popoverPlacement) {
                 if (!children) {
@@ -116,6 +120,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             if (loading) {
                 icon = <Spinner monocolor />
             }
+
             let tooltipContent: TooltipProps['title']
             if (disabledReason) {
                 disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
@@ -167,7 +172,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     {...buttonProps}
                 >
                     {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-                    {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
+                    {children ? <span className="LemonButton__content">{children}</span> : null}
                     {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
                 </ButtonComponent>
             )
@@ -195,6 +200,12 @@ export type SideAction = Pick<
     'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status'
 > & {
     dropdown?: LemonButtonDropdown
+    /**
+     * Whether to show a divider between button contents and side action.
+     * @default true // for non-full-width buttons
+     * @default false // for full-width buttons
+     */
+    divider?: boolean
 }
 
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
@@ -206,24 +217,23 @@ export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
  * Styled button with a side action on the right.
  * We can't use `LemonRow`'s `sideIcon` prop because putting `onClick` on it clashes with the parent`s `onClick`.
  */
-export function LemonButtonWithSideAction({
-    sideAction,
-    children,
-    ...buttonProps
-}: LemonButtonWithSideActionProps): JSX.Element {
-    const { dropdown: sideDropdown, ...sideActionRest } = sideAction
+export const LemonButtonWithSideAction: React.FunctionComponent<
+    LemonButtonWithSideActionProps & React.RefAttributes<HTMLElement>
+> = React.forwardRef(({ sideAction, children, ...buttonProps }, ref) => {
+    const { dropdown: sideDropdown, divider = !buttonProps.fullWidth, ...sideActionRest } = sideAction
     const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
 
     return (
         <div className={clsx('LemonButtonWithSideAction', `LemonButtonWithSideAction--${buttonProps.size}`)}>
             {/* Bogus `sideIcon` div prevents overflow under the side button. */}
             <LemonButton
+                ref={ref}
                 {...buttonProps}
                 sideIcon={
                     <span
                         className={clsx(
                             'LemonButtonWithSideAction__spacer',
-                            !buttonProps.fullWidth && 'LemonButtonWithSideAction__spacer--divider'
+                            divider && 'LemonButtonWithSideAction__spacer--divider'
                         )}
                     />
                 }
@@ -242,7 +252,8 @@ export function LemonButtonWithSideAction({
             </div>
         </div>
     )
-}
+})
+LemonButtonWithSideAction.displayName = 'LemonButtonWithSideAction'
 
 export interface LemonButtonWithDropdownProps extends LemonButtonPropsBase {
     dropdown: LemonButtonDropdown

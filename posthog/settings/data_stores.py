@@ -5,7 +5,7 @@ import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
 from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, str_to_bool, get_list
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
@@ -100,9 +100,22 @@ else:
 read_host = os.getenv("POSTHOG_POSTGRES_READ_HOST")
 if read_host:
     DATABASES["replica"] = postgres_config(read_host)
+    DATABASE_ROUTERS = ["posthog.dbrouter.ReplicaRouter"]
 
 if JOB_QUEUE_GRAPHILE_URL:
     DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
+
+
+# Opt-in to using the read replica
+# Models using this will likely see better query latency, and better performance.
+# Immediately reading after writing may not return consistent data if done in <100ms
+# Pass in model classnames that should use the read replica
+
+# Note: Regardless of settings, cursor usage will use the default DB unless otherwise specified.
+# Database routers route models!
+replica_opt_in = os.environ.get("READ_REPLICA_OPT_IN", "")
+READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
+
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"
@@ -190,11 +203,30 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+# Controls whether the TolerantZlibCompressor is used for Redis compression when writing to Redis.
+# The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
+# can cope with compressed and uncompressed reading at the same time
+USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", False, type_cast=str_to_bool)
+
+# AWS ElastiCache supports "reader" endpoints.
+# See "Finding a Redis (Cluster Mode Disabled) Cluster's Endpoints (Console)"
+# on https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/Endpoints.html#Endpoints.Find.Redis
+# A reader endpoint distributes read-only connections across all replicas in the cluster.
+# ElastiCache manages updating which nodes are used if a replica is failed-over to primary
+# so that we don't have to worry about changing config.
+REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL,
-        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        # the django redis default client can be replica aware
+        # if location is an array then the first element is the primary
+        # and the rest are replicas
+        "LOCATION": REDIS_URL if not REDIS_READER_URL else [REDIS_URL, REDIS_READER_URL],
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.tolerant_zlib_compressor.TolerantZlibCompressor",
+        },
         "KEY_PREFIX": "posthog",
     }
 }

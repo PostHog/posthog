@@ -139,12 +139,12 @@ class TestTeam(BaseTest):
     def test_team_on_self_hosted_uses_instance_setting_to_determine_person_on_events(self, mock_feature_enabled):
 
         with self.is_cloud(False):
-            with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
+            with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V1_ENABLED)
+                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
                 mock_feature_enabled.assert_not_called()
 
-            with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
+            with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.DISABLED)
                 mock_feature_enabled.assert_not_called()

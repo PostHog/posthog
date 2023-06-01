@@ -110,6 +110,8 @@ class TraversingVisitor(Visitor):
             self.visit(expr)
         self.visit(node.limit),
         self.visit(node.offset),
+        for expr in (node.window_exprs or {}).values():
+            self.visit(expr)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         for expr in node.select_queries:
@@ -199,6 +201,22 @@ class TraversingVisitor(Visitor):
 
     def visit_property_type(self, node: ast.PropertyType):
         self.visit(node.field_type)
+
+    def visit_window_expr(self, node: ast.WindowExpr):
+        for expr in node.partition_by or []:
+            self.visit(expr)
+        for expr in node.order_by or []:
+            self.visit(expr)
+        self.visit(node.frame_start)
+        self.visit(node.frame_end)
+
+    def visit_window_function(self, node: ast.WindowFunction):
+        for expr in node.args or []:
+            self.visit(expr)
+        self.visit(node.over_expr)
+
+    def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
+        pass
 
 
 class CloningVisitor(Visitor):
@@ -340,10 +358,39 @@ class CloningVisitor(Visitor):
             limit_with_ties=node.limit_with_ties,
             offset=self.visit(node.offset),
             distinct=node.distinct,
+            window_exprs={name: self.visit(expr) for name, expr in node.window_exprs.items()}
+            if node.window_exprs
+            else None,
         )
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         return ast.SelectUnionQuery(
             type=None if self.clear_types else node.type,
             select_queries=[self.visit(expr) for expr in node.select_queries],
+        )
+
+    def visit_window_expr(self, node: ast.WindowExpr):
+        return ast.WindowExpr(
+            type=None if self.clear_types else node.type,
+            partition_by=[self.visit(expr) for expr in node.partition_by] if node.partition_by else None,
+            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
+            frame_method=node.frame_method,
+            frame_start=self.visit(node.frame_start),
+            frame_end=self.visit(node.frame_end),
+        )
+
+    def visit_window_function(self, node: ast.WindowFunction):
+        return ast.WindowFunction(
+            type=None if self.clear_types else node.type,
+            name=node.name,
+            args=[self.visit(expr) for expr in node.args] if node.args else None,
+            over_expr=self.visit(node.over_expr) if node.over_expr else None,
+            over_identifier=node.over_identifier,
+        )
+
+    def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
+        return ast.WindowFrameExpr(
+            type=None if self.clear_types else node.type,
+            frame_type=node.frame_type,
+            frame_value=node.frame_value,
         )

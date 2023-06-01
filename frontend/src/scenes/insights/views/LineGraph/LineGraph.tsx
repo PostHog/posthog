@@ -236,7 +236,7 @@ export function LineGraph_({
     let datasets = _datasets
 
     const { createTooltipData } = useValues(lineGraphLogic)
-    const { insightProps, insight, timezone } = useValues(insightLogic)
+    const { insight, timezone } = useValues(insightLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -614,7 +614,6 @@ export function LineGraph_({
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
-                    dashboardItemId={insightProps.dashboardItemId}
                     insightNumericId={insight.id || 'new'}
                 />
             ) : null}

@@ -44,6 +44,7 @@ import {
     generateBaselineConversionUrl,
     parseBreakdownValue,
     parseEventAndProperty,
+    aggregationLabelForHogQL,
 } from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -472,7 +473,10 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.aggregationLabel],
-            (filters, aggregationLabel): Noun => aggregationLabel(filters.aggregation_group_type_index),
+            (filters, aggregationLabel): Noun =>
+                filters.funnel_aggregate_by_hogql
+                    ? aggregationLabelForHogQL(filters.funnel_aggregate_by_hogql)
+                    : aggregationLabel(filters.aggregation_group_type_index),
         ],
         advancedOptionsUsedCount: [
             (s) => [s.filters, s.stepReference],
@@ -510,6 +514,12 @@ export const funnelLogic = kea<funnelLogicType>({
         breakdownAttributionStepOptions: [
             (s) => [s.steps],
             (steps): LemonSelectOptions<number> => steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` })),
+        ],
+        canOpenPersonModal: [
+            (s) => [s.filters, s.isInDashboardContext],
+            (filters, isInDashboardContext): boolean => {
+                return !isInDashboardContext && !filters.funnel_aggregate_by_hogql
+            },
         ],
     }),
 

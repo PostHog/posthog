@@ -19,10 +19,6 @@ from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.schema import EventsQuery, EventsQueryResponse
 from posthog.utils import relative_date_parse
 
-QUERY_DEFAULT_LIMIT = 100
-QUERY_DEFAULT_EXPORT_LIMIT = 3_500
-QUERY_MAXIMUM_LIMIT = 100_000
-
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [
     "uuid",
@@ -39,12 +35,18 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 def run_events_query(
     team: Team,
     query: EventsQuery,
+    default_limit: Optional[int] = None,
 ) -> EventsQueryResponse:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
 
     # limit & offset
     # adding +1 to the limit to check if there's a "next page" after the requested results
-    limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else query.limit) + 1
+    from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+
+    limit = (
+        min(MAX_SELECT_RETURNED_ROWS, default_limit or DEFAULT_RETURNED_ROWS if query.limit is None else query.limit)
+        + 1
+    )
     offset = 0 if query.offset is None else query.offset
 
     # columns & group_by
@@ -101,11 +103,12 @@ def run_events_query(
 
     # limit to the last 24h by default
     after = query.after or "-24h"
-    try:
-        parsed_date = isoparse(after)
-    except ValueError:
-        parsed_date = relative_date_parse(after)
-    where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
+    if after != "all":
+        try:
+            parsed_date = isoparse(after)
+        except ValueError:
+            parsed_date = relative_date_parse(after)
+        where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
     # where & having
     where_list = [expr for expr in where_exprs if not has_aggregation(expr)]
@@ -138,7 +141,7 @@ def run_events_query(
         offset=ast.Constant(value=offset),
     )
 
-    query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.OFFLINE, query_type="EventsQuery")
+    query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.ONLINE, query_type="EventsQuery")
 
     # Convert star field from tuple to dict in each result
     if "*" in select_input_raw:

@@ -49,10 +49,6 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED],
         ],
         showDatabaseTab: [(s) => [s.featureFlags], (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.HOGQL]],
-        showHistoryTab: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT_HISTORY],
-        ],
     },
     actionToUrl: () => ({
         setTab: ({ tab }) => tabUrls[tab as DataManagementTab] || urls.events(),
@@ -72,8 +68,9 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
 })
 
 export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX.Element {
-    const { showWarningsTab, showDatabaseTab, showHistoryTab } = useValues(eventsTabsLogic)
+    const { showWarningsTab, showDatabaseTab } = useValues(eventsTabsLogic)
     const { setTab } = useActions(eventsTabsLogic)
+
     return (
         <>
             <LemonTabs
@@ -114,7 +111,7 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                             </TitleWithIcon>
                         ),
                     },
-                    showHistoryTab && {
+                    {
                         key: DataManagementTab.History,
                         label: <span data-attr="data-management-history-tab">History</span>,
                     },

@@ -18,6 +18,7 @@ import {
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { groupsModel } from '~/models/groupsModel'
+import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
@@ -64,7 +65,7 @@ export function CodeInstructions({
             ? groupTypes[featureFlag?.filters?.aggregation_group_type_index]
             : undefined
 
-    const { reportFlagsCodeExampleInteraction } = useActions(eventUsageLogic)
+    const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)
     const getDocumentationLink = (): string => {
         const documentationLink = selectedOption.documentationLink
 
@@ -129,6 +130,18 @@ export function CodeInstructions({
         }
     }, [selectedLanguage, featureFlag])
 
+    const groups = featureFlag?.filters?.groups || []
+    // return first non-instant property in group
+    const firstNonInstantProperty = groups
+        .find(
+            (group) =>
+                group.properties?.length &&
+                group.properties.some((property) => !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || ''))
+        )
+        ?.properties?.find((property) => !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || ''))?.key
+
+    const randomProperty = groups.find((group) => group.properties?.length)?.properties?.[0]?.key
+
     return (
         <div>
             <div className="flex items-center gap-6">
@@ -160,6 +173,7 @@ export function CodeInstructions({
                         onChange={(val) => {
                             if (val) {
                                 selectOption(val)
+                                reportFlagsCodeExampleLanguage(val)
                             }
                         }}
                         value={selectedOption.value}
@@ -232,7 +246,7 @@ export function CodeInstructions({
             <div className="mt-4 mb">
                 {showLocalEvalCode && (
                     <>
-                        <h3>Local evaluation</h3>
+                        <h4 className="l4">Local evaluation</h4>
                     </>
                 )}
                 <selectedOption.Snippet
@@ -241,10 +255,12 @@ export function CodeInstructions({
                     multivariant={multivariantFlag}
                     groupType={groupType}
                     localEvaluation={showLocalEvalCode}
+                    instantlyAvailableProperties={!firstNonInstantProperty}
+                    samplePropertyName={firstNonInstantProperty || randomProperty}
                 />
                 {showPayloadCode && (
                     <>
-                        <h3>Payload</h3>
+                        <h4 className="l4">Payload</h4>
                         <selectedOption.Snippet
                             data-attr="feature-flag-instructions-payload-snippet"
                             flagKey={featureFlagKey}
@@ -257,7 +273,7 @@ export function CodeInstructions({
                 )}
                 {showBootstrapCode && (
                     <>
-                        <h3>Bootstrap</h3>
+                        <h4 className="l4">Bootstrap</h4>
                         <bootstrapOption.Snippet flagKey={featureFlagKey} />
                     </>
                 )}

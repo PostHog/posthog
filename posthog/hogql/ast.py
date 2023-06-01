@@ -6,7 +6,7 @@ from pydantic import Field as PydanticField
 
 from posthog.hogql.base import Type, Expr, Macro, ConstantType
 from posthog.hogql.constants import ConstantDataType
-from posthog.hogql.database import (
+from posthog.hogql.database.models import (
     DatabaseField,
     FieldTraverser,
     LazyJoin,
@@ -403,6 +403,26 @@ class JoinExpr(Expr):
     sample: Optional["SampleExpr"] = None
 
 
+class WindowFrameExpr(Expr):
+    frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
+    frame_value: Optional[int] = None
+
+
+class WindowExpr(Expr):
+    partition_by: Optional[List[Expr]] = None
+    order_by: Optional[List[OrderExpr]] = None
+    frame_method: Optional[Literal["ROWS", "RANGE"]] = None
+    frame_start: Optional[WindowFrameExpr] = None
+    frame_end: Optional[WindowFrameExpr] = None
+
+
+class WindowFunction(Expr):
+    name: str
+    args: Optional[List[Expr]] = None
+    over_expr: Optional[WindowExpr] = None
+    over_identifier: Optional[str] = None
+
+
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
@@ -410,6 +430,7 @@ class SelectQuery(Expr):
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
+    window_exprs: Optional[Dict[str, WindowExpr]] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None

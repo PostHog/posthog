@@ -9,6 +9,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
       "sso_enforcement",
       "saml",
     ],
+    "available_product_features": [],
     "created_at": "2020-09-24T15:05:01.254111Z",
     "customer_id": null,
     "enforce_2fa": false,

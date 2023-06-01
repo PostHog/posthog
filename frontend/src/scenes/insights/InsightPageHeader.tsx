@@ -9,7 +9,7 @@ import {
     InsightShortId,
     ItemMode,
 } from '~/types'
-import { IconEvent, IconLock } from 'lib/lemon-ui/icons'
+import { IconDataObject, IconLock } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -37,7 +37,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { Tooltip } from 'antd'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { ThunderboltFilled } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -45,8 +45,7 @@ import { globalInsightLogic } from './globalInsightLogic'
 import { isInsightVizNode } from '~/queries/utils'
 import { posthog } from 'posthog-js'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -62,19 +61,25 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insight,
         insightChanged,
         insightSaving,
+        hasDashboardItemId,
         exporterResourceParams,
         isUsingDataExploration,
         isUsingDashboardQueries,
-        insightRefreshButtonDisabledReason,
     } = useValues(logic)
-    const { setInsightMetadata, saveAs, loadResults } = useActions(logic)
+    const { setInsightMetadata, saveAs } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor } = useValues(insightDataLogic(insightProps))
-    const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
+    const { query, queryChanged, showQueryEditor, getInsightRefreshButtonDisabledReason } = useValues(
+        insightDataLogic(insightProps)
+    )
+    const {
+        saveInsight: saveQueryBasedInsight,
+        toggleQueryEditorPanel,
+        loadData,
+    } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -89,9 +94,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { globalInsightFilters } = useValues(globalInsightLogic)
     const { setGlobalInsightFilters } = useActions(globalInsightLogic)
 
+    usePeriodicRerender(30000) // Re-render every 30 seconds for up-to-date `insightRefreshButtonDisabledReason`
+
+    const insightRefreshButtonDisabledReason = getInsightRefreshButtonDisabledReason()
+
     return (
         <>
-            {insight.short_id !== 'new' && (
+            {hasDashboardItemId && (
                 <>
                     <SubscriptionsModal
                         isOpen={insightMode === ItemMode.Subscriptions}
@@ -99,12 +108,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightShortId={insight.short_id}
                         subscriptionId={subscriptionId}
                     />
-
                     <SharingModal
+                        title="Insight Sharing"
                         isOpen={insightMode === ItemMode.Sharing}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         insight={insight}
+                        previewIframe
                     />
                 </>
             )}
@@ -114,7 +124,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         name="name"
                         value={insight.name || ''}
                         placeholder={summarizeInsight(query, filters, {
-                            isUsingDataExploration,
                             aggregationLabel,
                             cohortsById,
                             mathDefinitions,
@@ -138,14 +147,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {insightMode === ItemMode.Edit ? (
+                        {!hasDashboardItemId ? (
                             <>
                                 <More
                                     overlay={
                                         <>
                                             <LemonButton
                                                 status="stealth"
-                                                onClick={() => loadResults(true)}
+                                                onClick={() => loadData(true)}
                                                 fullWidth
                                                 data-attr="refresh-insight-from-insight-view"
                                                 disabledReason={insightRefreshButtonDisabledReason}
@@ -157,15 +166,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 />
                                 <LemonDivider vertical />
                             </>
-                        ) : null}
-                        {insightMode !== ItemMode.Edit && (
+                        ) : (
                             <>
                                 <More
                                     overlay={
                                         <>
                                             <LemonButton
                                                 status="stealth"
-                                                onClick={() => loadResults(true)}
+                                                onClick={() => loadData(true)}
                                                 fullWidth
                                                 data-attr="refresh-insight-from-insight-view"
                                                 disabledReason={insightRefreshButtonDisabledReason}
@@ -283,22 +291,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <LemonDivider vertical />
                             </>
                         ) : null}
-                        {insightMode === ItemMode.Edit && insight.saved && (
+                        {insightMode === ItemMode.Edit && hasDashboardItemId && (
                             <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
                                 Cancel
                             </LemonButton>
                         )}
-                        {insightMode !== ItemMode.Edit && insight.short_id && (
+                        {insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
-                        )}
-
-                        {insightMode !== ItemMode.Edit && insight.short_id && featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                            <AddToNotebook
-                                node={NotebookNodeType.Insight}
-                                properties={{ shortId: insight.short_id }}
-                                type="secondary"
-                                size="medium"
-                            />
                         )}
 
                         {insightMode !== ItemMode.Edit ? (
@@ -315,7 +314,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <InsightSaveButton
                                 saveAs={saveAs}
                                 saveInsight={saveQueryBasedInsight}
-                                isSaved={insight.saved}
+                                isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}
@@ -323,12 +322,41 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                         {isUsingDataExploration && isInsightVizNode(query) ? (
                             <LemonButton
-                                tooltip={showQueryEditor ? 'Hide JSON editor' : 'Edit as JSON'}
+                                tooltip={
+                                    showQueryEditor ? (
+                                        <>
+                                            Hide source
+                                            <LemonTag className="ml-2" type="warning">
+                                                BETA
+                                            </LemonTag>
+                                        </>
+                                    ) : (
+                                        <>
+                                            View source
+                                            <LemonTag className="ml-2" type="warning">
+                                                BETA
+                                            </LemonTag>
+                                        </>
+                                    )
+                                }
+                                aria-label={showQueryEditor ? 'Hide source (BETA)' : 'View source (BETA)'}
+                                tooltipPlacement="bottomRight"
                                 type={'secondary'}
-                                onClick={toggleQueryEditorPanel}
-                            >
-                                <IconEvent />
-                            </LemonButton>
+                                onClick={() => {
+                                    // for an existing insight in view mode
+                                    if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                        // enter edit mode
+                                        setInsightMode(ItemMode.Edit, null)
+
+                                        // exit early if query editor doesn't need to be toggled
+                                        if (showQueryEditor !== false) {
+                                            return
+                                        }
+                                    }
+                                    toggleQueryEditorPanel()
+                                }}
+                                icon={<IconDataObject fontSize="18" />}
+                            />
                         ) : null}
                     </div>
                 }

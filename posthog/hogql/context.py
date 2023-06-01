@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
-from posthog.hogql.database import Database
+from posthog.hogql.database.database import Database
 from posthog.utils import PersonOnEventsMode
 
 
@@ -29,5 +29,5 @@ class HogQLContext:
     person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.V1_ENABLED
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
-    # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=65535 to the topmost select query?
+    # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
