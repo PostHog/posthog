@@ -27,7 +27,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const { insightProps } = useValues(logic)
 
     return (
-        <NodeWrapper className={NotebookNodeType.Query} title="Query" {...props}>
+        <NodeWrapper nodeType={NotebookNodeType.Query} title="Query" {...props}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <div className="max-h-120 overflow-y-auto">
                     <Query query={query} setQuery={(t) => setQuery(t as any)} />

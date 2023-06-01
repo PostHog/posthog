@@ -368,6 +368,7 @@ export interface ActionStepType {
     name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
+    /** @deprecated Only `selector` should be used now. */
     tag_name?: string
     text?: string | null
     /** @default StringMatching.Exact */
@@ -469,6 +470,7 @@ export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
+    All = 'all',
 }
 
 export enum PropertyFilterType {
@@ -1709,40 +1711,29 @@ export enum RecordingWindowFilter {
     All = 'all',
 }
 
-export type InsightEditorFilterGroup<T = InsightEditorFilter> = {
-    title?: string
-    count?: number
-    editorFilters: T[]
-    defaultExpanded?: boolean
-}
-
 export interface EditorFilterProps {
-    insight: Partial<InsightModel>
-    insightProps: InsightLogicProps
-    filters: Partial<FilterType>
-    value: any
-}
-
-export interface QueryEditorFilterProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
     insightProps: InsightLogicProps
 }
 
-export interface InsightEditorFilter<T = EditorFilterProps> {
+export interface InsightEditorFilter {
     key: string
-    label?: string | ((props: T) => JSX.Element | null)
+    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
-    component?: (props: T) => JSX.Element | null
+    component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
-export type QueryInsightEditorFilter = InsightEditorFilter<QueryEditorFilterProps>
-
-export type QueryInsightEditorFilterGroup = InsightEditorFilterGroup<QueryInsightEditorFilter>
+export type InsightEditorFilterGroup = {
+    title?: string
+    count?: number
+    editorFilters: InsightEditorFilter[]
+    defaultExpanded?: boolean
+}
 
 export interface SystemStatusSubrows {
     columns: string[]
@@ -2274,6 +2265,12 @@ export enum PropertyType {
     Selector = 'Selector',
 }
 
+export enum PropertyDefinitionType {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+}
+
 export interface PropertyDefinition {
     id: string
     name: string
@@ -2286,6 +2283,7 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_seen_on_filtered_events?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: PropertyType
+    type?: PropertyDefinitionType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
     example?: string

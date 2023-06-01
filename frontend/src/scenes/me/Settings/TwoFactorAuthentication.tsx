@@ -13,7 +13,7 @@ export function TwoFactorAuthentication(): JSX.Element {
     const [modalVisible, setModalVisible] = useState(false)
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col items-start">
             {modalVisible && (
                 <LemonModal title="Set up or manage 2FA" onClose={() => setModalVisible(false)}>
                     <>
@@ -33,22 +33,19 @@ export function TwoFactorAuthentication(): JSX.Element {
 
             {user?.is_2fa_enabled ? (
                 <>
-                    <div>
-                        <IconCheckmark color="green" />
-                        <b>2FA enabled.</b>
+                    <div className="mb-2 flex items-center">
+                        <IconCheckmark color="green" className="text-xl mr-2" />
+                        <span className="font-medium">2FA enabled.</span>
                     </div>
-                    <br />
-                    <div className="w-60">
-                        <LemonButton type="primary" to="/account/two_factor/" targetBlank={true}>
-                            Manage or disable 2FA
-                        </LemonButton>
-                    </div>
+                    <LemonButton type="primary" to="/account/two_factor/" targetBlank>
+                        Manage or disable 2FA
+                    </LemonButton>
                 </>
             ) : (
                 <div>
-                    <div className="mb-2">
-                        <IconWarning color="orange" />
-                        <b>2FA is not enabled.</b>
+                    <div className="mb-2 flex items-center">
+                        <IconWarning color="orange" className="text-xl mr-2" />
+                        <span className="font-medium">2FA is not enabled.</span>
                     </div>
                     <LemonButton type="primary" onClick={() => setModalVisible(true)}>
                         Set up 2FA

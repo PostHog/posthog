@@ -134,6 +134,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                 settings={"timeout_before_checking_execution_speed": 60},
                 query_type=query_type,
                 filter=adjusted_filter,
+                team_id=team.pk,
             )
             result = parse_function(result)
             serialized_data = self._format_serialized(entity, result)
@@ -148,12 +149,12 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return merged_results
 
     def _run_query_for_threading(
-        self, result: List, index: int, query_type, sql, params, query_tags: Dict, filter: Filter
+        self, result: List, index: int, query_type, sql, params, query_tags: Dict, filter: Filter, team_id: int
     ):
         tag_queries(**query_tags)
         with push_scope() as scope:
             scope.set_context("query", {"sql": sql, "params": params})
-            result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter)
+            result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter, team_id=team_id)
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Optional[List[Dict[str, Any]]]] = [None] * len(filter.entities)
@@ -170,7 +171,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             sql_statements_with_params[entity.index] = (sql, query_params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(result, entity.index, query_type, sql, query_params, get_query_tags(), adjusted_filter),
+                args=(result, entity.index, query_type, sql, query_params, get_query_tags(), adjusted_filter, team.pk),
             )
             jobs.append(thread)
 

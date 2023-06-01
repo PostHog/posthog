@@ -31,7 +31,8 @@ env:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    # Allow query snapshot updates to finish, so that we don't need to wait for the whole stack to start all over again
+    cancel-in-progress: false
 
 jobs:
     # Job to decide if we should run backend ci
@@ -141,9 +142,9 @@ jobs:
 
             - name: Check if antlr definitions are up to date
               run: |
-                  # Installing a version of ant compatible with what we use in development from homebrew (4.11)
+                  # Installing a version of ant compatible with what we use in development from homebrew (4.13)
                   # "apt-get install antlr" would install 4.7 which is incompatible with our grammar.
-                  export ANTLR_VERSION=4.11.1
+                  export ANTLR_VERSION=4.13.0
                   # java version doesn't matter
                   sudo apt-get install default-jre
                   mkdir antlr
@@ -273,6 +274,7 @@ jobs:
               with:
                   add: '["ee", "posthog/clickhouse/test/__snapshots__", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/", "posthog/migrations"]'
                   message: 'Update query snapshots'
+                  pull: --rebase --autostash # Make sure we're up to date with other segments' updates
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 

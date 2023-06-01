@@ -20,6 +20,7 @@ interface LemonInputPropsBase
         | 'autoCorrect'
         | 'autoCapitalize'
         | 'spellCheck'
+        | 'inputMode'
     > {
     ref?: React.Ref<HTMLInputElement>
     id?: string

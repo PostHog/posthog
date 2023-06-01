@@ -47,6 +47,7 @@ class Stickiness:
             {**event_params, **filter.hogql_context.values, "num_intervals": filter.total_intervals},
             query_type="stickiness",
             filter=filter,
+            team_id=team.pk,
         )
         return self.process_result(counts, filter, entity)
 

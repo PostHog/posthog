@@ -7,8 +7,9 @@ import type { notebooksListLogicType } from './notebooksListLogicType'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 
-const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
+export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
     title: 'Scratchpad',
     created_at: '',
@@ -48,17 +49,18 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                     const notebook = await api.notebooks.create()
 
                     if (redirect) {
-                        setTimeout(() => {
-                            // TODO: Remove this once we have proper DB backing
-                            router.actions.push(urls.notebookEdit(notebook.short_id))
-                        }, 500)
+                        router.actions.push(urls.notebookEdit(notebook.short_id))
                     }
 
-                    return [notebook]
+                    posthog.capture(`notebook created`, {
+                        short_id: notebook.short_id,
+                    })
+
+                    return [notebook, ...values.notebooks]
                 },
 
                 receiveNotebookUpdate: ({ notebook }) => {
-                    return values.notebooks.map((n) => (n.short_id === notebook.short_id ? notebook : n))
+                    return values.notebooks.filter((n) => n.short_id !== notebook.short_id).concat([notebook])
                 },
             },
         ],

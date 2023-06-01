@@ -45,8 +45,6 @@ import { globalInsightLogic } from './globalInsightLogic'
 import { isInsightVizNode } from '~/queries/utils'
 import { posthog } from 'posthog-js'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
@@ -67,16 +65,21 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         exporterResourceParams,
         isUsingDataExploration,
         isUsingDashboardQueries,
-        getInsightRefreshButtonDisabledReason,
     } = useValues(logic)
-    const { setInsightMetadata, saveAs, loadResults } = useActions(logic)
+    const { setInsightMetadata, saveAs } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor } = useValues(insightDataLogic(insightProps))
-    const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
+    const { query, queryChanged, showQueryEditor, getInsightRefreshButtonDisabledReason } = useValues(
+        insightDataLogic(insightProps)
+    )
+    const {
+        saveInsight: saveQueryBasedInsight,
+        toggleQueryEditorPanel,
+        loadData,
+    } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -121,7 +124,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         name="name"
                         value={insight.name || ''}
                         placeholder={summarizeInsight(query, filters, {
-                            isUsingDataExploration,
                             aggregationLabel,
                             cohortsById,
                             mathDefinitions,
@@ -152,7 +154,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         <>
                                             <LemonButton
                                                 status="stealth"
-                                                onClick={() => loadResults(true)}
+                                                onClick={() => loadData(true)}
                                                 fullWidth
                                                 data-attr="refresh-insight-from-insight-view"
                                                 disabledReason={insightRefreshButtonDisabledReason}
@@ -171,7 +173,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         <>
                                             <LemonButton
                                                 status="stealth"
-                                                onClick={() => loadResults(true)}
+                                                onClick={() => loadData(true)}
                                                 fullWidth
                                                 data-attr="refresh-insight-from-insight-view"
                                                 disabledReason={insightRefreshButtonDisabledReason}
@@ -297,16 +299,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
-
-                        {insightMode !== ItemMode.Edit &&
-                            hasDashboardItemId &&
-                            featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                                <AddToNotebook
-                                    node={NotebookNodeType.Insight}
-                                    properties={{ id: insight.short_id }}
-                                    type="secondary"
-                                />
-                            )}
 
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (

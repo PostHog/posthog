@@ -810,7 +810,7 @@ export const dateMapping: DateMappingOption[] = [
     },
     {
         key: 'Yesterday',
-        values: ['-1dStart', 'dStart'],
+        values: ['-1dStart', '-1dEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
         defaultInterval: 'hour',
     },
