@@ -407,7 +407,7 @@ class _Printer(Visitor):
             return ".".join([self._print_identifier(identifier) for identifier in node.chain])
 
         if node.type is not None:
-            if isinstance(node.type, ast.LazyJoinType):
+            if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
                 raise HogQLException(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
 
             return self.visit(node.type)

@@ -251,6 +251,15 @@ class TestPrinter(BaseTest):
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def test_expr_parse_errors_poe_on(self):
+        # VirtualTable
+        self._assert_expr_error("person", "Can't select a table when a column is expected: person")
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_expr_parse_errors_poe_off(self):
+        # LazyTable
         self._assert_expr_error("person", "Can't select a table when a column is expected: person")
 
     def test_expr_syntax_errors(self):
