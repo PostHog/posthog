@@ -81,7 +81,7 @@ export function extractObjectDiffKeys(
                 if (events.length !== oldValue.length) {
                     changedKeys['changed_events_length'] = oldValue?.length
                 } else {
-                    events.forEach((event: Record<string, any>, idx: number) => {
+                    events.forEach((event, idx) => {
                         changedKeys = {
                             ...changedKeys,
                             ...extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`),
@@ -93,7 +93,7 @@ export function extractObjectDiffKeys(
                 if (actions.length !== oldValue.length) {
                     changedKeys['changed_actions_length'] = oldValue.length
                 } else {
-                    actions.forEach((action: Record<string, any>, idx: number) => {
+                    actions.forEach((action, idx) => {
                         changedKeys = {
                             ...changedKeys,
                             ...extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`),
