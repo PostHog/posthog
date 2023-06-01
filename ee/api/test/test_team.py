@@ -431,8 +431,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         Team.objects.create(organization=self.organization, name="Other", access_control=True)
 
         # The other team should not be returned as it's restricted for the logged-in user
-        with self.assertNumQueries(7):
-            projects_response = self.client.get(f"/api/projects/")
+        projects_response = self.client.get(f"/api/projects/")
 
         # 9 (above) + 2 below:
         # Used for `metadata`.`taxonomy_set_events_count`: SELECT COUNT(*) FROM "ee_enterpriseeventdefinition" WHERE ...

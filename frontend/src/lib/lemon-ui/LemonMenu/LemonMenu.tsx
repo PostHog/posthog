@@ -1,4 +1,4 @@
-import React, { FunctionComponent, useMemo } from 'react'
+import React, { FunctionComponent, useCallback, useMemo } from 'react'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
@@ -8,6 +8,9 @@ import { useKeyboardNavigation } from './useKeyboardNavigation'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
+type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 
 export interface LemonMenuItemBase
     extends Pick<
@@ -17,28 +20,44 @@ export interface LemonMenuItemBase
     label: string | JSX.Element
 }
 export interface LemonMenuItemNode extends LemonMenuItemBase {
-    items: LemonMenuItemLeaf[]
+    items: (LemonMenuItemLeaf | false | null)[]
+    keyboardShortcut?: never
 }
 export type LemonMenuItemLeaf =
     | (LemonMenuItemBase & {
           onClick: () => void
+          items?: never
+          keyboardShortcut?: KeyboardShortcut
       })
     | (LemonMenuItemBase & {
           to: string
+          targetBlank?: boolean
+          items?: never
+          keyboardShortcut?: KeyboardShortcut
       })
     | (LemonMenuItemBase & {
           onClick: () => void
           to: string
+          targetBlank?: boolean
+          items?: never
+          keyboardShortcut?: KeyboardShortcut
       })
-export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemNode
+export interface LemonMenuItemCustom {
+    /** A label that's a component means it will be rendered directly, and not wrapped in a button. */
+    label: () => JSX.Element
+    active?: never
+    items?: never
+    keyboardShortcut?: never
+}
+export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode
 
 export interface LemonMenuSection {
     title?: string | React.ReactNode
-    items: LemonMenuItem[]
+    items: (LemonMenuItem | false | null)[]
     footer?: string | React.ReactNode
 }
 
-export type LemonMenuItems = (LemonMenuItem | LemonMenuSection)[]
+export type LemonMenuItems = (LemonMenuItem | LemonMenuSection | false | null)[]
 
 export interface LemonMenuProps
     extends Pick<
@@ -56,14 +75,31 @@ export interface LemonMenuProps
         LemonMenuOverlayProps {
     /** Must support `ref` and `onKeyDown` for keyboard navigation. */
     children: React.ReactElement
-    /** Optional index of the active (e.g. selected) item. This improves the keyboard navigation experience. */
+    /** Index of the active (e.g. selected) item, if there is a specific one. */
     activeItemIndex?: number
 }
 
-export function LemonMenu({ items, activeItemIndex, tooltipPlacement, ...dropdownProps }: LemonMenuProps): JSX.Element {
+export function LemonMenu({
+    items,
+    activeItemIndex,
+    tooltipPlacement,
+    onVisibilityChange,
+    ...dropdownProps
+}: LemonMenuProps): JSX.Element {
     const { referenceRef, itemsRef } = useKeyboardNavigation<HTMLElement, HTMLButtonElement>(
-        items.flatMap((item) => (isLemonMenuSection(item) ? item.items : item)).length,
+        items.flatMap((item) => (item && isLemonMenuSection(item) ? item.items : item)).length,
         activeItemIndex
+    )
+
+    const _onVisibilityChange = useCallback(
+        (visible) => {
+            onVisibilityChange?.(visible)
+            if (visible && activeItemIndex && activeItemIndex > -1) {
+                // Scroll the active item into view once the menu is open (i.e. in the next tick)
+                setTimeout(() => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }), 0)
+            }
+        },
+        [onVisibilityChange, activeItemIndex]
     )
 
     return (
@@ -71,6 +107,7 @@ export function LemonMenu({ items, activeItemIndex, tooltipPlacement, ...dropdow
             overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} itemsRef={itemsRef} />}
             closeOnClickInside
             referenceRef={referenceRef}
+            onVisibilityChange={_onVisibilityChange}
             {...dropdownProps}
         />
     )
@@ -135,7 +172,7 @@ export function LemonMenuSectionList({
                                 )
                             ) : null}
                             <LemonMenuItemList
-                                items={section.items}
+                                items={section.items.filter(Boolean) as LemonMenuItem[]}
                                 buttonSize={buttonSize}
                                 tooltipPlacement={tooltipPlacement}
                                 itemsRef={itemsRef}
@@ -195,35 +232,55 @@ interface LemonMenuItemButtonProps {
 }
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
-    React.forwardRef(({ item, size, tooltipPlacement }, ref): JSX.Element => {
-        const button = (
-            <LemonButton
-                ref={ref}
-                tooltipPlacement={tooltipPlacement}
-                status="stealth"
-                fullWidth
-                role="menuitem"
-                size={size}
-                {...item}
-            >
-                {item.label}
-            </LemonButton>
-        )
+    React.forwardRef(
+        ({ item: { label, items, keyboardShortcut, ...buttonProps }, size, tooltipPlacement }, ref): JSX.Element => {
+            const Label = typeof label === 'function' ? label : null
+            const button = Label ? (
+                <Label key="x" />
+            ) : (
+                <LemonButton
+                    ref={ref}
+                    tooltipPlacement={tooltipPlacement}
+                    status="stealth"
+                    fullWidth
+                    role="menuitem"
+                    size={size}
+                    {...buttonProps}
+                >
+                    {label}
+                    {keyboardShortcut && (
+                        <div className="-mr-0.5 inline-flex grow justify-end">
+                            {/* Show the keyboard shortcut on the right */}
+                            <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
+                        </div>
+                    )}
+                </LemonButton>
+            )
 
-        return 'items' in item ? (
-            <LemonMenu items={item.items} tooltipPlacement={tooltipPlacement} placement="right-start" actionable>
-                {button}
-            </LemonMenu>
-        ) : (
-            button
-        )
-    })
+            return items ? (
+                <LemonMenu
+                    items={items}
+                    tooltipPlacement={tooltipPlacement}
+                    placement="right-start"
+                    actionable
+                    closeParentPopoverOnClickInside
+                >
+                    {button}
+                </LemonMenu>
+            ) : (
+                button
+            )
+        }
+    )
 LemonMenuItemButton.displayName = 'LemonMenuItemButton'
 
-function normalizeItems(sectionsAndItems: (LemonMenuItem | LemonMenuSection)[]): LemonMenuItem[] | LemonMenuSection[] {
+function normalizeItems(sectionsAndItems: LemonMenuItems): LemonMenuItem[] | LemonMenuSection[] {
     const sections: LemonMenuSection[] = []
     let implicitSection: LemonMenuSection = { items: [] }
     for (const sectionOrItem of sectionsAndItems) {
+        if (!sectionOrItem) {
+            continue // Ignore falsy items
+        }
         if (isLemonMenuSection(sectionOrItem)) {
             if (implicitSection.items.length > 0) {
                 sections.push(implicitSection)
@@ -239,7 +296,7 @@ function normalizeItems(sectionsAndItems: (LemonMenuItem | LemonMenuSection)[]):
     }
 
     if (sections.length === 1 && !sections[0].title && !sections[0].footer) {
-        return sections[0].items
+        return sections[0].items.filter(Boolean) as LemonMenuItem[]
     }
     return sections
 }

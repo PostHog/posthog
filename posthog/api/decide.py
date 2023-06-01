@@ -17,6 +17,7 @@ from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
@@ -169,7 +170,7 @@ def get_decide(request: HttpRequest):
 
             if api_version == 2:
                 response["featureFlags"] = active_flags
-            elif api_version == 3:
+            elif api_version >= 3:
                 # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
                 response["featureFlags"] = feature_flags
                 response["errorsWhileComputingFlags"] = errors
@@ -194,7 +195,8 @@ def get_decide(request: HttpRequest):
             site_apps = []
             if team.inject_web_apps:
                 try:
-                    site_apps = get_decide_site_apps(team)
+                    with execute_with_timeout(200):
+                        site_apps = get_decide_site_apps(team)
                 except Exception:
                     pass
 
@@ -222,6 +224,18 @@ def get_decide(request: HttpRequest):
                         "project": str(team.uuid),
                     },
                 )
+        else:
+            # no auth provided
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "decide",
+                    "No project API key provided. You can find your project API key in PostHog project settings.",
+                    code="no_api_key",
+                    type="authentication_error",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

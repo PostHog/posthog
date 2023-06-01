@@ -55,6 +55,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     rollout_percentage = serializers.SerializerMethodField()
 
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
 
     name = serializers.CharField(
@@ -79,6 +80,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "rollout_percentage",
             "ensure_experience_continuity",
             "experiment_set",
+            "features",
             "rollback_conditions",
             "performed_rollback",
             "can_edit",
@@ -99,6 +101,11 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             and no_properties_used
             and feature_flag.aggregation_group_type_index is None
         )
+
+    def get_features(self, feature_flag: FeatureFlag) -> Dict:
+        from posthog.api.early_access_feature import MinimalEarlyAccessFeatureSerializer
+
+        return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
@@ -204,7 +211,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                 "Invalid variant definitions: Variant rollout percentages must sum to 100."
             )
 
-        FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
+        FeatureFlag.objects.filter(key=validated_data["key"], team_id=self.context["team_id"], deleted=True).delete()
         instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)
@@ -217,6 +224,11 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
+
+        if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
+            raise exceptions.ValidationError(
+                "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
+            )
         request = self.context["request"]
         validated_key = validated_data.get("key", None)
         if validated_key:
@@ -295,7 +307,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         queryset = super().get_queryset()
 
         if self.action == "list":
-            queryset = queryset.filter(deleted=False).prefetch_related("experiment_set")
+            queryset = queryset.filter(deleted=False).prefetch_related("experiment_set").prefetch_related("features")
 
         return queryset.select_related("created_by").order_by("-created_at")
 
@@ -325,6 +337,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         feature_flags = (
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
             .prefetch_related("experiment_set")
+            .prefetch_related("features")
             .select_related("created_by")
             .order_by("-created_at")
         )

@@ -1,19 +1,17 @@
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
-import { PlaylistPopover } from './playlist-popover/PlaylistPopover'
+import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const onShare = (): void => {
         setPause()
@@ -40,23 +38,35 @@ export function PlayerMetaLinks(): JSX.Element {
         })
     }
 
+    const commonProps: Partial<LemonButtonProps> = {
+        size: 'small',
+    }
+
+    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+
     return (
-        <div className="flex flex-row gap-1 items-center">
-            <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" size="small">
-                Share
-            </LemonButton>
+        <div className="flex flex-row gap-1 items-center justify-end">
+            {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
+                <>
+                    <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
+                        <span>Share</span>
+                    </LemonButton>
 
-            <PlaylistPopover />
+                    <PlaylistPopoverButton {...commonProps}>
+                        <span>Pin</span>
+                    </PlaylistPopoverButton>
 
-            {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                <AddToNotebook node={NotebookNodeType.Recording} properties={{ sessionRecordingId }} />
-            )}
-
-            {logicProps.playerKey !== 'modal' && (
-                <LemonButton status="danger" onClick={onDelete} size="small">
-                    <IconDelete className="text-lg" />
-                </LemonButton>
-            )}
+                    {logicProps.playerKey !== 'modal' && (
+                        <LemonButton
+                            tooltip="Delete"
+                            icon={<IconDelete />}
+                            onClick={onDelete}
+                            {...commonProps}
+                            status="danger"
+                        />
+                    )}
+                </>
+            ) : null}
         </div>
     )
 }

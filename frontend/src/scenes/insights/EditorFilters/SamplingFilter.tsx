@@ -1,5 +1,5 @@
-import { FilterType, InsightLogicProps, QueryEditorFilterProps } from '~/types'
-import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { FilterType, InsightLogicProps, EditorFilterProps } from '~/types'
+import { LemonButton, LemonLabel, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 import posthog from 'posthog-js'
@@ -8,7 +8,7 @@ import { insightVizDataLogic } from '../insightVizDataLogic'
 const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
     'Sampling computes the result on only a subset of the data, making insights load significantly faster.'
 
-export function SamplingFilterDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function SamplingFilterDataExploration({ insightProps }: EditorFilterProps): JSX.Element {
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     return (
@@ -50,7 +50,7 @@ export function SamplingFilter({
                         info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
                         infoLink="https://posthog.com/manual/sampling"
                     >
-                        Sampling (Beta)
+                        Sampling<LemonTag type="warning">BETA</LemonTag>
                     </LemonLabel>
                     <LemonSwitch
                         className="m-2"

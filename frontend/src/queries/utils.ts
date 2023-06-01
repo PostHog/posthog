@@ -15,7 +15,6 @@ import {
     InsightFilterProperty,
     InsightQueryNode,
     InsightVizNode,
-    LegacyQuery,
     Node,
     NodeKind,
     PersonsNode,
@@ -26,7 +25,6 @@ import {
     InsightNodeKind,
     TimeToSeeDataWaterfallNode,
     TimeToSeeDataJSONNode,
-    NewEntityNode,
     DatabaseSchemaQuery,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
@@ -70,10 +68,6 @@ export function isActionsNode(node?: Node | null): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
 }
 
-export function isNewEntityNode(node?: Node): node is NewEntityNode {
-    return node?.kind === NodeKind.NewEntityNode
-}
-
 export function isPersonsNode(node?: Node | null): node is PersonsNode {
     return node?.kind === NodeKind.PersonsNode
 }
@@ -84,10 +78,6 @@ export function isDataTableNode(node?: Node | null): node is DataTableNode {
 
 export function isInsightVizNode(node?: Node | null): node is InsightVizNode {
     return node?.kind === NodeKind.InsightVizNode
-}
-
-export function isLegacyQuery(node?: Node | null): node is LegacyQuery {
-    return node?.kind === NodeKind.LegacyQuery
 }
 
 export function isHogQLQuery(node?: Node | null): node is HogQLQuery {
@@ -189,11 +179,6 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
         return undefined // convert from number of days to date range
     } else if (isTimeToSeeDataSessionsQuery(node)) {
         return node.dateRange
-    } else if (isLegacyQuery(node)) {
-        return {
-            date_from: node.filters?.date_from,
-            date_to: node.filters?.date_to,
-        }
     } else if (isActionsNode(node)) {
         return undefined
     } else if (isEventsNode(node)) {
@@ -244,19 +229,6 @@ export function taxonomicFilterToHogQl(
         return String(value)
     }
     return null
-}
-
-export function hogQlToTaxonomicFilter(hogQl: string): [TaxonomicFilterGroupType, TaxonomicFilterValue] {
-    if (hogQl.startsWith('person.properties.')) {
-        return [TaxonomicFilterGroupType.PersonProperties, hogQl.substring(18)]
-    }
-    if (hogQl.startsWith('properties.$feature/')) {
-        return [TaxonomicFilterGroupType.EventFeatureFlags, hogQl.substring(11)]
-    }
-    if (hogQl.startsWith('properties.')) {
-        return [TaxonomicFilterGroupType.EventProperties, hogQl.substring(11)]
-    }
-    return [TaxonomicFilterGroupType.HogQLExpression, hogQl]
 }
 
 export function isHogQlAggregation(hogQl: string): boolean {

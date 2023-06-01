@@ -13,7 +13,7 @@ export function Timestamp(): JSX.Element {
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
-    const endTimeSeconds = Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000)
+    const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 
@@ -29,8 +29,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
     const { seekForward, seekBackward } = useActions(sessionRecordingPlayerLogic)
     const { jumpTimeMs } = useValues(sessionRecordingPlayerLogic)
 
-    const keysHeld = useKeyHeld()
-    const altKeyHeld = keysHeld.has('Alt')
+    const altKeyHeld = useKeyHeld('Alt')
     const jumpTimeSeconds = altKeyHeld ? 1 : jumpTimeMs / 1000
     const altKeyName = navigator.platform.includes('Mac') ? '⌥' : 'Alt'
 

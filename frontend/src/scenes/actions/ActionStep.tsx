@@ -2,8 +2,8 @@ import { LemonEventName } from './EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { Col, Radio, RadioChangeEvent } from 'antd'
-import { ActionStepType } from '~/types'
-import { LemonButton, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { ActionStepType, StringMatching } from '~/types'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { IconClose, IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -52,7 +52,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                     {step.event === '$autocapture' && (
                         <AutocaptureFields step={step} sendStep={sendStep} actionId={actionId} />
                     )}
-                    {step.event != null && step.event !== '$autocapture' && step.event !== '$pageview' && (
+                    {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
                         <div className="space-y-1">
                             <LemonLabel>Event name</LemonLabel>
                             <LemonEventName
@@ -60,10 +60,11 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                 onChange={(value) =>
                                     sendStep({
                                         ...step,
-                                        event: value || '',
+                                        event: value,
                                     })
                                 }
-                                placeholder="Any event"
+                                placeholder="All events"
+                                allEventsOption="explicit"
                             />
 
                             <small>
@@ -80,7 +81,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                 step={step}
                                 sendStep={sendStep}
                                 item="url"
-                                extra_options={<URLMatching step={step} sendStep={sendStep} />}
+                                extra_options={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
                                 label="URL"
                             />
                             {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
@@ -89,11 +90,8 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                         </div>
                     )}
 
-                    <div className="mt-6 space-y-2">
-                        <h3>Filters</h3>
-                        {(!step.properties || step.properties.length === 0) && (
-                            <div className="text-muted">This match group has no additional filters.</div>
-                        )}
+                    <div className="mt-4 space-y-2">
+                        <LemonLabel>Filters</LemonLabel>
                         <PropertyFilters
                             propertyFilters={step.properties}
                             pageKey={identifier}
@@ -118,15 +116,29 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
  *
  * Until they are fixed this validator can be used to guide users to working solutions
  */
-const validateSelector = (val: string, selectorPrompts: (s: string | null) => void): void => {
+const validateSelector = (val: string, selectorPrompts: (s: JSX.Element | null) => void): void => {
     if (val.includes('#')) {
-        selectorPrompts('The ID selector "#example" does not match in PostHog actions. Use `[id="example"]` instead')
+        selectorPrompts(
+            <>
+                PostHog actions don't support the <code>#example</code> syntax.
+                <br />
+                Use the equivalent <code>[id="example"]</code> instead.
+            </>
+        )
     } else {
         selectorPrompts(null)
     }
 }
 
-function Option(props: {
+function Option({
+    step,
+    sendStep,
+    item,
+    label,
+    placeholder = 'Specify a value to match on this',
+    caption,
+    extra_options,
+}: {
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
     item: keyof Pick<ActionStepType, 'href' | 'text' | 'selector' | 'url'>
@@ -135,43 +147,32 @@ function Option(props: {
     caption?: JSX.Element | string
     extra_options?: JSX.Element | string
 }): JSX.Element {
-    const onOptionChange = (val: string): void =>
-        props.sendStep({
-            ...props.step,
-            [props.item]: val || null, // "" is a valid filter, we don't want it
-        })
+    const [selectorPrompt, setSelectorPrompt] = useState(null as JSX.Element | null)
 
-    const [selectorPrompt, setSelectorPrompt] = useState(null as string | null)
+    const onOptionChange = (val: string): void => {
+        if (item === 'selector') {
+            validateSelector(val, setSelectorPrompt)
+        }
+        sendStep({
+            ...step,
+            [item]: val || null, // "" is a valid filter, we don't want it
+        })
+    }
 
     return (
         <div className="space-y-1">
             <LemonLabel>
-                {props.label} {props.extra_options}
+                {label} {extra_options}
             </LemonLabel>
-            {props.caption && <div className="action-step-caption">{props.caption}</div>}
-            {props.item === 'selector' ? (
-                <>
-                    <LemonTextArea
-                        onChange={(val: string) => {
-                            validateSelector(val, setSelectorPrompt)
-                            onOptionChange(val)
-                        }}
-                        value={props.step[props.item] || ''}
-                        placeholder={props.placeholder}
-                    />
-                    <div className={selectorPrompt ? 'visible' : 'hidden'}>
-                        <LemonBanner type="warning">{selectorPrompt}</LemonBanner>
-                    </div>
-                </>
-            ) : (
-                <LemonInput
-                    data-attr="edit-action-url-input"
-                    allowClear
-                    onChange={onOptionChange}
-                    value={props.step[props.item] || ''}
-                    placeholder={props.placeholder}
-                />
-            )}
+            {caption && <div className="action-step-caption">{caption}</div>}
+            <LemonInput
+                data-attr="edit-action-url-input"
+                allowClear
+                onChange={onOptionChange}
+                value={step[item] || ''}
+                placeholder={placeholder}
+            />
+            {item === 'selector' && selectorPrompt && <LemonBanner type="warning">{selectorPrompt}</LemonBanner>}
         </div>
     )
 }
@@ -223,11 +224,21 @@ function AutocaptureFields({
             <Option
                 step={step}
                 sendStep={sendStep}
+                item="text"
+                extra_options={<StringMatchingSelection field="text" step={step} sendStep={sendStep} />}
+                label="Element text"
+            />
+            <AndSeparator />
+            <Option
+                step={step}
+                sendStep={sendStep}
                 item="href"
-                label="Link target equals"
+                extra_options={<StringMatchingSelection field="href" step={step} sendStep={sendStep} />}
+                label="Element link target"
                 caption={
                     <>
-                        If your element is a link, the location that the link opens (<code>href</code> tag)
+                        Filtering by the <code>href</code> attribute. Only <code>{'<a/>'}</code> elements will be
+                        matched.
                     </>
                 }
             />
@@ -235,21 +246,12 @@ function AutocaptureFields({
             <Option
                 step={step}
                 sendStep={sendStep}
-                item="text"
-                label="Text equals"
-                caption="Text content inside your element"
-            />
-            <AndSeparator />
-            <Option
-                step={step}
-                sendStep={sendStep}
                 item="selector"
-                label="HTML selector matches"
-                placeholder='button[data-attr="my-id"]'
+                label="Element matches HTML selector"
                 caption={
                     <span>
-                        CSS selector or an HTML attribute that ideally uniquely identifies your element. Example:{' '}
-                        <code className="code">[data-attr="signup"]</code>.{' '}
+                        The selector can be a tag name, class, HTML attribute, or all of those combined. Example:{' '}
+                        <code>button[data-attr="signup"]</code>.{' '}
                         <Link to={`${learnMoreLink}#matching-selectors`}>Learn more in Docs.</Link>
                     </span>
                 }
@@ -259,9 +261,9 @@ function AutocaptureFields({
                 step={step}
                 sendStep={sendStep}
                 item="url"
-                extra_options={<URLMatching step={step} sendStep={sendStep} />}
+                extra_options={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
                 label="Page URL"
-                caption="Elements will match only when triggered from the URL (particularly useful if you have non-unique elements in different pages)."
+                caption="The page on which the interaction occurred."
             />
             {step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                 <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
@@ -282,7 +284,7 @@ function TypeSwitcher({
         if (type === '$autocapture') {
             sendStep({ ...step, event: '$autocapture' })
         } else if (type === 'event') {
-            sendStep({ ...step, event: '' })
+            sendStep({ ...step, event: null })
         } else if (type === '$pageview') {
             sendStep({
                 ...step,
@@ -311,26 +313,25 @@ function TypeSwitcher({
     )
 }
 
-function URLMatching({
+function StringMatchingSelection({
+    field,
     step,
     sendStep,
 }: {
+    field: 'url' | 'text' | 'href'
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
 }): JSX.Element {
+    const key = `${field}_matching`
     const handleURLMatchChange = (e: RadioChangeEvent): void => {
-        sendStep({ ...step, url_matching: e.target.value })
+        sendStep({ ...step, [key]: e.target.value })
     }
+    const defaultValue = field === 'url' ? StringMatching.Contains : StringMatching.Exact
     return (
-        <Radio.Group
-            buttonStyle="solid"
-            onChange={handleURLMatchChange}
-            value={step.url_matching || 'contains'}
-            size="small"
-        >
-            <Radio.Button value="contains">contains</Radio.Button>
-            <Radio.Button value="regex">matches regex</Radio.Button>
+        <Radio.Group buttonStyle="solid" onChange={handleURLMatchChange} value={step[key] || defaultValue} size="small">
             <Radio.Button value="exact">matches exactly</Radio.Button>
+            <Radio.Button value="regex">matches regex</Radio.Button>
+            <Radio.Button value="contains">contains</Radio.Button>
         </Radio.Group>
     )
 }

@@ -1,75 +1,87 @@
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
-import { ReactNode, useState } from 'react'
+import { ReactNode, useEffect } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
+import './NodeWrapper.scss'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useValues } from 'kea'
+import { notebookLogic } from '../Notebook/notebookLogic'
+import { useInView } from 'react-intersection-observer'
+import { posthog } from 'posthog-js'
+import { NotebookNodeType } from './types'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
-    className: string
+    nodeType: NotebookNodeType
     children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
-    preview?: ReactNode // Minified preview mode to show in small screen situations and unexpanded modes. If not defined, children are mounted and rendered.
-    edit?: ReactNode // TODO: This will be replaced with a separate query sidebar outside of the context of a notebook
+    heightEstimate?: number | string
     href?: string
 }
 
 export function NodeWrapper({
     title,
-    className,
+    nodeType,
     children,
-    preview,
     selected,
-    edit,
     href,
+    heightEstimate = '4rem',
 }: NodeWrapperProps): JSX.Element {
-    const [isEdit, setIsEdit] = useState<boolean>(false)
+    const { ready, shortId } = useValues(notebookLogic)
+    const [ref, inView] = useInView({ triggerOnce: true })
 
-    const content = selected ? children : preview ?? children
+    useEffect(() => {
+        if (selected && shortId) {
+            posthog.capture('notebook node selected', {
+                node_type: nodeType,
+                short_id: shortId,
+            })
+        }
+    }, [selected])
 
     return (
-        <NodeViewWrapper as="div" className={clsx(className, 'flex flex-col gap-1 overflow-hidden')}>
-            <div className="flex items-center justify-between text-xs text-muted-alt truncate" data-drag-handle>
-                <div className="shrink-0">
-                    <IconDragHandle className="text-muted-alt cursor-move text-base shrink-0" />
-                    <span>{title}</span>
-                </div>
-                <div className="shrink-0 flex gap-4">
-                    {!!edit && (
-                        <span
-                            className="cursor-pointer"
-                            onClick={() => {
-                                setIsEdit(!isEdit)
-                            }}
-                        >
-                            {isEdit ? 'Done' : 'Edit'}
-                        </span>
-                    )}
-
-                    {href && (
-                        <Link to={href}>
-                            <IconLink /> Link
-                        </Link>
-                    )}
-                </div>
-            </div>
-            <div className="flex flex-row gap-4">
-                {!!edit && isEdit && (
-                    <div
-                        className={clsx('relative border bg-white rounded-lg mb-2 overflow-y-auto flex-1 max-w-60', {
-                            'border-primary border-2': selected,
-                        })}
-                    >
-                        {edit}
+        <NodeViewWrapper
+            ref={ref}
+            as="div"
+            className={clsx(nodeType, 'NotebookNode flex flex-col gap-1 overflow-hidden', {
+                'NotebookNode--selected': selected,
+            })}
+        >
+            {!ready || !inView ? (
+                <>
+                    <div className="h-4" /> {/* Placeholder for the drag handle */}
+                    <div style={{ height: heightEstimate }}>
+                        <LemonSkeleton className="h-full" />
                     </div>
-                )}
-                <div
-                    className={clsx('relative border bg-white rounded-lg mb-2 overflow-y-auto flex-1', {
-                        'border-primary border-2': selected,
-                    })}
-                >
-                    {content}
-                </div>
-            </div>
+                </>
+            ) : (
+                <>
+                    <div
+                        className={clsx(
+                            'NotebookNode__meta flex items-center justify-between text-xs truncate text-muted-alt',
+                            {
+                                'font-semibold': selected,
+                            }
+                        )}
+                        data-drag-handle
+                    >
+                        <div className="shrink-0">
+                            <IconDragHandle className="cursor-move text-base shrink-0" />
+                            <span>{title}</span>
+                        </div>
+                        <div className="shrink-0 flex gap-4">
+                            {href && (
+                                <Link to={href}>
+                                    <IconLink /> Link
+                                </Link>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex flex-row gap-4 relative z-10">
+                        <div className={clsx('relative mb-2 overflow-y-auto flex-1')}>{children}</div>
+                    </div>
+                </>
+            )}
         </NodeViewWrapper>
     )
 }

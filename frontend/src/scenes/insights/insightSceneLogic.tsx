@@ -194,7 +194,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         {
                             ...createEmptyInsight('new', teamFilterTestAccounts),
                             ...(filters
-                                ? { filters: cleanFilters(filters || {}, undefined, undefined, teamFilterTestAccounts) }
+                                ? { filters: cleanFilters(filters || {}, undefined, teamFilterTestAccounts) }
                                 : {}),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                             ...(q ? { query: JSON.parse(q) } : {}),
@@ -204,9 +204,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             overrideFilter: true,
                         }
                     )
-                    if (!values.isUsingDataExploration) {
-                        values.insightLogicRef?.logic.actions.loadResults()
-                    }
 
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
                 } else if (filters && !values.isUsingDataExploration) {

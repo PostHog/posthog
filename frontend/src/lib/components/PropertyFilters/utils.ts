@@ -10,6 +10,7 @@ import {
     GroupPropertyFilter,
     HogQLPropertyFilter,
     PersonPropertyFilter,
+    PropertyDefinitionType,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -163,6 +164,18 @@ export function propertyFilterTypeToTaxonomicFilterType(
         return `${TaxonomicFilterGroupType.GroupsPrefix}_${groupTypeIndex}` as TaxonomicFilterGroupType
     }
     return propertyFilterMapping[filterType]
+}
+
+export function propertyFilterTypeToPropertyDefinitionType(
+    filterType?: PropertyFilterType | string | null
+): PropertyDefinitionType {
+    return filterType === PropertyFilterType.Event
+        ? PropertyDefinitionType.Event
+        : filterType === PropertyFilterType.Person
+        ? PropertyDefinitionType.Person
+        : filterType === PropertyFilterType.Group
+        ? PropertyDefinitionType.Group
+        : PropertyDefinitionType.Event
 }
 
 export function taxonomicFilterTypeToPropertyFilterType(

@@ -3,7 +3,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { GroupsTabs } from 'scenes/groups/GroupsTabs'
 import { groupsModel } from '~/models/groupsModel'
 
-export function PersonPageHeader({ hideGroupTabs }: { hideGroupTabs?: boolean }): JSX.Element {
+export function PersonPageHeader({ activeGroupTypeIndex }: { activeGroupTypeIndex: number }): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
 
     return (
@@ -12,7 +12,7 @@ export function PersonPageHeader({ hideGroupTabs }: { hideGroupTabs?: boolean })
                 title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
                 caption={`A catalog of your product's end users${showGroupsOptions ? ' and groups' : ''}.`}
             />
-            {!hideGroupTabs && showGroupsOptions && <GroupsTabs />}
+            {showGroupsOptions && <GroupsTabs activeGroupTypeIndex={activeGroupTypeIndex} />}
         </>
     )
 }

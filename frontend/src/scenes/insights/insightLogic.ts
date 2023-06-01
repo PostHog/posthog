@@ -17,7 +17,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import {
@@ -53,7 +53,6 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
-import { dayjs } from 'lib/dayjs'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
 import { globalInsightLogic } from './globalInsightLogic'
@@ -331,7 +330,9 @@ export const insightLogic = kea<insightLogicType>([
                         ) {
                             // Instead of making a search for filters, reload the insight via its id if possible.
                             // This makes sure we update the insight's cache key if we get new default filters.
-                            apiUrl = `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`
+                            apiUrl = combineUrl(`api/projects/${currentTeamId}/insights/${values.savedInsight.id}`, {
+                                refresh: true,
+                            }).url
                             fetchResponse = await api.getResponse(apiUrl, methodOptions)
                         } else {
                             const params = {
@@ -605,24 +606,9 @@ export const insightLogic = kea<insightLogicType>([
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
         derivedName: [
-            (s) => [
-                s.insight,
-                s.aggregationLabel,
-                s.cohortsById,
-                s.mathDefinitions,
-                s.isUsingDataExploration,
-                s.isUsingDashboardQueries,
-            ],
-            (
-                insight,
-                aggregationLabel,
-                cohortsById,
-                mathDefinitions,
-                isUsingDataExploration,
-                isUsingDashboardQueries
-            ) =>
+            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions, s.isUsingDashboardQueries],
+            (insight, aggregationLabel, cohortsById, mathDefinitions, isUsingDashboardQueries) =>
                 summarizeInsight(insight.query, insight.filters || {}, {
-                    isUsingDataExploration,
                     aggregationLabel,
                     cohortsById,
                     mathDefinitions,
@@ -666,9 +652,13 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.filters, actionsModel.selectors.actions],
             (filters, actions: ActionType[]) => {
                 const allEvents = [
-                    ...(filters.events || []).map((e) => String(e.id)),
+                    ...(filters.events || []).map((e) => e.id),
                     ...(filters.actions || []).flatMap((action) => getEventNamesForAction(action.id, actions)),
                 ]
+                // Has one "all events" event.
+                if (allEvents.some((e) => e === null)) {
+                    return []
+                }
                 // remove duplicates and empty events
                 return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
@@ -788,38 +778,15 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         isUsingDataExploration: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+            () => [],
+            (): boolean => {
+                return true
             },
         ],
         isUsingDashboardQueries: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.HOGQL]
-            },
-        ],
-        getInsightRefreshButtonDisabledReason: [
-            (s) => [s.nextAllowedRefresh, s.lastRefresh],
-            (nextAllowedRefresh: string | null, lastRefresh: string | null) => (): string => {
-                const now = dayjs()
-                let disabledReason = ''
-                if (!!nextAllowedRefresh && now.isBefore(dayjs(nextAllowedRefresh))) {
-                    // If this is a saved insight, the result will contain nextAllowedRefresh and we use that to disable the button
-                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).from(now)}`
-                } else if (
-                    !!lastRefresh &&
-                    now.subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes').isBefore(lastRefresh)
-                ) {
-                    // Unsaved insights don't get cached and get refreshed on every page load, but we avoid allowing users to click
-                    // 'refresh' more than once every UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES. This can be bypassed by simply
-                    // refreshing the page though, as there's no cache layer on the backend
-                    disabledReason = `You can refresh this insight again ${dayjs(lastRefresh)
-                        .add(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
-                        .from(now)}`
-                }
-
-                return disabledReason
             },
         ],
     }),
@@ -866,7 +833,7 @@ export const insightLogic = kea<insightLogicType>([
 
             // (Re)load results when filters have changed or if there's no result yet
             if (backendFilterChanged || !values.insight?.result) {
-                if (!values.isUsingDataExploration && !values.insight?.query) {
+                if ((!values.isUsingDataExploration || props.disableDataExploration) && !values.insight?.query) {
                     actions.loadResults()
                 }
             }
@@ -1127,7 +1094,7 @@ export const insightLogic = kea<insightLogicType>([
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
-            if (!insight.result && !insight.query && values.filters) {
+            if (props.disableDataExploration && !insight.result && !insight.query && values.filters) {
                 actions.loadResults()
             }
         },
@@ -1155,37 +1122,24 @@ export const insightLogic = kea<insightLogicType>([
     })),
     events(({ props, values, actions }) => ({
         afterMount: () => {
-            const hasDashboardItemId =
-                !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-')
-            const isCachedWithResultAndFilters =
-                !!props.cachedInsight &&
-                !!props.cachedInsight?.result &&
-                (Object.keys(props.cachedInsight?.filters || {}).length > 0 ||
-                    Object.keys(props.cachedInsight?.query || {}).length > 0)
+            if (!props.dashboardItemId || props.dashboardItemId === 'new' || props.dashboardItemId.startsWith('new-')) {
+                return
+            }
 
-            if (!isCachedWithResultAndFilters || !!values.isUsingDataExploration) {
-                if (hasDashboardItemId) {
-                    const insight = findInsightFromMountedLogic(
-                        props.dashboardItemId as string | InsightShortId,
-                        props.dashboardId
-                    )
-                    if (insight) {
-                        actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
-                        if (insight?.result) {
-                            actions.reportInsightViewed(insight, insight.filters || {})
-                        } else if (!insight.query) {
-                            actions.loadResults()
-                        }
-                        return
-                    }
+            const insight = findInsightFromMountedLogic(
+                props.dashboardItemId as string | InsightShortId,
+                props.dashboardId
+            )
+            if (insight) {
+                actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
+                if (insight?.result) {
+                    actions.reportInsightViewed(insight, insight.filters || {})
                 }
-                if (!props.doNotLoad) {
-                    if (props.cachedInsight?.filters && !props.cachedInsight?.query && !values.isUsingDataExploration) {
-                        actions.loadResults()
-                    } else if (hasDashboardItemId) {
-                        actions.loadInsight(props.dashboardItemId as InsightShortId)
-                    }
-                }
+                return
+            }
+
+            if (!props.doNotLoad) {
+                actions.loadInsight(props.dashboardItemId as InsightShortId)
             }
         },
         beforeUnmount: () => {

@@ -1,34 +1,46 @@
 import { Link, TZLabel } from '@posthog/apps-common'
 import clsx from 'clsx'
 import { isDayjs } from 'lib/dayjs'
-import { IconChevronRight, IconEllipsis } from 'lib/lemon-ui/icons'
+import { IconCheckmark, IconChevronRight, IconClose, IconEllipsis } from 'lib/lemon-ui/icons'
+import { BasicListItem, ExtendedListItem, ExtraListItemContext, Accordion } from '../types'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import React, { useState } from 'react'
-import { BasicListItem, ExtendedListItem, ExtraListItemContext } from '../types'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 import { navigation3000Logic } from '../navigationLogic'
+import { captureException } from '@sentry/react'
+import { KeyboardShortcut } from './KeyboardShortcut'
 
 interface SidebarAccordionProps {
-    title: string
-    items: BasicListItem[] | ExtendedListItem[]
-    activeItemKey: BasicListItem['key'] | null
-    loading?: boolean
+    title: Accordion['title']
+    items: Accordion['items']
+    loadMore: Accordion['loadMore']
+    loading: Accordion['loading']
+    collapsed: boolean
+    toggle: () => void
+    activeItemKey: string | number | null
 }
 
-export function SidebarAccordion({ title, items, activeItemKey, loading = false }: SidebarAccordionProps): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState(false)
-
+export function SidebarAccordion({
+    title,
+    items,
+    activeItemKey,
+    collapsed,
+    toggle,
+    loadMore,
+    loading = false,
+}: SidebarAccordionProps): JSX.Element {
     const isEmpty = items.length === 0
     const isEmptyDefinitively = !loading && isEmpty
-    const isDisabled = isEmpty && !isExpanded
+    const isExpanded = !collapsed && !isEmpty
 
     return (
-        <section className={clsx('Accordion', isExpanded && 'Accordion--expanded')} aria-disabled={isDisabled}>
-            <div
-                className="Accordion__header"
-                onClick={isExpanded || items.length > 0 ? () => setIsExpanded(!isExpanded) : undefined}
-            >
+        <section
+            className={clsx('Accordion', isExpanded && 'Accordion--expanded')}
+            aria-busy={loading}
+            aria-disabled={isEmpty}
+        >
+            <div className="Accordion__header" onClick={isExpanded || items.length > 0 ? () => toggle() : undefined}>
                 {!loading ? <IconChevronRight /> : <Spinner />}
                 <h4>
                     {title}
@@ -42,8 +54,7 @@ export function SidebarAccordion({ title, items, activeItemKey, loading = false 
             </div>
             {isExpanded && (
                 <div className="Accordion__content">
-                    <div className="Accordion__meta">Name</div>
-                    <SidebarList items={items} activeItemKey={activeItemKey} />
+                    <SidebarList items={items} activeItemKey={activeItemKey} loadMore={loadMore} />
                 </div>
             )}
         </section>
@@ -53,60 +64,130 @@ export function SidebarAccordion({ title, items, activeItemKey, loading = false 
 export function SidebarList({
     items,
     activeItemKey,
+    loadMore,
 }: {
     items: BasicListItem[] | ExtendedListItem[]
-    activeItemKey: BasicListItem['key'] | null
+    activeItemKey: string | number | null
+    loadMore: Accordion['loadMore']
 }): JSX.Element {
     return (
         <ul className="SidebarList">
-            {items.map((item) => (
-                <SidebarListItem key={item.key} item={item} active={item.key === activeItemKey} />
-            ))}
+            {items.map((item) => {
+                let elementKey: React.Key
+                let active: boolean
+                if (Array.isArray(item.key)) {
+                    elementKey = item.key[0]
+                    active = typeof activeItemKey === 'string' ? item.key.includes(activeItemKey) : false
+                } else {
+                    elementKey = item.key
+                    active = item.key === activeItemKey
+                }
+                return <SidebarListItem key={elementKey} item={item} active={active} />
+            })}
+            {loadMore && (
+                <SidebarListItem
+                    item={{
+                        key: 'load-more',
+                        name: 'Load more',
+                        url: null,
+                    }}
+                />
+            )}
         </ul>
     )
 }
 
-function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListItem; active: boolean }): JSX.Element {
+function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListItem; active?: boolean }): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
+    const [renamingName, setRenamingName] = useState<null | string>(null)
+    const [isSavingName, setIsSavingName] = useState(false)
+    const ref = useRef<HTMLElement | null>(null)
+    item.ref = ref // Inject ref for keyboard navigation
 
-    const formattedName = item.searchMatch?.nameHighlightRanges?.length ? (
+    let formattedName = item.searchMatch?.nameHighlightRanges?.length ? (
         <TextWithHighlights ranges={item.searchMatch.nameHighlightRanges}>{item.name}</TextWithHighlights>
     ) : (
         item.name
     )
-
-    if (!item.ref) {
-        item.ref = React.createRef()
+    if (!item.url || item.isNamePlaceholder) {
+        formattedName = <i>{formattedName}</i>
     }
 
-    return (
-        <li
-            title={item.name}
-            className={clsx(
-                'SidebarListItem',
-                !!item.menuItems && 'SidebarListItem--has-menu',
-                isMenuOpen && 'SidebarListItem--is-menu-open',
-                !!item.marker && `SidebarListItem--marker-${item.marker.type}`,
-                !!item.marker?.status && `SidebarListItem--marker-status-${item.marker.status}`,
-                'summary' in item && 'SidebarListItem--extended'
-            )}
-            aria-current={active ? 'page' : undefined}
-        >
+    const { onRename } = item
+    const menuItems = useMemo(() => {
+        if (item.onRename) {
+            if (typeof item.menuItems !== 'function' || item.menuItems.length !== 1) {
+                throw new Error(
+                    'menuItems must be a single-argument function for renamable items, so that the "Rename" item is shown'
+                )
+            }
+            return item.menuItems(() => setRenamingName(item.name))
+        }
+        return typeof item.menuItems === 'function' ? item.menuItems() : item.menuItems
+    }, [item, setRenamingName])
+
+    const completeRename = onRename
+        ? async (newName: string): Promise<void> => {
+              if (newName === item.name) {
+                  // No change to be saved
+                  setRenamingName(null)
+                  return
+              }
+              setIsSavingName(true)
+              try {
+                  await onRename(newName)
+              } catch (error) {
+                  captureException(error)
+                  lemonToast.error('Could not rename item')
+              } finally {
+                  setIsSavingName(false)
+                  setRenamingName(null)
+              }
+          }
+        : null
+
+    useEffect(() => {
+        // Add double-click handler for renaming
+        if (completeRename && renamingName === null) {
+            const onDoubleClick = (): void => {
+                setRenamingName(item.name)
+            }
+            const element = ref.current
+            if (element) {
+                element.addEventListener('dblclick', onDoubleClick)
+                return () => {
+                    element.removeEventListener('dblclick', onDoubleClick)
+                }
+            }
+        }
+    }) // Intentionally run on every render so that ref value changes are picked up
+
+    const content =
+        !completeRename || renamingName === null ? (
             <Link
-                to={item.url}
+                ref={ref as React.RefObject<HTMLAnchorElement>}
+                to={item.url || undefined}
                 className="SidebarListItem__link"
-                ref={item.ref}
                 onKeyDown={(e) => {
                     if (e.key === 'ArrowDown') {
-                        navigation3000Logic.actions.focusNextItem()
-                        e.preventDefault()
+                        if (e.metaKey || e.ctrlKey) {
+                            ;(e.target as HTMLElement).click()
+                        } else {
+                            navigation3000Logic.actions.focusNextItem()
+                            e.preventDefault()
+                        }
                     } else if (e.key === 'ArrowUp') {
                         navigation3000Logic.actions.focusPreviousItem()
+                        e.preventDefault()
+                    } else if (completeRename && e.key === 'Enter') {
+                        setRenamingName(item.name)
                         e.preventDefault()
                     }
                 }}
                 onFocus={() => {
-                    navigation3000Logic.actions.setLastFocusedItemByKey(item.key)
+                    navigation3000Logic.actions.setLastFocusedItemByKey(
+                        Array.isArray(item.key) ? item.key[0] : item.key
+                    )
                 }}
             >
                 {'summary' in item ? (
@@ -119,7 +200,7 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
                         </div>
                         <div className="flex space-between gap-1">
                             <div className="flex-1 overflow-hidden text-ellipsis">
-                                {item.searchMatch
+                                {item.searchMatch?.matchingFields
                                     ? `Matching fields: ${item.searchMatch.matchingFields
                                           .map((field) => field.replace(/_/g, ' '))
                                           .join(', ')}`
@@ -134,12 +215,104 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
                     <h5>{formattedName}</h5>
                 )}
             </Link>
-            {item.menuItems && (
-                <LemonMenu items={item.menuItems} onVisibilityChange={setIsMenuOpen}>
-                    <div className="SidebarListItem__menu">
-                        <LemonButton size="small" icon={<IconEllipsis />} />
-                    </div>
-                </LemonMenu>
+        ) : (
+            <div className="SidebarListItem__rename" ref={ref as React.RefObject<HTMLDivElement>}>
+                <input
+                    value={renamingName}
+                    onChange={(e) => setRenamingName(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown') {
+                            navigation3000Logic.actions.focusNextItem()
+                            e.preventDefault()
+                        } else if (e.key === 'ArrowUp') {
+                            navigation3000Logic.actions.focusPreviousItem()
+                            e.preventDefault()
+                        } else if (e.key === 'Enter') {
+                            completeRename(renamingName).then(() => {
+                                // In the keyboard nav experience, we need to refocus the item once it's a link again
+                                setTimeout(() => ref.current?.focus(), 0)
+                            })
+                            e.preventDefault()
+                        } else if (e.key === 'Escape') {
+                            setRenamingName(null)
+                            // In the keyboard nav experience, we need to refocus the item once it's a link again
+                            setTimeout(() => ref.current?.focus(), 0)
+                            e.preventDefault()
+                        }
+                    }}
+                    onFocus={(e) => {
+                        navigation3000Logic.actions.setLastFocusedItemByKey(
+                            Array.isArray(item.key) ? item.key[0] : item.key
+                        )
+                        ;(e.target as HTMLInputElement).select()
+                    }}
+                    onBlur={(e) => {
+                        if (e.relatedTarget?.ariaLabel === 'Save name') {
+                            completeRename(renamingName)
+                        } else {
+                            setRenamingName(null)
+                        }
+                    }}
+                    disabled={isSavingName}
+                    autoFocus
+                />
+            </div>
+        )
+
+    return (
+        <li
+            id={`sidebar-${item.key}`}
+            title={item.name}
+            className={clsx(
+                'SidebarListItem',
+                !!item.menuItems?.length && 'SidebarListItem--has-menu',
+                isMenuOpen && 'SidebarListItem--is-menu-open',
+                renamingName !== null && 'SidebarListItem--is-renaming',
+                !!item.marker && `SidebarListItem--marker-${item.marker.type}`,
+                !!item.marker?.status && `SidebarListItem--marker-status-${item.marker.status}`,
+                'summary' in item && 'SidebarListItem--extended'
+            )}
+            aria-current={active ? 'page' : undefined}
+        >
+            {content}
+            {renamingName !== null ? (
+                <div className="SidebarListItem__actions">
+                    {!isSavingName && (
+                        <LemonButton // This has no onClick, as the action is actually handled in the input's onBlur
+                            size="small"
+                            noPadding
+                            icon={<IconClose />}
+                            tooltip={
+                                <>
+                                    Cancel <KeyboardShortcut escape />
+                                </>
+                            }
+                            aria-label="Cancel"
+                        />
+                    )}
+                    <LemonButton // This has no onClick, as the action is actually handled in the input's onBlur
+                        size="small"
+                        noPadding
+                        icon={<IconCheckmark />}
+                        tooltip={
+                            !isSavingName ? (
+                                <>
+                                    Save name <KeyboardShortcut enter />
+                                </>
+                            ) : null
+                        }
+                        loading={isSavingName}
+                        aria-label="Save name"
+                    />
+                </div>
+            ) : (
+                menuItems?.length && (
+                    <LemonMenu items={menuItems} onVisibilityChange={setIsMenuOpen}>
+                        <div className="SidebarListItem__actions">
+                            <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                        </div>
+                    </LemonMenu>
+                )
             )}
         </li>
     )

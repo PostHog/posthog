@@ -16,40 +16,64 @@
  * track everything in this single process
  */
 
+import { captureException } from '@sentry/node'
 import { KafkaConsumer } from 'node-rdkafka-acosom'
+import { Gauge } from 'prom-client'
 
 import { status } from '../../../../utils/status'
 
+export const gaugeOffsetCommitted = new Gauge({
+    name: 'offset_manager_offset_committed',
+    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed.',
+    labelNames: ['partition'],
+})
+
+export const gaugeOffsetCommitFailed = new Gauge({
+    name: 'offset_manager_offset_commit_failed',
+    help: 'An attempt to commit failed, other than accidentally committing just after a rebalance this is not great news.',
+    labelNames: ['partition'],
+})
+
+export const gaugeOffsetRemovalImpossible = new Gauge({
+    name: 'offset_manager_offset_removal_impossible',
+    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed. That should always match an offset being managed',
+})
+
+interface SessionOffset {
+    session_id: string
+    offset: number
+}
+
 export class OffsetManager {
     // We have to track every message's offset so that we can commit them only after they've been written to S3
-    offsetsByPartitionTopic: Map<string, number[]> = new Map()
+    // as we add them we keep track of the session id so that if an ingester gets blocked
+    // we can track that back to the session id for debugging
+    offsetsByPartitionTopic: Map<string, SessionOffset[]> = new Map()
 
     constructor(private consumer: KafkaConsumer) {}
 
-    public addOffset(topic: string, partition: number, offset: number): void {
+    public addOffset(topic: string, partition: number, session_id: string, offset: number): void {
         const key = `${topic}-${partition}`
 
         if (!this.offsetsByPartitionTopic.has(key)) {
             this.offsetsByPartitionTopic.set(key, [])
         }
 
-        // TODO: We should parseInt when we handle the message
-        this.offsetsByPartitionTopic.get(key)?.push(offset)
+        const current = this.offsetsByPartitionTopic.get(key) || []
+        current.push({ session_id, offset })
+        this.offsetsByPartitionTopic.set(key, current)
     }
 
     /**
      * When a rebalance occurs we need to remove all in-flight offsets for partitions that are no longer
      * assigned to this consumer.
-     *
-     * @param topic
-     * @param assignedPartitions The partitions that are still assigned to this consumer after a rebalance
      */
-    public cleanPartitions(topic: string, assignedPartitions: number[]): void {
-        const assignedKeys = assignedPartitions.map((partition) => `${topic}-${partition}`)
+    public revokePartitions(topic: string, revokedPartitions: number[]): void {
+        const assignedKeys = revokedPartitions.map((partition) => `${topic}-${partition}`)
 
         const keysToDelete = new Set<string>()
         for (const [key] of this.offsetsByPartitionTopic) {
-            if (!assignedKeys.includes(key)) {
+            if (assignedKeys.includes(key)) {
                 keysToDelete.add(key)
             }
         }
@@ -76,18 +100,23 @@ export class OffsetManager {
         const key = `${topic}-${partition}`
         const inFlightOffsets = this.offsetsByPartitionTopic.get(key)
 
-        status.info('💾', `Current offsets: ${inFlightOffsets}`)
-        status.info('💾', `Removing offsets: ${offsets}`)
-
         if (!inFlightOffsets) {
-            // TODO: Add a metric so that we can see if and when this happens
-            status.warn('💾', `No inflight offsets found for key: ${key}.`)
+            gaugeOffsetRemovalImpossible.inc()
+            status.warn('💾', `offset_manager - no inflight offsets found to remove`, { partition })
             return
+        }
+        inFlightOffsets.sort((a, b) => a.offset - b.offset)
+
+        const logContext = {
+            partition,
+            blockingSession: !!inFlightOffsets.length ? inFlightOffsets[0].session_id : null,
+            lowestInflightOffset: !!inFlightOffsets.length ? inFlightOffsets[0].offset : null,
+            lowestOffsetToRemove: offsetsToRemove[0],
         }
 
         offsetsToRemove.forEach((offset) => {
             // Remove from the list. If it is the lowest value - set it
-            const offsetIndex = inFlightOffsets.indexOf(offset)
+            const offsetIndex = inFlightOffsets.findIndex((os) => os.offset === offset)
             if (offsetIndex >= 0) {
                 inFlightOffsets.splice(offsetIndex, 1)
             }
@@ -101,15 +130,32 @@ export class OffsetManager {
 
         this.offsetsByPartitionTopic.set(key, inFlightOffsets)
 
-        if (offsetToCommit) {
-            status.info('💾', `Committing offset ${offsetToCommit} for ${topic}-${partition}`)
-            this.consumer.commit({
-                topic,
-                partition,
-                offset: offsetToCommit,
-            })
-        } else {
-            status.info('💾', `No offset to commit from: ${inFlightOffsets}`)
+        status.info(
+            '💾',
+            `offset_manager - ${offsetToCommit !== undefined ? 'attempting to commit_offset' : 'no offset to commit'}`,
+            { ...logContext, offsetToCommit }
+        )
+
+        if (offsetToCommit !== undefined) {
+            try {
+                this.consumer.commitSync({
+                    topic,
+                    partition,
+                    // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
+                    // for some reason you commit the next offset you expect to read and not the one you actually have
+                    offset: offsetToCommit + 1,
+                })
+                gaugeOffsetCommitted.inc({ partition })
+            } catch (e) {
+                gaugeOffsetCommitFailed.inc({ partition })
+                captureException(e, { extra: { ...logContext, offsetToCommit }, tags: { partition } })
+                if (e.message !== 'Broker: Specified group generation id is not valid') {
+                    // If this is not a known error that happens when you commit just after a re-balance
+                    // then we throw instead of swallowing
+                    // TODO: ideally we'd only swallow this if it really was just after re-balance
+                    throw e
+                }
+            }
         }
 
         return offsetToCommit

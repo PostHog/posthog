@@ -7,17 +7,48 @@ name: E2E CI
 
 on:
     pull_request:
-    push:
-        branches:
-            - master
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: true
 
 jobs:
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        name: Determine need to run E2E checks
+        steps:
+            # For pull requests it's not necessary to checkout the code
+            - uses: dorny/paths-filter@v2
+              id: filter
+              with:
+                  filters: |
+                      shouldTriggerCypress:
+                        # Avoid running E2E tests for irrelevant changes
+                        # NOTE: we are at risk of missing a dependency here. We could make
+                        # the dependencies more clear if we separated the backend/frontend
+                        # code completely
+                        - 'ee/**/*'
+                        - 'posthog/**/*'
+                        - 'bin/*.py'
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        - package.json
+                        - pnpm-lock.yaml
+                        # Make sure we run if someone is explicitly change the workflow
+                        - .github/workflows/ci-e2e.yml
+                        # We use docker compose for tests, make sure we rerun on
+                        # changes to docker-compose.dev.yml e.g. dependency
+                        # version changes
+                        - docker-compose.dev.yml
+                        - frontend/**/*
+
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
+        needs: changes
         name: Cypress preparation
         runs-on: ubuntu-latest
         timeout-minutes: 30
@@ -26,12 +57,11 @@ jobs:
 
         steps:
             - name: Wait for the container image to be ready
+              # these are required checks so, we can't skip entire sections
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: lewagon/wait-on-check-action@v1.2.0
-              # if we are on master then we use the CD image (GitHub Action Job
-              # "Build and push PostHog"), otherwise we use the CI image (GitHub
-              # Action Job "Build PostHog")
               with:
-                  check-name: ${{ github.ref == 'refs/heads/master' && 'Build and push PostHog' || 'Build PostHog' }}
+                  check-name: Build PostHog
                   ref: ${{ github.event.pull_request.head.sha }}
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   wait-interval: 10
@@ -47,7 +77,7 @@ jobs:
         name: Cypress E2E tests (${{ strategy.job-index }})
         runs-on: ubuntu-latest
         timeout-minutes: 30
-        needs: [cypress_prep]
+        needs: [cypress_prep, changes]
         permissions:
             packages: read # allow pull from ghcr.io
 
@@ -61,27 +91,33 @@ jobs:
 
         steps:
             - name: Checkout
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: actions/checkout@v3
 
             - name: Install pnpm
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: pnpm/action-setup@v2
               with:
-                  version: 7.x.x
+                  version: 8.x.x
 
             - name: Set up Node.js
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: actions/setup-node@v3
               with:
                   node-version: 18
 
             - name: Get pnpm cache directory path
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
             - name: Get cypress cache directory path
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: cypress-cache-dir
               run: echo "CYPRESS_BIN_PATH=$(npx cypress cache path)" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@v3
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: pnpm-cache
               with:
                   path: |
@@ -92,14 +128,19 @@ jobs:
                       ${{ runner.os }}-pnpm-cypress-
 
             - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: pnpm install --frozen-lockfile
 
             - name: Stop/Start stack with Docker Compose
+              # these are required checks so, we can't skip entire sections
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: |
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Wait for ClickHouse
+              # these are required checks so, we can't skip entire sections
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: ./bin/check_kafka_clickhouse_up
 
             - name: Setup env
@@ -125,27 +166,21 @@ jobs:
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
                   EOT
 
+            - name: Lowercase GITHUB_REPOSITORY
+              id: lowercase
+              run: |
+                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
             - name: Get the PostHog container image of this PR
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: meta
               uses: docker/metadata-action@v4
               with:
-                  # This runs on both PRs and pushes to master, so we need to
-                  # check the ref to know which image to use. If we are on
-                  # master then we use the DockerHub image that will have been
-                  # pushed by the "Build and push PostHog" job which will have
-                  # been pushed as posthog/posthog:latest, otherwise if we are
-                  # on a pull_request we use the image built by the "Build
-                  # PostHog" job, which are tagged with the pr and use the GHCR
-                  # repo e.g. ghcr.io/posthog/posthog/posthog:pr-1234.
-                  images: |
-                      ${{ github.ref == 'refs/heads/master' && 'posthog/posthog' || 'ghcr.io/posthog/posthog/posthog' }}
-                  # If we're on master, use the latest tag, if we are a
-                  # GitHub Actions pull_request event, use the pr tag.
-                  tags: |
-                      type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
-                      type=ref,event=pr,enable=${{ github.event_name == 'pull_request' }}
+                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog
 
             - name: Start PostHog
+              # these are required checks so, we can't skip entire sections
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: |
                   mkdir -p /tmp/logs
 
@@ -155,15 +190,23 @@ jobs:
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev
 
+                  # only starts the plugin server so that the "wait for PostHog" step passes
                   $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Wait for PostHog
+              # these are required checks so, we can't skip entire sections
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: iFaxity/wait-on-action@v1
+              timeout-minutes: 3
               with:
+                  verbose: true
+                  log: true
                   resource: http://localhost:8000
 
             - name: Cypress run
+              # these are required checks so, we can't skip entire sections
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: cypress-io/github-action@v5
               with:
                   config-file: cypress.e2e.config.ts
@@ -193,6 +236,7 @@ jobs:
               if: ${{ failure() }}
 
             - name: Archive accessibility violations
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: actions/upload-artifact@v3
               with:
                   name: accessibility-violations

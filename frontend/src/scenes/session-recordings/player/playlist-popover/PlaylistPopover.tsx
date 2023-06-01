@@ -2,7 +2,7 @@ import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { IconPlus, IconOpenInNew, IconWithCount } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -11,12 +11,9 @@ import { Field } from 'lib/forms/Field'
 import { urls } from 'scenes/urls'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-export function PlaylistPopover(): JSX.Element {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const dataLogic = sessionRecordingDataLogic(logicProps)
-    const { sessionPlayerData } = useValues(dataLogic)
+export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
+    const { sessionRecordingId, logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
@@ -31,7 +28,7 @@ export function PlaylistPopover(): JSX.Element {
         useActions(logic)
 
     return (
-        <IconWithCount count={sessionPlayerData.metadata.pinnedCount ?? 0} showZero={false}>
+        <IconWithCount count={sessionPlayerData.pinnedCount ?? 0} showZero={false}>
             <Popover
                 visible={showPlaylistPopover}
                 onClickOutside={() => setShowPlaylistPopover(false)}
@@ -108,7 +105,7 @@ export function PlaylistPopover(): JSX.Element {
 
                                         <LemonButton
                                             icon={<IconOpenInNew />}
-                                            to={urls.sessionRecordingPlaylist(playlist.short_id)}
+                                            to={urls.replayPlaylist(playlist.short_id)}
                                             targetBlank
                                         />
                                     </div>
@@ -126,10 +123,9 @@ export function PlaylistPopover(): JSX.Element {
                     icon={<IconPlus />}
                     active={showPlaylistPopover}
                     onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}
-                    size={'small'}
-                >
-                    <span>Pin to list</span>
-                </LemonButton>
+                    sideIcon={null}
+                    {...props}
+                />
             </Popover>
         </IconWithCount>
     )

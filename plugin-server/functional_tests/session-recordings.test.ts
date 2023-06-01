@@ -25,7 +25,7 @@ beforeAll(async () => {
 
     dlq = []
     dlqConsumer = kafka.consumer({ groupId: 'session_recording_events_test' })
-    await dlqConsumer.subscribe({ topic: 'session_recording_events_dlq' })
+    await dlqConsumer.subscribe({ topic: 'session_recording_events_dlq', fromBeginning: true })
     await dlqConsumer.run({
         eachMessage: ({ message }) => {
             dlq.push(message)
@@ -176,7 +176,7 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     })
 
     // NOTE: we're assuming that we have a single partition for the Kafka topic,
-    // and that the consumer produces messages in the order they are consumed.
+    // and that the consumer produceAndFlushs messages in the order they are consumed.
     // TODO: add some side-effect we can assert on rather than relying on the
     // partitioning / ordering setup e.g. an ingestion warning.
     const events = await fetchSessionRecordingsEvents(teamOptedOutId, uuidOptedOut)

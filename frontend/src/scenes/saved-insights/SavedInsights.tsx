@@ -18,7 +18,6 @@ import {
     IconListView,
     IconPerson,
     IconPlusMini,
-    IconQuestionAnswer,
     IconSelectEvents,
     IconStarFilled,
     IconStarOutline,
@@ -170,12 +169,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconAction,
         inMenu: true,
     },
-    [NodeKind.NewEntityNode]: {
-        name: 'New Entity',
-        description: 'Something to do with new series 🤷',
-        icon: IconQuestionAnswer,
-        inMenu: true,
-    },
     [NodeKind.EventsQuery]: {
         name: 'Events Query',
         description: 'Hmmm, not every kind should be displayable I guess',
@@ -198,12 +191,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Insight visualization',
         description: 'View your insights',
         icon: IconBarChart,
-        inMenu: true,
-    },
-    [NodeKind.LegacyQuery]: {
-        name: 'A legacy query',
-        description: 'Watch out for these, they might be dangerous',
-        icon: IconQuestionAnswer,
         inMenu: true,
     },
     [NodeKind.TimeToSeeDataSessionsQuery]: {
@@ -347,7 +334,6 @@ function SavedInsightsGrid(): JSX.Element {
 
 export function SavedInsights(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const isUsingDataExploration = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
     const isUsingDashboardQueries = !!featureFlags[FEATURE_FLAGS.HOGQL]
 
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
@@ -385,7 +371,6 @@ export function SavedInsights(): JSX.Element {
                                 {name || (
                                     <i>
                                         {summarizeInsight(insight.query, insight.filters, {
-                                            isUsingDataExploration,
                                             aggregationLabel,
                                             cohortsById,
                                             mathDefinitions,
@@ -497,7 +482,6 @@ export function SavedInsights(): JSX.Element {
     return (
         <div className="saved-insights">
             <PageHeader title="Insights" buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
-
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}

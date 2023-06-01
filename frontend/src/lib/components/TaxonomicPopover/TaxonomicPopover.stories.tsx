@@ -29,7 +29,7 @@ export function TaxonomicStringPopoverOneCategory(): JSX.Element {
 
 export function MultipleCategories(): JSX.Element {
     useMountedLogic(cohortsModel)
-    const [value, setValue] = useState<string | number | undefined>(undefined)
+    const [value, setValue] = useState<string | number | null | undefined>(undefined)
     const [group, setGroup] = useState(TaxonomicFilterGroupType.PersonProperties)
 
     return (

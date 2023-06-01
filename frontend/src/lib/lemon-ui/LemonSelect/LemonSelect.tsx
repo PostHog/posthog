@@ -11,21 +11,31 @@ import {
     LemonMenuItemBase,
     LemonMenuItemLeaf,
     LemonMenuItemNode,
-    LemonMenuItems,
     LemonMenuProps,
     LemonMenuSection,
     isLemonMenuSection,
 } from '../LemonMenu/LemonMenu'
 
-type LemonSelectOptionBase = Omit<LemonMenuItemBase, 'active' | 'status'> // Select handles active state internally
+// Select options are basically menu items that handle onClick and active state internally
+interface LemonSelectOptionBase extends Omit<LemonMenuItemBase, 'active' | 'status'> {
+    /** Support this option if it already is selected, but otherwise don't allow selecting it by hiding it. */
+    hidden?: boolean
+}
 
+type LemonSelectCustomControl<T> = ({ onSelect }: { onSelect: OnSelect<T> }) => JSX.Element
 export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
     value: T
-    element?: React.ReactElement
+    /**
+     * Label for display inside the dropdown menu.
+     *
+     * If you really need something more advanced than a button, this also allows providing a custom control component,
+     * which takes an `onSelect` prop. Can be for example a textarea with an "Apply value" button. Use this sparingly!
+     */
+    labelInMenu?: JSX.Element | LemonSelectCustomControl<T>
 }
 
 export interface LemonSelectOptionNode<T> extends LemonSelectOptionBase {
-    options: LemonSelectOption<T>[]
+    options: LemonSelectOptions<T>
 }
 
 export type LemonSelectOption<T> = LemonSelectOptionLeaf<T> | LemonSelectOptionNode<T>
@@ -43,7 +53,16 @@ export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<
 export interface LemonSelectProps<T>
     extends Pick<
         LemonButtonProps,
-        'id' | 'className' | 'loading' | 'fullWidth' | 'disabled' | 'data-attr' | 'aria-label' | 'onClick' | 'tabIndex'
+        | 'id'
+        | 'className'
+        | 'loading'
+        | 'fullWidth'
+        | 'disabled'
+        | 'disabledReason'
+        | 'data-attr'
+        | 'aria-label'
+        | 'onClick'
+        | 'tabIndex'
     > {
     options: LemonSelectOptions<T>
     /** Null only is valid for clearable selects. */
@@ -99,6 +118,7 @@ export function LemonSelect<T>({
         [options, activeValue]
     )
 
+    const activeLeaf = allLeafOptions.find((o) => o.value === activeValue)
     const isClearButtonShown = allowClear && !!activeValue
 
     return (
@@ -110,12 +130,14 @@ export function LemonSelect<T>({
             actionable
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
-            activeItemIndex={items.flatMap((i) => (isLemonMenuSection(i) ? i.items : i)).findIndex((i) => i.active)}
+            activeItemIndex={items
+                .flatMap((i) => (isLemonMenuSection(i) ? i.items.filter(Boolean) : i))
+                .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
             <LemonButton
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
-                icon={allLeafOptions.find((o) => o.value === activeValue)?.icon}
+                icon={activeLeaf?.icon}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
@@ -123,9 +145,7 @@ export function LemonSelect<T>({
                 {...buttonProps}
             >
                 <span>
-                    {allLeafOptions.find((o) => o.value === activeValue)?.label ?? activeValue ?? (
-                        <span className="text-muted">{placeholder}</span>
-                    )}
+                    {activeLeaf ? activeLeaf.label : activeValue ?? <span className="text-muted">{placeholder}</span>}
                 </span>
                 {isClearButtonShown && (
                     <LemonButton
@@ -156,11 +176,11 @@ function convertSelectOptionsToMenuItems<T>(
     options: LemonSelectOptions<T>,
     activeValue: T | null,
     onSelect: OnSelect<T>
-): [LemonMenuItems, LemonSelectOptionLeaf<T>[]] {
+): [(LemonMenuItem | LemonMenuSection)[], LemonSelectOptionLeaf<T>[]] {
     const leafOptionsAccumulator: LemonSelectOptionLeaf<T>[] = []
-    const items: LemonMenuItems = options.map((option) =>
-        convertToMenuSingle(option, activeValue, onSelect, leafOptionsAccumulator)
-    )
+    const items = options
+        .map((option) => convertToMenuSingle(option, activeValue, onSelect, leafOptionsAccumulator))
+        .filter(Boolean) as (LemonMenuItem | LemonMenuSection)[]
     return [items, leafOptionsAccumulator]
 }
 
@@ -169,25 +189,51 @@ function convertToMenuSingle<T>(
     activeValue: T | null,
     onSelect: OnSelect<T>,
     acc: LemonSelectOptionLeaf<T>[]
-): LemonMenuItem | LemonMenuSection {
+): LemonMenuItem | LemonMenuSection | null {
     if (isLemonSelectSection(option)) {
         const { options: childOptions, ...section } = option
+        const items = option.options.map((o) => convertToMenuSingle(o, activeValue, onSelect, acc)).filter(Boolean)
+        if (!items.length) {
+            // Add hidden options to the accumulator (by calling convertToMenuSingle), but don't show
+            return null
+        }
         return {
             ...section,
-            items: option.options.map((o) => convertToMenuSingle(o, activeValue, onSelect, acc)),
+            items,
         } as LemonMenuSection
     } else if (isLemonSelectOptionNode(option)) {
         const { options: childOptions, ...node } = option
+        const items = childOptions.map((o) => convertToMenuSingle(o, activeValue, onSelect, acc)).filter(Boolean)
+        if (option.hidden) {
+            // Add hidden options to the accumulator (by calling convertToMenuSingle), but don't show
+            return null
+        }
         return {
             ...node,
             active: doOptionsContainActiveValue(childOptions, activeValue),
-            items: childOptions.map((o) => convertToMenuSingle(o, activeValue, onSelect, acc)),
+            items,
         } as LemonMenuItemNode
     } else {
         acc.push(option)
-        const { value, ...leaf } = option
+        if (option.hidden) {
+            // Add hidden options to the accumulator, but don't show
+            return null
+        }
+        const { value, label, labelInMenu, ...leaf } = option
+        let CustomControl: LemonSelectCustomControl<T> | undefined
+        if (typeof labelInMenu === 'function') {
+            CustomControl = labelInMenu
+        }
         return {
             ...leaf,
+            label: CustomControl
+                ? function LabelWrapped() {
+                      if (!CustomControl) {
+                          throw new Error('CustomControl became undefined')
+                      }
+                      return <CustomControl onSelect={onSelect} />
+                  }
+                : labelInMenu || label,
             active: value === activeValue,
             onClick: () => onSelect(value),
         } as LemonMenuItemLeaf
@@ -206,7 +252,7 @@ export function isLemonSelectOptionNode<T>(
     return candidate && 'options' in candidate && 'label' in candidate
 }
 
-function doOptionsContainActiveValue<T>(options: LemonSelectOption<T>[], activeValue: T | null): boolean {
+function doOptionsContainActiveValue<T>(options: LemonSelectOptions<T>, activeValue: T | null): boolean {
     for (const option of options) {
         if ('options' in option) {
             if (doOptionsContainActiveValue(option.options, activeValue)) {

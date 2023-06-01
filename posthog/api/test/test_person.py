@@ -22,10 +22,25 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
+    override_settings,
 )
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
+    def test_legacy_get_person_by_id(self) -> None:
+        person = _create_person(
+            team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"}, immediate=True
+        )
+        flush_persons_and_events()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/person/{person.pk}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], person.pk)
+
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @snapshot_clickhouse_queries
     def test_search(self) -> None:
         _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
         _create_person(
@@ -42,6 +57,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @snapshot_clickhouse_queries
     def test_properties(self) -> None:
         _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
         _create_person(team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"})
@@ -139,8 +156,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @snapshot_clickhouse_queries
     def test_filter_person_list(self):
-
         person1: Person = _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
@@ -154,7 +172,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Filter by distinct ID
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(12):
             response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
@@ -420,6 +438,57 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             ["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
         )
 
+    def test_person_display_name(self) -> None:
+        self.team.person_display_name_properties = ["custom_name", "custom_email"]
+        self.team.save()
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id1"],
+            properties={"custom_name": "someone", "custom_email": "someone@custom.com", "email": "someone@gmail.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id2"],
+            properties={"custom_email": "another_one@custom.com", "email": "another_one@gmail.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id3"],
+            properties={"email": "yet_another_one@gmail.com"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.get("/api/person/").json()
+
+        results = response["results"][::-1]  # results are in reverse order
+        self.assertEqual(results[0]["name"], "someone")
+        self.assertEqual(results[1]["name"], "another_one@custom.com")
+        self.assertEqual(results[2]["name"], "distinct_id3")
+
+    def test_person_display_name_defaults(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id1"],
+            properties={"name": "someone", "email": "someone@gmail.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id2"],
+            properties={"name": "another_one"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id3"],
+        )
+        flush_persons_and_events()
+
+        response = self.client.get("/api/person/").json()
+
+        results = response["results"][::-1]  # results are in reverse order
+        self.assertEqual(results[0]["name"], "someone@gmail.com")
+        self.assertEqual(results[1]["name"], "another_one")
+        self.assertEqual(results[2]["name"], "distinct_id3")
+
     def test_person_cohorts(self) -> None:
         _create_person(team=self.team, distinct_ids=["1"], properties={"$some_prop": "something", "number": 1})
         person2 = _create_person(
@@ -450,7 +519,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 3)
         self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
         self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
-        self.assertDictContainsSubset({"id": cohort4.id, "count": None, "name": cohort4.name}, response["results"][2])
+        self.assertDictContainsSubset({"id": cohort4.id, "count": 1, "name": cohort4.name}, response["results"][2])
 
     def test_split_person_clickhouse(self):
         person = _create_person(
@@ -540,6 +609,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response.content.splitlines()), 2)
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_pagination_limit(self):
         created_ids = []
 
@@ -556,7 +626,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(11):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]

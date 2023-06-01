@@ -60,3 +60,7 @@ Troubleshoot by viewing the Playwright report: Click on "Details" next to the fa
 ### Your locally generated images, don't verify CI checks
 
 GitHub is running tests against a temporary merge commit (to ensure tests still pass after being merged), meaning any changes currently in master will be present in the images generated in the CI run. If you suspect this is the case, merge master into your branch and push again.
+
+### The screenshots look wrong and I want to debug it live
+
+If you run any playwright command with `PWDEBUG=1` then it will run in "headfull" mode so that you can see the browser and look into what is going on

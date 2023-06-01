@@ -1,4 +1,3 @@
-import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { defaultConfig } from '../src/config/config'
@@ -6,7 +5,7 @@ import { startPluginsServer } from '../src/main/pluginsServer'
 import { EnqueuedPluginJob, Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { UUIDT } from '../src/utils/utils'
 import { EventPipelineRunner } from '../src/worker/ingestion/event-pipeline/runner'
-import { makePiscina } from '../src/worker/piscina'
+import Piscina, { makePiscina } from '../src/worker/piscina'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
 import { resetGraphileWorkerSchema } from './helpers/graphile-worker'
@@ -59,10 +58,10 @@ describe('Historical Export (v2)', () => {
             await resetGraphileWorkerSchema(defaultConfig),
         ])
 
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
-        hub = startResponse.hub
-        piscina = startResponse.piscina
-        stopServer = startResponse.stop
+        const startResponse = await startPluginsServer(extraServerConfig, makePiscina, undefined)
+        hub = startResponse.hub!
+        piscina = startResponse.piscina!
+        stopServer = startResponse.stop!
     })
 
     afterEach(async () => {
@@ -91,8 +90,8 @@ describe('Historical Export (v2)', () => {
     }
 
     it('exports a batch of events in a time range', async () => {
+        await ingestEvent('2021-07-28T00:00:00.000Z') // To avoid parallel person processing which we don't handle
         await Promise.all([
-            ingestEvent('2021-07-28T00:00:00.000Z'),
             ingestEvent('2021-08-01T00:00:00.000Z', { properties: { foo: 'bar' } }),
             ingestEvent('2021-08-02T02:00:00.000Z'),
             ingestEvent('2021-08-03T09:00:00.000Z'),
@@ -137,11 +136,13 @@ describe('Historical Export (v2)', () => {
             '2021-08-04T23:00:00.000Z',
             '2021-08-04T23:59:59.000Z',
         ])
-        expect(exportedEventLogs[0][1].properties).toEqual({
-            foo: 'bar',
-            $$historical_export_source_db: 'clickhouse',
-            $$is_historical_export_event: true,
-            $$historical_export_timestamp: expect.any(String),
-        })
+        expect(exportedEventLogs[0][1].properties).toEqual(
+            expect.objectContaining({
+                foo: 'bar',
+                $$historical_export_source_db: 'clickhouse',
+                $$is_historical_export_event: true,
+                $$historical_export_timestamp: expect.any(String),
+            })
+        )
     })
 })

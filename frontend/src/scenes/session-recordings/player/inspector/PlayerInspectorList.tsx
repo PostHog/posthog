@@ -1,21 +1,12 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconUnverifiedEvent, IconTerminal, IconGauge } from 'lib/lemon-ui/icons'
-import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { InspectorListItem, playerInspectorLogic } from './playerInspectorLogic'
-import { ItemConsoleLog } from './components/ItemConsoleLog'
-import { ItemEvent } from './components/ItemEvent'
-import { ItemPerformanceEvent } from './components/ItemPerformanceEvent'
+import { playerInspectorLogic } from './playerInspectorLogic'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useDebouncedCallback } from 'use-debounce'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonButton } from '@posthog/lemon-ui'
 import './PlayerInspectorList.scss'
 import { range } from 'd3'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,187 +15,7 @@ import { playerSettingsLogic } from '../playerSettingsLogic'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
-import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { TZLabel } from '@posthog/apps-common'
-
-const typeToIconAndDescription = {
-    [SessionRecordingPlayerTab.ALL]: {
-        Icon: undefined,
-        tooltip: 'All events',
-    },
-    [SessionRecordingPlayerTab.EVENTS]: {
-        Icon: IconUnverifiedEvent,
-        tooltip: 'Recording event',
-    },
-    [SessionRecordingPlayerTab.CONSOLE]: {
-        Icon: IconTerminal,
-        tooltip: 'Console log',
-    },
-    [SessionRecordingPlayerTab.NETWORK]: {
-        Icon: IconGauge,
-        tooltip: 'Network event',
-    },
-}
-
-const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
-
-function PlayerInspectorListItem({
-    item,
-    index,
-    onLayout,
-}: {
-    item: InspectorListItem
-    index: number
-    onLayout: (layout: { width: number; height: number }) => void
-}): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { tab, recordingTimeInfo, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
-    const { timestampMode } = useValues(playerSettingsLogic)
-
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
-    const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
-    const showIcon = tab === SessionRecordingPlayerTab.ALL
-    const fixedUnits = recordingTimeInfo.duration / 1000 > 3600 ? 3 : 2
-
-    const isExpanded = expandedItems.includes(index)
-
-    const itemProps = {
-        setExpanded: () => setItemExpanded(index, !isExpanded),
-        expanded: isExpanded,
-    }
-
-    const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
-    const { ref, width, height } = useResizeObserver({})
-
-    const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
-
-    // Height changes should layout immediately but width ones (browser resize can be much slower)
-    useEffect(() => {
-        if (!width || !totalHeight) {
-            return
-        }
-        onLayoutDebounced({ width, height: totalHeight })
-    }, [width])
-    useEffect(() => {
-        if (!width || !totalHeight) {
-            return
-        }
-        onLayout({ width, height: totalHeight })
-    }, [totalHeight])
-
-    const windowNumber =
-        windowIds.length > 1 ? (item.windowId ? windowIds.indexOf(item.windowId) + 1 || '?' : '?') : undefined
-
-    const TypeIcon = typeToIconAndDescription[item.type].Icon
-
-    return (
-        <div
-            ref={ref}
-            className={clsx('flex flex-1 overflow-hidden gap-2 relative')}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                // Style as we need it for the layout optimisation
-                marginTop: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
-                marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
-            }}
-        >
-            {!isExpanded && (showIcon || windowNumber) && (
-                <Tooltip
-                    placement="left"
-                    title={
-                        <>
-                            <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
-
-                            {windowNumber ? (
-                                <>
-                                    <br />
-                                    {windowNumber !== '?' ? (
-                                        <>
-                                            {' '}
-                                            occurred in Window <b>{windowNumber}</b>
-                                        </>
-                                    ) : (
-                                        <>
-                                            {' '}
-                                            not linked to any specific window. Either an event tracked from the backend
-                                            or otherwise not able to be linked to a given window.
-                                        </>
-                                    )}
-                                </>
-                            ) : null}
-                        </>
-                    }
-                >
-                    <div className="shrink-0 text-2xl h-8 text-muted-alt flex items-center justify-center gap-1">
-                        {showIcon && TypeIcon ? <TypeIcon /> : null}
-                        {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
-                    </div>
-                </Tooltip>
-            )}
-
-            <span
-                className={clsx(
-                    'flex-1 overflow-hidden rounded border',
-                    isExpanded && 'border-primary',
-                    item.highlightColor && `border-${item.highlightColor}-dark bg-${item.highlightColor}-highlight`,
-                    !item.highlightColor && 'bg-light'
-                )}
-            >
-                {item.type === SessionRecordingPlayerTab.NETWORK ? (
-                    <ItemPerformanceEvent item={item.data} finalTimestamp={recordingTimeInfo.end} {...itemProps} />
-                ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
-                    <ItemConsoleLog item={item} {...itemProps} />
-                ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
-                    <ItemEvent item={item} {...itemProps} />
-                ) : null}
-
-                {isExpanded ? (
-                    <div className="text-xs">
-                        <LemonDivider dashed />
-
-                        <div
-                            className="flex gap-2 justify-end cursor-pointer m-2"
-                            onClick={() => setItemExpanded(index, false)}
-                        >
-                            <span className="text-muted-alt">Collapse</span>
-                        </div>
-                    </div>
-                ) : null}
-            </span>
-            {!isExpanded && (
-                <LemonButton
-                    size="small"
-                    noPadding
-                    status="primary-alt"
-                    onClick={() => {
-                        // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
-                        // Ceiling second is used since this is what's displayed to the user.
-                        seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
-                    }}
-                >
-                    <span className="p-1 text-xs">
-                        {timestampMode === 'absolute' ? (
-                            <TZLabel time={item.timestamp} formatDate="DD, MMM" formatTime="HH:mm:ss" noStyles />
-                        ) : (
-                            <>
-                                {item.timeInRecording < 0 ? (
-                                    <Tooltip
-                                        title="This event occured before the recording started, likely as the page was loading."
-                                        placement="left"
-                                    >
-                                        LOAD
-                                    </Tooltip>
-                                ) : (
-                                    colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)
-                                )}
-                            </>
-                        )}
-                    </span>
-                </LemonButton>
-            )}
-        </div>
-    )
-}
+import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
 
 function EmptyNetworkTab({
     captureNetworkLogOptIn,
@@ -265,7 +76,7 @@ function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: b
 }
 
 export function PlayerInspectorList(): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, fullLoad } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
     const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollingPaused, tab } =
@@ -347,7 +158,9 @@ export function PlayerInspectorList(): JSX.Element {
 
     return (
         <div className="flex flex-col bg-side flex-1 overflow-hidden relative">
-            {items.length ? (
+            {!fullLoad ? (
+                <div className="p-16 text-center text-muted-alt">Data will be shown once playback starts</div>
+            ) : items.length ? (
                 <div
                     className="absolute inset-0"
                     onMouseEnter={() => (mouseHoverRef.current = true)}

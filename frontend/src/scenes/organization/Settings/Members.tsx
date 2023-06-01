@@ -1,6 +1,6 @@
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -22,7 +22,7 @@ import { Row } from 'antd'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -144,7 +144,7 @@ export function Members({ user }: MembersProps): JSX.Element {
     const { setSearch } = useActions(membersLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const [is2FAModalVisible, set2FAModalVisible] = useState(false)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -170,7 +170,7 @@ export function Members({ user }: MembersProps): JSX.Element {
                         {member.user.email}
                         {!member.user.is_email_verified &&
                             !member.has_social_auth &&
-                            featureFlags[FEATURE_FLAGS.REQUIRE_EMAIL_VERIFICATION] === 'test' && (
+                            preflight?.email_service_available && (
                                 <>
                                     {' '}
                                     <LemonTag type={'highlight'} data-attr="pending-email-verification">

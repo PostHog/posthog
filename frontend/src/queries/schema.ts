@@ -1,5 +1,4 @@
 import {
-    AnyPartialFilterType,
     AnyPropertyFilter,
     Breakdown,
     BreakdownKeyType,
@@ -19,6 +18,7 @@ import {
     StickinessFilterType,
     LifecycleFilterType,
     LifecycleToggle,
+    HogQLMathType,
 } from '~/types'
 
 /**
@@ -37,7 +37,6 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
-    NewEntityNode = 'NewEntityNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
@@ -45,7 +44,6 @@ export enum NodeKind {
     // Interface nodes
     DataTableNode = 'DataTableNode',
     InsightVizNode = 'InsightVizNode',
-    LegacyQuery = 'LegacyQuery',
 
     // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
@@ -77,7 +75,6 @@ export type QuerySchema =
     // Interface nodes
     | DataTableNode
     | InsightVizNode
-    | LegacyQuery
 
     // New queries, not yet implemented
     | TrendsQuery
@@ -125,8 +122,9 @@ export interface HogQLQuery extends DataNode {
 export interface EntityNode extends DataNode {
     name?: string
     custom_name?: string
-    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType
+    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
     math_property?: string
+    math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
@@ -136,7 +134,8 @@ export interface EntityNode extends DataNode {
 
 export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
-    event?: string
+    /** The event or `null` for all events. */
+    event?: string | null
     limit?: number
     /** Columns to order by */
     orderBy?: string[]
@@ -150,11 +149,6 @@ export interface EventsNode extends EntityNode {
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
-}
-
-export interface NewEntityNode extends EntityNode {
-    kind: NodeKind.NewEntityNode
-    event?: string | null
 }
 
 export interface EventsQueryResponse {
@@ -183,7 +177,7 @@ export interface EventsQuery extends DataNode {
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
     /** Limit to events matching this string */
-    event?: string
+    event?: string | null
     /**
      * Number of rows to return
      * @asType integer
@@ -311,7 +305,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -329,7 +323,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -363,7 +357,7 @@ export interface StickinessQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
 }
@@ -379,7 +373,7 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
 }
@@ -477,13 +471,6 @@ export interface RecentPerformancePageViewNode extends DataNode {
 
 export type HogQLExpression = string
 
-// Legacy queries
-
-export interface LegacyQuery extends Node {
-    kind: NodeKind.LegacyQuery
-    filters: AnyPartialFilterType
-}
-
 // Various utility types below
 
 export interface DateRange {
@@ -497,9 +484,8 @@ export interface BreakdownFilter {
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    aggregation_group_type_index?: number | undefined // Groups aggregation
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */

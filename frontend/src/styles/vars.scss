@@ -15,7 +15,8 @@ $screens: (
 );
 
 $tiny_spaces: 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
-$humongous_spaces: 30, 40, 60, 80, 100, 120, 140, 160, 180, 200;
+$flex_sizes: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10;
+$humongous_spaces: 30, 32, 40, 60, 80, 100, 120, 140, 160, 180, 200;
 $all_spaces: list.join($tiny_spaces, $humongous_spaces);
 $leadings: 3, 4, 5, 6, 7, 8, 9, 10;
 $sides: 'top', 'right', 'bottom', 'left';
@@ -62,7 +63,7 @@ $cursors: (
 $list_style_types: 'none', 'disc', 'decimal';
 
 // See https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=2028%3A841
-// NOTE: Currently this has to be manually synced wit `tailwind.config.j` to allow IDE auto-completion
+// NOTE: Currently this has to be manually synced wit `tailwind.config.js` to allow IDE auto-completion
 $colors: (
     'primary-highlight': #e8edff,
     'primary-extralight': #d2dbff,
@@ -85,9 +86,6 @@ $colors: (
     'primary-alt-highlight': #ebecf0,
     'primary-alt': #35416b,
     'primary-alt-dark': #222a46,
-    'purple-light': rgba(241, 228, 242, 1),
-    'purple': #c278cf,
-    'purple-dark': rgba(124, 66, 134, 1),
     'default': #2d2d2d,
     'default-dark': #050505,
     'muted': #5f5f5f,
@@ -97,7 +95,8 @@ $colors: (
     'muted-alt': #747ea1,
     'muted-alt-dark': #515871,
     'white': #fff,
-    'light': rgba(255, 255, 255, 0.878),
+    // This color is quite bad, because an explicit "white" is not compatible with dark mode
+    'inverse': #fff,
     'side': #fafaf9,
     'mid': #f2f2f2,
     'border': rgba(0, 0, 0, 0.15),
@@ -132,12 +131,14 @@ $colors: (
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
 $_primary: map-get($colors, 'primary');
+$_success: map-get($colors, 'success');
+$_danger: map-get($colors, 'danger');
 $_primary_bg_hover: rgba($_primary, 0.1);
 $_primary_bg_active: rgba($_primary, 0.2);
-$_lifecycle_new: #99c5ff;
-$_lifecycle_returning: #71b96b;
-$_lifecycle_resurrecting: #c277cf;
-$_lifecycle_dormant: #f86234;
+$_lifecycle_new: $_primary;
+$_lifecycle_returning: $_success;
+$_lifecycle_resurrecting: #a56eff; // --data-lilac
+$_lifecycle_dormant: $_danger;
 
 // root variables are defined as a mixin here because
 // the toolbar needs them attached to :host not :root
@@ -151,17 +152,10 @@ $_lifecycle_dormant: #f86234;
     --primary-bg-hover: var(--primary-highlight);
     --primary-bg-active: #{$_primary_bg_active};
 
-    --bg-mid: #f2f2f2;
-    --bg-depth: #0f0f0f;
-    --bg-navy: var(--primary-alt);
     --bg-charcoal: #2d2d2d;
     --bg-bridge: #ebece8;
-    --bg-shaded: rgba(0, 0, 0, 0.05);
     --bg-light: #ffffff;
-    --bg-overlay: #333333;
-    --mark-color: #fdedc9; // TODO
-    --dark-grey: #d9d9d9;
-    --light-grey: #f2f2f2;
+    --mark-color: hsl(42deg 93% 86% / 80%);
 
     // Non-color vars
     --radius: 4px;
@@ -176,28 +170,15 @@ $_lifecycle_dormant: #f86234;
     --brand-yellow: #f9bd2b;
     --brand-key: #000; // This is going to be white in dark mode
 
-    // LEGACY data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
+    // Dashboard item colors
     --blue: #597dce;
-    --blue-light: #8da9e7;
-    --blue-lightest: #b8cefd;
     --purple: #c278cf;
-    --indigo: #7c4286;
-    --purple-light: #dcb1e3;
-    --salmon: #ff906e;
-    --yellow: #ffc035;
-    --yellow-light: #fbdd99;
-    --yellow-lightest: #fdedc9;
     --green: var(--success);
-    --cyan: #17a2b8;
-    --pink: #e83e8c;
-    --maroon: #7f0000;
-    --mint: #aaffc3;
-    --olive: #807500;
-    --navy: #000075;
-    --orange: #f58231;
-    --lime: #bfef45;
-    --apricot: #ffd8b1;
-    --brown: #9a6324;
+    --black: var(--default);
+
+    // Tag colors
+    --purple-light: #dcb1e3;
+    --purple-dark: #572e5e;
 
     // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-brand-blue: var(--primary);
@@ -227,9 +208,8 @@ $_lifecycle_dormant: #f86234;
 
     // Funnels
     --funnel-default: var(--primary);
-    --funnel-alt: var(--primary-alt);
     --funnel-background: var(--border-light);
-    --funnel-axis-zero: var(--bg-depth);
+    --funnel-axis-zero: var(--default);
     --funnel-axis: var(--border-dark);
     --funnel-axis-label: var(--muted);
     --funnel-canvas-background: #ffffff;
@@ -239,33 +219,30 @@ $_lifecycle_dormant: #f86234;
     --recording-spacing: calc(2rem / 3);
     --recording-player-container-bg: #797973;
     --recording-buffer-bg: #faaf8c;
-    --recording-seekbar-red: #f54e00;
+    --recording-seekbar-red: var(--brand-red);
     --recording-hover-event: var(--primary-bg-hover);
     --recording-hover-event-mid: var(--primary-bg-active);
     --recording-hover-event-dark: var(--primary);
     --recording-current-event: #eef2ff;
-    --recording-current-event-dark: #35416b;
+    --recording-current-event-dark: var(--primary-alt);
     --recording-failure-event: #fee9e2;
     --recording-failure-event-dark: #cd3000;
-    --recording-highlight-event: #fdedc9;
+    --recording-highlight-event: var(--mark-color);
     --recording-highlight-event-dark: #946508;
 
     // Z-indexes, synced with vars.ts
-    --z-nps-overlay: 5200;
     --z-bottom-notice: 5100;
     --z-command-palette: 1875;
     --z-force-modal-above-popovers: 1850;
     --z-ant-message: 1070;
     --z-ant-select-dropdown: 1065;
     --z-definition-popover: 1063;
-    --z-definition-popover-overlay: 1062;
     --z-popover: 1061;
     --z-modal: 1060;
     --z-hedgehog-buddy: 1059;
     --z-ant-modal-wrap: 1060;
     --z-ant-modal-mask: 1050;
     --z-plugins-popconfirm: 1001;
-    --z-pinned-dashboards-popover: 962;
     --z-graph-tooltip: 952;
     --z-annotation-popover: 951;
     --z-drawer: 950;
@@ -277,8 +254,6 @@ $_lifecycle_dormant: #f86234;
     --z-top-navigation: 800;
     --z-content-overlay: 488;
     --z-raised: 5;
-    --z-city-background-content: 1;
-    --z-city-background-image: 0;
 
     // Toasts
     // Update and override from react-toastify
@@ -331,8 +306,4 @@ $_lifecycle_dormant: #f86234;
     --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
     --modal-backdrop-color: rgba(0, 0, 0, 0.2);
     --modal-transition-time: 200ms;
-
-    // Retention
-    --retention-table-color: #51abe7;
-    --retention-table-dark-color: #106ead;
 }

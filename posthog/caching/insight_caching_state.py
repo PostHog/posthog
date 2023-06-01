@@ -133,10 +133,15 @@ def upsert(
 def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
     try:
         team = Team.objects.get(pk=team_id)
+        item: Optional[DashboardTile | Insight] = None
         if dashboard_tile_id is not None:
-            upsert(team, DashboardTile.objects.get(pk=dashboard_tile_id))
+            item = DashboardTile.objects_including_soft_deleted.get(pk=dashboard_tile_id)
         elif insight_id is not None:
-            upsert(team, Insight.objects.get(pk=insight_id))
+            item = Insight.objects_including_soft_deleted.get(pk=insight_id)
+        if not item:
+            raise ValueError("Either insight_id or dashboard_tile_id must be provided")
+        if not item.deleted:
+            upsert(team, item)
     except Exception as err:
         # This is a best-effort kind synchronization, safe to ignore errors
         logger.warn(

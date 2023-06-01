@@ -33,7 +33,7 @@ from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_e
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
-from posthog.models import Cohort, Filter, Person, User
+from posthog.models import Cohort, Filter, Person, User, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -64,6 +64,15 @@ from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
 DEFAULT_PAGE_LIMIT = 100
+PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    "email",
+    "Email",
+    "name",
+    "Name",
+    "username",
+    "Username",
+    "UserName",
+]
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -88,13 +97,20 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
         }
 
 
-def get_person_name(person: Person) -> str:
-    if person.properties.get("email"):
-        return person.properties["email"]
+def get_person_name(team: Team, person: Person) -> str:
+    if display_name := get_person_display_name(person, team):
+        return display_name
     if len(person.distinct_ids) > 0:
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(person.distinct_ids, key=is_anonymous_id)[0]
     return person.pk
+
+
+def get_person_display_name(person: Person, team: Team) -> str | None:
+    for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
+        if person.properties.get(property):
+            return person.properties.get(property)
+    return None
 
 
 class PersonsThrottle(ClickHouseSustainedRateThrottle):
@@ -120,7 +136,8 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
 
     def get_name(self, person: Person) -> str:
-        return get_person_name(person)
+        team = self.context["get_team"]()
+        return get_person_name(team, person)
 
     def to_representation(self, instance: Person) -> Dict[str, Any]:
         representation = super().to_representation(instance)
@@ -223,11 +240,11 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
 
         raw_result = insight_sync_execute(
-            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list", team_id=team.pk
         )
 
         actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team.pk, actor_ids)
+        actors, serialized_actors = get_people(team, actor_ids)
 
         _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None

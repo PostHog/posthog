@@ -292,6 +292,7 @@ export function ExperimentPreview({
                                                     action={event}
                                                     showCountedByTag={experimentInsightType === InsightType.TRENDS}
                                                     hideIcon
+                                                    showEventName
                                                 />
                                             </b>
                                         </Row>

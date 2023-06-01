@@ -5,6 +5,7 @@ import {
     ProducerGlobalConfig,
 } from 'node-rdkafka-acosom'
 
+import { getSpan } from '../sentry'
 import { status } from '../utils/status'
 
 // Kafka production related functions using node-rdkafka.
@@ -59,24 +60,55 @@ export const createKafkaProducer = async (config: ProducerGlobalConfig) => {
 
     return producer
 }
-export const produce = async (
-    producer: RdKafkaProducer,
-    topic: string,
-    value: Buffer | null,
+export const produce = async ({
+    producer,
+    topic,
+    value,
+    key,
+    headers = [],
+    waitForAck = true,
+}: {
+    producer: RdKafkaProducer
+    topic: string
+    value: Buffer | null
     key: Buffer | null
-): Promise<number | null | undefined> => {
+    headers?: { [key: string]: Buffer }[]
+    waitForAck?: boolean
+}): Promise<number | null | undefined> => {
     status.debug('📤', 'Producing message', { topic: topic })
-    return await new Promise((resolve, reject) =>
-        producer.produce(topic, null, value, key, Date.now(), (error: any, offset: NumberNullUndefined) => {
-            if (error) {
-                status.error('⚠️', 'produce_error', { error: error, topic: topic })
-                reject(error)
-            } else {
-                status.debug('📤', 'Produced message', { topic: topic, offset: offset })
-                resolve(offset)
-            }
-        })
-    )
+    const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
+    return await new Promise((resolve, reject) => {
+        if (waitForAck) {
+            producer.produce(
+                topic,
+                null,
+                value,
+                key,
+                Date.now(),
+                headers,
+                (error: any, offset: NumberNullUndefined) => {
+                    if (error) {
+                        status.error('⚠️', 'produce_error', { error: error, topic: topic })
+                        reject(error)
+                    } else {
+                        status.debug('📤', 'Produced message', { topic: topic, offset: offset })
+                        resolve(offset)
+                    }
+
+                    produceSpan?.finish()
+                }
+            )
+        } else {
+            producer.produce(topic, null, value, key, Date.now(), headers, (error: any, _: NumberNullUndefined) => {
+                if (error) {
+                    status.error('⚠️', 'produce_error', { error: error, topic: topic })
+                }
+
+                produceSpan?.finish()
+            })
+            resolve(undefined)
+        }
+    })
 }
 export const disconnectProducer = async (producer: RdKafkaProducer) => {
     status.info('🔌', 'Disconnecting producer')

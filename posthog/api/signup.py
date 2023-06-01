@@ -1,7 +1,6 @@
 from typing import Any, Dict, Optional, Union, cast
 from urllib.parse import urlencode
 
-import posthoganalytics
 import structlog
 from django import forms
 from django.conf import settings
@@ -30,27 +29,14 @@ logger = structlog.get_logger(__name__)
 
 
 def verify_email_or_login(request: HttpRequest, user: User) -> None:
-    require_verification_feature = (
-        posthoganalytics.get_feature_flag(
-            "require-email-verification", str(user.distinct_id), person_properties={"email": user.email}
-        )
-        == "test"
-    )
-    if is_email_available() and require_verification_feature:
+    if is_email_available() and not user.is_email_verified:
         EmailVerifier.create_token_and_send_email_verification(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
 
-def get_verification_redirect_url(uuid: str, distinct_id: str, email: str) -> str:
-    require_verification_feature = posthoganalytics.get_feature_flag(
-        "require-email-verification", str(distinct_id), person_properties={"email": email}
-    )
-    return (
-        "/verify_email/" + uuid
-        if is_email_available() and require_verification_feature == "test" and not settings.DEMO
-        else "/"
-    )
+def get_redirect_url(uuid: str, is_email_verified: bool) -> str:
+    return "/verify_email/" + uuid if is_email_available() and not is_email_verified and not settings.DEMO else "/"
 
 
 class SignupSerializer(serializers.Serializer):
@@ -87,6 +73,9 @@ class SignupSerializer(serializers.Serializer):
             password_validation.validate_password(value)
         return value
 
+    def is_email_auto_verified(self):
+        return self.is_social_signup
+
     def create(self, validated_data, **kwargs):
         if settings.DEMO:
             return self.enter_demo(validated_data)
@@ -102,7 +91,7 @@ class SignupSerializer(serializers.Serializer):
                 organization_name=organization_name,
                 create_team=self.create_team,
                 is_staff=is_instance_first_user,
-                is_email_verified=False,
+                is_email_verified=self.is_email_auto_verified(),
                 **validated_data,
             )
         except IntegrityError:
@@ -151,7 +140,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_verification_redirect_url(data["uuid"], data["distinct_id"], data["email"])
+        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"])
         return data
 
 
@@ -165,6 +154,9 @@ class InviteSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
     password: serializers.Field = serializers.CharField(required=False)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
+    role_at_organization: serializers.Field = serializers.CharField(
+        max_length=128, required=False, allow_blank=True, default=""
+    )
 
     def validate_password(self, value):
         password_validation.validate_password(value)
@@ -172,11 +164,10 @@ class InviteSignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_verification_redirect_url(data["uuid"], data["distinct_id"], data["email"])
+        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"])
         return data
 
     def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
-
         if "request" not in self.context or not self.context["request"].user.is_authenticated:
             # If there's no authenticated user and we're creating a new one, attributes are required.
 
@@ -202,7 +193,7 @@ class InviteSignupSerializer(serializers.Serializer):
 
         try:
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
-        except (OrganizationInvite.DoesNotExist):
+        except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
         with transaction.atomic():

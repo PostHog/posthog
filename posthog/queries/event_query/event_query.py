@@ -20,6 +20,7 @@ from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import PersonOnEventsMode
+from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -114,12 +115,10 @@ class EventQuery(metaclass=ABCMeta):
             return ""
 
         if self._person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
-            return f"""LEFT OUTER JOIN (
-                SELECT override_person_id as person_id, old_person_id
-                FROM person_overrides
-                WHERE team_id = %(team_id)s
-            ) AS {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}
-            ON {self.EVENT_TABLE_ALIAS}.person_id = {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.old_person_id"""
+            return PERSON_OVERRIDES_JOIN_SQL.format(
+                person_overrides_table_alias=self.PERSON_ID_OVERRIDES_TABLE_ALIAS,
+                event_table_alias=self.EVENT_TABLE_ALIAS,
+            )
 
         return f"""
             INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
@@ -239,7 +238,10 @@ class EventQuery(metaclass=ABCMeta):
         if not prop_group:
             return "", {}
 
-        if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+        if person_properties_mode not in [
+            PersonPropertiesMode.DIRECT_ON_EVENTS,
+            PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2,
+        ]:
             props_to_filter = self._column_optimizer.property_optimizer.parse_property_groups(prop_group).outer
         else:
             props_to_filter = prop_group

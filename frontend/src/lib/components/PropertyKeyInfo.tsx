@@ -464,8 +464,9 @@ export const keyMapping: KeyMappingInterface = {
             hide: true,
         },
         $time: {
-            label: 'Timestamp (seconds)',
-            description: 'Time as given by the client, seconds since epoch.',
+            label: '$time (deprecated)',
+            description:
+                'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
             hide: true,
             examples: ['1681211521.345'],
         },
@@ -737,6 +738,15 @@ export function getKeyMapping(
                 label: `Feature: ${featureFlagKey}`,
                 description: `Value for the feature flag "${featureFlagKey}" when this event was sent.`,
                 examples: ['true', 'variant-1a'],
+            }
+        }
+    } else if (value.startsWith('$feature_enrollment/')) {
+        const featureFlagKey = value.replace(/^\$feature_enrollment\//, '')
+        if (featureFlagKey) {
+            return {
+                label: `Feature Enrollment: ${featureFlagKey}`,
+                description: `Whether the user has opted into the "${featureFlagKey}" beta program.`,
+                examples: ['true', 'false'],
             }
         }
     }

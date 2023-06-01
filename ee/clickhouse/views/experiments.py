@@ -21,7 +21,6 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
-from posthog.models.team import Team
 from posthog.permissions import (
     PremiumFeaturePermission,
     ProjectMembershipNecessaryPermissions,
@@ -146,7 +145,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team = Team.objects.get(id=self.context["team_id"])
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
@@ -180,7 +178,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
-        experiment = Experiment.objects.create(team=team, feature_flag=feature_flag, **validated_data)
+        experiment = Experiment.objects.create(
+            team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
+        )
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:

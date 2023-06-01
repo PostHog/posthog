@@ -25,6 +25,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from '@posthog/lemon-ui'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { IconCheckmark, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -62,19 +63,6 @@ export function ActionsTable(): JSX.Element {
                 )
             },
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags',
-                      width: 250,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-              ]
-            : []),
         {
             title: 'Type',
             key: 'type',
@@ -111,6 +99,10 @@ export function ActionsTable(): JSX.Element {
                                                             </>
                                                         )
                                                 }
+                                            case '':
+                                            case null:
+                                            case undefined:
+                                                return 'Any event'
                                             default:
                                                 return (
                                                     <>
@@ -128,6 +120,19 @@ export function ActionsTable(): JSX.Element {
                 )
             },
         },
+        ...(hasAvailableFeature(AvailableFeature.TAGGING)
+            ? [
+                  {
+                      title: 'Tags',
+                      dataIndex: 'tags',
+                      width: 250,
+                      key: 'tags',
+                      render: function renderTags(tags: string[]) {
+                          return <ObjectTags tags={tags} staticOnly />
+                      },
+                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
+              ]
+            : []),
         createdByColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         ...(currentTeam?.slack_incoming_webhook
@@ -155,7 +160,7 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton
                                     status="stealth"
                                     to={
-                                        combineUrl(urls.sessionRecordings(), {
+                                        combineUrl(urls.replay(), {
                                             filters: {
                                                 actions: [
                                                     {
@@ -235,31 +240,47 @@ export function ActionsTable(): JSX.Element {
                 buttons={<NewActionButton />}
             />
             <DataManagementPageTabs tab={DataManagementTab.Actions} />
-            <div className="flex items-center justify-between gap-2 mb-4">
-                <LemonInput
-                    type="search"
-                    placeholder="Search for actions"
-                    onChange={setSearchTerm}
-                    value={searchTerm}
+            {actions.length > 0 || actionsLoading ? (
+                <>
+                    <div className="flex items-center justify-between gap-2 mb-4">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search for actions"
+                            onChange={setSearchTerm}
+                            value={searchTerm}
+                        />
+                        <Radio.Group
+                            buttonStyle="solid"
+                            value={filterByMe}
+                            onChange={(e) => setFilterByMe(e.target.value)}
+                        >
+                            <Radio.Button value={false}>All actions</Radio.Button>
+                            <Radio.Button value={true}>My actions</Radio.Button>
+                        </Radio.Group>
+                    </div>
+                    <LemonTable
+                        columns={columns}
+                        loading={actionsLoading}
+                        rowKey="id"
+                        pagination={{ pageSize: 100 }}
+                        data-attr="actions-table"
+                        dataSource={data}
+                        defaultSorting={{
+                            columnKey: 'created_by',
+                            order: -1,
+                        }}
+                        emptyState="No results. Create a new action?"
+                    />
+                </>
+            ) : (
+                <ProductEmptyState
+                    productName="Actions"
+                    thingName="action"
+                    description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
+                    docsURL="https://posthog.com/docs/data/actions"
+                    actionElementOverride={<NewActionButton />}
                 />
-                <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
-                    <Radio.Button value={false}>All actions</Radio.Button>
-                    <Radio.Button value={true}>My actions</Radio.Button>
-                </Radio.Group>
-            </div>
-            <LemonTable
-                columns={columns}
-                loading={actionsLoading}
-                rowKey="id"
-                pagination={{ pageSize: 100 }}
-                data-attr="actions-table"
-                dataSource={data}
-                defaultSorting={{
-                    columnKey: 'created_by',
-                    order: -1,
-                }}
-                emptyState="The first step to standardized analytics is creating your first action."
-            />
+            )}
         </div>
     )
 }

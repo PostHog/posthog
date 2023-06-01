@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { ActionType } from '~/types'
 import type { actionsModelType } from './actionsModelType'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 export interface ActionsModelProps {
     params?: string
@@ -14,6 +15,9 @@ export function findActionName(id: number): string | null {
 export const actionsModel = kea<actionsModelType>({
     path: ['models', 'actionsModel'],
     props: {} as ActionsModelProps,
+    connect: {
+        values: [teamLogic, ['currentTeam']],
+    },
     loaders: ({ props, values }) => ({
         actions: {
             __default: [] as ActionType[],
@@ -45,7 +49,12 @@ export const actionsModel = kea<actionsModelType>({
         ],
     }),
 
-    events: ({ actions }) => ({
-        afterMount: () => actions.loadActions(),
+    events: ({ values, actions }) => ({
+        afterMount: () => {
+            if (isAuthenticatedTeam(values.currentTeam)) {
+                // Don't load on shared insights/dashboards
+                actions.loadActions()
+            }
+        },
     }),
 })

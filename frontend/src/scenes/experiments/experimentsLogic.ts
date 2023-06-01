@@ -2,19 +2,28 @@ import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { AvailableFeature, Experiment, ExperimentsTabs, ExperimentStatus } from '~/types'
+import { AvailableFeature, Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { loaders } from 'kea-loaders'
 
+export function getExperimentStatus(experiment: Experiment): ProgressStatus {
+    if (!experiment.start_date) {
+        return ProgressStatus.Draft
+    } else if (!experiment.end_date) {
+        return ProgressStatus.Running
+    }
+    return ProgressStatus.Complete
+}
+
 export const experimentsLogic = kea<experimentsLogicType>([
     path(['scenes', 'experiments', 'experimentsLogic']),
     connect({ values: [teamLogic, ['currentTeamId'], userLogic, ['user', 'hasAvailableFeature']] }),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setSearchStatus: (status: ExperimentStatus | 'all') => ({ status }),
+        setSearchStatus: (status: ProgressStatus | 'all') => ({ status }),
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
     }),
     reducers({
@@ -57,27 +66,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     })),
     selectors(({ values }) => ({
-        getExperimentStatus: [
-            (s) => [s.experiments],
-            () =>
-                (experiment: Experiment): ExperimentStatus => {
-                    if (!experiment.start_date) {
-                        return ExperimentStatus.Draft
-                    } else if (!experiment.end_date) {
-                        return ExperimentStatus.Running
-                    }
-                    return ExperimentStatus.Complete
-                },
-        ],
         filteredExperiments: [
-            (selectors) => [
-                selectors.experiments,
-                selectors.searchTerm,
-                selectors.searchStatus,
-                selectors.tab,
-                selectors.getExperimentStatus,
-            ],
-            (experiments, searchTerm, searchStatus, tab, getExperimentStatus) => {
+            (selectors) => [selectors.experiments, selectors.searchTerm, selectors.searchStatus, selectors.tab],
+            (experiments, searchTerm, searchStatus, tab) => {
                 let filteredExperiments: Experiment[] = experiments
 
                 if (tab === ExperimentsTabs.Archived) {
@@ -108,8 +99,19 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
         hasExperimentAvailableFeature: [
-            () => [],
-            (): boolean => values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.EXPERIMENTATION),
+        ],
+        shouldShowEmptyState: [
+            (s) => [s.experimentsLoading, s.filteredExperiments],
+            (experimentsLoading, filteredExperiments): boolean => {
+                return (
+                    filteredExperiments.length === 0 &&
+                    !experimentsLoading &&
+                    !values.searchTerm &&
+                    !values.searchStatus
+                )
+            },
         ],
     })),
     events(({ actions }) => ({

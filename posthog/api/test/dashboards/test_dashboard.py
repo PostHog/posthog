@@ -1,6 +1,7 @@
 import json
 from typing import Dict
-from unittest.mock import ANY, MagicMock
+from unittest import mock
+from unittest.mock import ANY, MagicMock, patch
 
 from dateutil import parser
 from django.test import override_settings
@@ -9,6 +10,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
@@ -56,6 +58,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             AvailableFeature.PROJECT_BASED_PERMISSIONING,
             AvailableFeature.DASHBOARD_PERMISSIONING,
         ]
+        self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
         self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
@@ -184,7 +187,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["tiles"][0]["insight"]["result"][0]["count"], 0)
 
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
         with mute_selected_signals():
@@ -199,15 +202,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(22):
+            with self.assertNumQueries(21):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(23):
+            with self.assertNumQueries(21):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(24):
+            with self.assertNumQueries(21):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -224,7 +227,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -582,10 +585,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
         assert dashboard_json["tiles"][0]["color"] == "red"
 
-    def test_dashboard_from_template(self):
+    @patch("posthog.api.dashboards.dashboard.report_user_action")
+    def test_dashboard_from_template(self, mock_capture):
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
         self.assertGreater(Insight.objects.count(), 1)
         self.assertEqual(response["creation_mode"], "template")
+
+        # Assert analytics are sent
+        mock_capture.assert_called_once_with(
+            self.user,
+            "dashboard created",
+            {
+                "created_at": mock.ANY,
+                "dashboard_id": None,
+                "duplicated": False,
+                "from_template": True,
+                "has_description": False,
+                "is_shared": False,
+                "item_count": 6,
+                "pinned": False,
+                "tags_count": 0,
+                "template_key": "DEFAULT_APP",
+            },
+        )
 
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
@@ -970,8 +992,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
-    def test_create_from_template_json(self) -> None:
-
+    @patch("posthog.api.dashboards.dashboard.report_user_action")
+    def test_create_from_template_json(self, mock_capture) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
             {"template": valid_template},
@@ -986,6 +1008,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(dashboard["description"], valid_template["dashboard_description"])
 
         self.assertEqual(len(dashboard["tiles"]), 1)
+
+        mock_capture.assert_called_once_with(
+            self.user,
+            "dashboard created",
+            {
+                "created_at": mock.ANY,
+                "dashboard_id": dashboard["id"],
+                "duplicated": False,
+                "from_template": True,
+                "has_description": True,
+                "is_shared": False,
+                "item_count": 1,
+                "pinned": False,
+                "tags_count": 0,
+                "template_key": valid_template["template_name"],
+            },
+        )
 
     def test_create_from_template_json_must_provide_at_least_one_tile(self) -> None:
         template: Dict = {**valid_template, "tiles": []}

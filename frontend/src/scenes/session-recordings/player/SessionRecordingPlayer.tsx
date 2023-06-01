@@ -1,11 +1,12 @@
 import './SessionRecordingPlayer.scss'
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
+    SessionRecordingPlayerMode,
 } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
@@ -20,10 +21,13 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { urls } from 'scenes/urls'
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     includeMeta?: boolean
     noBorder?: boolean
+    noInspector?: boolean
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -38,19 +42,28 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingId,
         sessionRecordingData,
         playerKey,
-        embedded = false,
         includeMeta = true,
         recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
         matching,
         noBorder = false,
+        noInspector = false,
+        autoPlay = true,
+        nextSessionRecording,
+        mode = SessionRecordingPlayerMode.Standard,
     } = props
 
-    const logicProps = {
+    const playerRef = useRef<HTMLDivElement>(null)
+
+    const logicProps: SessionRecordingPlayerLogicProps = {
         sessionRecordingId,
         playerKey,
         matching,
         sessionRecordingData,
         recordingStartTime,
+        autoPlay,
+        nextSessionRecording,
+        mode,
+        playerRef,
     }
     const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed, closeExplorer } =
         useActions(sessionRecordingPlayerLogic(logicProps))
@@ -101,10 +114,15 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         }
     })
 
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        1000: 'medium',
-    })
+    const { size } = useResizeBreakpoints(
+        {
+            0: 'small',
+            1000: 'medium',
+        },
+        playerRef
+    )
+
+    const [inspectorFocus, setInspectorFocus] = useState(false)
 
     if (isNotFound) {
         return (
@@ -116,32 +134,37 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
-            <div
-                ref={ref}
-                className={clsx('SessionRecordingPlayer', {
-                    'SessionRecordingPlayer--fullscreen': isFullScreen,
-                    'SessionRecordingPlayer--no-border': noBorder || embedded,
-                    'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
-                    'SessionRecordingPlayer--explorer-mode': !!explorerMode,
-                })}
+            <DraggableToNotebook
+                href={urls.replaySingle(logicProps.sessionRecordingId)}
+                className="h-full w-full"
+                noOverflow
             >
-                <div className="SessionRecordingPlayer__main">
-                    {includeMeta || isFullScreen ? <PlayerMeta /> : null}
-                    <div className="SessionRecordingPlayer__body">
-                        <PlayerFrame />
-                        <PlayerFrameOverlay />
+                <div
+                    ref={playerRef}
+                    className={clsx('SessionRecordingPlayer', {
+                        'SessionRecordingPlayer--fullscreen': isFullScreen,
+                        'SessionRecordingPlayer--no-border': noBorder,
+                        'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
+                        'SessionRecordingPlayer--explorer-mode': !!explorerMode,
+                        'SessionRecordingPlayer--inspector-focus': inspectorFocus,
+                        'SessionRecordingPlayer--inspector-hidden': noInspector,
+                    })}
+                >
+                    <div className="SessionRecordingPlayer__main">
+                        {includeMeta || isFullScreen ? <PlayerMeta /> : null}
+                        <div className="SessionRecordingPlayer__body">
+                            <PlayerFrame />
+                            <PlayerFrameOverlay />
+                        </div>
+                        <LemonDivider className="my-0" />
+                        <PlayerController />
                     </div>
-                    <LemonDivider className="my-0" />
-                    <PlayerController />
+                    {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
+                    {explorerMode && (
+                        <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
+                    )}
                 </div>
-                {!isFullScreen && (
-                    <div className="SessionRecordingPlayer__inspector">
-                        <PlayerInspector />
-                    </div>
-                )}
-
-                {explorerMode && <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />}
-            </div>
+            </DraggableToNotebook>
         </BindLogic>
     )
 }

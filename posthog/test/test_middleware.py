@@ -4,7 +4,7 @@ from rest_framework import status
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, override_settings
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -104,6 +104,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.current_team = self.team
         self.user.current_organization = self.organization
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
         with self.assertNumQueries(self.base_app_num_queries + 4):  # AutoProjectMiddleware adds 4 queries
@@ -149,6 +150,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)  # NOT third_team
         self.assertEqual(response_dashboards_api.status_code, 404)
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_accessing_dashboards_list(self):
         with self.assertNumQueries(self.base_app_num_queries):  # No AutoProjectMiddleware queries
             response_app = self.client.get(f"/dashboard")
@@ -216,6 +218,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_cohorts_api.status_code, 200)
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(self):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
@@ -231,6 +234,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_feature_flags_api.status_code, 200)
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_creating_feature_flag(self):
         with self.assertNumQueries(self.base_app_num_queries):
             response_app = self.client.get(f"/feature_flags/new")

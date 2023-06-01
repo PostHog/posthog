@@ -1,4 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
+import { makeWorkerUtils, WorkerUtils } from 'graphile-worker'
 import Redis from 'ioredis'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { Pool } from 'pg'
@@ -6,29 +7,36 @@ import { Pool } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import {
     ActionStep,
+    Hook,
+    Plugin,
+    PluginConfig,
     PluginLogEntry,
     RawAction,
     RawClickHouseEvent,
     RawPerformanceEvent,
     RawSessionRecordingEvent,
 } from '../src/types'
-import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
+import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
 let clickHouseClient: ClickHouse
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let redis: Redis.Redis
+let graphileWorker: WorkerUtils
 
-beforeAll(() => {
+beforeAll(async () => {
     // Setup connections to kafka, clickhouse, and postgres
     postgres = new Pool({
         connectionString: defaultConfig.DATABASE_URL!,
         // We use a pool only for typings sake, but we don't actually need to,
         // so set max connections to 1.
         max: 1,
+    })
+    graphileWorker = await makeWorkerUtils({
+        pgPool: postgres,
     })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
@@ -56,6 +64,8 @@ export const capture = async ({
     sentAt = new Date(),
     eventTime = new Date(),
     now = new Date(),
+    $set = undefined,
+    $set_once = undefined,
     topic = ['$performance_event', '$snapshot'].includes(event)
         ? 'session_recording_events'
         : 'events_plugin_ingestion',
@@ -70,6 +80,8 @@ export const capture = async ({
     eventTime?: Date
     now?: Date
     topic?: string
+    $set?: object
+    $set_once?: object
 }) => {
     // WARNING: this capture method is meant to simulate the ingestion of events
     // from the capture endpoint, but there is no guarantee that is is 100%
@@ -91,10 +103,40 @@ export const capture = async ({
                     properties: { ...properties, uuid },
                     team_id: teamId,
                     timestamp: eventTime,
+                    $set,
+                    $set_once,
                 }),
             })
         ),
         key: teamId ? teamId.toString() : '',
+    })
+}
+
+export const createPluginAttachment = async ({
+    teamId,
+    pluginConfigId,
+    fileSize,
+    contentType,
+    fileName,
+    key,
+    contents,
+}: {
+    teamId: number
+    pluginConfigId: number
+    fileSize: number
+    contentType: string
+    fileName: string
+    key: string
+    contents: string
+}) => {
+    return await insertRow(postgres, 'posthog_pluginattachment', {
+        team_id: teamId,
+        plugin_config_id: pluginConfigId,
+        key: key,
+        content_type: contentType,
+        file_name: fileName,
+        file_size: fileSize,
+        contents: contents,
     })
 }
 
@@ -112,51 +154,108 @@ export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
 }
 
 export const createPluginConfig = async (
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'has_error'>
 ) => {
     return await insertRow(postgres, 'posthog_pluginconfig', {
         ...pluginConfig,
+        config: pluginConfig.config ?? {},
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         enabled: true,
         order: 0,
-        config: {},
+    })
+}
+
+export const getPluginConfig = async (teamId: number, pluginId: number) => {
+    const queryResult = (await postgres.query(`SELECT * FROM posthog_pluginconfig WHERE team_id = $1 AND id = $2`, [
+        teamId,
+        pluginId,
+    ])) as { rows: any[] }
+    return queryResult.rows[0]
+}
+
+export const updatePluginConfig = async (
+    teamId: number,
+    pluginConfigId: string,
+    pluginConfig: Partial<PluginConfig>
+) => {
+    await postgres.query(
+        `UPDATE posthog_pluginconfig SET config = $1, updated_at = $2 WHERE id = $3 AND team_id = $4`,
+        [pluginConfig.config ?? {}, pluginConfig.updated_at, pluginConfigId, teamId]
+    )
+}
+
+export const reloadPlugins = async () => await redis.publish('reload-plugins', '')
+
+export const waitForPluginToLoad = (pluginConfig: any) => {
+    return waitForExpect(async () => {
+        const logEntries = await fetchPluginLogEntries(pluginConfig.id)
+        const setUp = logEntries.filter(({ message }) => message.includes('Plugin loaded'))
+        expect(setUp.length).toBeGreaterThan(0)
     })
 }
 
 export const createAndReloadPluginConfig = async (teamId: number, pluginId: number) => {
-    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId })
-    // Make sure the plugin server reloads the newly created plugin config.
-    // TODO: avoid reaching into the pluginsServer internals and rather use
-    // the pubsub mechanism to trigger this.
-    await redis.publish('reload-plugins', '')
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId, config: {} })
+    await reloadPlugins()
+    // We wait for some log entries for the plugin, to make sure it's ready to
+    // process events.
+    await waitForPluginToLoad(pluginConfig)
     return pluginConfig
+}
+
+export const disablePluginConfig = async (teamId: number, pluginConfigId: number) => {
+    await postgres.query(`UPDATE posthog_pluginconfig SET enabled = false WHERE id = $1 AND team_id = $2`, [
+        pluginConfigId,
+        teamId,
+    ])
+}
+
+export const enablePluginConfig = async (teamId: number, pluginConfigId: number) => {
+    await postgres.query(`UPDATE posthog_pluginconfig SET enabled = true WHERE id = $1 AND team_id = $2`, [
+        pluginConfigId,
+        teamId,
+    ])
+}
+
+export const schedulePluginJob = async ({
+    teamId,
+    pluginConfigId,
+    type,
+    taskType,
+    payload,
+}: {
+    teamId: number
+    pluginConfigId: number
+    type: string
+    taskType: string
+    payload: any
+}) => {
+    return await graphileWorker.addJob(taskType, { teamId, pluginConfigId, type, payload })
+}
+
+export const getScheduledPluginJob = async (jobId: string) => {
+    const result = await postgres.query(`SELECT * FROM graphile_worker.jobs WHERE id = $1`, [jobId])
+    return result.rows[0]
 }
 
 export const reloadAction = async (teamId: number, actionId: number) => {
     await redis.publish('reload-action', JSON.stringify({ teamId, actionId }))
 }
 
-export const reloadDictionaries = async () => {
-    const queryResult = (await clickHouseClient.querying(
-        `SYSTEM RELOAD DICTIONARIES`
-    )) as unknown as ClickHouse.ObjectQueryResult<any>
-
-    return queryResult
-}
-
 export const fetchEvents = async (teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(`
-        SELECT
-            *,
-            dictGetOrDefault(
-                person_overrides_dict,
-                'override_person_id',
-                (${teamId}, events.person_id),
-                events.person_id
-            ) as person_id
-        FROM events
-        WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``} ORDER BY timestamp ASC
+        SELECT *,
+               if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id
+        FROM events e
+                 LEFT OUTER JOIN
+             (SELECT argMax(override_person_id, version) as person_id,
+                     old_person_id
+              FROM person_overrides
+              WHERE team_id = ${teamId}
+              GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+        WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``}
+        ORDER BY timestamp ASC
     `)) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
     return queryResult.data.map(parseRawClickHouseEvent)
 }
@@ -194,7 +293,7 @@ export const fetchPerformanceEvents = async (teamId: number) => {
     return queryResult.data
 }
 
-export const fetchPluginLogEntries = async (pluginConfigId: number) => {
+export const fetchPluginConsoleLogEntries = async (pluginConfigId: number) => {
     const { data: logEntries } = (await clickHouseClient.querying(`
         SELECT * FROM plugin_log_entries
         WHERE plugin_config_id = ${pluginConfigId} AND source = 'CONSOLE'
@@ -202,7 +301,15 @@ export const fetchPluginLogEntries = async (pluginConfigId: number) => {
     return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
 }
 
-export const createOrganization = async () => {
+export const fetchPluginLogEntries = async (pluginConfigId: number) => {
+    const { data: logEntries } = (await clickHouseClient.querying(`
+        SELECT * FROM plugin_log_entries
+        WHERE plugin_config_id = ${pluginConfigId}
+    `)) as unknown as ClickHouse.ObjectQueryResult<PluginLogEntry>
+    return logEntries
+}
+
+export const createOrganization = async (organizationProperties = {}) => {
     const organizationId = new UUIDT().toString()
     await insertRow(postgres, 'posthog_organization', {
         id: organizationId,
@@ -217,6 +324,7 @@ export const createOrganization = async () => {
         domain_whitelist: [],
         is_member_join_email_enabled: false,
         slug: Math.round(Math.random() * 20000),
+        ...organizationProperties,
     })
     return organizationId
 }
@@ -282,6 +390,19 @@ export const createUser = async (teamId: number, email: string) => {
         events_column_config: '{}',
         uuid: new UUIDT().toString(),
     })
+}
+
+export async function createHook(teamId: number, userId: number, resourceId: number, target: string) {
+    await insertRow(postgres, 'ee_hook', {
+        id: new UUIDT().toString(),
+        team_id: teamId,
+        user_id: userId,
+        resource_id: resourceId,
+        event: 'action_performed',
+        target: target,
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+    } as Hook)
 }
 
 export const getPropertyDefinitions = async (teamId: number) => {
