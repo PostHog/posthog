@@ -13,7 +13,7 @@ import { AvailableFeature, ChartDisplayType, FilterType, FunnelStep, FunnelVizTy
 import './Experiment.scss'
 import '../insights/Insight.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
-import { InsightContainer } from 'scenes/insights/InsightContainer'
+import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -554,7 +554,7 @@ export function Experiment(): JSX.Element {
                                         <div className="card-secondary mb-4" data-attr="experiment-preview">
                                             Goal preview
                                         </div>
-                                        <InsightContainer
+                                        <LegacyInsightContainer
                                             disableHeader={experimentInsightType === InsightType.TRENDS}
                                             disableTable={true}
                                             disableCorrelationTable={true}
@@ -1077,7 +1077,7 @@ export function Experiment(): JSX.Element {
                                 }}
                             >
                                 <div className="mt-4">
-                                    <InsightContainer
+                                    <LegacyInsightContainer
                                         disableHeader={true}
                                         disableCorrelationTable={experimentInsightType === InsightType.FUNNELS}
                                         disableLastComputation={true}

@@ -42,7 +42,7 @@ const VIEW_MAP = {
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer({
+export function LegacyInsightContainer({
     disableHeader,
     disableTable,
     disableCorrelationTable,
