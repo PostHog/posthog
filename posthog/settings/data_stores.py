@@ -7,6 +7,10 @@ from django.core.exceptions import ImproperlyConfigured
 from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, str_to_bool, get_list
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -207,6 +211,7 @@ if not REDIS_URL:
 # The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
 # can cope with compressed and uncompressed reading at the same time
 USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", False, type_cast=str_to_bool)
+logger.info(f"USE_REDIS_COMPRESSION: {USE_REDIS_COMPRESSION}", use_redis_compression=USE_REDIS_COMPRESSION)
 
 # AWS ElastiCache supports "reader" endpoints.
 # See "Finding a Redis (Cluster Mode Disabled) Cluster's Endpoints (Console)"
