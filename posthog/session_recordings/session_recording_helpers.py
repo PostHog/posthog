@@ -38,13 +38,13 @@ gauge_would_drop_at_eight_meg = Gauge(
 
 # really this is being used as a counter, but let's keep all four the same
 gauge_would_drop_grouped_at_half_meg = Gauge(
-    "session_recording_would_drop_at_half_meg",
+    "session_recording_grouped_would_drop_at_half_meg",
     "How many grouped session recordings snapshot data would drop at half a megabyte chunk size?",
 )
 
 # really this is being used as a counter, but let's keep all four the same
 gauge_would_drop_grouped_at_eight_meg = Gauge(
-    "session_recording_would_drop_at_eight_meg",
+    "session_recording_grouped_would_drop_at_eight_meg",
     "How many grouped session recordings snapshot data would drop at 8 megabyte chunk size?",
 )
 
