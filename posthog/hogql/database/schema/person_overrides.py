@@ -16,13 +16,14 @@ def select_from_person_overrides_table(requested_fields: Dict[str, Any]):
     if not requested_fields:
         requested_fields = {}
 
+    table_name = "raw_person_overrides"
     required_fields = ["old_person_id", "override_person_id"]
     for key in requested_fields:
         if key in required_fields:
-            requested_fields[key] = ast.Field(chain=[key])
+            requested_fields[key] = ast.Field(chain=[table_name, key])
 
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
-        name="argMax", args=[field, ast.Field(chain=["version"])]
+        name="argMax", args=[field, ast.Field(chain=[table_name, "version"])]
     )
 
     fields_to_select: List[ast.Expr] = [
@@ -31,8 +32,8 @@ def select_from_person_overrides_table(requested_fields: Dict[str, Any]):
 
     return ast.SelectQuery(
         select=fields_to_select,
-        select_from=ast.JoinExpr(table=ast.Field(chain=["raw_person_overrides"])),
-        group_by=[ast.Field(chain=["override_person_id"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+        group_by=[ast.Field(chain=[table_name, "override_person_id"])],
     )
 
 
