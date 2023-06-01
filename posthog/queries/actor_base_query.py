@@ -125,15 +125,11 @@ class ActorBaseQuery:
         """
         params = {"team_id": self._team.pk, "session_ids": sorted(list(session_ids))}  # Sort for stable queries
         raw_result = insight_sync_execute(
-<<<<<<< HEAD
             query,
             params,
             query_type="actors_session_ids_with_recordings",
             filter=self._filter,
             team_id=self._team.pk,
-=======
-            query, params, query_type="actors_session_ids_with_recordings", filter=self._filter, team_id=self._team.pk
->>>>>>> 2ad9b509e7 (Add support for querying different clickhouse hosts per team)
         )
         return {row[0] for row in raw_result}
 
