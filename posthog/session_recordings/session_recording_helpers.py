@@ -36,6 +36,19 @@ gauge_would_drop_at_eight_meg = Gauge(
     labelnames=["compression_algorithm"],
 )
 
+# really this is being used as a counter, but let's keep all four the same
+gauge_would_drop_grouped_at_half_meg = Gauge(
+    "session_recording_would_drop_at_half_meg",
+    "How many grouped session recordings snapshot data would drop at half a megabyte chunk size?",
+)
+
+# really this is being used as a counter, but let's keep all four the same
+gauge_would_drop_grouped_at_eight_meg = Gauge(
+    "session_recording_would_drop_at_eight_meg",
+    "How many grouped session recordings snapshot data would drop at 8 megabyte chunk size?",
+)
+
+
 # NOTE: For reference here are some helpful enum mappings from rrweb
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
 
@@ -144,6 +157,10 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
         gauge_would_drop_at_eight_meg.labels("brotli").set(len([x for x in brotli_sizes if x > 8 * 1024 * 1024]))
 
     compressed_data = compress_to_string(json.dumps(data_list))
+    if len(compressed_data) > 512 * 1024:
+        gauge_would_drop_grouped_at_half_meg.inc()
+    if len(compressed_data) > 8 * 1024 * 1024:
+        gauge_would_drop_grouped_at_eight_meg.inc()
 
     id = str(utils.UUIDT())
     chunks = chunk_string(compressed_data, chunk_size)
