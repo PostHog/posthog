@@ -9,7 +9,7 @@ from typing import Any, DefaultDict, Dict, Generator, List, Optional
 import brotli
 from dateutil.parser import parse, ParserError
 from prometheus_client import Gauge
-from sentry_sdk.api import capture_exception, capture_message
+from sentry_sdk.api import capture_exception, capture_message, start_span
 
 from posthog.models import utils
 from posthog.models.session_recording.metadata import (
@@ -20,7 +20,6 @@ from posthog.models.session_recording.metadata import (
     SnapshotDataTaggedWithWindowId,
     WindowId,
 )
-from sentry_sdk.api import start_span
 
 FULL_SNAPSHOT = 2
 
