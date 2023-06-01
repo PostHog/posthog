@@ -69,13 +69,11 @@ const summaryContext: SummaryContext = {
     aggregationLabel,
     cohortsById: cohortIdsMapped,
     mathDefinitions,
-    isUsingDataExploration: false,
     isUsingDashboardQueries: false,
 }
 
 const flagsOnSummaryContext: SummaryContext = {
     ...summaryContext,
-    isUsingDataExploration: true,
     isUsingDashboardQueries: true,
 }
 
