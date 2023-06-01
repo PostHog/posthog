@@ -68,6 +68,9 @@ def _setup_test_data(klass):
 
 
 class FuzzyInt(int):
+    lowest: int
+    highest: int
+
     def __new__(cls, lowest, highest):
         obj = super(FuzzyInt, cls).__new__(cls, highest)
         obj.lowest = lowest
@@ -75,7 +78,7 @@ class FuzzyInt(int):
         return obj
 
     def __eq__(self, other):
-        return other >= self.lowest and other <= self.highest
+        return self.lowest <= other <= self.highest
 
     def __repr__(self):
         return "[%d..%d]" % (self.lowest, self.highest)
