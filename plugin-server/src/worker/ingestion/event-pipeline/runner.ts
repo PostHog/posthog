@@ -1,5 +1,6 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import { Counter } from 'prom-client'
 
 import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
@@ -14,6 +15,15 @@ import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { runAsyncHandlersStep } from './runAsyncHandlersStep'
+
+const silentFailuresEventsPipeline = new Counter({
+    name: 'event_pipeline_silent_failure',
+    help: 'Number silent failures from the events pipeline.',
+})
+const silentFailuresAsyncHandlers = new Counter({
+    name: 'async_handlers_silent_failure',
+    help: 'Number silent failures from async handlers.',
+})
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -75,6 +85,7 @@ export class EventPipelineRunner {
                 // for a reason that we control and that is transient.
                 throw error
             }
+            silentFailuresEventsPipeline.inc()
 
             return { lastStep: error.step, args: [], error: error.message }
         }
@@ -128,6 +139,8 @@ export class EventPipelineRunner {
                 // for a reason that we control and that is transient.
                 throw error
             }
+
+            silentFailuresAsyncHandlers.inc()
 
             return { lastStep: error.step, args: [], error: error.message }
         }
