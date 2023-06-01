@@ -68,6 +68,11 @@ def _setup_test_data(klass):
 
 
 class FuzzyInt(int):
+"""
+Some query count assertions vary depending on the order of tests in the run because values are cached and so their related query doesn't always run.
+
+For the purposes of testing query counts we don't care about that variation
+"""
     lowest: int
     highest: int
 
