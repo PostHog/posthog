@@ -18,7 +18,6 @@ import {
     IconListView,
     IconPerson,
     IconPlusMini,
-    IconQuestionAnswer,
     IconSelectEvents,
     IconStarFilled,
     IconStarOutline,
@@ -194,12 +193,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconBarChart,
         inMenu: true,
     },
-    [NodeKind.LegacyQuery]: {
-        name: 'A legacy query',
-        description: 'Watch out for these, they might be dangerous',
-        icon: IconQuestionAnswer,
-        inMenu: true,
-    },
     [NodeKind.TimeToSeeDataSessionsQuery]: {
         name: 'Internal PostHog performance data',
         description: 'View performance data about a session in PostHog itself',
@@ -341,7 +334,6 @@ function SavedInsightsGrid(): JSX.Element {
 
 export function SavedInsights(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const isUsingDataExploration = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
     const isUsingDashboardQueries = !!featureFlags[FEATURE_FLAGS.HOGQL]
 
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
@@ -379,7 +371,6 @@ export function SavedInsights(): JSX.Element {
                                 {name || (
                                     <i>
                                         {summarizeInsight(insight.query, insight.filters, {
-                                            isUsingDataExploration,
                                             aggregationLabel,
                                             cohortsById,
                                             mathDefinitions,

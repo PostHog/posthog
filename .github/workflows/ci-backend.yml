@@ -133,7 +133,7 @@ jobs:
             - name: Check static typing
               run: |
                   cd current
-                  mypy . --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py
+                  mypy -p posthog --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py
 
             - name: Check if "schema.py" is up to date
               run: |
@@ -142,9 +142,9 @@ jobs:
 
             - name: Check if antlr definitions are up to date
               run: |
-                  # Installing a version of ant compatible with what we use in development from homebrew (4.11)
+                  # Installing a version of ant compatible with what we use in development from homebrew (4.13)
                   # "apt-get install antlr" would install 4.7 which is incompatible with our grammar.
-                  export ANTLR_VERSION=4.11.1
+                  export ANTLR_VERSION=4.13.0
                   # java version doesn't matter
                   sudo apt-get install default-jre
                   mkdir antlr

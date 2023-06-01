@@ -4,15 +4,19 @@
 #
 #    pip-compile requirements.in
 #
-aiohttp==3.8.1
-    # via geoip2
+aiochclient[aiohttp]==2.4.0
+    # via -r requirements.in
+aiohttp==3.8.4
+    # via
+    #   aiochclient
+    #   geoip2
 aiosignal==1.2.0
     # via aiohttp
 amqp==2.6.0
     # via
     #   -r requirements.in
     #   kombu
-antlr4-python3-runtime==4.11.1
+antlr4-python3-runtime==4.13.0
     # via -r requirements.in
 asgiref==3.3.2
     # via django
@@ -36,10 +40,14 @@ billiard==3.6.3.0
     # via celery
 boto3==1.26.66
     # via -r requirements.in
+boto3-stubs[s3]==1.26.138
+    # via -r requirements.in
 botocore==1.29.66
     # via
     #   boto3
     #   s3transfer
+botocore-stubs==1.29.130
+    # via boto3-stubs
 celery==4.4.7
     # via
     #   -r requirements.in
@@ -218,6 +226,8 @@ multidict==6.0.2
     # via
     #   aiohttp
     #   yarl
+mypy-boto3-s3==1.26.127
+    # via boto3-stubs
 numpy==1.23.3
     # via -r requirements.in
 oauthlib==3.1.0
@@ -350,6 +360,7 @@ sortedcontainers==2.4.0
 sqlparse==0.4.4
     # via
     #   -r requirements.in
+    #   aiochclient
     #   django
 statshog==1.0.6
     # via -r requirements.in
@@ -371,8 +382,14 @@ trio==0.20.0
     #   trio-websocket
 trio-websocket==0.9.2
     # via selenium
+types-awscrt==0.16.17
+    # via
+    #   botocore-stubs
+    #   types-s3transfer
 types-protobuf==4.22.0.0
     # via temporalio
+types-s3transfer==0.6.1
+    # via boto3-stubs
 typing-extensions==4.4.0
     # via
     #   pydantic

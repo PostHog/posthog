@@ -5,7 +5,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { FilterType, InsightShortId, InsightType } from '~/types'
 import './Experiment.scss'
-import { InsightContainer } from 'scenes/insights/InsightContainer'
+import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -128,7 +128,7 @@ export function MetricSelector({
             )}
             <div className="mt-4">
                 <BindLogic logic={insightLogic} props={insightProps}>
-                    <InsightContainer disableHeader={true} disableTable={true} disableCorrelationTable={true} />
+                    <LegacyInsightContainer disableHeader={true} disableTable={true} />
                 </BindLogic>
             </div>
         </>

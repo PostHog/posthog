@@ -163,7 +163,10 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(preIngestionEvent: PreIngestionEvent, person: Person): Promise<RawClickHouseEvent> {
+    async createEvent(
+        preIngestionEvent: PreIngestionEvent,
+        person: Person
+    ): Promise<[RawClickHouseEvent, Promise<void>]> {
         const {
             eventUuid: uuid,
             event,
@@ -202,7 +205,7 @@ export class EventsProcessor {
             ...groupsColumns,
         }
 
-        await this.kafkaProducer.queueMessage({
+        const ack = this.kafkaProducer.queueMessage({
             topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
             messages: [
                 {
@@ -211,7 +214,8 @@ export class EventsProcessor {
                 },
             ],
         })
-        return rawEvent
+
+        return [rawEvent, ack]
     }
 
     private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {

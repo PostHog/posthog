@@ -65,6 +65,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
+        SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
         STATSD_HOST: null,
         STATSD_PORT: 8125,
         STATSD_PREFIX: 'plugin-server.',

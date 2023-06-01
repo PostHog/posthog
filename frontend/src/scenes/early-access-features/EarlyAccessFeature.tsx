@@ -19,7 +19,7 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { PersonsLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
-import { Col, Popconfirm } from 'antd'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -66,25 +66,35 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </>
                         ) : (
                             <>
-                                <Popconfirm
-                                    title={
-                                        <>
-                                            Permanently delete feature? <br />
-                                            <b>Doing so will remove any opt in conditions from the feature flag.</b>
-                                        </>
-                                    }
-                                    okText="Delete"
-                                    okType="danger"
-                                    placement="topLeft"
-                                    onConfirm={() => {
-                                        // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
-                                        deleteEarlyAccessFeature((earlyAccessFeature as EarlyAccessFeatureType)?.id)
+                                <LemonButton
+                                    data-attr="delete-feature"
+                                    status="danger"
+                                    type="secondary"
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Permanently delete feature?',
+                                            description:
+                                                'Doing so will remove any opt in conditions from the feature flag.',
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                type: 'primary',
+                                                status: 'danger',
+                                                onClick: () => {
+                                                    // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
+                                                    deleteEarlyAccessFeature(
+                                                        (earlyAccessFeature as EarlyAccessFeatureType)?.id
+                                                    )
+                                                },
+                                            },
+                                            secondaryButton: {
+                                                children: 'Close',
+                                                type: 'secondary',
+                                            },
+                                        })
                                     }}
                                 >
-                                    <LemonButton data-attr="delete-feature" status="danger" type="secondary">
-                                        Delete
-                                    </LemonButton>
-                                </Popconfirm>
+                                    Delete
+                                </LemonButton>
 
                                 {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
                                     <LemonButton
@@ -106,13 +116,11 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
             />
             <div
                 className={clsx(
-                    'flex',
-                    'flex-row',
-                    'gap-6',
+                    'flex flex-wrap gap-6',
                     isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null
                 )}
             >
-                <div className="flex flex-col gap-4" style={{ flex: 2 }}>
+                <div className="flex flex-col gap-4 flex-2 min-w-60">
                     {isNewEarlyAccessFeature && (
                         <Field name="name" label="Name">
                             <LemonInput data-attr="feature-name" />
@@ -160,7 +168,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <></>
                     ) : (
                         <div className="mb-2 flex flex-row justify-between">
-                            <Col>
+                            <div>
                                 <b>Stage</b>
                                 <div>
                                     <LemonTag
@@ -176,7 +184,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         {earlyAccessFeature.stage}
                                     </LemonTag>
                                 </div>
-                            </Col>
+                            </div>
                             {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
                                 <LemonButton
                                     onClick={() => releaseBeta()}
@@ -225,7 +233,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     )}
                 </div>
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
-                    <div style={{ flex: 3 }}>
+                    <div className="flex-3 min-w-60">
                         <PersonList earlyAccessFeature={earlyAccessFeature} />
                     </div>
                 )}

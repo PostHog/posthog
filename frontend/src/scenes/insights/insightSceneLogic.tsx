@@ -204,9 +204,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             overrideFilter: true,
                         }
                     )
-                    if (!values.isUsingDataExploration) {
-                        values.insightLogicRef?.logic.actions.loadResults()
-                    }
 
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
                 } else if (filters && !values.isUsingDataExploration) {

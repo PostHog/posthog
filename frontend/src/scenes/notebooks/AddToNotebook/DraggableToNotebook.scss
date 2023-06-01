@@ -47,12 +47,6 @@
             animation: notebook-indicator-appear-no-overflow 150ms ease-out;
         }
     }
-
-    &:hover {
-        .DraggableToNotebook__indicator__text {
-            opacity: 0.5;
-        }
-    }
 }
 
 @keyframes notebook-indicator-appear-no-overflow {

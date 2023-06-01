@@ -36,6 +36,8 @@ jobs:
                         - requirements-dev.txt
                         - mypy.ini
                         - pytest.ini
+                        - package.json
+                        - pnpm-lock.yaml
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-e2e.yml
                         # We use docker compose for tests, make sure we rerun on
