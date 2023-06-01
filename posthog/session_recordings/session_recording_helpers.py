@@ -8,7 +8,8 @@ from typing import Any, DefaultDict, Dict, Generator, List, Optional
 
 import brotli
 from dateutil.parser import parse, ParserError
-from prometheus_client import Gauge
+from prometheus_client import Histogram
+from prometheus_client.utils import INF
 from sentry_sdk.api import capture_exception, capture_message, start_span
 
 from posthog import settings
@@ -25,30 +26,33 @@ from posthog.models.session_recording.metadata import (
 FULL_SNAPSHOT = 2
 
 
-gauge_would_drop_at_half_meg = Gauge(
-    "session_recording_would_drop_at_half_meg",
-    "How many session recordings snapshot data would drop at half a megabyte chunk size?",
-    labelnames=["compression_algorithm"],
+uncompressed_snapshot_size = Histogram(
+    "session_recordings_uncompressed_snapshot_size",
+    "We compress and chunk session recording snapshots. How big are they uncompressed (kilobytes-ish)?",
+    # 0.5, 1, 4, 8, 16, 32, or more
+    buckets=(512, 1024, 4096, 8192, 16384, 32768, INF),
 )
 
-gauge_would_drop_at_eight_meg = Gauge(
-    "session_recording_would_drop_at_eight_meg",
-    "How many session recordings snapshot data would drop at 8 megabyte chunk size?",
-    labelnames=["compression_algorithm"],
+gzipped_snapshot_size = Histogram(
+    "session_recordings_gzip_snapshot_size",
+    "We compress and chunk session recording snapshots. How big are they gzip compressed (kilobytes-ish)?",
+    # 0.5, 1, 4, 8, 16, 32, or more
+    buckets=(512, 1024, 4096, 8192, 16384, 32768, INF),
 )
 
-# really this is being used as a counter, but let's keep all four the same
-gauge_would_drop_grouped_at_half_meg = Gauge(
-    "session_recording_grouped_would_drop_at_half_meg",
-    "How many grouped session recordings snapshot data would drop at half a megabyte chunk size?",
+brotli_snapshot_size = Histogram(
+    "session_recordings_brotli_snapshot_size",
+    "We compress and chunk session recording snapshots. How big are they brotli compressed (kilobytes-ish)?",
+    # 0.5, 1, 4, 8, 16, 32, or more
+    buckets=(512, 1024, 4096, 8192, 16384, 32768, INF),
 )
 
-# really this is being used as a counter, but let's keep all four the same
-gauge_would_drop_grouped_at_eight_meg = Gauge(
-    "session_recording_grouped_would_drop_at_eight_meg",
-    "How many grouped session recordings snapshot data would drop at 8 megabyte chunk size?",
+existing_grouped_snapshot_size = Histogram(
+    "session_recordings_grouped_snapshot_size",
+    "We compress and chunk session recording snapshots. How big are they grouped and gzipped (kilobytes-ish)?",
+    # 0.5, 1, 4, 8, 16, 32, or more
+    buckets=(512, 1024, 4096, 8192, 16384, 32768, INF),
 )
-
 
 # NOTE: For reference here are some helpful enum mappings from rrweb
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
@@ -140,29 +144,25 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
     window_id = events[0]["properties"].get("$window_id")
 
     if settings.SESSION_RECORDINGS_TEST_COMPRESSION:
+        for data in data_list:
+            uncompressed_snapshot_size.observe(len(json.dumps(data)) / 1024)
+
         with start_span(op="session_recording.gzip_compression_test") as span:
             span.set_tag("rrweb_event.count", len(data_list))
             span.set_tag("session_id", session_id)
 
-            gzip_sizes = [len(compress_to_string(json.dumps(rrweb_snapshot))) for rrweb_snapshot in data_list]
-
-            gauge_would_drop_at_half_meg.labels("gzip").set(len([x for x in gzip_sizes if x > 512 * 1024]))
-            gauge_would_drop_at_eight_meg.labels("gzip").set(len([x for x in gzip_sizes if x > 8 * 1024 * 1024]))
+            for rrweb_snapshot in data_list:
+                gzipped_snapshot_size.observe(len(compress_to_string(json.dumps(rrweb_snapshot))) / 1024)
 
         with start_span(op="session_recording.brotli_compression_test") as span:
             span.set_tag("rrweb_event.count", len(data_list))
             span.set_tag("session_id", session_id)
 
-            brotli_sizes = [len(brotli_compress_to_string(json.dumps(rrweb_snapshot))) for rrweb_snapshot in data_list]
-
-            gauge_would_drop_at_half_meg.labels("brotli").set(len([x for x in brotli_sizes if x > 512 * 1024]))
-            gauge_would_drop_at_eight_meg.labels("brotli").set(len([x for x in brotli_sizes if x > 8 * 1024 * 1024]))
+            for rrweb_snapshot in data_list:
+                brotli_snapshot_size.observe(len(brotli_compress_to_string(json.dumps(rrweb_snapshot))) / 1024)
 
     compressed_data = compress_to_string(json.dumps(data_list))
-    if len(compressed_data) > 512 * 1024:
-        gauge_would_drop_grouped_at_half_meg.inc()
-    if len(compressed_data) > 8 * 1024 * 1024:
-        gauge_would_drop_grouped_at_eight_meg.inc()
+    existing_grouped_snapshot_size.observe(len(compressed_data) / 1024)
 
     id = str(utils.UUIDT())
     chunks = chunk_string(compressed_data, chunk_size)
