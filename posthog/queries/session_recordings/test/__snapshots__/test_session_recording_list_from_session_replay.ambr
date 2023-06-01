@@ -757,6 +757,80 @@
   OFFSET 0
   '
 ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_active_sessions
+  '
+  WITH events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2020-12-24 12:00:00'
+     AND timestamp <= '2021-01-02 01:46:23'
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview']
+       AND event = '$pageview' )
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2020-12-25 00:00:00'
+  AND max_last_timestamp <= '2021-01-01 13:46:23'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND active_time >= 0.44
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_active_sessions.1
+  '
+  WITH events_session_ids AS
+    (SELECT distinct `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2020-12-24 12:00:00'
+     AND timestamp <= '2021-01-02 01:46:23'
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND event IN ['$pageview']
+       AND event = '$pageview' )
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2020-12-25 00:00:00'
+  AND max_last_timestamp <= '2021-01-01 13:46:23'
+  AND session_id in
+    (select session_id
+     from events_session_ids)
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND active_time <= 0.13
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_cohort_properties
   '
   

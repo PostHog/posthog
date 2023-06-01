@@ -93,12 +93,12 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         -- matches session ids from events CTE
         AND session_id in (select session_id from events_session_ids)
         -- may need to match fixed session ids from the query filter
+        {session_ids_clause}
         -- person cte is matched in a where clause
         WHERE 1=1 {person_cte_match_clause}
-        {session_is_active_clause}
         GROUP BY session_id
         HAVING 1=1 {duration_clause}
-        {session_ids_clause}
+        {session_is_active_clause}
         ORDER BY start_time DESC
         LIMIT %(limit)s OFFSET %(offset)s
         """
