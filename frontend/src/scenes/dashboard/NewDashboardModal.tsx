@@ -148,14 +148,16 @@ export function DashboardTemplateChooser({
 }
 
 export function NewDashboardModal({ featureFlag }: { featureFlag?: FeatureFlagType }): JSX.Element {
-    const _newDashboardLogic = featureFlag ? newDashboardLogic({ featureFlagId: featureFlag.id }) : newDashboardLogic
+    const _newDashboardLogic = featureFlag
+        ? newDashboardLogic({ featureFlagId: featureFlag.id as number })
+        : newDashboardLogic
     const { hideNewDashboardModal } = useActions(_newDashboardLogic)
     const { newDashboardModalVisible } = useValues(_newDashboardLogic)
 
     const { activeDashboardTemplate } = useValues(_newDashboardLogic)
 
     const _dashboardTemplateChooser = featureFlag ? (
-        <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id} />
+        <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id as number} />
     ) : (
         <DashboardTemplateChooser />
     )

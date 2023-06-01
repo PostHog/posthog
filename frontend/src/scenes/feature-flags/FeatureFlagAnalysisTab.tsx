@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { DashboardTemplateChooser, NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
@@ -7,6 +7,7 @@ import { FeatureFlagType } from '~/types'
 import { featureFlagLogic } from './featureFlagLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 
 export function AnalysisTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
     return (
@@ -30,24 +31,26 @@ function FeatureFlagDashboardsTableContainer({ featureFlag }: { featureFlag: Fea
 
     return (
         <>
-            <DashboardsTable
-                extraActions={
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                console.log('HERE')
-                                showNewDashboardModal()
-                            }}
-                        >
-                            New Dashboard
-                        </LemonButton>
-                    </div>
-                }
-                dashboards={filteredDashboards}
-                dashboardsLoading={dashboardsLoading}
-                filters={filters}
-            />
+            <BindLogic logic={deleteDashboardLogic} props={{ featureFlagId: featureFlag.id as number }}>
+                <DashboardsTable
+                    extraActions={
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                type="primary"
+                                onClick={() => {
+                                    showNewDashboardModal()
+                                }}
+                            >
+                                New Dashboard
+                            </LemonButton>
+                        </div>
+                    }
+                    hideActions={true}
+                    dashboards={filteredDashboards}
+                    dashboardsLoading={dashboardsLoading}
+                    filters={filters}
+                />
+            </BindLogic>
             <NewDashboardModal featureFlag={featureFlag} />
         </>
     )
