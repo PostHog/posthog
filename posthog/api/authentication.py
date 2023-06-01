@@ -35,7 +35,7 @@ from posthog.utils import get_instance_available_sso_providers
 
 
 class UserPasswordResetThrottle(UserRateThrottle):
-    rate = "60/day"
+    rate = "6/day"
 
 
 @csrf_protect
@@ -286,7 +286,6 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
             )
-
         password = validated_data["password"]
         try:
             validate_password(password, user)
@@ -294,6 +293,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             raise serializers.ValidationError({"password": e.messages})
 
         user.set_password(password)
+        user.requested_password_reset_at = None
         user.save()
 
         login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
