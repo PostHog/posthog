@@ -1188,9 +1188,6 @@ const api = {
         async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
         },
-        async promote(featureId: EarlyAccessFeatureType['id']): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
-            return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
-        },
     },
 
     surveys: {

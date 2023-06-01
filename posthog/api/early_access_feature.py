@@ -8,10 +8,9 @@ from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
 from posthog.models.early_access_feature import EarlyAccessFeature
 from rest_framework import serializers, viewsets
-from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
-from rest_framework import status, response
+from rest_framework import status
 
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -190,13 +189,6 @@ class EarlyAccessFeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             related_feature_flag.save()
 
         return super().destroy(request, *args, **kwargs)
-
-    @action(methods=["POST"], detail=True)
-    def promote(self, request: Request, *args: Any, **kwargs: Any):
-        early_access_feature: EarlyAccessFeature = self.get_object()
-        early_access_feature.promote()
-        res = EarlyAccessFeatureSerializer(early_access_feature, many=False).data
-        return response.Response(res, status=status.HTTP_200_OK)
 
 
 @csrf_exempt

@@ -35,7 +35,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
-        promote: true,
         releaseBeta: true,
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
     }),
@@ -110,11 +109,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 router.actions.push(urls.earlyAccessFeatures())
             }
             actions.editFeature(false)
-        },
-        promote: async () => {
-            'id' in values.earlyAccessFeature && (await api.earlyAccessFeatures.promote(values.earlyAccessFeature.id))
-            actions.loadEarlyAccessFeature()
-            actions.loadEarlyAccessFeatures()
         },
         releaseBeta: async () => {
             'id' in values.earlyAccessFeature &&

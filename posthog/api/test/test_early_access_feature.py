@@ -352,30 +352,6 @@ class TestEarlyAccessFeature(APIBaseTest):
             "Linked feature flag hick-bondoogling already has a feature attached to it.",
         )
 
-    def test_can_promote_early_access_feature(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/early_access_feature/",
-            data={
-                "name": "Hick bondoogling",
-                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
-                "stage": "concept",
-            },
-            format="json",
-        )
-        response_data = response.json()
-
-        assert response.status_code == status.HTTP_201_CREATED, response_data
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/early_access_feature/{str(response_data['id'])}/promote/",
-            format="json",
-        )
-        response_data = response.json()
-
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
-        assert response_data["feature_flag"]["filters"]["super_groups"][0]["properties"] == []
-        assert response_data["feature_flag"]["filters"]["super_groups"][0]["rollout_percentage"] == 100
-
     def test_can_edit_feature(self):
         feature = EarlyAccessFeature.objects.create(
             team=self.team,
