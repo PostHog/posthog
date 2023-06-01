@@ -7,6 +7,7 @@ import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter, WarningLimiter } from '../../../utils/token-bucket'
+import { EventPipelineResult } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
@@ -31,8 +32,8 @@ export async function eachBatchParallelIngestion(
     queue: IngestionConsumer,
     overflowMode: IngestionOverflowMode
 ): Promise<void> {
-    async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<void> {
-        await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
+    async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<EventPipelineResult> {
+        return ingestEvent(queue.pluginsServer, queue.workerMethods, event)
     }
 
     const batchStartTimer = new Date()
@@ -47,6 +48,7 @@ export async function eachBatchParallelIngestion(
          * We're sorting with biggest last and pop()ing. Ideally, we'd use a priority queue by length
          * and a separate array for single messages, but let's look at profiles before optimizing.
          */
+        const prepareSpan = transaction.startChild({ op: 'prepareBatch' })
         const splitBatch = splitIngestionBatch(batch.messages, overflowMode)
         splitBatch.toProcess.sort((a, b) => a.length - b.length)
 
@@ -56,7 +58,9 @@ export async function eachBatchParallelIngestion(
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', splitBatch.toProcess.length, {
             key: metricKey,
         })
+        prepareSpan.finish()
 
+        const processingPromises: Array<Promise<void>> = []
         async function processMicroBatches(batches: PipelineEvent[][]): Promise<void> {
             let currentBatch
             let processedBatches = 0
@@ -66,6 +70,7 @@ export async function eachBatchParallelIngestion(
                     data: { batchLength: currentBatch.length },
                 })
 
+                // Process overflow ingestion warnings
                 if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0])
                     const distinct_id = currentBatch[0].distinct_id
@@ -76,9 +81,16 @@ export async function eachBatchParallelIngestion(
                     }
                 }
 
+                // Process every message sequentially, stash promises to await on later
                 for (const message of currentBatch) {
-                    await Promise.all([eachMessage(message, queue), heartbeat()])
+                    const result = await eachMessage(message, queue)
+                    if (result.promises) {
+                        processingPromises.push(...result.promises)
+                    }
                 }
+
+                // Emit the Kafka heartbeat if needed then close the micro-batch
+                await heartbeat()
                 processedBatches++
                 batchSpan.finish()
             }
@@ -107,9 +119,15 @@ export async function eachBatchParallelIngestion(
             .observe(splitBatch.toProcess.length)
         const tasks = [...Array(parallelism)].map(() => processMicroBatches(splitBatch.toProcess))
         if (splitBatch.toOverflow.length > 0) {
+            const overflowSpan = transaction.startChild({ op: 'emitToOverflow' })
             tasks.push(emitToOverflow(queue, splitBatch.toOverflow))
+            overflowSpan.finish()
         }
         await Promise.all(tasks)
+
+        const awaitSpan = transaction.startChild({ op: 'awaitACKs' })
+        await Promise.all(processingPromises)
+        awaitSpan.finish()
 
         // Commit offsets once at the end of the batch. We run the risk of duplicates
         // if the pod is prematurely killed in the middle of a batch, but this allows
@@ -152,7 +170,7 @@ export async function ingestEvent(
     workerMethods: WorkerMethods,
     event: PipelineEvent,
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
-): Promise<void> {
+): Promise<EventPipelineResult> {
     const eachEventStartTimer = new Date()
 
     checkAndPause?.()
@@ -160,11 +178,12 @@ export async function ingestEvent(
     server.statsd?.increment('kafka_queue_ingest_event_hit', {
         pipeline: 'runEventPipeline',
     })
-    await workerMethods.runEventPipeline(event)
+    const result = await workerMethods.runEventPipeline(event)
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
-
     countAndLogEvents()
+
+    return result
 }
 
 let messageCounter = 0

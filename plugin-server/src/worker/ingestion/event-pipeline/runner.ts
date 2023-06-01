@@ -14,10 +14,13 @@ import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { runAsyncHandlersStep } from './runAsyncHandlersStep'
 
-// Only used in tests
-// TODO: update to test for side-effects of running the pipeline rather than
-// this return type.
 export type EventPipelineResult = {
+    // Promises that the batch handler should await on before committing offsets,
+    // contains the Kafka producer ACKs, to avoid blocking after every message.
+    promises?: Array<Promise<void>>
+    // Only used in tests
+    // TODO: update to test for side-effects of running the pipeline rather than
+    // this return type.
     lastStep: string
     args: any[]
     error?: string
