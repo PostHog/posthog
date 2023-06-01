@@ -11,6 +11,7 @@ from dateutil.parser import parse, ParserError
 from prometheus_client import Gauge
 from sentry_sdk.api import capture_exception, capture_message, start_span
 
+from posthog import settings
 from posthog.models import utils
 from posthog.models.session_recording.metadata import (
     DecompressedRecordingData,
@@ -138,23 +139,24 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
     has_full_snapshot = any(snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot for snapshot_data in data_list)
     window_id = events[0]["properties"].get("$window_id")
 
-    with start_span(op="session_recording.gzip_compression_test") as span:
-        span.set_tag("rrweb_event.count", len(data_list))
-        span.set_tag("session_id", session_id)
+    if settings.SESSION_RECORDINGS_TEST_COMPRESSION:
+        with start_span(op="session_recording.gzip_compression_test") as span:
+            span.set_tag("rrweb_event.count", len(data_list))
+            span.set_tag("session_id", session_id)
 
-        gzip_sizes = [len(compress_to_string(json.dumps(rrweb_snapshot))) for rrweb_snapshot in data_list]
+            gzip_sizes = [len(compress_to_string(json.dumps(rrweb_snapshot))) for rrweb_snapshot in data_list]
 
-        gauge_would_drop_at_half_meg.labels("gzip").set(len([x for x in gzip_sizes if x > 512 * 1024]))
-        gauge_would_drop_at_eight_meg.labels("gzip").set(len([x for x in gzip_sizes if x > 8 * 1024 * 1024]))
+            gauge_would_drop_at_half_meg.labels("gzip").set(len([x for x in gzip_sizes if x > 512 * 1024]))
+            gauge_would_drop_at_eight_meg.labels("gzip").set(len([x for x in gzip_sizes if x > 8 * 1024 * 1024]))
 
-    with start_span(op="session_recording.brotli_compression_test") as span:
-        span.set_tag("rrweb_event.count", len(data_list))
-        span.set_tag("session_id", session_id)
+        with start_span(op="session_recording.brotli_compression_test") as span:
+            span.set_tag("rrweb_event.count", len(data_list))
+            span.set_tag("session_id", session_id)
 
-        brotli_sizes = [len(brotli_compress_to_string(json.dumps(rrweb_snapshot))) for rrweb_snapshot in data_list]
+            brotli_sizes = [len(brotli_compress_to_string(json.dumps(rrweb_snapshot))) for rrweb_snapshot in data_list]
 
-        gauge_would_drop_at_half_meg.labels("brotli").set(len([x for x in brotli_sizes if x > 512 * 1024]))
-        gauge_would_drop_at_eight_meg.labels("brotli").set(len([x for x in brotli_sizes if x > 8 * 1024 * 1024]))
+            gauge_would_drop_at_half_meg.labels("brotli").set(len([x for x in brotli_sizes if x > 512 * 1024]))
+            gauge_would_drop_at_eight_meg.labels("brotli").set(len([x for x in brotli_sizes if x > 8 * 1024 * 1024]))
 
     compressed_data = compress_to_string(json.dumps(data_list))
     if len(compressed_data) > 512 * 1024:
