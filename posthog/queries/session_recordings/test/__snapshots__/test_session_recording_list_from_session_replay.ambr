@@ -406,6 +406,58 @@
   OFFSET 0
   '
 ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_active_sessions
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2020-12-25 00:00:00'
+  AND max_last_timestamp <= '2021-01-01 13:46:23'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND active_time >= 0.44
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_active_sessions.1
+  '
+  
+  SELECT session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp) as start_time,
+         max(max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2020-12-25 00:00:00'
+  AND max_last_timestamp <= '2021-01-01 13:46:23'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND active_time <= 0.13
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_paging
   '
   

@@ -178,9 +178,9 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         person_cte, person_cte_match_clause, person_person_cte_params = self._persons_cte_clause
 
         session_is_active_clause = (
-            "AND active_time >= 0.7"
+            "AND active_time >= 0.44"
             if self._filter.include_active_sessions_filter == "include"
-            else "AND active_time <= 0.3"
+            else "AND active_time <= 0.13"
             if self._filter.include_active_sessions_filter == "exclude"
             else ""
         )
