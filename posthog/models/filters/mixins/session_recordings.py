@@ -1,5 +1,5 @@
 import json
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS, SESSION_RECORDINGS_FILTER_TYPE_DURATION
 from posthog.models.filters.mixins.common import BaseParamMixin
@@ -14,6 +14,10 @@ class PersonUUIDMixin(BaseParamMixin):
 
 
 class SessionRecordingsMixin(BaseParamMixin):
+    @cached_property
+    def include_active_sessions_filter(self) -> Literal["include"] | Literal["exclude"] | Literal["all"]:
+        return self._data.get("include_active_sessions_filter", None) or "all"
+
     @cached_property
     def recording_duration_filter(self) -> Optional[Property]:
         duration_filter_data_str = self._data.get(SESSION_RECORDINGS_FILTER_TYPE_DURATION, None)

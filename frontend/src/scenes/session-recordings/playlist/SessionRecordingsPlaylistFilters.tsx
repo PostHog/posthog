@@ -4,7 +4,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { eventUsageLogic, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
-import { AvailableFeature, RecordingDurationFilter, ReplayTabs } from '~/types'
+import { AvailableFeature, IsSessionRecordingActiveFilter, RecordingDurationFilter, ReplayTabs } from '~/types'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { useActions, useValues } from 'kea'
@@ -13,6 +13,7 @@ import { SessionRecordingsPlaylistProps } from 'scenes/session-recordings/playli
 import clsx from 'clsx'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { IsActiveFilter } from '../filters/IsActiveFilter'
 
 export function SessionRecordingsPlaylistFilters({
     playlistShortId,
@@ -27,7 +28,7 @@ export function SessionRecordingsPlaylistFilters({
         updateSearchParams,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { filters, totalFiltersCount, showFilters } = useValues(logic)
+    const { filters, totalFiltersCount, showFilters, listingVersion } = useValues(logic)
     const { setFilters, reportRecordingsListFilterAdded, setShowFilters } = useActions(logic)
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
@@ -69,6 +70,18 @@ export function SessionRecordingsPlaylistFilters({
             pageKey={!!personUUID ? `person-${personUUID}` : 'session-recordings'}
         />
     )
+
+    const isActiveFilters =
+        listingVersion === '3' ? (
+            <IsActiveFilter
+                onChange={(newFilter: IsSessionRecordingActiveFilter) => {
+                    // TODO why not report the selection as well?
+                    reportRecordingsListFilterAdded(SessionRecordingFilterType.IsActive)
+                    setFilters({ include_active_sessions_filter: newFilter })
+                }}
+                initialFilter={filters.include_active_sessions_filter}
+            />
+        ) : null
 
     return (
         <div className={clsx('flex flex-wrap items-end justify-between gap-4 mb-4')}>
@@ -124,6 +137,12 @@ export function SessionRecordingsPlaylistFilters({
                     <LemonLabel>Duration</LemonLabel>
                     {durationFilter}
                 </div>
+                {isActiveFilters ? (
+                    <div className="flex gap-2">
+                        <LemonLabel>Include</LemonLabel>
+                        {isActiveFilters}
+                    </div>
+                ) : null}
             </div>
         </div>
     )

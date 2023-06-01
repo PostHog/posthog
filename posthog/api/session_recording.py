@@ -1,7 +1,6 @@
 import json
 from typing import Any, List, Type, cast
 
-import structlog
 from dateutil import parser
 import requests
 from django.db.models import Count, Prefetch
@@ -38,8 +37,6 @@ from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
-
-logger = structlog.get_logger(__name__)
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):

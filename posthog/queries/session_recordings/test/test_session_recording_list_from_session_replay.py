@@ -152,6 +152,97 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         self.assertEqual(more_recordings_available, False)
 
     @snapshot_clickhouse_queries
+    def test_basic_query_active_sessions(self):
+        user = "test_basic_query-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = f"test_basic_query_active_sessions-one-{str(uuid4())}"
+        session_id_two = f"test_basic_query_active_sessions-two-{str(uuid4())}"
+        session_id_three = f"test_basic_query_active_sessions-three-{str(uuid4())}"
+
+        produce_replay_summary(
+            session_id=session_id_one,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=self.base_time.isoformat().replace("T", " "),
+            last_timestamp=(self.base_time + relativedelta(seconds=20)).isoformat().replace("T", " "),
+            distinct_id=user,
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=20 * 1000 * 0.5,  # 20% of the total expected duration
+        )
+
+        produce_replay_summary(
+            session_id=session_id_two,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=(self.base_time + relativedelta(seconds=10)),
+            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            distinct_id=user,
+            first_url="https://a-different-url.com",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=0,  # 0% of the total expected duration
+        )
+
+        produce_replay_summary(
+            session_id=session_id_three,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=(self.base_time + relativedelta(seconds=20)),
+            last_timestamp=(self.base_time + relativedelta(seconds=2000)),
+            distinct_id=user,
+            first_url=None,
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=1980 * 1000 * 0.7,  # 70% of the total expected duration
+        )
+
+        filter = SessionRecordingsFilter(team=self.team, data={"session_recording_is_active": "include"})
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, more_recordings_available) = session_recording_list_instance.run()
+
+        assert session_recordings == [
+            {
+                "active_time": 0.7,
+                "click_count": 2,
+                "distinct_id": "test_basic_query-user",
+                "duration": 1980,
+                "end_time": (self.base_time + relativedelta(seconds=2000)),
+                "first_url": None,
+                "keypress_count": 2,
+                "mouse_activity_count": 2,
+                "session_id": session_id_three,
+                "start_time": (self.base_time + relativedelta(seconds=20)),
+                "team_id": self.team.pk,
+            },
+        ]
+
+        filter = SessionRecordingsFilter(team=self.team, data={"session_recording_is_active": "exclude"})
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, more_recordings_available) = session_recording_list_instance.run()
+
+        assert session_recordings == [
+            {
+                "active_time": 0.0,
+                "click_count": 2,
+                "distinct_id": "test_basic_query-user",
+                "duration": 40,
+                "start_time": (self.base_time + relativedelta(seconds=10)),
+                "end_time": (self.base_time + relativedelta(seconds=50)),
+                "first_url": "https://a-different-url.com",
+                "keypress_count": 2,
+                "mouse_activity_count": 2,
+                "session_id": session_id_two,
+                "team_id": self.team.pk,
+            },
+        ]
+
+    @snapshot_clickhouse_queries
     def test_basic_query_with_paging(self):
         user = "test_basic_query_with_paging-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})

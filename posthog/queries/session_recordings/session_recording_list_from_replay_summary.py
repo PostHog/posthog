@@ -69,6 +69,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         WHERE 1=1 {person_cte_match_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause}
+        {session_is_active_clause}
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
         """
@@ -92,11 +93,12 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         -- matches session ids from events CTE
         AND session_id in (select session_id from events_session_ids)
         -- may need to match fixed session ids from the query filter
-        {session_ids_clause}
         -- person cte is matched in a where clause
         WHERE 1=1 {person_cte_match_clause}
+        {session_is_active_clause}
         GROUP BY session_id
         HAVING 1=1 {duration_clause}
+        {session_ids_clause}
         ORDER BY start_time DESC
         LIMIT %(limit)s OFFSET %(offset)s
         """
@@ -175,6 +177,14 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
         person_cte, person_cte_match_clause, person_person_cte_params = self._persons_cte_clause
 
+        session_is_active_clause = (
+            "AND active_time >= 0.7"
+            if self._filter.include_active_sessions_filter == "include"
+            else "AND active_time <= 0.3"
+            if self._filter.include_active_sessions_filter == "exclude"
+            else ""
+        )
+
         if not self._determine_should_join_events():
             return (
                 self._session_recordings_query.format(
@@ -184,6 +194,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                     person_cte_match_clause=person_cte_match_clause,
                     session_ids_clause=session_ids_clause,
                     session_recordings_base_query=self._session_recordings_base_query,
+                    session_is_active_clause=session_is_active_clause,
                 ),
                 {
                     **base_params,
@@ -205,6 +216,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 person_cte_match_clause=person_cte_match_clause,
                 session_ids_clause=session_ids_clause,
                 session_recordings_base_query=self._session_recordings_base_query,
+                session_is_active_clause=session_is_active_clause,
             ),
             {
                 **base_params,
