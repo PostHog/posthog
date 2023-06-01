@@ -26,7 +26,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
-import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -45,13 +44,11 @@ const VIEW_MAP = {
 export function LegacyInsightContainer({
     disableHeader,
     disableTable,
-    disableCorrelationTable,
     disableLastComputation,
     insightMode,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
-    disableCorrelationTable?: boolean
     disableLastComputation?: boolean
     insightMode?: ItemMode
 }): JSX.Element {
@@ -268,7 +265,6 @@ export function LegacyInsightContainer({
                 </div>
             </Card>
             {renderTable()}
-            {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }

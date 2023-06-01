@@ -128,7 +128,7 @@ export function MetricSelector({
             )}
             <div className="mt-4">
                 <BindLogic logic={insightLogic} props={insightProps}>
-                    <LegacyInsightContainer disableHeader={true} disableTable={true} disableCorrelationTable={true} />
+                    <LegacyInsightContainer disableHeader={true} disableTable={true} />
                 </BindLogic>
             </div>
         </>

@@ -21,7 +21,6 @@ const Component = (props: NodeViewProps): JSX.Element => {
                 <div className="insights-container" data-attr="insight-view">
                     <LegacyInsightContainer
                         insightMode={ItemMode.Sharing}
-                        disableCorrelationTable
                         disableHeader
                         disableLastComputation
                         disableTable

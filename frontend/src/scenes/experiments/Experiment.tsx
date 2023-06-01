@@ -557,7 +557,6 @@ export function Experiment(): JSX.Element {
                                         <LegacyInsightContainer
                                             disableHeader={experimentInsightType === InsightType.TRENDS}
                                             disableTable={true}
-                                            disableCorrelationTable={true}
                                         />
                                     </Col>
                                 </Row>
@@ -1077,11 +1076,7 @@ export function Experiment(): JSX.Element {
                                 }}
                             >
                                 <div className="mt-4">
-                                    <LegacyInsightContainer
-                                        disableHeader={true}
-                                        disableCorrelationTable={experimentInsightType === InsightType.FUNNELS}
-                                        disableLastComputation={true}
-                                    />
+                                    <LegacyInsightContainer disableHeader={true} disableLastComputation={true} />
                                 </div>
                             </BindLogic>
                         ) : (
