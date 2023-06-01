@@ -240,7 +240,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
 
         raw_result = insight_sync_execute(
-            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list", team_id=team.pk
         )
 
         actor_ids = [row[0] for row in raw_result]
