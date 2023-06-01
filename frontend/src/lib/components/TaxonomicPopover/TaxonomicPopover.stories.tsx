@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { TaxonomicPopover, TaxonomicStringPopover } from './TaxonomicPopover'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -15,7 +14,6 @@ export default {
 } as ComponentMeta<typeof TaxonomicPopover>
 
 export function TaxonomicStringPopoverOneCategory(): JSX.Element {
-    useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
     const [value, setValue] = useState<string | undefined>('$browser')
 
@@ -30,9 +28,8 @@ export function TaxonomicStringPopoverOneCategory(): JSX.Element {
 }
 
 export function MultipleCategories(): JSX.Element {
-    useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
-    const [value, setValue] = useState<string | number | undefined>(undefined)
+    const [value, setValue] = useState<string | number | null | undefined>(undefined)
     const [group, setGroup] = useState(TaxonomicFilterGroupType.PersonProperties)
 
     return (

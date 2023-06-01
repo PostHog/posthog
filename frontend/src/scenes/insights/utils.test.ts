@@ -3,11 +3,12 @@ import {
     extractObjectDiffKeys,
     formatAggregationValue,
     formatBreakdownLabel,
+    formatBreakdownType,
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
 } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { ActionsNode, EventsNode, NodeKind } from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode, NodeKind } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
@@ -210,5 +211,26 @@ describe('formatBreakdownLabel()', () => {
     it('handles cohort breakdowns with all users', () => {
         expect(formatBreakdownLabel([], identity, 'all', ['all'], 'cohort')).toEqual('All Users')
         expect(formatBreakdownLabel([], identity, 0, [0], 'cohort')).toEqual('All Users')
+    })
+})
+
+describe('formatBreakdownType()', () => {
+    it('handles regular breakdowns', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown_type: 'event',
+            breakdown: '$current_url',
+            breakdown_normalize_url: true,
+        }
+
+        expect(formatBreakdownType(breakdownFilter)).toEqual('$current_url')
+    })
+
+    it('handles cohort breakdowns', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown_type: 'cohort',
+            breakdown: ['all', 1],
+        }
+
+        expect(formatBreakdownType(breakdownFilter)).toEqual('Cohort')
     })
 })

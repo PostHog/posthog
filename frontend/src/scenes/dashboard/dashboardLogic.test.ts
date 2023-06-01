@@ -359,14 +359,14 @@ describe('dashboardLogic', () => {
             await expectLogic(logic)
                 .toFinishAllListeners()
                 .toMatchValues({
-                    allItems: truth(({ tiles }) => {
+                    dashboard: truth(({ tiles }) => {
                         return tiles.length === 2 && tiles[0].insight.id === 800
                     }),
                 })
 
             await expectLogic(dashboardEightlogic).toFinishAllListeners()
 
-            expect(dashboardEightlogic.values.allItems?.tiles.length).toEqual(1)
+            expect(dashboardEightlogic.values.dashboard?.tiles.length).toEqual(1)
             expect(dashboardEightlogic.values.insightTiles?.map((t) => t.insight?.id)).toEqual([1001])
 
             await expectLogic(logic, () => {
@@ -375,7 +375,7 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
                 .toDispatchActions(['moveToDashboardSuccess'])
                 .toMatchValues({
-                    allItems: truth(({ tiles }) => {
+                    dashboard: truth(({ tiles }) => {
                         return tiles.length === 1 && !!tiles[0].text
                     }),
                 })
@@ -395,7 +395,7 @@ describe('dashboardLogic', () => {
             await expectLogic(dashboardEightlogic)
                 .toFinishAllListeners()
                 .toMatchValues({
-                    allItems: truth(({ tiles }) => {
+                    dashboard: truth(({ tiles }) => {
                         return tiles.length === 1 && tiles[0].insight.id === 1001
                     }),
                 })
@@ -403,7 +403,7 @@ describe('dashboardLogic', () => {
             await expectLogic(dashboardEightlogic, () => {
                 dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 8)
             }).toMatchValues({
-                allItems: truth(({ tiles }) => {
+                dashboard: truth(({ tiles }) => {
                     return tiles.length === 2
                 }),
             })
@@ -416,7 +416,7 @@ describe('dashboardLogic', () => {
             await expectLogic(dashboardEightlogic)
                 .toFinishAllListeners()
                 .toMatchValues({
-                    allItems: truth(({ tiles }) => {
+                    dashboard: truth(({ tiles }) => {
                         return tiles.length === 1 && tiles[0].insight.id === 1001
                     }),
                 })
@@ -424,7 +424,7 @@ describe('dashboardLogic', () => {
             await expectLogic(dashboardEightlogic, () => {
                 dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 10)
             }).toMatchValues({
-                allItems: truth(({ tiles }) => {
+                dashboard: truth(({ tiles }) => {
                     return tiles.length === 1
                 }),
             })
@@ -492,14 +492,14 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions(['loadDashboardItems'])
                     .toMatchValues({
-                        allItems: null,
+                        dashboard: null,
                         tiles: [],
                         insightTiles: [],
                         textTiles: [],
                     })
                     .toDispatchActions(['loadDashboardItemsSuccess'])
                     .toMatchValues({
-                        allItems: expect.objectContaining(dashboards['5']),
+                        dashboard: expect.objectContaining(dashboards['5']),
                         tiles: truth((tiles) => tiles.length === 3),
                         insightTiles: truth((insightTiles) => insightTiles.length === 2),
                         textTiles: truth((textTiles) => textTiles.length === 1),
@@ -640,7 +640,7 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.allItems?.tiles).toHaveLength(2)
+            expect(logic.values.dashboard?.tiles).toHaveLength(2)
             expect(logic.values.insightTiles[0].insight!.short_id).toEqual('800')
             expect(logic.values.insightTiles[0].insight!.filters.date_from).toBeUndefined()
             expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('day')
@@ -661,7 +661,7 @@ describe('dashboardLogic', () => {
             )
 
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.allItems?.tiles).toHaveLength(2)
+            expect(logic.values.dashboard?.tiles).toHaveLength(2)
             expect(logic.values.insightTiles[0].insight!.filters.date_from).toEqual('-1d')
             expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('hour')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
@@ -669,7 +669,7 @@ describe('dashboardLogic', () => {
         })
 
         it('can respond to external insight rename', async () => {
-            expect(logic.values.allItems?.tiles[0].color).toEqual(null)
+            expect(logic.values.dashboard?.tiles[0].color).toEqual(null)
 
             const copiedInsight = insight800()
             insightsModel.actions.renameInsightSuccess({
@@ -680,7 +680,7 @@ describe('dashboardLogic', () => {
             })
 
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.allItems?.tiles).toHaveLength(2)
+            expect(logic.values.dashboard?.tiles).toHaveLength(2)
             expect(logic.values.insightTiles[0].insight!.name).toEqual('renamed')
             expect(logic.values.insightTiles[0].insight!.last_modified_at).toEqual('2021-04-01 12:00:00')
             expect(logic.values.insightTiles[0].insight!.description).toEqual(null)
@@ -698,7 +698,7 @@ describe('dashboardLogic', () => {
         })
 
         it('can respond to external insight update for a text tile', async () => {
-            expect(logic.values.allItems?.tiles).toHaveLength(2)
+            expect(logic.values.dashboard?.tiles).toHaveLength(2)
 
             await expectLogic(logic, () => {
                 const updatedTile: DashboardTile = {
@@ -708,7 +708,7 @@ describe('dashboardLogic', () => {
                 dashboardsModel.actions.updateDashboardTile(updatedTile, [9])
             }).toFinishAllListeners()
 
-            expect(logic.values.allItems?.tiles).toHaveLength(2)
+            expect(logic.values.dashboard?.tiles).toHaveLength(2)
             expect(logic.values.insightTiles[0].insight!.name).toEqual('donut')
             expect(logic.values.textTiles[0].text!.body).toEqual('updated body')
         })
@@ -725,7 +725,7 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboardItemsSuccess'])
                 .toMatchValues({
-                    allItems: truth(
+                    dashboard: truth(
                         ({ tiles }) => tiles.filter((i: DashboardTile) => i.insight?.result === null).length === 2
                     ),
                     tiles: truth((items) => items.length === 4),
@@ -746,7 +746,7 @@ describe('dashboardLogic', () => {
                     },
                 })
                 .toMatchValues({
-                    allItems: truth(
+                    dashboard: truth(
                         ({ tiles }) => tiles.filter((i: DashboardTile) => i.insight?.result === null).length === 0
                     ),
                     tiles: truth((items) => items.length === 4),
@@ -835,7 +835,7 @@ describe('dashboardLogic', () => {
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
 
         const changedTile: DashboardTile = {
-            ...(nineLogic.values.allItems?.tiles[0] as DashboardTile), // we know it isn't undefined
+            ...(nineLogic.values.dashboard?.tiles[0] as DashboardTile), // we know it isn't undefined
             insight: { ...insight800(), dashboards: [10, 5] },
         }
 

@@ -1,10 +1,10 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { experimentsLogic } from './experimentsLogic'
+import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Experiment, ExperimentsTabs, AvailableFeature, ExperimentStatus } from '~/types'
+import { Experiment, ExperimentsTabs, AvailableFeature, ProgressStatus } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -18,6 +18,12 @@ import { userLogic } from 'scenes/userLogic'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
+import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { router } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useEffect } from 'react'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -25,10 +31,21 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, getExperimentStatus, searchTerm } =
+    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState } =
         useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { reportEmptyStateShown } = useActions(eventUsageLogic)
+
+    useEffect(() => {
+        if (shouldShowEmptyState) {
+            reportEmptyStateShown('experiments')
+        }
+    }, [shouldShowEmptyState])
+
+    const EXPERIMENTS_PRODUCT_DESCRIPTION =
+        'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
 
     const getExperimentDuration = (experiment: Experiment): number | undefined => {
         return experiment.end_date
@@ -142,20 +159,18 @@ export function Experiments(): JSX.Element {
                     ) : undefined
                 }
                 caption={
-                    hasAvailableFeature(AvailableFeature.EXPERIMENTATION) && (
-                        <>
-                            Check out our
-                            <Link
-                                data-attr="experiment-help"
-                                to="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
-                                target="_blank"
-                            >
-                                {' '}
-                                Experimentation user guide
-                            </Link>{' '}
-                            to learn more.
-                        </>
-                    )
+                    <>
+                        Check out our
+                        <Link
+                            data-attr="experiment-help"
+                            to="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
+                            target="_blank"
+                        >
+                            {' '}
+                            Experimentation user guide
+                        </Link>{' '}
+                        to learn more.
+                    </>
                 }
                 tabbedPage={hasAvailableFeature(AvailableFeature.EXPERIMENTATION)}
             />
@@ -170,48 +185,69 @@ export function Experiments(): JSX.Element {
                             { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                         ]}
                     />
-                    <div className="flex justify-between mb-4">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search for Experiments"
-                            onChange={setSearchTerm}
-                            value={searchTerm}
-                        />
-                        <div className="flex items-center gap-2">
-                            <span>
-                                <b>Status</b>
-                            </span>
-                            <LemonSelect
-                                onChange={(status) => {
-                                    if (status) {
-                                        setSearchStatus(status as ExperimentStatus | 'all')
-                                    }
-                                }}
-                                options={[
-                                    { label: 'All', value: 'all' },
-                                    { label: 'Draft', value: ExperimentStatus.Draft },
-                                    { label: 'Running', value: ExperimentStatus.Running },
-                                    { label: 'Complete', value: ExperimentStatus.Complete },
-                                ]}
-                                value="all"
-                                dropdownMaxContentWidth
+                    {shouldShowEmptyState && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
+                        tab === ExperimentsTabs.Archived ? (
+                            <ProductEmptyState
+                                productName="Experiments"
+                                thingName="archived experiment"
+                                description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                                docsURL="https://posthog.com/docs/experiments"
                             />
-                        </div>
-                    </div>
-                    <LemonTable
-                        dataSource={filteredExperiments}
-                        columns={columns}
-                        rowKey="id"
-                        loading={experimentsLoading}
-                        defaultSorting={{
-                            columnKey: 'created_at',
-                            order: -1,
-                        }}
-                        noSortingCancellation
-                        pagination={{ pageSize: 100 }}
-                        nouns={['experiment', 'experiments']}
-                        data-attr="experiment-table"
-                    />
+                        ) : (
+                            <ProductEmptyState
+                                productName="Experiments"
+                                thingName="experiment"
+                                description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                                docsURL="https://posthog.com/docs/experiments"
+                                action={() => router.actions.push(urls.experiment('new'))}
+                            />
+                        )
+                    ) : (
+                        <>
+                            <div className="flex justify-between mb-4">
+                                <LemonInput
+                                    type="search"
+                                    placeholder="Search for Experiments"
+                                    onChange={setSearchTerm}
+                                    value={searchTerm}
+                                />
+                                <div className="flex items-center gap-2">
+                                    <span>
+                                        <b>Status</b>
+                                    </span>
+                                    <LemonSelect
+                                        onChange={(status) => {
+                                            if (status) {
+                                                setSearchStatus(status as ProgressStatus | 'all')
+                                            }
+                                        }}
+                                        options={[
+                                            { label: 'All', value: ProgressStatus.All },
+                                            { label: 'Draft', value: ProgressStatus.Draft },
+                                            { label: 'Running', value: ProgressStatus.Running },
+                                            { label: 'Complete', value: ProgressStatus.Complete },
+                                        ]}
+                                        value="all"
+                                        dropdownMaxContentWidth
+                                    />
+                                </div>
+                            </div>
+                            <LemonTable
+                                dataSource={filteredExperiments}
+                                columns={columns}
+                                rowKey="id"
+                                loading={experimentsLoading}
+                                defaultSorting={{
+                                    columnKey: 'created_at',
+                                    order: -1,
+                                }}
+                                noSortingCancellation
+                                pagination={{ pageSize: 100 }}
+                                nouns={['experiment', 'experiments']}
+                                data-attr="experiment-table"
+                            />
+                        </>
+                    )}
                 </>
             ) : (
                 <ExperimentsPayGate />

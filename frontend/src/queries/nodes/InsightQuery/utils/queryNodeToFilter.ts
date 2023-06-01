@@ -1,12 +1,4 @@
-import {
-    ActionsNode,
-    BreakdownFilter,
-    EventsNode,
-    InsightNodeKind,
-    InsightQueryNode,
-    NewEntityNode,
-    NodeKind,
-} from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightNodeKind, InsightQueryNode, NodeKind } from '~/queries/schema'
 import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 import {
     isActionsNode,
@@ -24,18 +16,14 @@ import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
 export const seriesToActionsAndEvents = (
-    series: (EventsNode | ActionsNode | NewEntityNode)[]
+    series: (EventsNode | ActionsNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
     const new_entity: ActionFilter[] = []
     series.forEach((node, index) => {
         const entity: ActionFilter = objectClean({
-            type: isEventsNode(node)
-                ? EntityTypes.EVENTS
-                : isActionsNode(node)
-                ? EntityTypes.ACTIONS
-                : EntityTypes.NEW_ENTITY,
+            type: isActionsNode(node) ? EntityTypes.ACTIONS : EntityTypes.EVENTS,
             id: (!isActionsNode(node) ? node.event : node.id) || null,
             order: index,
             name: node.name,
@@ -43,6 +31,7 @@ export const seriesToActionsAndEvents = (
             // TODO: math is not supported by funnel and lifecycle queries
             math: node.math,
             math_property: node.math_property,
+            math_hogql: node.math_hogql,
             math_group_type_index: node.math_group_type_index,
             properties: node.properties as any, // TODO,
         })
@@ -55,14 +44,6 @@ export const seriesToActionsAndEvents = (
             new_entity.push(entity)
         }
     })
-
-    if (actions.length + events.length + new_entity.length === 1) {
-        actions.length > 0
-            ? delete actions[0].order
-            : events.length > 0
-            ? delete events[0].order
-            : delete new_entity[0].order
-    }
 
     return { actions, events, new_entity }
 }
@@ -101,6 +82,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_from: query.dateRange?.date_from,
         entity_type: 'events',
         sampling_factor: query.samplingFactor,
+        aggregation_group_type_index: query.aggregation_group_type_index,
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {
@@ -121,7 +103,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdown))
     }
 
-    if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query)) {
+    if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query) || isFunnelsQuery(query)) {
         filters.interval = query.interval
     }
 

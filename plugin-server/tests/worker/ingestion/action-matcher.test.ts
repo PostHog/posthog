@@ -3,13 +3,14 @@ import { DateTime } from 'luxon'
 import {
     Action,
     ActionStep,
-    ActionStepUrlMatching,
     Element,
     Hub,
-    Person,
-    PreIngestionEvent,
+    ISOTimestamp,
+    PostIngestionEvent,
     PropertyOperator,
     RawAction,
+    StringMatching,
+    StringMatching,
 } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
@@ -59,7 +60,9 @@ describe('ActionMatcher', () => {
                     action_id: action.id,
                     tag_name: null,
                     text: null,
+                    text_matching: null,
                     href: null,
+                    href_matching: null,
                     selector: null,
                     url: null,
                     url_matching: null,
@@ -76,34 +79,20 @@ describe('ActionMatcher', () => {
     }
 
     /** Return a test event created on a common base using provided property overrides. */
-    function createTestEvent(overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent {
+    function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostIngestionEvent {
         const url: string = overrides.properties?.$current_url ?? 'http://example.com/foo/'
         return {
             eventUuid: 'uuid1',
             distinctId: 'my_id',
             ip: '127.0.0.1',
             teamId: 2,
-            timestamp: new Date().toISOString(),
+            timestamp: new Date().toISOString() as ISOTimestamp,
             event: '$pageview',
             properties: { $current_url: url },
             elementsList: [],
-            ...overrides,
-        }
-    }
-
-    /** Return a test person created on a common base using provided property overrides. */
-    function createTestPerson(overrides: Partial<Person> = {}): Person {
-        return {
-            id: 2,
-            team_id: 2,
-            properties: {},
-            properties_last_updated_at: {},
-            properties_last_operation: {},
-            is_user_id: 0,
-            is_identified: true,
-            uuid: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4C8',
-            created_at: DateTime.fromSeconds(18000000),
-            version: 0,
+            person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4C8',
+            person_created_at: DateTime.fromSeconds(18000000).toISO() as ISOTimestamp,
+            person_properties: {},
             ...overrides,
         }
     }
@@ -506,14 +495,14 @@ describe('ActionMatcher', () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     url: 'example.com',
-                    url_matching: ActionStepUrlMatching.Contains,
+                    url_matching: StringMatching.Contains,
                     event: '$pageview',
                 },
             ])
             const actionDefinitionEmptyMatching: Action = await createTestAction([
                 {
                     url: 'example.com',
-                    url_matching: '' as ActionStepUrlMatching, // Empty url_matching should mean "contains"
+                    url_matching: '' as StringMatching, // Empty url_matching should mean "contains"
                     event: '$pageview',
                 },
             ])
@@ -533,14 +522,14 @@ describe('ActionMatcher', () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     url: 'exampl_.com/%.html',
-                    url_matching: ActionStepUrlMatching.Contains,
+                    url_matching: StringMatching.Contains,
                     event: '$pageview',
                 },
             ])
             const actionDefinitionEmptyMatching: Action = await createTestAction([
                 {
                     url: 'exampl_.com/%.html',
-                    url_matching: '' as ActionStepUrlMatching, // Empty url_matching should mean "contains"
+                    url_matching: '' as StringMatching, // Empty url_matching should mean "contains"
                     event: '$pageview',
                 },
             ])
@@ -563,7 +552,7 @@ describe('ActionMatcher', () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     url: String.raw`^https?:\/\/example\.com\/\d+(\/[a-r]*\/?)?$`,
-                    url_matching: ActionStepUrlMatching.Regex,
+                    url_matching: StringMatching.Regex,
                     event: '$pageview',
                 },
             ])
@@ -599,7 +588,7 @@ describe('ActionMatcher', () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     url: 'https://www.mozilla.org/de/',
-                    url_matching: ActionStepUrlMatching.Exact,
+                    url_matching: StringMatching.Exact,
                     event: '$pageview',
                 },
             ])
@@ -645,7 +634,7 @@ describe('ActionMatcher', () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     event: 'meow',
-                    url_matching: ActionStepUrlMatching.Contains,
+                    url_matching: StringMatching.Contains,
                     url: 'pets.com/',
                 },
             ])
@@ -692,35 +681,23 @@ describe('ActionMatcher', () => {
 
             const event = createTestEvent()
 
-            const personFooBar = createTestPerson({ properties: { foo: 'bar' } })
-            const personFooBarPolPot = createTestPerson({ properties: { foo: 'bar', pol: 'pot' } })
-            const personFooBaR = createTestPerson({ properties: { foo: 'baR' } })
-            const personFooBaz = createTestPerson({ properties: { foo: 'baz' } })
-            const personFooBarabara = createTestPerson({ properties: { foo: 'barabara' } })
-            const personFooRabarbar = createTestPerson({ properties: { foo: 'rabarbar' } })
-            const personFooNumber = createTestPerson({ properties: { foo: 7 } })
-            const personNoNothing = createTestPerson()
-            const personFigNumber = createTestPerson({ properties: { fig: 999 } })
-            const personFooTrue = createTestPerson({ properties: { foo: true } })
-            const personFooNull = createTestPerson({ properties: { foo: null } })
-
-            expect(await actionMatcher.match(event, personFooBar)).toEqual([
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'bar' } })).toEqual([
                 actionDefinitionOpExact,
                 actionDefinitionOpUndefined,
             ])
-            expect(await actionMatcher.match(event, personFooBarPolPot)).toEqual([
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'bar', pol: 'pot' } })).toEqual([
                 actionDefinitionOpExact,
                 actionDefinitionOpUndefined,
             ])
-            expect(await actionMatcher.match(event, personFooBaR)).toEqual([])
-            expect(await actionMatcher.match(event, personFooBaz)).toEqual([])
-            expect(await actionMatcher.match(event, personFooBarabara)).toEqual([])
-            expect(await actionMatcher.match(event, personFooRabarbar)).toEqual([])
-            expect(await actionMatcher.match(event, personFooNumber)).toEqual([])
-            expect(await actionMatcher.match(event, personNoNothing)).toEqual([])
-            expect(await actionMatcher.match(event, personFigNumber)).toEqual([])
-            expect(await actionMatcher.match(event, personFooTrue)).toEqual([])
-            expect(await actionMatcher.match(event, personFooNull)).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'baR' } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'baz' } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'barabara' } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'rabarbar' } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: 7 } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: {} })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { something_else: 999 } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: true } })).toEqual([])
+            expect(await actionMatcher.match({ ...event, person_properties: { foo: null } })).toEqual([])
         })
 
         it('returns a match in case of cohort match', async () => {
@@ -742,6 +719,18 @@ describe('ActionMatcher', () => {
                 },
             ])
 
+            const nonCohortPerson = await hub.db.createPerson(
+                DateTime.local(),
+                {},
+                {},
+                {},
+                actionDefinition.team_id,
+                null,
+                true,
+                new UUIDT().toString(),
+                ['random']
+            )
+
             const cohortPerson = await hub.db.createPerson(
                 DateTime.local(),
                 {},
@@ -758,34 +747,25 @@ describe('ActionMatcher', () => {
             const eventExamplePersonBad = createTestEvent({
                 event: 'meow',
                 distinctId: 'random',
+                person_id: nonCohortPerson.uuid,
             })
             const eventExamplePersonOk = createTestEvent({
                 event: 'meow',
                 distinctId: 'cohort',
+                person_id: cohortPerson.uuid,
             })
             const eventExamplePersonUnknown = createTestEvent({
                 event: 'meow',
                 distinctId: 'unknown',
+                person_id: undefined,
             })
 
-            expect(
-                await actionMatcher.match(
-                    eventExamplePersonOk,
-                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonOk.distinctId)
-                )
-            ).toEqual([actionDefinition, actionDefinitionAllUsers])
-            expect(
-                await actionMatcher.match(
-                    eventExamplePersonBad,
-                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonBad.distinctId)
-                )
-            ).toEqual([actionDefinitionAllUsers])
-            expect(
-                await actionMatcher.match(
-                    eventExamplePersonUnknown,
-                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonUnknown.distinctId)
-                )
-            ).toEqual([actionDefinitionAllUsers])
+            expect(await actionMatcher.match(eventExamplePersonOk)).toEqual([
+                actionDefinition,
+                actionDefinitionAllUsers,
+            ])
+            expect(await actionMatcher.match(eventExamplePersonBad)).toEqual([actionDefinitionAllUsers])
+            expect(await actionMatcher.match(eventExamplePersonUnknown)).toEqual([actionDefinitionAllUsers])
         })
 
         it('returns a match in case of element href equals', async () => {
@@ -812,9 +792,135 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, undefined, elementsHrefOuter)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, undefined, elementsHrefInner)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, undefined, elementsNoHref)).toEqual([])
+            expect(await actionMatcher.match(event, elementsHrefOuter)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsHrefInner)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+        })
+
+        it('returns a match in case of element href contains', async () => {
+            const actionDefinitionLinkHref: Action = await createTestAction([
+                {
+                    href: 'https://example.com/',
+                    href_matching: StringMatching.Contains,
+                },
+            ])
+
+            const event = createTestEvent()
+            const elementsExactHrefOuter: Element[] = [
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'main' },
+            ]
+            const elementsExactHrefInner: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsExtendedHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/foobar' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsBadHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.io/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsNoHref: Element[] = [
+                { tag_name: 'span' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+
+            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
+            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+        })
+
+        it('returns a match in case of element href contains, with wildcard', async () => {
+            const actionDefinitionLinkHref: Action = await createTestAction([
+                {
+                    href: 'https://example.com/%bar',
+                    href_matching: StringMatching.Contains,
+                },
+            ])
+
+            const event = createTestEvent()
+            const elementsExactHrefOuter: Element[] = [
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'main' },
+            ]
+            const elementsExactHrefInner: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsExtendedHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/foobar' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsBadHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.io/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsNoHref: Element[] = [
+                { tag_name: 'span' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+
+            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([])
+            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([])
+            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
+            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+        })
+
+        it('returns a match in case of element href matches regex', async () => {
+            const actionDefinitionLinkHref: Action = await createTestAction([
+                {
+                    href: 'https://example.com/.*(?:bar|baz)',
+                    href_matching: StringMatching.Regex,
+                },
+            ])
+
+            const event = createTestEvent()
+            const elementsExactHrefOuter: Element[] = [
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'main' },
+            ]
+            const elementsExactHrefInner: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsExtendedHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/foobar' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsBadHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.io/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsNoHref: Element[] = [
+                { tag_name: 'span' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+
+            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([])
+            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([])
+            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
+            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
         })
 
         it('returns a match in case of element text and tag name equals', async () => {
@@ -848,10 +954,34 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, undefined, elementsHrefProper)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, undefined, elementsHrefWrongTag)).toEqual([])
-            expect(await actionMatcher.match(event, undefined, elementsHrefWrongText)).toEqual([])
-            expect(await actionMatcher.match(event, undefined, elementsHrefWrongLevel)).toEqual([])
+            expect(await actionMatcher.match(event, elementsHrefProper)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsHrefWrongTag)).toEqual([])
+            expect(await actionMatcher.match(event, elementsHrefWrongText)).toEqual([])
+            expect(await actionMatcher.match(event, elementsHrefWrongLevel)).toEqual([])
+        })
+
+        it('returns a match in case of element text contains', async () => {
+            const actionDefinitionLinkHref: Action = await createTestAction([
+                {
+                    text: 'Wieder',
+                    text_matching: StringMatching.Contains,
+                },
+            ])
+
+            const event = createTestEvent()
+            const elementsHrefBadText: Element[] = [
+                { tag_name: 'h1', attr_class: ['headline'], text: 'Hallo!' },
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'main' },
+            ]
+            const elementsHrefGoodText: Element[] = [
+                { tag_name: 'h3', attr_class: ['headline'], text: 'Auf Wiedersehen!' },
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'main' },
+            ]
+
+            expect(await actionMatcher.match(event, elementsHrefBadText)).toEqual([])
+            expect(await actionMatcher.match(event, elementsHrefGoodText)).toEqual([actionDefinitionLinkHref])
         })
 
         it('returns a match in case of element selector', async () => {
@@ -892,15 +1022,15 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, undefined, elementsHrefProperNondirect)).toEqual([
+            expect(await actionMatcher.match(event, elementsHrefProperNondirect)).toEqual([
                 actionDefinitionAnyDescendant,
                 actionDefinitionDirectHref,
                 actionDefinitionArraySelectorProp,
             ])
-            expect(await actionMatcher.match(event, undefined, elementsHrefWrongClassNondirect)).toEqual([
+            expect(await actionMatcher.match(event, elementsHrefWrongClassNondirect)).toEqual([
                 actionDefinitionDirectHref,
             ])
-            expect(await actionMatcher.match(event, undefined, elementsHrefProperDirect)).toEqual([
+            expect(await actionMatcher.match(event, elementsHrefProperDirect)).toEqual([
                 actionDefinitionAnyDescendant,
                 actionDefinitionDirectDescendant,
                 actionDefinitionArraySelectorProp,

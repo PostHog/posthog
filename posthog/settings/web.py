@@ -20,6 +20,13 @@ AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
 AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 
+# Decide rate limit setting
+
+DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
+DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
+DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -51,7 +58,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -80,7 +87,7 @@ MIDDLEWARE = [
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
-    "django_prometheus.middleware.PrometheusAfterMiddleware",
+    "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
 ]
 
 if STATSD_HOST is not None:
@@ -202,7 +209,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^/api/.*$"
+CORS_URLS_REGEX = r"^/api/(?!early_access_features).*$"
 CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
 
 REST_FRAMEWORK = {

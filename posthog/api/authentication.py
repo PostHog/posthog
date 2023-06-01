@@ -2,7 +2,6 @@ import time
 from typing import Any, Dict, Optional, cast
 from uuid import uuid4
 
-import posthoganalytics
 from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
@@ -19,6 +18,7 @@ from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
@@ -30,6 +30,10 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.models import OrganizationDomain, User
 from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
+
+
+class UserPasswordResetThrottle(UserRateThrottle):
+    rate = "6/day"
 
 
 @csrf_protect
@@ -101,7 +105,6 @@ class LoginSerializer(serializers.Serializer):
         return True
 
     def create(self, validated_data: Dict[str, str]) -> Any:
-
         # Check SSO enforcement (which happens at the domain level)
         sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
         if sso_enforcement:
@@ -117,17 +120,12 @@ class LoginSerializer(serializers.Serializer):
         if not user:
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        require_verification_feature = (
-            posthoganalytics.get_feature_flag(
-                "require-email-verification", str(user.distinct_id), person_properties={"email": user.email}
-            )
-            == "test"
-        )
         # We still let them log in if is_email_verified is null so existing users don't get locked out
-        if is_email_available() and require_verification_feature and user.is_email_verified is not True:
+        if is_email_available() and user.is_email_verified is not True:
             EmailVerifier.create_token_and_send_email_verification(user)
+            # If it's None, we want to let them log in still since they are an existing user
+            # If it's False, we want to tell them to check their email
             if user.is_email_verified is False:
-                # If it's None, we want to let them log in still since they are an existing user
                 raise serializers.ValidationError(
                     "Your account is awaiting verification. Please check your email for a verification link.",
                     code="not_verified",
@@ -260,8 +258,6 @@ class PasswordResetSerializer(serializers.Serializer):
         if user:
             send_password_reset(user.id)
 
-        # TODO: Limit number of requests for password reset emails
-
         return True
 
 
@@ -304,6 +300,7 @@ class PasswordResetViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = PasswordResetSerializer
     permission_classes = (permissions.AllowAny,)
+    throttle_classes = [UserPasswordResetThrottle]
     SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT
 
 
@@ -314,7 +311,6 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
     SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT
 
     def get_object(self):
-
         token = self.request.query_params.get("token")
         user_uuid = self.kwargs.get("user_uuid")
 

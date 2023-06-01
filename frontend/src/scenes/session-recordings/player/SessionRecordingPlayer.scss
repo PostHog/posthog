@@ -1,8 +1,13 @@
 @import '../../../styles/mixins';
 
 .SessionRecordingPlayer {
+    --inspector-width: 36rem;
+    --inspector-peek-width: 2.5rem;
+
+    position: relative;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    overflow: hidden;
     height: 100%;
     width: 100%;
     border: 1px solid var(--border);
@@ -19,10 +24,14 @@
         z-index: 0;
         background-color: var(--bg-light);
         min-width: 1px;
-        height: 500px;
-        margin: 0.5rem;
+        height: 100%;
+        // margin: 0.5rem;
         overflow: hidden;
-        border-radius: var(--radius);
+        // border-radius: var(--radius);
+    }
+
+    .SessionRecordingPlayer__main {
+        flex: 1;
     }
 
     &--fullscreen {
@@ -34,10 +43,8 @@
         overflow-y: auto;
         background-color: var(--white);
         z-index: var(--z-modal);
-
-        .SessionRecordingPlayer__main {
-            flex: 1;
-        }
+        border: none;
+        border-radius: 0px;
 
         .SessionRecordingPlayer__body {
             height: 100%;
@@ -51,39 +58,92 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        flex-shrink: 0;
+    }
+
+    .LemonModal & {
+        .SessionRecordingPlayer__body {
+            height: calc(90vh - 15rem);
+        }
+    }
+
+    &--explorer-mode {
+        .SessionRecordingPlayer__main,
+        .SessionRecordingPlayer__inspector {
+            display: none;
+        }
+    }
+
+    .SessionRecordingPlayer__main {
+        padding-right: var(--inspector-peek-width);
     }
 
     .SessionRecordingPlayer__inspector {
-        border-top: 1px solid var(--border);
-        min-height: 50rem;
+        flex-shrink: 0;
+        border-left: 1px solid var(--border);
+
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 10;
+        width: var(--inspector-width);
+        max-width: 95%;
+
+        transform: translateX(calc(100% - var(--inspector-peek-width)));
+        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.1);
+
+        .PlayerInspectorPreview {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            top: 0;
+            z-index: 1;
+            pointer-events: none;
+            transition: opacity 0.2s ease-in-out;
+        }
+    }
+
+    &--inspector-focus {
+        .SessionRecordingPlayer__inspector {
+            transform: translateX(0);
+            box-shadow: -10px 0px 20px rgba(0, 0, 0, 0.2);
+
+            .PlayerInspectorPreview {
+                opacity: 0;
+                pointer-events: none;
+            }
+        }
     }
 
     &--widescreen {
-        flex-direction: row;
-        overflow: hidden;
-
         .SessionRecordingPlayer__main {
-            flex: 2;
+            padding-right: 0;
+        }
+        .SessionRecordingPlayer__inspector,
+        .SessionRecordingPlayer__inspector {
+            min-width: 30%;
+            width: 40%;
+            max-width: 400px;
+            position: relative;
+            transform: translateX(0);
+            box-shadow: none;
+            transition: none;
+
+            .PlayerInspectorPreview {
+                display: none;
+            }
+        }
+    }
+
+    &--inspector-hidden {
+        .SessionRecordingPlayer__main {
+            padding-right: 0;
         }
 
         .SessionRecordingPlayer__inspector {
-            min-width: 450px;
-            flex: 1;
-            border-left: 1px solid var(--border);
-            border-top: none;
-            min-height: auto;
-        }
-
-        .SessionRecordingPlayer__body {
-            // Rough aproximation of the parent elements
-            height: calc(100vh - 20rem);
-        }
-
-        .LemonModal & {
-            .SessionRecordingPlayer__body {
-                height: calc(90vh - 15rem);
-            }
+            display: none;
         }
     }
 }

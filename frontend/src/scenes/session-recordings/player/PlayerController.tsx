@@ -1,35 +1,38 @@
 import { useActions, useValues } from 'kea'
 import {
     PLAYBACK_SPEEDS,
+    SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconExport, IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
+import { IconExport, IconFullScreen, IconMagnifier, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
-    const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    const { togglePlayPause, exportRecordingToFile } = useActions(logic)
-    const { currentPlayerState } = useValues(logic)
+export function PlayerController(): JSX.Element {
+    const { currentPlayerState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { togglePlayPause, exportRecordingToFile, openExplorer, setIsFullScreen } =
+        useActions(sessionRecordingPlayerLogic)
 
-    const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
-    const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
+    const { speed, skipInactivitySetting } = useValues(playerSettingsLogic)
+    const { setSpeed, setSkipInactivitySetting } = useActions(playerSettingsLogic)
+
+    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     return (
-        <div className="p-3 bg-light flex flex-col select-none">
-            <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+        <div className="p-3 bg-inverse flex flex-col select-none">
+            <Seekbar />
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex-1" />
                 <div className="flex items-center gap-1">
-                    <SeekSkip sessionRecordingId={sessionRecordingId} playerKey={playerKey} direction="backward" />
+                    <SeekSkip direction="backward" />
                     <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
                         {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
                             <IconPause className="text-2xl" />
@@ -37,7 +40,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                             <IconPlay className="text-2xl" />
                         )}
                     </LemonButton>
-                    <SeekSkip sessionRecordingId={sessionRecordingId} playerKey={playerKey} direction="forward" />
+                    <SeekSkip direction="forward" />
                 </div>
                 <div className="flex items-center gap-1 flex-1 justify-end">
                     <Tooltip title={'Playback speed'}>
@@ -102,32 +105,34 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                         </LemonButton>
                     </Tooltip>
 
-                    <More
-                        overlay={
-                            <>
-                                <LemonButton
-                                    status="stealth"
-                                    onClick={() => setAutoplayEnabled(!autoplayEnabled)}
-                                    fullWidth
-                                    sideIcon={
-                                        <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
-                                    }
-                                >
-                                    Autoplay enabled
-                                </LemonButton>
+                    {mode === SessionRecordingPlayerMode.Standard && (
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => exportRecordingToFile()}
+                                        fullWidth
+                                        sideIcon={<IconExport />}
+                                        tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
+                                    >
+                                        Export to file
+                                    </LemonButton>
 
-                                <LemonButton
-                                    status="stealth"
-                                    onClick={() => exportRecordingToFile()}
-                                    fullWidth
-                                    sideIcon={<IconExport />}
-                                    tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
-                                >
-                                    Export to file
-                                </LemonButton>
-                            </>
-                        }
-                    />
+                                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_DOM_EXPLORER} match={true}>
+                                        <LemonButton
+                                            status="stealth"
+                                            onClick={() => openExplorer()}
+                                            fullWidth
+                                            sideIcon={<IconMagnifier />}
+                                        >
+                                            Explore DOM
+                                        </LemonButton>
+                                    </FlaggedFeature>
+                                </>
+                            }
+                        />
+                    )}
                 </div>
             </div>
         </div>

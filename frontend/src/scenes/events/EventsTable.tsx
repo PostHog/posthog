@@ -415,9 +415,10 @@ export function EventsTable({
                         {showEventFilter && (
                             <LemonEventName
                                 value={eventFilter}
-                                onChange={(value: string) => {
+                                onChange={(value) => {
                                     setEventFilter(value || '')
                                 }}
+                                allEventsOption="clear"
                             />
                         )}
                         {showPropertyFilter && (

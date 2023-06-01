@@ -13,11 +13,12 @@ from typing import (
 )
 
 from django.db.models import Prefetch
+from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, NotFound
+from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -27,13 +28,12 @@ from statshog.defaults.django import statsd
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
-from posthog.api.routing import PKorUUIDViewSet, StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
-from posthog.client import sync_execute
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
-from posthog.models import Cohort, Filter, Person, User
+from posthog.models import Cohort, Filter, Person, User, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -42,7 +42,6 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
 from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
@@ -65,6 +64,15 @@ from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
 DEFAULT_PAGE_LIMIT = 100
+PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    "email",
+    "Email",
+    "name",
+    "Name",
+    "username",
+    "Username",
+    "UserName",
+]
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -89,13 +97,20 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
         }
 
 
-def get_person_name(person: Person) -> str:
-    if person.properties.get("email"):
-        return person.properties["email"]
+def get_person_name(team: Team, person: Person) -> str:
+    if display_name := get_person_display_name(person, team):
+        return display_name
     if len(person.distinct_ids) > 0:
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(person.distinct_ids, key=is_anonymous_id)[0]
     return person.pk
+
+
+def get_person_display_name(person: Person, team: Team) -> str | None:
+    for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
+        if person.properties.get(property):
+            return person.properties.get(property)
+    return None
 
 
 class PersonsThrottle(ClickHouseSustainedRateThrottle):
@@ -121,7 +136,8 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
 
     def get_name(self, person: Person) -> str:
-        return get_person_name(person)
+        team = self.context["get_team"]()
+        return get_person_name(team, person)
 
     def to_representation(self, instance: Person) -> Dict[str, Any]:
         representation = super().to_representation(instance)
@@ -155,7 +171,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     return funnel_actor_class
 
 
-class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewSet):
+class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
     To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
     """
@@ -175,6 +191,24 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
         return queryset
+
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        person_id = self.kwargs[self.lookup_field]
+
+        try:
+            queryset = get_pk_or_uuid(queryset, person_id)
+        except ValueError:
+            raise ValidationError(
+                f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
+            )
+
+        obj = get_object_or_404(queryset)
+
+        # May raise a permission denied
+        self.check_object_permissions(self.request, obj)
+
+        return obj
 
     @extend_schema(
         parameters=[
@@ -206,11 +240,11 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
 
         raw_result = insight_sync_execute(
-            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list", team_id=team.pk
         )
 
         actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team.pk, actor_ids)
+        actors, serialized_actors = get_people(team, actor_ids)
 
         _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
@@ -263,16 +297,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             return response.Response(status=204)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
-
-    @action(methods=["GET"], detail=False)
-    def properties(self, request: request.Request, **kwargs) -> response.Response:
-        result = self.get_properties(request)
-
-        return response.Response(result)
-
-    def get_properties(self, request: request.Request):
-        rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})
-        return [{"name": name, "count": count} for name, count in rows]
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:

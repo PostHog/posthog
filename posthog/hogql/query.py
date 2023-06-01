@@ -4,7 +4,7 @@ from pydantic import BaseModel, Extra
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLSettings
+from posthog.hogql.constants import HogQLSettings
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
@@ -33,6 +33,7 @@ def execute_hogql_query(
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLSettings] = None,
+    default_limit: Optional[int] = None,
 ) -> HogQLQueryResponse:
     if isinstance(query, ast.SelectQuery):
         select_query = query
@@ -46,7 +47,10 @@ def execute_hogql_query(
         assert_no_placeholders(select_query)
 
     if select_query.limit is None:
-        select_query.limit = ast.Constant(value=DEFAULT_RETURNED_ROWS)
+        # One more "max" of MAX_SELECT_RETURNED_ROWS (100k) in applied in the query printer, overriding this if higher.
+        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
+        select_query.limit = ast.Constant(value=default_limit or DEFAULT_RETURNED_ROWS)
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     hogql_query_context = HogQLContext(
@@ -63,7 +67,7 @@ def execute_hogql_query(
             print_columns.append(node.alias)
         else:
             print_columns.append(
-                print_ast(node=node, context=hogql_query_context, dialect="hogql", stack=[select_query_hogql])
+                print_prepared_ast(node=node, context=hogql_query_context, dialect="hogql", stack=[select_query_hogql])
             )
 
     # Print the ClickHouse SQL query
@@ -80,6 +84,7 @@ def execute_hogql_query(
         with_column_types=True,
         query_type=query_type,
         workload=workload,
+        team_id=team.pk,
     )
 
     return HogQLQueryResponse(

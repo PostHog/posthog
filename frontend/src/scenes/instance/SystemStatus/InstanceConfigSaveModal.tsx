@@ -1,6 +1,6 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { pluralize } from 'lib/utils'
 import { SystemStatusRow } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
@@ -54,51 +54,61 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
         useValues(systemStatusLogic)
     const { saveInstanceConfig } = useActions(systemStatusLogic)
     const loading = updatedInstanceConfigCount !== null
+
+    const isChangingEnabledEmailSettings =
+        instanceConfigEditingState.EMAIL_ENABLED !== false &&
+        Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL'))
+    const isEnablingEmail = instanceConfigEditingState.EMAIL_ENABLED === true
+    const changeNoun = Object.keys(instanceConfigEditingState).length === 1 ? 'change' : 'changes'
+
     return (
         <LemonModal
-            title="Confirm new changes"
+            title={`Confirm ${changeNoun} to instance configuration`}
             isOpen={isOpen}
             closable={!loading}
             onClose={onClose}
+            width={576}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={onClose} loading={loading}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={onClose}
+                        disabledReason={loading ? 'Saving in progress' : undefined}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton type="primary" status="danger" loading={loading} onClick={saveInstanceConfig}>
-                        Apply changes
+                        Apply {changeNoun}
                     </LemonButton>
                 </>
             }
         >
             <div className="space-y-2">
-                {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
-                    <AlertMessage type="info">
-                        <>
-                            As you are changing email settings, we'll attempt to send a <b>test email</b> so you can
-                            verify everything works (unless you are turning email off).
-                        </>
-                    </AlertMessage>
+                {isChangingEnabledEmailSettings && (
+                    <LemonBanner type="info">
+                        As you are changing email settings and {isEnablingEmail ? 'enabling email' : 'email is enabled'}
+                        , we'll attempt to send a test email so you can verify everything works.
+                    </LemonBanner>
                 )}
                 {Object.keys(instanceConfigEditingState).includes('RECORDINGS_TTL_WEEKS') && (
-                    <AlertMessage type="warning">
+                    <LemonBanner type="warning">
                         <>
                             Changing your recordings TTL requires ClickHouse to have enough free space to perform the
                             operation (even when reducing this value). In addition, please mind that removing old
                             recordings will be removed asynchronously, not immediately.
                         </>
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 {Object.keys(instanceConfigEditingState).includes('RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS') && (
-                    <AlertMessage type="warning">
+                    <LemonBanner type="warning">
                         <>
                             Changing your performance events TTL requires ClickHouse to have enough free space to
                             perform the operation (even when reducing this value). In addition, please mind that
                             removing old recordings will be removed asynchronously, not immediately.
                         </>
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
-                <div>The following changes will be immediately applied to your instance.</div>
+                <div>The following {changeNoun} will be immediately applied to your instance.</div>
                 {Object.keys(instanceConfigEditingState).map((key) => (
                     <ChangeRow
                         key={key}

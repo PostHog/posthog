@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function BillingAlertsV2(): JSX.Element | null {
     const { billingAlert } = useValues(billingLogic)
@@ -32,7 +32,7 @@ export function BillingAlertsV2(): JSX.Element | null {
 
     return (
         <div className="my-4">
-            <AlertMessage
+            <LemonBanner
                 type={billingAlert.status}
                 action={showButton ? buttonProps : undefined}
                 onClose={billingAlert.status !== 'error' ? () => setAlertHidden(true) : undefined}
@@ -40,7 +40,7 @@ export function BillingAlertsV2(): JSX.Element | null {
                 <b>{billingAlert.title}</b>
                 <br />
                 {billingAlert.message}
-            </AlertMessage>
+            </LemonBanner>
         </div>
     )
 }

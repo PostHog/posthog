@@ -5,12 +5,9 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
-import { InsightShortId, InsightType, ItemMode } from '~/types'
+import { InsightShortId, ItemMode } from '~/types'
 import { InsightsNav } from './InsightNav/InsightsNav'
-import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
-import { EditorFilters } from './EditorFilters/EditorFilters'
-import clsx from 'clsx'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { containsHogQLQuery } from '~/queries/utils'
@@ -28,16 +25,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         dashboardItemId: insightId || 'new',
         cachedInsight: insight?.short_id === insightId ? insight : null,
     })
-    const {
-        insightProps,
-        insightLoading,
-        filtersKnown,
-        filters,
-        isUsingDataExploration,
-        isUsingDashboardQueries,
-        erroredQueryId,
-        isFilterBasedInsight,
-    } = useValues(logic)
+    const { insightProps, insightLoading, filtersKnown, erroredQueryId } = useValues(logic)
     const { reportInsightViewedForRecentInsights, abortAnyRunningQuery, loadResults } = useActions(logic)
 
     // insightDataLogic
@@ -62,8 +50,6 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
             abortAnyRunningQuery()
         }
     }, [])
-    // if this is a non-viz query-based insight e.g. an events table then don't show the insight editing chrome
-    const showFilterEditing = isFilterBasedInsight
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -72,52 +58,27 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     }
 
     const actuallyShowQueryEditor =
-        isUsingDashboardQueries &&
         insightMode === ItemMode.Edit &&
-        ((isQueryBasedInsight && !containsHogQLQuery(query)) || showQueryEditor)
-
-    const insightScene = (
-        <div className={'insights-page'}>
-            <InsightPageHeader insightLogicProps={insightProps} />
-
-            {insightMode === ItemMode.Edit && <InsightsNav />}
-
-            {isUsingDataExploration || (isUsingDashboardQueries && isQueryBasedInsight) ? (
-                <>
-                    <Query
-                        query={query}
-                        setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
-                        readOnly={insightMode !== ItemMode.Edit}
-                        context={{
-                            showOpenEditorButton: false,
-                            showQueryEditor: actuallyShowQueryEditor,
-                            showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
-                        }}
-                    />
-                </>
-            ) : (
-                <>
-                    <div
-                        className={clsx('insight-wrapper', {
-                            'insight-wrapper--singlecolumn': filters.insight === InsightType.FUNNELS,
-                        })}
-                    >
-                        <EditorFilters
-                            insightProps={insightProps}
-                            showing={showFilterEditing && insightMode === ItemMode.Edit}
-                        />
-                        <div className="insights-container" data-attr="insight-view">
-                            <InsightContainer insightMode={insightMode} />
-                        </div>
-                    </div>
-                </>
-            )}
-        </div>
-    )
+        ((isQueryBasedInsight && !containsHogQLQuery(query)) || (!isQueryBasedInsight && showQueryEditor))
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            {insightScene}
+            <div className={'insights-page'}>
+                <InsightPageHeader insightLogicProps={insightProps} />
+
+                {insightMode === ItemMode.Edit && <InsightsNav />}
+
+                <Query
+                    query={query}
+                    setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
+                    readOnly={insightMode !== ItemMode.Edit}
+                    context={{
+                        showOpenEditorButton: false,
+                        showQueryEditor: actuallyShowQueryEditor,
+                        showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                    }}
+                />
+            </div>
         </BindLogic>
     )
 }

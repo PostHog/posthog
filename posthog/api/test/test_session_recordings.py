@@ -1,5 +1,6 @@
+import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 from urllib.parse import urlencode
 
 from dateutil.parser import parse
@@ -9,7 +10,8 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
-from posthog.models import Organization, Person
+from posthog.api.test.test_team import create_team
+from posthog.models import Organization, Person, SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
 from posthog.session_recordings.test.test_factory import create_session_recording_events
@@ -308,7 +310,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
         response_data = response.json()
-        self.assertEqual(len(response_data["result"]["snapshot_data_by_window_id"][""]), DEFAULT_RECORDING_CHUNK_LIMIT)
+        self.assertEqual(len(response_data["snapshot_data_by_window_id"][""]), DEFAULT_RECORDING_CHUNK_LIMIT)
 
     def test_get_snapshots_is_compressed(self):
         base_time = now()
@@ -329,7 +331,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.headers.get("Content-Encoding", None), "gzip")
 
-    def test_get_snapshots_for_chunked_session_recording(self):
+    def _test_body_for_chunked_session_recording(self, include_feature_flag_param: bool):
         chunked_session_id = "chunk_id"
         expected_num_requests = 3
         num_chunks = 60
@@ -346,26 +348,143 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     window_id="1" if index % 2 == 0 else "2",
                 )
 
-            next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots"
+            blob_flag = "?blob_loading_enabled=false" if include_feature_flag_param else ""
+            next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots{blob_flag}"
 
             for i in range(expected_num_requests):
                 response = self.client.get(next_url)
                 response_data = response.json()
 
                 self.assertEqual(
-                    len(response_data["result"]["snapshot_data_by_window_id"]["1"]),
+                    len(response_data["snapshot_data_by_window_id"]["1"]),
                     snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
                 )
                 self.assertEqual(
-                    len(response_data["result"]["snapshot_data_by_window_id"]["2"]),
+                    len(response_data["snapshot_data_by_window_id"]["2"]),
                     snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
                 )
                 if i == expected_num_requests - 1:
-                    self.assertIsNone(response_data["result"]["next"])
+                    self.assertIsNone(response_data["next"])
                 else:
-                    self.assertIsNotNone(response_data["result"]["next"])
+                    self.assertIsNotNone(response_data["next"])
 
-                next_url = response_data["result"]["next"]
+                next_url = response_data["next"]
+
+    def test_get_snapshots_for_chunked_session_recording_with_blob_flag_included_and_off(self):
+        self._test_body_for_chunked_session_recording(include_feature_flag_param=True)
+
+    def test_get_snapshots_for_chunked_session_recording_with_blob_flag_not_included(self):
+        self._test_body_for_chunked_session_recording(include_feature_flag_param=False)
+
+    @patch("posthog.api.session_recording.object_storage.list_objects")
+    def test_get_snapshots_can_load_blobs_when_available(self, mock_list_objects) -> None:
+        blob_objects = ["session_recordings/something/data", "session_recordings/something_else/data"]
+        mock_list_objects.return_value = blob_objects
+        chunked_session_id = "chunk_id"
+        # only needs enough data so that the test fails if the blobs aren't loaded
+        num_chunks = 2
+        snapshots_per_chunk = 2
+
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            start_time = now()
+            for index, s in enumerate(range(num_chunks)):
+                self.create_chunked_snapshots(
+                    snapshots_per_chunk,
+                    "user",
+                    chunked_session_id,
+                    start_time + relativedelta(minutes=s),
+                    window_id="1" if index % 2 == 0 else "2",
+                )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots?blob_loading_enabled=true"
+        )
+        response_data = response.json()
+
+        assert response_data == {"snapshot_data_by_window_id": [], "next": None, "blob_keys": blob_objects}
+        mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/chunk_id/data/")
+
+    @patch("posthog.api.session_recording.object_storage.list_objects")
+    def test_get_snapshots_can_fallback_to_clickhouse_when_blob_not_available(self, mock_list_objects) -> None:
+        mock_list_objects.return_value = []
+        chunked_session_id = "chunk_id"
+        # only needs enough data so that the test fails if the blobs aren't loaded
+        num_chunks = 2
+        snapshots_per_chunk = 2
+
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            start_time = now()
+            for index, s in enumerate(range(num_chunks)):
+                self.create_chunked_snapshots(
+                    snapshots_per_chunk,
+                    "user",
+                    chunked_session_id,
+                    start_time + relativedelta(minutes=s),
+                    window_id="1" if index % 2 == 0 else "2",
+                )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots?blob_loading_enabled=true"
+        )
+        response_data = response.json()
+
+        assert response_data["next"] is None
+        assert len(response_data["snapshot_data_by_window_id"]) == 2  # 2 windows
+        mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/chunk_id/data/")
+
+    @patch("posthog.api.session_recording.SessionRecording.get_or_build")
+    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
+    @patch("posthog.api.session_recording.requests")
+    def test_can_get_session_recording_blob(
+        self, _mock_requests, mock_presigned_url, mock_get_session_recording
+    ) -> None:
+        session_id = str(uuid.uuid4())
+        """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
+        blob_key = f"1682608337071"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshot_file/?blob_key={blob_key}"
+
+        # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        def presigned_url_sideeffect(key: str, **kwargs):
+            if key == f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{blob_key}":
+                return f"https://test.com/"
+            else:
+                return None
+
+        mock_presigned_url.side_effect = presigned_url_sideeffect
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+    @patch("posthog.api.session_recording.SessionRecording.get_or_build")
+    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
+    @patch("posthog.api.session_recording.requests")
+    def test_cannot_get_session_recording_blob_for_made_up_sessions(
+        self, _mock_requests, mock_presigned_url, mock_get_session_recording
+    ) -> None:
+        session_id = str(uuid.uuid4())
+        blob_key = f"1682608337071"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshot_file/?blob_key={blob_key}"
+
+        # by default a session recording is deleted, and _that_ is what we check for to see if it exists
+        # so, we have to explicitly mark the mock as deleted
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=True)
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert mock_presigned_url.call_count == 0
+
+    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
+    def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
+        session_id = str(uuid.uuid4())
+        blob_key = f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/1682608337071"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshot_file/?blob_key={blob_key}"
+
+        mock_presigned_url.return_value = None
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_get_metadata_for_chunked_session_recording(self):
 
@@ -511,11 +630,48 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_delete_session_recording(self):
         self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-
-        assert response_data["success"]
-
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         # Trying to delete same recording again returns 404
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_via_sharing_token(self):
+        other_team = create_team(organization=self.organization)
+
+        session_id = str(uuid.uuid4())
+        with freeze_time("2023-01-01T12:00:00Z"):
+            self.create_snapshot("user", session_id, now() - relativedelta(days=1), team_id=self.team.pk)
+
+        token = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/sharing", {"enabled": True}
+        ).json()["access_token"]
+
+        self.client.logout()
+
+        # Unallowed routes
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/2?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(f"/api/projects/12345/session_recordings?sharing_access_token={token}")
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/session_recordings/{session_id}?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json() == {
+            "id": session_id,
+            "recording_duration": 0,
+            "start_time": "2022-12-31T12:00:00Z",
+            "end_time": "2022-12-31T12:00:00Z",
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

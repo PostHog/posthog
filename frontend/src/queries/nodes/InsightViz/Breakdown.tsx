@@ -1,23 +1,20 @@
-import { useValues, useActions } from 'kea'
-import { QueryEditorFilterProps } from '~/types'
-import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { isTrendsQuery } from '~/queries/utils'
-import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
-import { BreakdownFilter as BreakdownFilterType } from '~/queries/schema'
+import { useActions, useValues } from 'kea'
+import { EditorFilterProps } from '~/types'
+import { TaxonomicBreakdownFilterComponent } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-export function Breakdown({ insightProps, query }: QueryEditorFilterProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { updateBreakdown } = useActions(insightVizDataLogic(insightProps))
+export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
+    const { breakdown, display, isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { updateBreakdown, updateDisplay } = useActions(insightVizDataLogic(insightProps))
 
-    const useMultiBreakdown = !isTrendsQuery(query) && !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
-
-    // treat breakdown filter as black box for data exploration for now
-    const filters = queryNodeToFilter(query)
-    const setFilters = (breakdown: BreakdownFilterType): void => {
-        updateBreakdown(breakdown)
-    }
-    return <TaxonomicBreakdownFilter filters={filters} setFilters={setFilters} useMultiBreakdown={useMultiBreakdown} />
+    return (
+        <TaxonomicBreakdownFilterComponent
+            breakdownFilter={breakdown}
+            display={display}
+            isTrends={isTrends}
+            updateBreakdown={updateBreakdown}
+            updateDisplay={updateDisplay}
+            isDataExploration
+        />
+    )
 }

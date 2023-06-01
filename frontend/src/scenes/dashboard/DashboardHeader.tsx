@@ -37,8 +37,8 @@ export const DASHBOARD_CANNOT_EDIT_MESSAGE =
 
 export function DashboardHeader(): JSX.Element | null {
     const {
-        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
-        allItemsLoading: dashboardLoading,
+        dashboard,
+        dashboardLoading,
         dashboardMode,
         canEditDashboard,
         showSubscriptions,
@@ -96,6 +96,7 @@ export function DashboardHeader(): JSX.Element | null {
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
+                        title="Dashboard Permissions"
                         isOpen={dashboardMode === DashboardMode.Sharing}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}

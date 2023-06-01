@@ -1,6 +1,6 @@
 .merge-split-person {
     .activity-header {
-        background-color: var(--bg-mid);
+        background-color: var(--mid);
         border-top: 1px solid var(--border);
         border-bottom: 1px solid var(--border);
         margin-left: -24px;
@@ -29,7 +29,7 @@
 
     // TODO: consider moving this style globally
     code {
-        background-color: var(--bg-mid);
+        background-color: var(--mid);
         color: var(--primary-alt);
         padding: 4px 8px;
         border-radius: var(--radius);

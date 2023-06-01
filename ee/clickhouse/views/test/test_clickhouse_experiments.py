@@ -8,7 +8,7 @@ from posthog.constants import ExperimentSignificanceCode
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
-from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries, FuzzyInt
 from posthog.test.test_journeys import journeys_for
 
 
@@ -54,7 +54,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(FuzzyInt(9, 10)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -71,7 +71,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(FuzzyInt(9, 10)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -743,7 +743,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1451,7 +1451,6 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                 "filters": {
                     "insight": "TRENDS",
                     "events": [{"order": 0, "id": "$pageview"}],
-                    "display": "ActionsLineGraphCumulative",
                     "properties": [
                         {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
                         # properties superceded by FF breakdown
@@ -1614,7 +1613,6 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                 "filters": {
                     "insight": "TRENDS",
                     "events": [{"order": 0, "id": "$pageview"}],
-                    "display": "ActionsLineGraphCumulative",
                     "properties": [
                         {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
                         # properties superceded by FF breakdown
@@ -1849,3 +1847,78 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         self.assertAlmostEqual(response_data["probability"]["test_1"], 0.177, places=2)
         self.assertAlmostEqual(response_data["probability"]["test_2"], 0.488, places=2)
         self.assertAlmostEqual(response_data["probability"]["control"], 0.334, places=2)
+
+    def test_experiment_flow_with_avg_count_per_user_event_results(self):
+        journeys_for(
+            {
+                "person1": [
+                    # 5 counts, single person
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                ],
+                "person2": [
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                ],
+                "person3": [
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                ],
+                "person4": [
+                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "test"}},
+                ],
+                # doesn't have feature set
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03"},
+                ],
+                "person_out_of_end_date": [
+                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                ],
+            },
+            self.team,
+        )
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        creation_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T00:00",
+                "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "insight": "TRENDS",
+                    "events": [{"order": 0, "id": "$pageview", "math": "avg_count_per_actor", "name": "$pageview"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                        # properties superceded by FF breakdown
+                    ],
+                },
+            },
+        )
+
+        id = creation_response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()["result"]
+        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
+
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 0.0])
+        self.assertEqual("control", result[0]["breakdown_value"])
+
+        self.assertEqual(result[1]["data"], [0.0, 5.0, 0.0, 0.0, 2.0, 0.0])
+        self.assertEqual("test", result[1]["breakdown_value"])
+
+        # Variant with test: Gamma(7, 1) and control: Gamma(4, 1) distribution
+        # The variant has high probability of being better. (effectively Gamma(10,1))
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.805, places=2)
+        self.assertFalse(response_data["significant"])

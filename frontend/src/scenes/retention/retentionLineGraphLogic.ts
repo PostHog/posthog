@@ -5,7 +5,8 @@ import { RetentionTrendPayload } from 'scenes/retention/types'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 import { dateOptionToTimeIntervalMap } from './constants'
 
-import { abstractRetentionLogic } from './abstractRetentionLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { retentionLogic } from './retentionLogic'
 
 import type { retentionLineGraphLogicType } from './retentionLineGraphLogicType'
 
@@ -16,13 +17,14 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionLineGraphLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [abstractRetentionLogic(props), ['retentionFilter', 'dateRange', 'results']],
+        values: [insightVizDataLogic(props), ['retentionFilter', 'dateRange'], retentionLogic(props), ['results']],
     }),
 
     selectors: {
         trendSeries: [
             (s) => [s.results, s.retentionFilter],
-            (results, { period, retention_reference }): RetentionTrendPayload[] => {
+            (results, retentionFilter): RetentionTrendPayload[] => {
+                const { period, retention_reference } = retentionFilter || {}
                 // If the retention reference option is specified as previous,
                 // then translate retention rates to relative to previous,
                 // otherwise, just use what the result was originally.
@@ -83,7 +85,10 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
 
         incompletenessOffsetFromEnd: [
             (s) => [s.dateRange, s.retentionFilter, s.trendSeries],
-            ({ date_to }, { period }, trendSeries) => {
+            (dateRange, retentionFilter, trendSeries) => {
+                const { date_to } = dateRange || {}
+                const { period } = retentionFilter || {}
+
                 // Returns negative number of points to paint over starting from end of array
                 if (!trendSeries?.[0]?.days) {
                     return 0

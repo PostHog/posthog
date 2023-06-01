@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]
@@ -148,19 +149,6 @@ class OrganizationAdminWritePermissions(BasePermission):
         )
 
 
-class OrganizationAdminAnyPermissions(BasePermission):
-    """Require organization admin level to change and also read object."""
-
-    message = "Your organization access level is insufficient."
-
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        organization = extract_organization(object)
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
-        )
-
-
 class TeamMemberAccessPermission(BasePermission):
     """Require effective project membership for any access at all."""
 
@@ -244,3 +232,28 @@ class PremiumFeaturePermission(BasePermission):
             raise EnterpriseFeatureException()
 
         return True
+
+
+class SharingTokenPermission(BasePermission):
+    """
+    Validates an authenticated SharingToken against the current request.
+    """
+
+    def has_object_permission(self, request, view, object) -> bool:
+        sharing_config = cast(SharingConfiguration, request.sharing_configuration)
+        return sharing_config.can_access_object(object)
+
+    def has_permission(self, request, view) -> bool:
+        assert hasattr(
+            view, "sharing_enabled_actions"
+        ), "this permission class requires the `sharing_enabled_actions` attribute to be set in the view."
+
+        # For now we assume we are only supporting get requests
+        if request.method != "GET" or view.action not in view.sharing_enabled_actions:
+            return False
+
+        if hasattr(request, "sharing_configuration"):
+            sharing_config = cast(SharingConfiguration, request.sharing_configuration)
+            return sharing_config.enabled or False
+
+        return False

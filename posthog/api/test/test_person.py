@@ -22,10 +22,25 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
+    override_settings,
 )
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
+    def test_legacy_get_person_by_id(self) -> None:
+        person = _create_person(
+            team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"}, immediate=True
+        )
+        flush_persons_and_events()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/person/{person.pk}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], person.pk)
+
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @snapshot_clickhouse_queries
     def test_search(self) -> None:
         _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
         _create_person(
@@ -42,6 +57,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @snapshot_clickhouse_queries
     def test_properties(self) -> None:
         _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
         _create_person(team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"})
@@ -61,24 +78,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
-
-    def test_person_property_names(self) -> None:
-        _create_person(
-            distinct_ids=["person_1"], team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"}
-        )
-        _create_person(distinct_ids=["person_2"], team=self.team, properties={"random_prop": "asdf"})
-        _create_person(distinct_ids=["person_3"], team=self.team, properties={"random_prop": "asdf"})
-        flush_persons_and_events()
-
-        response = self.client.get("/api/person/properties/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(response_data[0]["name"], "random_prop")
-        self.assertEqual(response_data[0]["count"], 2)
-        self.assertEqual(response_data[2]["name"], "$os")
-        self.assertEqual(response_data[2]["count"], 1)
-        self.assertEqual(response_data[1]["name"], "$browser")
-        self.assertEqual(response_data[1]["count"], 1)
 
     @also_test_with_materialized_columns(person_properties=["random_prop"])
     @snapshot_clickhouse_queries
@@ -157,8 +156,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @snapshot_clickhouse_queries
     def test_filter_person_list(self):
-
         person1: Person = _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
@@ -172,7 +172,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Filter by distinct ID
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(12):
             response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
@@ -253,6 +253,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": str(person.uuid),
                         "short_id": None,
                     },
@@ -335,6 +336,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         ],
                         "name": str(person1.uuid),
                         "trigger": None,
+                        "type": None,
                         "short_id": None,
                     },
                     "created_at": "2021-08-25T22:09:14.252000Z",
@@ -436,6 +438,57 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             ["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
         )
 
+    def test_person_display_name(self) -> None:
+        self.team.person_display_name_properties = ["custom_name", "custom_email"]
+        self.team.save()
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id1"],
+            properties={"custom_name": "someone", "custom_email": "someone@custom.com", "email": "someone@gmail.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id2"],
+            properties={"custom_email": "another_one@custom.com", "email": "another_one@gmail.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id3"],
+            properties={"email": "yet_another_one@gmail.com"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.get("/api/person/").json()
+
+        results = response["results"][::-1]  # results are in reverse order
+        self.assertEqual(results[0]["name"], "someone")
+        self.assertEqual(results[1]["name"], "another_one@custom.com")
+        self.assertEqual(results[2]["name"], "distinct_id3")
+
+    def test_person_display_name_defaults(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id1"],
+            properties={"name": "someone", "email": "someone@gmail.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id2"],
+            properties={"name": "another_one"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id3"],
+        )
+        flush_persons_and_events()
+
+        response = self.client.get("/api/person/").json()
+
+        results = response["results"][::-1]  # results are in reverse order
+        self.assertEqual(results[0]["name"], "someone@gmail.com")
+        self.assertEqual(results[1]["name"], "another_one")
+        self.assertEqual(results[2]["name"], "distinct_id3")
+
     def test_person_cohorts(self) -> None:
         _create_person(team=self.team, distinct_ids=["1"], properties={"$some_prop": "something", "number": 1})
         person2 = _create_person(
@@ -466,7 +519,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 3)
         self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
         self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
-        self.assertDictContainsSubset({"id": cohort4.id, "count": None, "name": cohort4.name}, response["results"][2])
+        self.assertDictContainsSubset({"id": cohort4.id, "count": 1, "name": cohort4.name}, response["results"][2])
 
     def test_split_person_clickhouse(self):
         person = _create_person(
@@ -533,6 +586,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": None,
                         "short_id": None,
                     },
@@ -555,6 +609,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response.content.splitlines()), 2)
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_pagination_limit(self):
         created_ids = []
 
@@ -571,7 +626,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(11):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -581,6 +636,36 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
+
+    def test_retrieve_person(self):
+        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            team=self.team, distinct_ids=["123456789"]
+        )
+
+        response = self.client.get(f"/api/person/{person.id}").json()
+
+        assert response["id"] == person.id
+        assert response["uuid"] == str(person.uuid)
+        assert response["distinct_ids"] == ["123456789"]
+
+    def test_retrieve_person_by_uuid(self):
+        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            team=self.team, distinct_ids=["123456789"]
+        )
+
+        response = self.client.get(f"/api/person/{person.uuid}").json()
+
+        assert response["id"] == person.id
+        assert response["uuid"] == str(person.uuid)
+        assert response["distinct_ids"] == ["123456789"]
+
+    def test_retrieve_person_by_distinct_id_with_useful_error(self):
+        response = self.client.get(f"/api/person/NOT_A_UUID").json()
+
+        assert (
+            response["detail"]
+            == "The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id=NOT_A_UUID instead."
+        )
 
     @patch("posthog.api.person.PersonsThrottle.rate", new="6/minute")
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")

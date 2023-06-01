@@ -13,6 +13,13 @@ describe('sessionRecordingsListLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/projects/:team/session_recordings/properties': {
+                    results: [
+                        { id: 's1', properties: { blah: 'blah1' } },
+                        { id: 's2', properties: { blah: 'blah2' } },
+                    ],
+                },
+
                 '/api/projects/:team/session_recordings': (req) => {
                     const { searchParams } = req.url
                     if (
@@ -125,7 +132,7 @@ describe('sessionRecordingsListLogic', () => {
             })
 
             it('is read from the URL on the session recording page', async () => {
-                router.actions.push('/recordings', {}, { sessionRecordingId: 'abc' })
+                router.actions.push('/replay', {}, { sessionRecordingId: 'abc' })
                 expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
                 await expectLogic(logic)
@@ -268,10 +275,11 @@ describe('sessionRecordingsListLogic', () => {
 
         describe('set recording from hash param', () => {
             it('loads the correct recording from the hash params', async () => {
-                router.actions.push('/recordings/recent', {}, { sessionRecordingId: 'abc' })
+                router.actions.push('/replay/recent', {}, { sessionRecordingId: 'abc' })
 
                 logic = sessionRecordingsListLogic({
                     key: 'hash-recording-tests',
+                    updateSearchParams: true,
                 })
                 logic.mount()
 
@@ -339,7 +347,7 @@ describe('sessionRecordingsListLogic', () => {
         })
 
         it('reads filters from the URL', async () => {
-            router.actions.push('/recordings', {
+            router.actions.push('/replay', {
                 filters: {
                     actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
                     events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],

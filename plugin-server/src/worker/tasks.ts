@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { register } from 'prom-client'
 
 import { Action, EnqueuedPluginJob, Hub, PipelineEvent, PluginTaskType, PostIngestionEvent, Team } from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
@@ -34,10 +33,6 @@ export const workerTasks: Record<string, TaskRunner> = {
         const runner = new EventPipelineRunner(hub, args.event)
         return await runner.runEventPipeline(args.event)
     },
-    runBufferEventPipeline: async (hub, args: { event: PluginEvent }) => {
-        const runner = new EventPipelineRunner(hub, args.event)
-        return await runner.runBufferEventPipeline(args.event)
-    },
     runAsyncHandlersEventPipeline: async (hub, args: { event: PostIngestionEvent }) => {
         const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
         return await runner.runAsyncHandlersEventPipeline(args.event)
@@ -65,9 +60,6 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     resetAvailableFeaturesCache: (hub, args: { organization_id: string }) => {
         hub.organizationManager.resetAvailableFeatureCache(args.organization_id)
-    },
-    getPrometheusMetrics: async (_hub) => {
-        return register.getMetricsAsJSON()
     },
     // Exported only for tests
     _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {

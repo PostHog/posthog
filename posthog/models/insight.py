@@ -118,6 +118,9 @@ class Insight(models.Model):
             if dashboard_date_to or insight_date_to:
                 filters["date_to"] = dashboard_date_to or insight_date_to
 
+            if dashboard_date_from == "all" and filters.get("compare", None) is True:
+                filters["compare"] = None
+
             if dashboard_properties:
                 if isinstance(self.filters.get("properties"), list):
                     filters["properties"] = {
@@ -136,6 +139,8 @@ class Insight(models.Model):
                     filters["properties"] = dashboard_properties
                 else:
                     raise ValidationError("Unrecognized property format: ", self.filters["properties"])
+            elif self.filters.get("properties"):
+                filters["properties"] = self.filters.get("properties")
 
             return filters
         else:

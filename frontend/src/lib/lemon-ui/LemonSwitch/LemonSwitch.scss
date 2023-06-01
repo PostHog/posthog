@@ -7,7 +7,7 @@
     gap: 0.5rem;
 
     label[for] {
-        cursor: default; // A label with for=* also toggles the switch, so it shouldn't have the text select cursor
+        cursor: pointer; // A label with for=* also toggles the switch, so it shouldn't have the text select cursor
     }
 
     label {
@@ -36,12 +36,15 @@
     > .LemonIcon {
         font-size: 1.5rem;
         color: var(--muted-alt);
-        cursor: pointer;
     }
 
     &.LemonSwitch--disabled {
         cursor: not-allowed;
         opacity: var(--opacity-disabled);
+
+        label[for] {
+            cursor: not-allowed; // A label with for=* also toggles the switch, so it shouldn't have the text select cursor
+        }
     }
 }
 
@@ -54,7 +57,11 @@
     height: 1.25rem;
     background: none;
     border: none;
-    cursor: inherit;
+    cursor: pointer;
+
+    .LemonSwitch--disabled & {
+        cursor: not-allowed;
+    }
 }
 
 .LemonSwitch__slider {
@@ -70,9 +77,6 @@
     .LemonSwitch--checked & {
         background-color: var(--primary-highlight);
     }
-    .LemonSwitch--alt.LemonSwitch--checked & {
-        background-color: var(--primary-alt-highlight);
-    }
 }
 
 .LemonSwitch__handle {
@@ -86,6 +90,9 @@
     border: 2px solid var(--border);
     transition: background-color 100ms ease, transform 100ms ease, border-color 100ms ease;
     cursor: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 
     .LemonSwitch--checked & {
         transform: translateX(1rem);

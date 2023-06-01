@@ -9,7 +9,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # Allow snapshot updates to finish, so that we don't need to wait for Storybook to build again
+    # Allow UI snapshot updates to finish, so that we don't need to wait for Storybook to build all over again
     cancel-in-progress: false
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@v2
               with:
-                  version: 7.x.x
+                  version: 8.x.x
 
             - name: Set up Node.js
               uses: actions/setup-node@v3
@@ -61,7 +61,7 @@ jobs:
         env:
             SHARD_COUNT: '2'
             CYPRESS_INSTALL_BINARY: '0'
-            NODE_OPTIONS: --max-old-space-size=4096
+            NODE_OPTIONS: --max-old-space-size=6144
             JEST_IMAGE_SNAPSHOT_TRACK_OBSOLETE: '1' # Remove obsolete snapshots
         outputs:
             # The below have to be manually listed unfortunately, as GitHub Actions doesn't allow matrix-dependent outputs
@@ -107,7 +107,7 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@v2
               with:
-                  version: 7.x.x
+                  version: 8.x.x
 
             - name: Set up Node.js
               uses: actions/setup-node@v3

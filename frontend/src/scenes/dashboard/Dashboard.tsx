@@ -21,7 +21,7 @@ import { groupsModel } from '../../models/groupsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-interface Props {
+interface DashboardProps {
     id?: string
     dashboard?: DashboardType
     placement?: DashboardPlacement
@@ -30,13 +30,13 @@ interface Props {
 export const scene: SceneExport = {
     component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }: { params: Props }): DashboardLogicProps => ({
+    paramsToProps: ({ params: { id, placement } }: { params: DashboardProps }): DashboardLogicProps => ({
         id: id ? parseInt(id) : undefined,
         placement,
     }),
 }
 
-export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
     return (
         <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
             <DashboardScene />
@@ -47,8 +47,7 @@ export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element
 function DashboardScene(): JSX.Element {
     const {
         placement,
-        // dashboard on dashboardLogic isn't the dashboard on dashboardLogic (╯°□°)╯︵ ┻━┻
-        allItems: dashboard,
+        dashboard,
         canEditDashboard,
         tiles,
         itemsLoading,
@@ -145,6 +144,7 @@ function DashboardScene(): JSX.Element {
                                         ...groupsTaxonomicTypes,
                                         TaxonomicFilterGroupType.Cohorts,
                                         TaxonomicFilterGroupType.Elements,
+                                        TaxonomicFilterGroupType.HogQLExpression,
                                     ]}
                                 />
                             </div>
@@ -152,8 +152,9 @@ function DashboardScene(): JSX.Element {
                         {placement !== DashboardPlacement.Export && (
                             <div className="flex space-x-4 dashoard-items-actions">
                                 <div
-                                    className="left-item"
-                                    style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
+                                    className={`left-item ${
+                                        placement === DashboardPlacement.Public ? 'text-right' : ''
+                                    }`}
                                 >
                                     {[DashboardPlacement.Public].includes(placement) ? (
                                         <LastRefreshText />

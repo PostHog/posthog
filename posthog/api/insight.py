@@ -13,6 +13,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import request, serializers, status, viewsets
+from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.parsers import JSONParser
@@ -36,6 +37,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
 from posthog.caching.insights_api import should_refresh_insight
 from posthog.client import sync_execute
@@ -52,7 +54,7 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, Team, User
+from posthog.models import DashboardTile, Filter, Insight, User, SharingConfiguration
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -68,7 +70,10 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed
 from posthog.models.utils import UUIDT
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths.paths import Paths
@@ -79,10 +84,17 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, refresh_requested_by_client, relative_date_parse, str_to_bool
 
 logger = structlog.get_logger(__name__)
+
+INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
+    "insight_refresh_initiated",
+    "Insight refreshes initiated, based on should_refresh_insight().",
+    labelnames=["is_shared"],
+)
 
 
 def log_insight_activity(
@@ -282,14 +294,14 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
-        team = Team.objects.get(id=self.context["team_id"])
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
+        team_id = self.context["team_id"]
 
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
 
         insight = Insight.objects.create(
-            team=team,
+            team_id=team_id,
             created_by=created_by,
             last_modified_by=request.user,
             **validated_data,
@@ -312,7 +324,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             insight_id=insight.id,
             insight_short_id=insight.short_id,
             organization_id=self.context["request"].user.current_organization_id,
-            team_id=team.id,
+            team_id=team_id,
             user=self.context["request"].user,
         )
 
@@ -321,7 +333,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         dashboards_before_change: List[Union[str, Dict]] = []
         try:
-            before_update = Insight.objects.prefetch_related("tagged_items__tag", "dashboards").get(pk=instance.id)
+            # since it is possible to be undeleting a soft deleted insight
+            # the state captured before the update has to include soft deleted insights
+            # or we can't capture undeletes to the activity log
+            before_update = Insight.objects_including_soft_deleted.prefetch_related(
+                "tagged_items__tag", "dashboards"
+            ).get(pk=instance.id)
             dashboards_before_change = [describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()]
         except Insight.DoesNotExist:
             before_update = None
@@ -482,10 +499,13 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
         target = insight if dashboard is None else dashboard_tile
 
-        refresh_insight_now, refresh_frequency = should_refresh_insight(insight, dashboard_tile)
-        if insight.filters and refresh_requested_by_client(self.context["request"]):
-            if refresh_insight_now:
-                return synchronously_update_cache(insight, dashboard, refresh_frequency)
+        is_shared = self.context.get("is_shared", False)
+        refresh_insight_now, refresh_frequency = should_refresh_insight(
+            insight, dashboard_tile, request=self.context["request"], is_shared=is_shared
+        )
+        if refresh_insight_now:
+            INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
+            return synchronously_update_cache(insight, dashboard, refresh_frequency)
 
         # :TODO: Clear up if tile can be null or not
         return fetch_cached_insight_result(target or insight, refresh_frequency)
@@ -512,7 +532,6 @@ class InsightViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
-    queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [
         IsAuthenticated,
@@ -535,24 +554,49 @@ class InsightViewSet(
     parser_classes = (QuerySchemaParser,)
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0")
         ):
             return InsightBasicSerializer
         return super().get_serializer_class()
 
-    def get_queryset(self) -> QuerySet:
-        if (
-            self.action == "partial_update"
-            and "deleted" in self.request.data
-            and not self.request.data.get("deleted")
-            and len(self.request.data) == 1
+    def get_authenticators(self) -> List[BaseAuthentication]:
+        authenticators = super().get_authenticators()
+        authenticators.append(SharingAccessTokenAuthentication())
+        return authenticators
+
+    def get_serializer_context(self) -> Dict[str, Any]:
+        context = super().get_serializer_context()
+        context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
+        return context
+
+    def get_permissions(self):
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication) and self.action in (
+            "retrieve",
+            "list",
         ):
+            # Anonymous users authenticated via SharingAccessTokenAuthentication get read-only access to insights
+            return []
+        return super().get_permissions()
+
+    def get_queryset(self) -> QuerySet:
+        queryset: QuerySet
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            sharing_configuration = SharingConfiguration.objects.get(
+                access_token=self.request.query_params["sharing_access_token"], enabled=True
+            )
+            # sharing_configuration must be non-None here, per SharingAccessTokenAuthentication
+            queryset = Insight.objects.filter(id__in=sharing_configuration.get_connected_insight_ids())
+        elif self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
-            queryset: QuerySet = Insight.objects_including_soft_deleted
+            queryset = Insight.objects_including_soft_deleted.all()
         else:
-            queryset = super().get_queryset()
+            queryset = Insight.objects.all()
+
+        # Optimize tag retrieval
+        queryset = self.prefetch_tagged_items_if_available(queryset)
+        # Disallow access to other teams' insights
+        queryset = self.filter_queryset_by_parents_lookups(queryset)
 
         queryset = queryset.prefetch_related(
             Prefetch(

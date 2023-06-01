@@ -9,10 +9,11 @@ from posthog.hogql.constants import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
-from posthog.models import Action, ActionStep, Cohort, Property, Team
+from posthog.models import Action, ActionStep, Cohort, Property, Team, PropertyDefinition
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import build_selector_regex
+from posthog.models.property_definition import PropertyType
 from posthog.schema import PropertyOperator
 
 
@@ -101,18 +102,18 @@ def property_to_expr(
         field = ast.Field(chain=chain + [property.key])
 
         if operator == PropertyOperator.is_set:
-            return ast.CompareOperation(op=ast.CompareOperationType.NotEq, left=field, right=ast.Constant(value=None))
+            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))
         elif operator == PropertyOperator.is_not_set:
-            return ast.CompareOperation(op=ast.CompareOperationType.Eq, left=field, right=ast.Constant(value=None))
+            return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None))
         elif operator == PropertyOperator.icontains:
             return ast.CompareOperation(
-                op=ast.CompareOperationType.ILike,
+                op=ast.CompareOperationOp.ILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
             )
         elif operator == PropertyOperator.not_icontains:
             return ast.CompareOperation(
-                op=ast.CompareOperationType.NotILike,
+                op=ast.CompareOperationOp.NotILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
             )
@@ -121,19 +122,39 @@ def property_to_expr(
         elif operator == PropertyOperator.not_regex:
             return ast.Call(name="not", args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])])
         elif operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
-            op = ast.CompareOperationType.Eq
+            op = ast.CompareOperationOp.Eq
         elif operator == PropertyOperator.is_not:
-            op = ast.CompareOperationType.NotEq
+            op = ast.CompareOperationOp.NotEq
         elif operator == PropertyOperator.lt or operator == PropertyOperator.is_date_before:
-            op = ast.CompareOperationType.Lt
+            op = ast.CompareOperationOp.Lt
         elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
-            op = ast.CompareOperationType.Gt
+            op = ast.CompareOperationOp.Gt
         elif operator == PropertyOperator.lte:
-            op = ast.CompareOperationType.LtE
+            op = ast.CompareOperationOp.LtE
         elif operator == PropertyOperator.gte:
-            op = ast.CompareOperationType.GtE
+            op = ast.CompareOperationOp.GtE
         else:
             raise NotImplementedException(f"PropertyOperator {operator} not implemented")
+
+        # For Boolean and untyped properties, treat "true" and "false" as boolean values
+        if (
+            op == ast.CompareOperationOp.Eq
+            or op == ast.CompareOperationOp.NotEq
+            and team is not None
+            and (value == "true" or value == "false")
+        ):
+            property_types = PropertyDefinition.objects.filter(
+                team=team,
+                name=property.key,
+                type=PropertyDefinition.Type.PERSON if property.type == "person" else PropertyDefinition.Type.EVENT,
+            )[0:1].values_list("property_type", flat=True)
+            property_type = property_types[0] if property_types else None
+
+            if not property_type or property_type == PropertyType.Boolean:
+                if value == "true":
+                    value = True
+                if value == "false":
+                    value = False
 
         return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
 
@@ -183,7 +204,7 @@ def property_to_expr(
         if cohort.is_static:
             sql = "person_id in (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
         else:
-            sql = "person_id in (SELECT person_id FROM cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+            sql = "person_id in (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
 
         return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort.pk)})
     # "group",
@@ -212,9 +233,21 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.tag_name is not None:
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
-                exprs.append(element_chain_key_filter("href", step.href, PropertyOperator.exact))
+                if step.href_matching == ActionStep.REGEX:
+                    operator = PropertyOperator.regex
+                elif step.href_matching == ActionStep.CONTAINS:
+                    operator = PropertyOperator.icontains
+                else:
+                    operator = PropertyOperator.exact
+                exprs.append(element_chain_key_filter("href", step.href, operator))
             if step.text is not None:
-                exprs.append(element_chain_key_filter("text", step.text, PropertyOperator.exact))
+                if step.text_matching == ActionStep.REGEX:
+                    operator = PropertyOperator.regex
+                elif step.text_matching == ActionStep.CONTAINS:
+                    operator = PropertyOperator.icontains
+                else:
+                    operator = PropertyOperator.exact
+                exprs.append(element_chain_key_filter("text", step.text, operator))
 
         if step.url:
             if step.url_matching == ActionStep.EXACT:

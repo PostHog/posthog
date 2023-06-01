@@ -19,8 +19,24 @@ class PersonPropertiesMode(Enum):
     USING_PERSON_PROPERTIES_COLUMN = auto()
     # Used for generating query on Person table
     DIRECT = auto()
-    DIRECT_ON_EVENTS = auto()
+    """Get person property from the persons table, selecting the latest version of the person."""
     DIRECT_ON_PERSONS = auto()
+    """
+    Get person property from the persons table WITHOUT aggregation by version. Not fully accurate, as old versions
+    of the person will be matched, but useful for prefiltering on whether _any_ version of the person has ever matched.
+    That's a good way of eliminating most persons early on in the query pipeline, which can greatly reduce the overall
+    memory usage of a query (as aggregation by version happens in-memory).
+    """
+    DIRECT_ON_EVENTS = auto()
+    """
+    Get person property from the events table (persons-on-events v1 - no person ID overrides),
+    selecting the latest version of the person.
+    """
+    DIRECT_ON_EVENTS_WITH_POE_V2 = auto()
+    """
+    Get person property from the events table (persons-on-events v2 - accounting for person ID overrides),
+    selecting the latest version of the person.
+    """
 
 
 EARLIEST_TIMESTAMP = "2015-01-01"
@@ -69,6 +85,7 @@ def get_earliest_timestamp(team_id: int) -> datetime:
         GET_EARLIEST_TIMESTAMP_SQL,
         {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP},
         query_type="get_earliest_timestamp",
+        team_id=team_id,
     )
     if len(results) > 0:
         return results[0][0]
@@ -137,5 +154,8 @@ def correct_result_for_sampling(
 def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
     if team.person_on_events_mode == PersonOnEventsMode.DISABLED:
         return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+
+    if team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+        return PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
 
     return PersonPropertiesMode.DIRECT_ON_EVENTS

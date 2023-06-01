@@ -254,6 +254,7 @@ describe('filtersToQueryNode', () => {
                         kind: NodeKind.EventsNode,
                         event: '$pageview',
                         name: 'item1',
+                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.ActionsNode,
@@ -265,6 +266,7 @@ describe('filtersToQueryNode', () => {
                         kind: NodeKind.EventsNode,
                         event: '$autocapture',
                         name: 'item3',
+                        math: BaseMathType.TotalCount,
                     },
                 ],
             }
@@ -316,10 +318,12 @@ describe('filtersToQueryNode', () => {
                     aggregation_axis_format: 'numeric',
                     aggregation_axis_prefix: '£',
                     aggregation_axis_postfix: '%',
-                    breakdown_histogram_bin_count: 1,
                     formula: 'A+B',
                     shown_as: ShownAsValue.VOLUME,
                     display: ChartDisplayType.ActionsAreaGraph,
+                },
+                breakdown: {
+                    breakdown_histogram_bin_count: 1,
                 },
             }
             expect(result).toEqual(query)
@@ -893,6 +897,7 @@ describe('filtersToQueryNode', () => {
                     {
                         kind: NodeKind.EventsNode,
                         event: 'signed_up',
+                        math: BaseMathType.TotalCount,
                     },
                 ],
                 trendsFilter: {
@@ -976,6 +981,7 @@ describe('filtersToQueryNode', () => {
                             },
                         ],
                         custom_name: 'Viewed homepage',
+                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.EventsNode,
@@ -990,12 +996,14 @@ describe('filtersToQueryNode', () => {
                             },
                         ],
                         custom_name: 'Viewed signup page',
+                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.EventsNode,
                         event: 'signed_up',
                         name: 'signed_up',
                         custom_name: 'Signed up',
+                        math: BaseMathType.TotalCount,
                     },
                 ],
                 filterTestAccounts: true,
@@ -1052,17 +1060,20 @@ describe('filtersToQueryNode', () => {
                         event: 'signed_up',
                         name: 'signed_up',
                         custom_name: 'Signed up',
+                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.ActionsNode,
                         id: 1,
                         name: 'Interacted with file',
+                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.EventsNode,
                         event: 'upgraded_plan',
                         name: 'upgraded_plan',
                         custom_name: 'Upgraded plan',
+                        math: BaseMathType.TotalCount,
                     },
                 ],
                 filterTestAccounts: true,
@@ -1174,14 +1185,17 @@ describe('filtersToQueryNode', () => {
                     {
                         kind: NodeKind.EventsNode,
                         event: 'uploaded_file',
+                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.EventsNode,
                         event: 'downloaded_file',
+                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.EventsNode,
                         event: 'deleted_file',
+                        math: BaseMathType.TotalCount,
                     },
                 ],
                 interval: 'day',
@@ -1263,6 +1277,7 @@ describe('filtersToQueryNode', () => {
                     {
                         kind: NodeKind.EventsNode,
                         event: 'signed_up',
+                        math: BaseMathType.TotalCount,
                     },
                 ],
                 trendsFilter: {

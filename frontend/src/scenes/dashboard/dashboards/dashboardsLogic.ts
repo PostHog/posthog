@@ -1,82 +1,121 @@
-import { kea } from 'kea'
-import Fuse from 'fuse.js'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import FuseClass from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 import { userLogic } from 'scenes/userLogic'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectClean } from 'lib/utils'
+import { DashboardType } from '~/types'
 
 export enum DashboardsTab {
-    All = 'all',
-    Yours = 'yours',
-    Pinned = 'pinned',
-    Shared = 'shared',
+    Dashboards = 'dashboards',
+    Notebooks = 'notebooks',
     Templates = 'templates',
 }
 
-export const dashboardsLogic = kea<dashboardsLogicType>({
-    path: ['scenes', 'dashboard', 'dashboardsLogic'],
-    connect: { values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']] },
-    actions: {
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+export interface DashboardsFilters {
+    search: string
+    createdBy: string
+    pinned: boolean
+    shared: boolean
+}
+
+export const DEFAULT_FILTERS: DashboardsFilters = {
+    search: '',
+    createdBy: 'All users',
+    pinned: false,
+    shared: false,
+}
+
+// Helping kea-typegen navigate the exported default class for Fuse
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface Fuse extends FuseClass<DashboardType> {}
+
+export const dashboardsLogic = kea<dashboardsLogicType>([
+    path(['scenes', 'dashboard', 'dashboardsLogic']),
+    connect({ values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']] }),
+    actions({
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
-    },
-    reducers: {
-        searchTerm: {
-            setSearchTerm: (_, { searchTerm }) => searchTerm,
-        },
+        setFilters: (filters: Partial<DashboardsFilters>) => ({
+            filters,
+        }),
+    }),
+    reducers({
         currentTab: [
-            DashboardsTab.All as DashboardsTab,
+            DashboardsTab.Dashboards as DashboardsTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
             },
         ],
-    },
-    actionToUrl: ({ values }) => ({
+
+        filters: [
+            DEFAULT_FILTERS as DashboardsFilters,
+            {
+                setFilters: (state, { filters }) =>
+                    objectClean({
+                        ...(state || {}),
+                        ...filters,
+                    }),
+            },
+        ],
+    }),
+
+    selectors({
+        isFiltering: [
+            (s) => [s.filters],
+            (filters) => {
+                return Object.keys(filters).some(
+                    (key) => filters[key as keyof DashboardsFilters] !== DEFAULT_FILTERS[key]
+                )
+            },
+        ],
+        dashboards: [
+            (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse],
+            (dashboards, filters, fuse) => {
+                let haystack = dashboards
+                if (filters.search) {
+                    haystack = fuse.search(filters.search).map((result: any) => result.item)
+                }
+
+                if (filters.pinned) {
+                    haystack = haystack.filter((d) => d.pinned)
+                }
+                if (filters.shared) {
+                    haystack = haystack.filter((d) => d.is_shared)
+                }
+                if (filters.createdBy !== 'All users') {
+                    haystack = haystack.filter((d) => d.created_by?.uuid === filters.createdBy)
+                }
+
+                return haystack
+            },
+        ],
+
+        fuse: [
+            () => [dashboardsModel.selectors.nameSortedDashboards],
+            (dashboards): Fuse => {
+                return new FuseClass<DashboardType>(dashboards, {
+                    keys: ['key', 'name', 'description', 'tags'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+    }),
+    actionToUrl(({ values }) => ({
         setCurrentTab: () => {
-            const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
+            const tab = values.currentTab === DashboardsTab.Dashboards ? undefined : values.currentTab
             if (router.values.searchParams['tab'] === tab) {
                 return
             }
 
             router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
         },
-    }),
-    urlToAction: ({ actions }) => ({
+    })),
+    urlToAction(({ actions }) => ({
         '/dashboard': (_, searchParams) => {
-            const tab = searchParams['tab'] || DashboardsTab.All
+            const tab = searchParams['tab'] || DashboardsTab.Dashboards
             actions.setCurrentTab(tab)
         },
-    }),
-    selectors: {
-        dashboards: [
-            (selectors) => [
-                dashboardsModel.selectors.nameSortedDashboards,
-                selectors.searchTerm,
-                selectors.currentTab,
-                selectors.user,
-            ],
-            (dashboards, searchTerm, currentTab, user) => {
-                dashboards = dashboards
-                    .filter((d) => !d.deleted)
-                    .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
-                if (currentTab === DashboardsTab.Pinned) {
-                    dashboards = dashboards.filter((d) => d.pinned)
-                } else if (currentTab === DashboardsTab.Shared) {
-                    dashboards = dashboards.filter((d) => d.is_shared)
-                } else if (currentTab === DashboardsTab.Yours) {
-                    dashboards = dashboards.filter((d) => d.created_by && user && d.created_by?.uuid === user.uuid)
-                }
-                if (!searchTerm) {
-                    return dashboards
-                }
-                return new Fuse(dashboards, {
-                    keys: ['key', 'name', 'description', 'tags'],
-                    threshold: 0.3,
-                })
-                    .search(searchTerm)
-                    .map((result) => result.item)
-            },
-        ],
-    },
-})
+    })),
+])

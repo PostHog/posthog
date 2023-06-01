@@ -12,16 +12,17 @@
 -c requirements.txt
 
 ruff>=0.0.257
-pip-tools==6.6.2
+pip-tools==6.13.0
 mypy==0.981
 mypy-extensions==0.4.3
 datamodel-code-generator==0.16.1
 djangorestframework-stubs==1.4.0
 django-stubs==1.8.0
 Faker==17.5.0
-fakeredis==1.9.1
+fakeredis==2.11.0
 freezegun==1.2.2
-packaging==21.3
+packaging==23.1
+prance==0.22.2.22.0
 black==22.8.0
 types-markdown==3.3.9
 types-PyYAML==6.0.1
@@ -30,6 +31,7 @@ types-python-dateutil>=2.8.3
 types-pytz==2021.3.2
 types-redis==4.3.20
 types-requests==2.26.1
+parameterized==0.9.0
 pytest==6.2.5
 pytest-django==4.1.0
 pytest-env==0.6.2

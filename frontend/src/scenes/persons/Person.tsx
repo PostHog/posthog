@@ -11,7 +11,7 @@ import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonsTabType, PersonType } from '~/types'
+import { PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,7 +21,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -41,7 +41,7 @@ const { TabPane } = Tabs
 export const scene: SceneExport = {
     component: Person,
     logic: personsLogic,
-    paramsToProps: ({ params: { _: rawUrlId } }): typeof personsLogic['props'] => ({
+    paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),
@@ -107,11 +107,20 @@ export function Person(): JSX.Element | null {
         return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
     }
 
+    const url = urls.person(urlId || person.distinct_ids[0] || String(person.id))
+
     return (
         <>
             <PageHeader
                 title={asDisplay(person)}
                 caption={<PersonCaption person={person} />}
+                notebookProps={
+                    url
+                        ? {
+                              href: url,
+                          }
+                        : undefined
+                }
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
@@ -153,6 +162,7 @@ export function Person(): JSX.Element | null {
                     key={PersonsTabType.PROPERTIES}
                 >
                     <PropertiesTable
+                        type={PropertyDefinitionType.Person}
                         properties={person.properties || {}}
                         searchable
                         onEdit={editProperty}
@@ -182,7 +192,7 @@ export function Person(): JSX.Element | null {
                             pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                             fixedFilters={{ person_id: person.id }}
                             showPersonColumn={false}
-                            sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
+                            sceneUrl={url}
                         />
                     )}
                 </TabPane>
@@ -192,11 +202,11 @@ export function Person(): JSX.Element | null {
                 >
                     {!currentTeam?.session_recording_opt_in ? (
                         <div className="mb-4">
-                            <AlertMessage type="info">
+                            <LemonBanner type="info">
                                 Session recordings are currently disabled for this project. To use this feature, please
                                 go to your <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link> and
                                 enable it.
-                            </AlertMessage>
+                            </LemonBanner>
                         </div>
                     ) : null}
                     <SessionRecordingsPlaylist
@@ -256,10 +266,10 @@ export function Person(): JSX.Element | null {
                         scope={ActivityScope.PERSON}
                         id={person.id}
                         caption={
-                            <AlertMessage type="info">
+                            <LemonBanner type="info">
                                 This page only shows changes made by users in the PostHog site. Automatic changes from
                                 the API aren't shown here.
-                            </AlertMessage>
+                            </LemonBanner>
                         }
                     />
                 </TabPane>

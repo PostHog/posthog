@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     team_id Int64,
     properties VARCHAR,
     is_identified Int8,
-    is_deleted Int8 DEFAULT 0,
+    is_deleted Int8,
     version UInt64
     {extra_fields}
 ) ENGINE = {engine}
@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     distinct_id VARCHAR,
     person_id UUID,
     is_deleted Int8,
-    version Int64 DEFAULT 1
+    version Int64
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -321,6 +321,10 @@ INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, ve
 
 BULK_INSERT_PERSON_DISTINCT_ID2 = """
 INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) VALUES
+"""
+
+INSERT_PERSON_OVERRIDE = """
+INSERT INTO person_overrides (team_id, old_person_id, override_person_id, version, merged_at, oldest_event) SELECT %(team_id)s, %(old_person_id)s, %(override_person_id)s, %(version)s, %(merged_at)s, %(oldest_event)s VALUES
 """
 
 

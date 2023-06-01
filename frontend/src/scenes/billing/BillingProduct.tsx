@@ -2,11 +2,11 @@ import { LemonSelectOptions, LemonLabel, LemonButton, LemonInput, LemonDivider, 
 import clsx from 'clsx'
 import { useValues, useActions } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconEdit, IconDelete } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useState, useEffect, useMemo } from 'react'
-import { BillingProductV2Type } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
 import { convertAmountToUsage, convertUsageToAmount, summarizeUsage } from './billing-utils'
 import { BillingGaugeProps, BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
@@ -20,13 +20,20 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
     // The actual stored billing limit
     const customLimitUsd = billing?.custom_limits_usd?.[product.type]
+    const discountPercent = billing?.discount_percent
     const [isEditingBillingLimit, setIsEditingBillingLimit] = useState(false)
     const [billingLimitInput, setBillingLimitInput] = useState<number | undefined>(DEFAULT_BILLING_LIMIT)
+    const productAndAddonTiers: BillingV2TierType[][] = [
+        product.tiers,
+        ...product.addons
+            ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
+            ?.map((addon: BillingProductV2AddonType) => addon.tiers),
+    ].filter(Boolean) as BillingV2TierType[][]
 
     const billingLimitAsUsage = product.tiers
         ? isEditingBillingLimit
-            ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
-            : convertAmountToUsage(customLimitUsd || '', product.tiers)
+            ? convertAmountToUsage(`${billingLimitInput}`, productAndAddonTiers, discountPercent)
+            : convertAmountToUsage(customLimitUsd || '', productAndAddonTiers, discountPercent)
         : 0
 
     const usageKey = product.usage_key ?? product.type ?? ''
@@ -42,7 +49,13 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         setBillingLimitInput(
             parseInt(customLimitUsd || '0') ||
                 (product.tiers
-                    ? parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers))
+                    ? parseInt(
+                          convertUsageToAmount(
+                              (product.projected_usage || 0) * 1.5,
+                              productAndAddonTiers,
+                              discountPercent
+                          )
+                      )
                     : 0) ||
                 DEFAULT_BILLING_LIMIT
         )
@@ -63,7 +76,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             return actuallyUpdateLimit()
         }
 
-        const newAmountAsUsage = product.tiers ? convertAmountToUsage(`${value}`, product.tiers) : 0
+        const newAmountAsUsage = product.tiers
+            ? convertAmountToUsage(`${value}`, productAndAddonTiers, discountPercent)
+            : 0
 
         if (product.current_usage && newAmountAsUsage < product.current_usage) {
             LemonDialog.open({
@@ -193,7 +208,13 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             >
                                 Current bill
                             </LemonLabel>
-                            <div className="font-bold text-4xl">${product.current_amount_usd}</div>
+                            <div className="font-bold text-4xl">
+                                $
+                                {(
+                                    parseFloat(product.current_amount_usd || '') *
+                                    (1 - (billing?.discount_percent ? billing.discount_percent / 100 : 0))
+                                ).toFixed(2) || '0.00'}
+                            </div>
                         </div>
                         {product.tiered && product.tiers && (
                             <>
@@ -206,7 +227,11 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                         Predicted bill
                                     </LemonLabel>
                                     <div className="font-bold text-muted text-2xl">
-                                        ${product.projected_amount_usd || '0.00'}
+                                        $
+                                        {(
+                                            parseFloat(product.projected_amount_usd || '') *
+                                            (1 - (billing?.discount_percent ? billing.discount_percent / 100 : 0))
+                                        ).toFixed(2) || '0.00'}
                                     </div>
                                 </div>
                                 {billing?.billing_period?.interval == 'month' && (
@@ -293,9 +318,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                 {product.tiered && <BillingGauge items={billingGaugeItems} />}
 
                 {product.percentage_usage > 1 ? (
-                    <AlertMessage type={'error'}>
+                    <LemonBanner type={'error'}>
                         You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this product.
-                    </AlertMessage>
+                    </LemonBanner>
                 ) : null}
             </div>
 
@@ -310,9 +335,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                     style={{ width: size === 'medium' ? '20rem' : undefined }}
                 >
                     {product.price_description ? (
-                        <AlertMessage type="info">
+                        <LemonBanner type="info">
                             <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
-                        </AlertMessage>
+                        </LemonBanner>
                     ) : null}
 
                     {product.tiered ? (

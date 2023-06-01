@@ -11,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { AvailableFeature, ChartDisplayType, FilterType, FunnelStep, FunnelVizType, InsightType } from '~/types'
 import './Experiment.scss'
+import '../insights/Insight.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
@@ -33,7 +34,7 @@ import { router } from 'kea-router'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonDivider, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Form, Group } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { userLogic } from 'scenes/userLogic'
@@ -100,6 +101,7 @@ export function Experiment(): JSX.Element {
     const { insightProps } = useValues(
         insightLogic({
             dashboardItemId: experimentInsightId,
+            disableDataExploration: true,
         })
     )
     const {
@@ -409,7 +411,7 @@ export function Experiment(): JSX.Element {
                                             />
                                         </div>
                                         {flagAvailabilityWarning && (
-                                            <AlertMessage type="info" className="mt-3 mb-3">
+                                            <LemonBanner type="info" className="mt-3 mb-3">
                                                 These properties aren't immediately available on first page load for
                                                 unidentified persons. This experiment requires that at least one event
                                                 is sent prior to becoming available to your product or website.{' '}
@@ -420,7 +422,7 @@ export function Experiment(): JSX.Element {
                                                     {' '}
                                                     Learn more about how to make feature flags available instantly.
                                                 </a>
-                                            </AlertMessage>
+                                            </LemonBanner>
                                         )}
                                         <div className="mt-4 mb-2">
                                             <strong>Advanced Options</strong>
@@ -480,7 +482,7 @@ export function Experiment(): JSX.Element {
                                             )}
                                         </div>
                                         {flagImplementationWarning && (
-                                            <AlertMessage type="info" className="mt-3 mb-3">
+                                            <LemonBanner type="info" className="mt-3 mb-3">
                                                 We can't detect any feature flag information for this target metric.
                                                 Ensure that you're using the latest PostHog client libraries, and make
                                                 sure you manually send feature flag information for server-side
@@ -492,7 +494,7 @@ export function Experiment(): JSX.Element {
                                                     {' '}
                                                     Read the docs for how to do this for server-side libraries.
                                                 </a>
-                                            </AlertMessage>
+                                            </LemonBanner>
                                         )}
                                         {experimentInsightType === InsightType.FUNNELS && (
                                             <ActionFilter

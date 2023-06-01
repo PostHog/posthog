@@ -3,7 +3,8 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { InsightLogicProps } from '~/types'
 import { retentionPeopleLogic } from './retentionPeopleLogic'
-import { abstractRetentionLogic } from './abstractRetentionLogic'
+
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'
 
@@ -14,7 +15,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionModalLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [abstractRetentionLogic(props), ['aggregation'], groupsModel, ['aggregationLabel']],
+        values: [insightVizDataLogic(props), ['querySource'], groupsModel, ['aggregationLabel']],
         actions: [retentionPeopleLogic(props), ['loadPeople']],
     }),
     actions: () => ({
@@ -32,8 +33,9 @@ export const retentionModalLogic = kea<retentionModalLogicType>({
     },
     selectors: {
         aggregationTargetLabel: [
-            (s) => [s.aggregation, s.aggregationLabel],
-            ({ aggregation_group_type_index }, aggregationLabel): Noun => {
+            (s) => [s.querySource, s.aggregationLabel],
+            (querySource, aggregationLabel): Noun => {
+                const { aggregation_group_type_index } = querySource || {}
                 return aggregationLabel(aggregation_group_type_index)
             },
         ],

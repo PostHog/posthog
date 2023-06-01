@@ -75,13 +75,15 @@ class Lifecycle:
             },
             query_type="lifecycle_people",
             filter=filter,
+            team_id=team.pk,
         )
         people = get_persons_by_uuids(team=team, uuids=[p[0] for p in result])
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         from posthog.api.person import PersonSerializer
 
-        return PersonSerializer(people, many=True).data
+        serializer_context = {"get_team": lambda: team}
+        return PersonSerializer(people, context=serializer_context, many=True).data
 
     def _get_persons_urls(self, filter: Filter, entity: Entity, times: List[str], status) -> List[Dict[str, Any]]:
         persons_url = []
@@ -117,7 +119,7 @@ class LifecycleEventQuery(EventQuery):
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
             person_properties_mode=get_person_properties_mode(self._team),
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=self._person_id_alias,
         )
 
         self.params.update(prop_params)
@@ -140,7 +142,7 @@ class LifecycleEventQuery(EventQuery):
         entity_prop_query, entity_prop_params = self._get_prop_groups(
             self._filter.entities[0].property_groups,
             person_properties_mode=get_person_properties_mode(self._team),
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=self._person_id_alias,
             prepend="entity_props",
         )
 
@@ -162,7 +164,7 @@ class LifecycleEventQuery(EventQuery):
         return (
             LIFECYCLE_EVENTS_QUERY.format(
                 event_table_alias=self.EVENT_TABLE_ALIAS,
-                person_column=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
+                person_column=self._person_id_alias,
                 created_at_clause=created_at_clause,
                 distinct_id_query=self._get_person_ids_query(),
                 person_query=person_query,
@@ -207,7 +209,7 @@ class LifecycleEventQuery(EventQuery):
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = True if self._person_on_events_mode == PersonOnEventsMode.DISABLED else False
+        self._should_join_distinct_ids = self._person_on_events_mode != PersonOnEventsMode.V1_ENABLED
 
     def _determine_should_join_persons(self) -> None:
-        self._should_join_persons = True if self._person_on_events_mode == PersonOnEventsMode.DISABLED else False
+        self._should_join_persons = self._person_on_events_mode == PersonOnEventsMode.DISABLED

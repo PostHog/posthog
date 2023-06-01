@@ -28,10 +28,10 @@ export function AndOrFilterSelect({
                     {
                         label: 'all',
                         value: FilterLogicalOperator.And,
-                        element: (
+                        labelInMenu: (
                             <SelectOption
-                                title="All filter"
-                                description="All filters must be met (logical and)"
+                                title="All"
+                                description="Every single filter must match"
                                 value={FilterLogicalOperator.And}
                                 selectedValue={value}
                             />
@@ -40,10 +40,10 @@ export function AndOrFilterSelect({
                     {
                         label: 'any',
                         value: FilterLogicalOperator.Or,
-                        element: (
+                        labelInMenu: (
                             <SelectOption
-                                title="Any filter"
-                                description="Any filter can be met (logical or)"
+                                title="Any"
+                                description="One or more filters must match"
                                 value={FilterLogicalOperator.Or}
                                 selectedValue={value}
                             />
@@ -67,13 +67,13 @@ type SelectOptionProps = {
 const SelectOption = ({ title, description, value, selectedValue }: SelectOptionProps): JSX.Element => (
     <div className="flex p-2 items-center">
         <div
-            className={`flex font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${
+            className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${
                 value === selectedValue ? 'bg-primary text-white' : 'bg-mid text-primary-alt'
             }`}
         >
             {value}
         </div>
-        <div>
+        <div className="w-32">
             <div className="font-bold">{title}</div>
             <div className="font-normal">{description}</div>
         </div>

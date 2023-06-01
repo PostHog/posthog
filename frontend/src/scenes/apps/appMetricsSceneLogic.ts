@@ -212,17 +212,15 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             () => INITIAL_TABS.filter((tab) => values.showTab(tab))[0] ?? AppMetricsTab.History,
         ],
 
-        currentTime: [() => [], () => Date.now()],
-
         defaultDateFrom: [
-            (s) => [s.pluginConfig, s.currentTime],
-            (pluginConfig, currentTime) => {
+            (s) => [s.pluginConfig],
+            (pluginConfig) => {
                 if (!pluginConfig?.created_at) {
                     return DEFAULT_DATE_FROM
                 }
 
                 const installedAt = dayjs.utc(pluginConfig.created_at)
-                const daysSinceInstall = dayjs(currentTime).diff(installedAt, 'days', true)
+                const daysSinceInstall = dayjs().diff(installedAt, 'days', true)
                 if (daysSinceInstall <= 1) {
                     return '-24h'
                 } else if (daysSinceInstall <= 7) {
@@ -261,7 +259,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                     }
 
                     if (tab === AppMetricsTab.HistoricalExports) {
-                        return isExportEvents
+                        return !!isExportEvents
                     } else if (tab === AppMetricsTab.OnEvent && isExportEvents) {
                         // Hide onEvent tab for plugins using exportEvents
                         // :KLUDGE: if plugin has `onEvent` in source, that's called/tracked but we can't check that here.
@@ -273,11 +271,11 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                         return (
                             !isExportEvents &&
                             ['runEveryMinute', 'runEveryHour', 'runEveryDay'].some((method) =>
-                                capabilities.scheduled_tasks.includes(method)
+                                capabilities.scheduled_tasks?.includes(method)
                             )
                         )
                     } else {
-                        return capabilities.methods?.includes(tab)
+                        return !!capabilities.methods?.includes(tab)
                     }
                 },
         ],

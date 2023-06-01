@@ -4,7 +4,7 @@ import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/Person
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { IconPlus, IconSelectEvents, IconSelectProperties } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -44,10 +44,10 @@ export function CorrelationConfig(): JSX.Element {
             </h2>
             <p>Globally exclude events or properties that do not provide relevant signals for your conversions.</p>
 
-            <AlertMessage type="info">
+            <LemonBanner type="info">
                 Correlation analysis can automatically surface relevant signals for conversion, and help you understand
                 why your users dropped off and what makes them convert.
-            </AlertMessage>
+            </LemonBanner>
             {currentTeam && (
                 <div className="mt-4 space-y-2">
                     <div>
@@ -70,7 +70,7 @@ export function CorrelationConfig(): JSX.Element {
                             onChange={(excludedEvents) => handleChange(undefined, excludedEvents)}
                             selectedEvents={funnelCorrelationConfig.excluded_event_names || []}
                             addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />}>
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
                                     Add exclusion
                                 </LemonButton>
                             }
@@ -84,7 +84,7 @@ export function CorrelationConfig(): JSX.Element {
                         <div className="max-w-160">
                             <LemonSelectMultiple
                                 mode="multiple-custom"
-                                onChange={(properties) => handleChange(undefined, undefined, properties)}
+                                onChange={(properties: string[]) => handleChange(undefined, undefined, properties)}
                                 value={funnelCorrelationConfig.excluded_event_property_names || []}
                             />
                         </div>

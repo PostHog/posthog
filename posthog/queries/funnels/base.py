@@ -272,6 +272,7 @@ class ClickhouseFunnelBase(ABC):
             {**self.params, **self._filter.hogql_context.values},
             query_type=self.QUERY_TYPE,
             filter=self._filter,
+            team_id=self._team.pk,
         )
 
     def _get_timestamp_outer_select(self) -> str:
@@ -550,6 +551,8 @@ class ClickhouseFunnelBase(ABC):
 
             self.params.update(action_params)
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters)
+        elif entity.id is None:
+            content_sql = f"1 = 1 {filters}"
         else:
             if entity.id not in self.params[entity_name]:
                 self.params[entity_name].append(entity.id)

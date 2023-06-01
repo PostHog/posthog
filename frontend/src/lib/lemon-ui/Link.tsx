@@ -1,3 +1,4 @@
+import React from 'react'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
 
@@ -5,7 +6,16 @@ type RoutePart = string | Record<string, any>
 
 export type LinkProps = Pick<
     React.HTMLProps<HTMLAnchorElement>,
-    'target' | 'className' | 'onClick' | 'onMouseDown' | 'onMouseEnter' | 'onMouseLeave' | 'children' | 'title'
+    | 'target'
+    | 'className'
+    | 'onClick'
+    | 'onMouseDown'
+    | 'onMouseEnter'
+    | 'onMouseLeave'
+    | 'children'
+    | 'title'
+    | 'onKeyDown'
+    | 'onFocus'
 > & {
     /** The location to go to. This can be a kea-location or a "href"-like string */
     to?: string | [string, RoutePart?, RoutePart?]
@@ -31,33 +41,37 @@ const shouldForcePageLoad = (input: any): boolean => {
  * as well deciding when a given "to" link should be opened as a standard navigation (i.e. a standard href)
  * or whether to be routed internally via kea-router
  */
-export function Link({ to, target, disableClientSideRouting, preventClick = false, ...props }: LinkProps): JSX.Element {
-    const onClick = (event: React.MouseEvent<HTMLAnchorElement>): void => {
-        if (event.metaKey || event.ctrlKey) {
-            event.stopPropagation()
-            return
-        }
+export const Link: React.FC<LinkProps & React.RefAttributes<HTMLAnchorElement>> = React.forwardRef(
+    ({ to, target, disableClientSideRouting, preventClick = false, ...props }, ref) => {
+        const onClick = (event: React.MouseEvent<HTMLAnchorElement>): void => {
+            if (event.metaKey || event.ctrlKey) {
+                event.stopPropagation()
+                return
+            }
 
-        if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
-            event.preventDefault()
-            if (to && to !== '#' && !preventClick) {
-                if (Array.isArray(to)) {
-                    router.actions.push(...to)
-                } else {
-                    router.actions.push(to)
+            if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
+                event.preventDefault()
+                if (to && to !== '#' && !preventClick) {
+                    if (Array.isArray(to)) {
+                        router.actions.push(...to)
+                    } else {
+                        router.actions.push(to)
+                    }
                 }
             }
+            props.onClick?.(event)
         }
-        props.onClick?.(event)
-    }
 
-    return (
-        <a
-            {...props}
-            href={typeof to === 'string' ? to : '#'}
-            onClick={onClick}
-            target={target}
-            rel={target === '_blank' ? 'noopener noreferrer' : undefined}
-        />
-    )
-}
+        return (
+            <a
+                {...props}
+                ref={ref}
+                href={typeof to === 'string' ? to : '#'}
+                onClick={onClick}
+                target={target}
+                rel={target === '_blank' ? 'noopener noreferrer' : undefined}
+            />
+        )
+    }
+)
+Link.displayName = 'Link'

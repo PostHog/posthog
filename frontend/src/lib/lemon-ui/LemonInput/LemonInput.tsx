@@ -4,22 +4,24 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconClose, IconEyeHidden, IconEyeVisible, IconMagnifier } from 'lib/lemon-ui/icons'
 
-type LemonInputPropsBase = Pick<
-    // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
-    React.InputHTMLAttributes<HTMLInputElement>,
-    | 'className'
-    | 'onFocus'
-    | 'onBlur'
-    | 'autoFocus'
-    | 'maxLength'
-    | 'onKeyDown'
-    | 'onKeyUp'
-    | 'onKeyPress'
-    | 'autoComplete'
-    | 'autoCorrect'
-    | 'autoCapitalize'
-    | 'spellCheck'
-> & {
+interface LemonInputPropsBase
+    extends Pick<
+        // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
+        React.InputHTMLAttributes<HTMLInputElement>,
+        | 'className'
+        | 'onFocus'
+        | 'onBlur'
+        | 'autoFocus'
+        | 'maxLength'
+        | 'onKeyDown'
+        | 'onKeyUp'
+        | 'onKeyPress'
+        | 'autoComplete'
+        | 'autoCorrect'
+        | 'autoCapitalize'
+        | 'spellCheck'
+        | 'inputMode'
+    > {
     ref?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
@@ -43,7 +45,7 @@ type LemonInputPropsBase = Pick<
     'aria-label'?: string
 }
 
-type LemonInputPropsText = LemonInputPropsBase & {
+export interface LemonInputPropsText extends LemonInputPropsBase {
     type?: 'text' | 'email' | 'search' | 'url' | 'password'
     value?: string
     defaultValue?: string
@@ -51,14 +53,15 @@ type LemonInputPropsText = LemonInputPropsBase & {
     onPressEnter?: (newValue: string) => void
 }
 
-type LemonInputPropsNumber = LemonInputPropsBase &
-    Pick<React.InputHTMLAttributes<HTMLInputElement>, 'step' | 'min' | 'max'> & {
-        type: 'number'
-        value?: number
-        defaultValue?: number
-        onChange?: (newValue: number | undefined) => void
-        onPressEnter?: (newValue: number | undefined) => void
-    }
+export interface LemonInputPropsNumber
+    extends LemonInputPropsBase,
+        Pick<React.InputHTMLAttributes<HTMLInputElement>, 'step' | 'min' | 'max'> {
+    type: 'number'
+    value?: number
+    defaultValue?: number
+    onChange?: (newValue: number | undefined) => void
+    onPressEnter?: (newValue: number | undefined) => void
+}
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 
@@ -70,8 +73,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onBlur,
         onPressEnter,
         status = 'default',
-        allowClear = false,
-        fullWidth = false,
+        allowClear, // Default handled inside the component
+        fullWidth,
         prefix,
         suffix,
         type,
@@ -94,14 +97,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         setFocused(true)
     }
 
-    // Type=search has some special overrides
-    allowClear = allowClear ?? (type === 'search' ? true : false)
-    fullWidth = fullWidth ?? (type === 'search' ? false : true)
-    prefix = prefix ?? (type === 'search' ? <IconMagnifier /> : undefined)
-    // Type=password has some special overrides
-    suffix =
-        suffix ??
-        (type === 'password' ? (
+    if (type === 'search') {
+        allowClear = allowClear ?? true
+        prefix = prefix ?? <IconMagnifier />
+    } else if (type === 'password') {
+        suffix = suffix ?? (
             <LemonButton
                 size="small"
                 noPadding
@@ -114,13 +114,14 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                     setPasswordVisible(!passwordVisible)
                 }}
             />
-        ) : undefined)
-
+        )
+    }
     // allowClear button takes precedence if set
-    suffix =
-        allowClear && value ? (
+    if (allowClear && value) {
+        suffix = (
             <LemonButton
                 size="small"
+                noPadding
                 icon={<IconClose />}
                 status="primary-alt"
                 tooltip="Clear input"
@@ -134,9 +135,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                     focus()
                 }}
             />
-        ) : (
-            suffix
         )
+    }
 
     return (
         <span

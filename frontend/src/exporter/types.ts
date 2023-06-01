@@ -1,4 +1,4 @@
-import { DashboardType, InsightModel, TeamType } from '~/types'
+import { DashboardType, InsightModel, SessionRecordingType } from '~/types'
 
 export enum ExportType {
     Image = 'image',
@@ -10,11 +10,14 @@ export interface ExportOptions {
     whitelabel?: boolean
     noHeader?: boolean
     legend?: boolean
+    // Recording options
+    showInspector?: boolean
 }
 
 export interface ExportedData extends ExportOptions {
+    accessToken?: string
     type: ExportType
     dashboard?: DashboardType
     insight?: InsightModel
-    team?: Partial<TeamType>
+    recording?: SessionRecordingType
 }
