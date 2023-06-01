@@ -11,7 +11,6 @@ from posthog.hogql.database.models import (
     FieldTraverser,
 )
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, join_with_person_distinct_ids_table
-
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, join_with_person_overrides_table
 
 
