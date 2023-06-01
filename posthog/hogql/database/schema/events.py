@@ -66,6 +66,14 @@ class EventsTable(Table):
         join_function=join_with_person_distinct_ids_table,
     )
 
+    # Lazy table to fetch the overridden person_id
+    override: LazyJoin = LazyJoin(
+        from_field="person_id",
+        join_table=PersonOverridesTable(),
+        join_function=join_with_person_overrides_table,
+    )
+    override_person_id: BaseModel = FieldTraverser(chain=["override", "override_person_id"])
+
     # Person and group fields on the event itself. Should not be used directly.
     poe: EventsPersonSubTable = EventsPersonSubTable()
     goe_0: EventsGroupSubTable = EventsGroupSubTable(group_index=0)
@@ -77,13 +85,6 @@ class EventsTable(Table):
     # These are swapped out if the user has PoE enabled
     person: BaseModel = FieldTraverser(chain=["pdi", "person"])
     person_id: BaseModel = FieldTraverser(chain=["pdi", "person_id"])
-
-    person_overrides: LazyJoin = LazyJoin(
-        from_field="person_id",
-        join_table=PersonOverridesTable(),
-        join_function=join_with_person_overrides_table,
-    )
-    person_id_overridden: BaseModel = FieldTraverser(chain=["person_overrides", "override_person_id"])
 
     def clickhouse_table(self):
         return "events"

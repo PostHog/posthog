@@ -19,10 +19,11 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, RawPersonDistinctIdTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-from posthog.hogql.database.schema.person_overrides import PersonOverridesTable
+from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, RawPersonOverridesTable
 from posthog.hogql.database.schema.session_recording_events import SessionRecordingEvents
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
+from posthog.utils import PersonOnEventsMode
 
 
 class Database(BaseModel):
@@ -34,6 +35,7 @@ class Database(BaseModel):
     groups: GroupsTable = GroupsTable()
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
+    person_overrides: PersonOverridesTable = PersonOverridesTable()
 
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
     cohort_people: CohortPeople = CohortPeople()
@@ -43,7 +45,7 @@ class Database(BaseModel):
     raw_persons: RawPersonsTable = RawPersonsTable()
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
-    person_overrides: PersonOverridesTable = PersonOverridesTable()
+    raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
 
     def __init__(self, timezone: Optional[str]):
         super().__init__()
@@ -69,7 +71,8 @@ def create_hogql_database(team_id: int) -> Database:
 
     team = Team.objects.get(pk=team_id)
     database = Database(timezone=team.timezone)
-    if team.person_on_events_querying_enabled:
+    if team.person_on_events_mode != PersonOnEventsMode.DISABLED:
+        # TODO: split PoE v1 and v2 once SQL Expression fields are supported #15180
         database.events.person = FieldTraverser(chain=["poe"])
         database.events.person_id = StringDatabaseField(name="person_id")
     return database
