@@ -306,7 +306,7 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
                     />
                 </div>
             ) : (
-                menuItems?.length && (
+                !!menuItems?.length && (
                     <LemonMenu items={menuItems} onVisibilityChange={setIsMenuOpen}>
                         <div className="SidebarListItem__actions">
                             <LemonButton size="small" noPadding icon={<IconEllipsis />} />
