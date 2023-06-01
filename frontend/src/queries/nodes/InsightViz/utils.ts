@@ -46,6 +46,14 @@ export const getCompare = (query: InsightQueryNode): boolean | undefined => {
     }
 }
 
+export const getFormula = (query: InsightQueryNode): string | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.formula
+    } else {
+        return undefined
+    }
+}
+
 export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
