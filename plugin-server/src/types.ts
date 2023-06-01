@@ -196,7 +196,6 @@ export interface PluginsServerConfig extends RedisConfig {
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
     SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
-    SESSION_RECORDING_REDIS_URL: string
 }
 
 export interface Hub extends PluginsServerConfig {
