@@ -858,7 +858,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                   timestamp,
                   event,
                   groupArray(event) OVER w1 AS two_before,
-                  groupArray(event) OVER w2 AS two_after
+                  groupArray(event) OVER w2 AS two_after,
+                  row_number() OVER w1 AS rn_1,
+                  row_number() OVER w2 AS rn_2,
+                  first_value(event) OVER w1 AS first_value_1,
+                  last_value(event) OVER w1 AS last_value_1,
+                  first_value(event) OVER w2 AS first_value_2,
+                  last_value(event) OVER w2 AS last_value_2,
+                  rank() OVER w1 AS rank_1,
+                  dense_rank() OVER w2 AS rank_2
              from events
             where timestamp > toDateTime('2020-01-09 00:00:00')
               and distinct_id like '%_{random_uuid}'
@@ -877,6 +885,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "random event",
                     [],
                     ["random bla", "random boo"],
+                    1,
+                    1,
+                    "",
+                    "",
+                    "random bla",
+                    "random boo",
+                    1,
+                    1,
                 ),
                 (
                     f"person_{person}_{random_uuid}",
@@ -884,6 +900,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "random bla",
                     ["random event"],
                     ["random boo"],
+                    2,
+                    2,
+                    "random event",
+                    "random event",
+                    "random boo",
+                    "random boo",
+                    2,
+                    2,
                 ),
                 (
                     f"person_{person}_{random_uuid}",
@@ -891,6 +915,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "random boo",
                     ["random event", "random bla"],
                     [],
+                    3,
+                    3,
+                    "random event",
+                    "random bla",
+                    "",
+                    "",
+                    3,
+                    3,
                 ),
             ]
         self.assertEqual(response.results, expected)
