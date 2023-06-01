@@ -926,3 +926,92 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ),
             ]
         self.assertEqual(response.results, expected)
+
+    def test_with_pivot_table_1_level(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+            # sample pivot table, testing tuple access
+            query = """
+                 WITH PIVOT_TABLE_COL_ABC AS (
+                             SELECT properties.index as col_a,
+                                    event as col_b,
+                                    count() as col_c
+                               FROM events
+                           GROUP BY properties.index,
+                                    event
+                          ),
+                          PIVOT_FUNCTION_1 AS (
+                              select col_a, groupArray( (col_b, col_c) ) as g from
+                                PIVOT_TABLE_COL_ABC
+                                group by col_a
+                          ),
+                          PIVOT_FUNCTION_2 AS (
+                              select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) r from
+                              PIVOT_FUNCTION_1
+                              group by col_a
+                          )
+                   SELECT *
+                     from PIVOT_FUNCTION_2
+            """
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+            )
+            self.assertEqual(response.results, [("1", [("random event", 1)]), ("0", [("random event", 1)])])
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT PIVOT_FUNCTION_2.col_a, PIVOT_FUNCTION_2.r FROM "
+                f"(SELECT PIVOT_FUNCTION_1.col_a, arrayZip((sumMap(PIVOT_FUNCTION_1.g.1, PIVOT_FUNCTION_1.g.2) AS x).1, x.2) AS r "
+                f"FROM (SELECT PIVOT_TABLE_COL_ABC.col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g "
+                f"FROM (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') "
+                f"AS col_a, events.event AS col_b, count() AS col_c FROM events WHERE equals(events.team_id, {self.team.pk}) "
+                f"GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), "
+                f"'^\"|\"$', ''), events.event) AS PIVOT_TABLE_COL_ABC GROUP BY PIVOT_TABLE_COL_ABC.col_a) AS PIVOT_FUNCTION_1 "
+                f"GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2 "
+                f"LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
+            )
+
+    def test_with_pivot_table_2_levels(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+            # sample pivot table, testing tuple access
+            query = """
+                 WITH PIVOT_TABLE_COL_ABC AS (
+                             SELECT properties.index as col_a,
+                                    event as col_b,
+                                    count() as col_c
+                               FROM events
+                           GROUP BY properties.index,
+                                    event
+                          ),
+                          PIVOT_FUNCTION_1 AS (
+                              select col_a, groupArray( (col_b, col_c) ) as g from
+                                PIVOT_TABLE_COL_ABC
+                                group by col_a
+                          ),
+                          PIVOT_FUNCTION_2 AS (
+                              select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) r from
+                              PIVOT_FUNCTION_1
+                              group by col_a
+                          ),
+                          final as (select * from PIVOT_FUNCTION_2)
+                   SELECT *
+                     from final
+            """
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+            )
+            self.assertEqual(response.results, [("1", [("random event", 1)]), ("0", [("random event", 1)])])
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT final.col_a, final.r FROM (SELECT PIVOT_FUNCTION_2.col_a, PIVOT_FUNCTION_2.r FROM "
+                f"(SELECT PIVOT_FUNCTION_1.col_a, arrayZip((sumMap(PIVOT_FUNCTION_1.g.1, PIVOT_FUNCTION_1.g.2) AS x).1, x.2) AS r FROM "
+                f"(SELECT PIVOT_TABLE_COL_ABC.col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g FROM "
+                f"(SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS col_a, "
+                f"events.event AS col_b, count() AS col_c FROM events WHERE equals(events.team_id, {self.team.pk}) "
+                f"GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), "
+                f"events.event) AS PIVOT_TABLE_COL_ABC GROUP BY PIVOT_TABLE_COL_ABC.col_a) AS PIVOT_FUNCTION_1 "
+                f"GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2) AS final LIMIT 100 "
+                f"SETTINGS readonly=1, max_execution_time=60",
+            )
