@@ -104,14 +104,7 @@ jobs:
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-
-            - uses: syphar/restore-virtualenv@v1
-              id: cache-backend-tests
-              with:
-                  custom_cache_key_element: v1-
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+                  cache: 'pip'
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -191,14 +184,7 @@ jobs:
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-
-            - uses: syphar/restore-virtualenv@v1
-              id: cache-backend-tests
-              with:
-                  custom_cache_key_element: v1-
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+                  cache: 'pip'
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -288,14 +274,7 @@ jobs:
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-
-            - uses: syphar/restore-virtualenv@v1
-              id: cache-backend-tests
-              with:
-                  custom_cache_key_element: v1-
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+                  cache: 'pip'
 
             - name: Install SAML (python3-saml) dependencies
               run: |
