@@ -304,7 +304,7 @@ export function ActionFilterRow({
                     <>
                         {/* left section fixed */}
                         {rowStartElements.length ? (
-                            <div className="ActionFilterRow__start">{...rowStartElements}</div>
+                            <div className="ActionFilterRow__start">{rowStartElements}</div>
                         ) : null}
                         {/* central section flexible */}
                         <div className="ActionFilterRow__center">
