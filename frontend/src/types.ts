@@ -679,7 +679,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
-export type IsSessionRecordingActiveFilter = 'include' | 'exclude' | 'all'
+export type DurationFilterType = 'duration' | 'active_seconds'
 
 export interface RecordingFilters {
     date_from?: string | null
@@ -689,7 +689,7 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
-    include_active_sessions_filter?: IsSessionRecordingActiveFilter
+    duration_type_filter?: DurationFilterType
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {

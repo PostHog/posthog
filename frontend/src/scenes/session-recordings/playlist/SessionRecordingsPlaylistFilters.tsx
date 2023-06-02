@@ -4,7 +4,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { eventUsageLogic, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
-import { AvailableFeature, IsSessionRecordingActiveFilter, RecordingDurationFilter, ReplayTabs } from '~/types'
+import { AvailableFeature, DurationFilterType, RecordingDurationFilter, ReplayTabs } from '~/types'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { useActions, useValues } from 'kea'
@@ -13,7 +13,7 @@ import { SessionRecordingsPlaylistProps } from 'scenes/session-recordings/playli
 import clsx from 'clsx'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { IsActiveFilter } from '../filters/IsActiveFilter'
+import { DurationTypeFilter } from '../filters/DurationTypeFilter'
 
 export function SessionRecordingsPlaylistFilters({
     playlistShortId,
@@ -71,14 +71,14 @@ export function SessionRecordingsPlaylistFilters({
         />
     )
 
-    const isActiveFilters = (
-        <IsActiveFilter
-            onChange={(newFilter: IsSessionRecordingActiveFilter) => {
+    const durationTypeFilter = (
+        <DurationTypeFilter
+            onChange={(newFilter: DurationFilterType) => {
                 // TODO why not report the selection as well?
-                reportRecordingsListFilterAdded(SessionRecordingFilterType.IsActive)
-                setFilters({ include_active_sessions_filter: newFilter })
+                reportRecordingsListFilterAdded(SessionRecordingFilterType.DurationType)
+                setFilters({ duration_type_filter: newFilter })
             }}
-            initialFilter={filters.include_active_sessions_filter}
+            initialFilter={filters.duration_type_filter || 'duration'}
         />
     )
 
@@ -132,16 +132,11 @@ export function SessionRecordingsPlaylistFilters({
 
             <div className="flex items-center gap-4">
                 {dateFilter}
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
                     <LemonLabel>Duration</LemonLabel>
                     {durationFilter}
+                    {listingVersion === '3' ? <>of {durationTypeFilter}</> : null}
                 </div>
-                {listingVersion === '3' ? (
-                    <div className="flex gap-2">
-                        <LemonLabel>Include</LemonLabel>
-                        {isActiveFilters}
-                    </div>
-                ) : null}
             </div>
         </div>
     )
