@@ -44,7 +44,7 @@ from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.request import Request
-from sentry_sdk import configure_scope, capture_message
+from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 
 from posthog.cloud_utils import is_cloud
@@ -642,11 +642,6 @@ def decompress(data: Any, compression: str):
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
-        capture_message(
-            """lz64 compression is deprecated.
-            This is a tombstone message.
-            If we never see it, we can remove lzstring handling from the API"""
-        )
         if not isinstance(data, str):
             data = data.decode()
         data = data.replace(" ", "+")
