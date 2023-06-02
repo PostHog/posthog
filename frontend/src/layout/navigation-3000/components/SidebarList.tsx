@@ -13,6 +13,7 @@ import { List, ListProps } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
 import { useValues } from 'kea'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export function SidebarList({
     items,
@@ -25,44 +26,49 @@ export function SidebarList({
 }): JSX.Element {
     const { sidebarWidth } = useValues(navigation3000Logic)
 
+    const firstItem = items.find(Boolean)
+    const usingExtendedItemFormat = !!firstItem && 'summary' in firstItem
+
     const listProps = {
         className: 'SidebarList',
         width: sidebarWidth,
-        rowHeight: items.length > 0 && 'summary' in items[0] ? 46 : 32,
+        rowHeight: usingExtendedItemFormat ? 46 : 32,
         rowRenderer: ({ index, style }) => {
             const item = items[index]
-            let elementKey: React.Key
+            if (!item) {
+                return <SidebarListItemSkeleton key={index} style={style} />
+            }
             let active: boolean
             if (Array.isArray(item.key)) {
-                elementKey = item.key[0]
                 active = typeof activeItemKey === 'string' ? item.key.includes(activeItemKey) : false
             } else {
-                elementKey = item.key
                 active = item.key === activeItemKey
             }
-            return <SidebarListItem key={elementKey} item={item} active={active} style={style} />
+            return <SidebarListItem key={index} item={item} active={active} style={style} />
         },
+        overscanRowCount: 20,
+        tabIndex: null,
     } as ListProps
 
     return (
+        // The div is for AutoSizer to work
         <div className="flex-1">
-            {/* Autosizing context */}
-
             <AutoSizer disableWidth>
                 {({ height }) =>
                     remote ? (
                         <InfiniteLoader
-                            isRowLoaded={({ index }) => remote.isItemLoaded(index)}
+                            isRowLoaded={({ index }) => !!items[index]}
                             loadMoreRows={({ startIndex, stopIndex }) => remote.loadMoreItems(startIndex, stopIndex)}
                             rowCount={remote.itemCount}
+                            minimumBatchSize={remote.minimumBatchSize || 100} // Sync default with the REST_FRAMEWORK PAGE_SIZE setting
                         >
                             {({ onRowsRendered, registerChild }) => (
                                 <List
                                     {...listProps}
-                                    height={height}
-                                    rowCount={items.length}
-                                    onRowsRendered={onRowsRendered}
                                     ref={registerChild}
+                                    height={height}
+                                    rowCount={remote.itemCount}
+                                    onRowsRendered={onRowsRendered}
                                 />
                             )}
                         </InfiniteLoader>
@@ -81,8 +87,8 @@ function SidebarListItem({
     style,
 }: {
     item: BasicListItem | ExtendedListItem
-    active?: boolean
-    style?: React.CSSProperties
+    active: boolean
+    style: React.CSSProperties
 }): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [renamingName, setRenamingName] = useState<null | string>(null)
@@ -342,4 +348,15 @@ function TextWithHighlights({
 /** Smart rendering of list item extra context. */
 function ExtraContext({ data }: { data: ExtraListItemContext }): JSX.Element {
     return isDayjs(data) ? <TZLabel time={data} /> : <>{data}</>
+}
+
+function SidebarListItemSkeleton({ style }: { style: React.CSSProperties }): JSX.Element {
+    return (
+        <li
+            className="SidebarListItem SidebarListItem__link"
+            style={style} // eslint-disable-line react/forbid-dom-props
+        >
+            <LemonSkeleton />
+        </li>
+    )
 }

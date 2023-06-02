@@ -62,13 +62,14 @@ export const ACTIVITY_PAGE_SIZE = 20
 
 export interface PaginatedResponse<T> {
     results: T[]
+    count: number
     next?: string | null
     previous?: string | null
-    missing_persons?: number
+    missing_persons?: number // FIXME: This should not be here, it's only available for some lists of persons
 }
 
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
-    total_count: number
+    total_count: number // FIXME: This is non-standard naming, DRF uses `count` and we should use that consistently
 }
 
 export interface ApiMethodOptions {

@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { connect, kea, path, reducers, selectors } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -6,18 +6,13 @@ import { SidebarCategory, BasicListItem } from '../types'
 import { InsightModel } from '~/types'
 import { subscriptions } from 'kea-subscriptions'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import type { insightsSidebarLogicType } from './insightsType'
 import { findSearchTermInItemName } from './utils'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { api } from '@posthog/apps-common'
 import { insightsModel } from '~/models/insightsModel'
-
-export interface SearchMatch {
-    indices: readonly [number, number][]
-    key: string
-}
 
 export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'insightsSidebarLogic']),
@@ -32,15 +27,31 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
         ],
         actions: [savedInsightsLogic, ['loadInsights', 'setSavedInsightsFilters', 'duplicateInsight']],
     })),
+    reducers(() => ({
+        infiniteInsights: [
+            [] as (InsightModel | undefined)[],
+            {
+                [savedInsightsLogic.actionTypes.loadInsightsSuccess]: (state, { insights }) => {
+                    // Reset array if offset is 0
+                    const items: (InsightModel | undefined)[] = insights.offset === 0 ? [] : state.slice()
+                    for (let i = 0; i < insights.results.length; i++) {
+                        items[insights.offset + i] = insights.results[i]
+                    }
+                    return items
+                },
+            },
+        ],
+    })),
     selectors(({ actions, values }) => ({
         contents: [
-            (s) => [s.relevantInsights, s.insightsLoading, teamLogic.selectors.currentTeamId],
-            (relevantInsights, insightsLoading, currentTeamId) => [
+            (s) => [s.insights, s.infiniteInsights, s.insightsLoading, teamLogic.selectors.currentTeamId],
+            (insights, infiniteInsights, insightsLoading, currentTeamId) => [
                 {
                     key: 'insights',
                     title: 'Insights',
-                    items: relevantInsights.map(
+                    items: infiniteInsights.map(
                         (insight) =>
+                            insight &&
                             ({
                                 key: insight.short_id,
                                 name: insight.name || insight.derived_name || 'Untitled',
@@ -98,7 +109,17 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                             } as BasicListItem)
                     ),
                     loading: insightsLoading,
-                    // FIXME: Add remote
+                    remote: {
+                        loadMoreItems: async (startIndex) => {
+                            await savedInsightsLogic.actions.setSavedInsightsFilters(
+                                { page: Math.floor(startIndex / INSIGHTS_PER_PAGE) + 1 },
+                                true,
+                                false
+                            )
+                        },
+                        itemCount: insights.count,
+                        minimumBatchSize: INSIGHTS_PER_PAGE,
+                    },
                 } as SidebarCategory,
             ],
         ],
@@ -106,12 +127,6 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
             (s) => [s.activeScene, s.sceneParams],
             (activeScene, sceneParams) => {
                 return activeScene === Scene.Insight && sceneParams.params.shortId ? sceneParams.params.shortId : null
-            },
-        ],
-        relevantInsights: [
-            (s) => [s.insights],
-            (insights): InsightModel[] => {
-                return insights.results
             },
         ],
         // kea-typegen doesn't like selectors without deps, so searchTerm is just for appearances
@@ -122,7 +137,4 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
             actions.setSavedInsightsFilters({ search: searchTerm }, false, false)
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadInsights(false)
-    }),
 ])

@@ -25,8 +25,10 @@ export interface InsightsResult {
     count: number
     previous?: string
     next?: string
-    /** not in the API response */
+    /* not in the API response */
     filters?: SavedInsightFilters | null
+    /* not in the API response */
+    offset: number
 }
 
 export interface SavedInsightFilters {
@@ -81,7 +83,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
     },
     loaders: ({ values }) => ({
         insights: {
-            __default: { results: [], count: 0, filters: null } as InsightsResult,
+            __default: { results: [], count: 0, filters: null, offset: 0 } as InsightsResult,
             loadInsights: async ({ debounce }, breakpoint) => {
                 if (debounce && values.insights.filters !== null) {
                     await breakpoint(300)
@@ -125,7 +127,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                     window.scrollTo(0, 0)
                 }
 
-                return { ...response, filters }
+                return { ...response, filters, offset: params.offset }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
                 const response = await api.update(
@@ -238,7 +240,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             },
         ],
     }),
-    listeners: ({ actions, values, selectors }) => ({
+    listeners: ({ actions, asyncActions, values, selectors }) => ({
         setSavedInsightsFilters: async ({ merge, debounce }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
@@ -253,7 +255,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 await breakpoint(300)
             }
             if (firstLoad || !objectsEqual(oldFilters, filters)) {
-                actions.loadInsights(debounce)
+                await asyncActions.loadInsights(debounce)
             }
 
             // Filters from clicks come with "merge: true",
