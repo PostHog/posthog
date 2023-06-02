@@ -87,7 +87,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
-
         select_query = ast.SelectQuery(
             macros=self.visit(ctx.withClause()) if ctx.withClause() else None,
             select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
@@ -99,6 +98,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
             order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
         )
+
+        if ctx.windowClause():
+            select_query.window_exprs = {}
+            for index, window_expr in enumerate(ctx.windowClause().windowExpr()):
+                name = self.visit(ctx.windowClause().identifier()[index])
+                select_query.window_exprs[name] = self.visit(window_expr)
 
         if ctx.limitClause():
             limit_clause = ctx.limitClause()
@@ -116,8 +121,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedException(f"Unsupported: SelectStmt.topClause()")
         if ctx.arrayJoinClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.arrayJoinClause()")
-        if ctx.windowClause():
-            raise NotImplementedException(f"Unsupported: SelectStmt.windowClause()")
         if ctx.settingsClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.settingsClause()")
 
@@ -292,25 +295,44 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: SettingExpr")
 
     def visitWindowExpr(self, ctx: HogQLParser.WindowExprContext):
-        raise NotImplementedException(f"Unsupported node: WindowExpr")
+        frame = ctx.winFrameClause()
+        visited_frame = self.visit(frame) if frame else None
+        expr = ast.WindowExpr(
+            partition_by=self.visit(ctx.winPartitionByClause()) if ctx.winPartitionByClause() else None,
+            order_by=self.visit(ctx.winOrderByClause()) if ctx.winOrderByClause() else None,
+            frame_method="RANGE" if frame and frame.RANGE() else "ROWS" if frame and frame.ROWS() else None,
+            frame_start=visited_frame[0] if isinstance(visited_frame, tuple) else visited_frame,
+            frame_end=visited_frame[1] if isinstance(visited_frame, tuple) else None,
+        )
+        return expr
 
     def visitWinPartitionByClause(self, ctx: HogQLParser.WinPartitionByClauseContext):
-        raise NotImplementedException(f"Unsupported node: WinPartitionByClause")
+        return self.visit(ctx.columnExprList())
 
     def visitWinOrderByClause(self, ctx: HogQLParser.WinOrderByClauseContext):
-        raise NotImplementedException(f"Unsupported node: WinOrderByClause")
+        return self.visit(ctx.orderExprList())
 
     def visitWinFrameClause(self, ctx: HogQLParser.WinFrameClauseContext):
-        raise NotImplementedException(f"Unsupported node: WinFrameClause")
+        return self.visit(ctx.winFrameExtend())
 
     def visitFrameStart(self, ctx: HogQLParser.FrameStartContext):
-        raise NotImplementedException(f"Unsupported node: FrameStart")
+        return self.visit(ctx.winFrameBound())
 
     def visitFrameBetween(self, ctx: HogQLParser.FrameBetweenContext):
-        raise NotImplementedException(f"Unsupported node: FrameBetween")
+        return (self.visit(ctx.winFrameBound(0)), self.visit(ctx.winFrameBound(1)))
 
     def visitWinFrameBound(self, ctx: HogQLParser.WinFrameBoundContext):
-        raise NotImplementedException(f"Unsupported node: WinFrameBound")
+        if ctx.PRECEDING():
+            return ast.WindowFrameExpr(
+                frame_type="PRECEDING",
+                frame_value=self.visit(ctx.numberLiteral()).value if ctx.numberLiteral() else None,
+            )
+        if ctx.FOLLOWING():
+            return ast.WindowFrameExpr(
+                frame_type="FOLLOWING",
+                frame_value=self.visit(ctx.numberLiteral()).value if ctx.numberLiteral() else None,
+            )
+        return ast.WindowFrameExpr(frame_type="CURRENT ROW")
 
     def visitExpr(self, ctx: HogQLParser.ExprContext):
         return self.visit(ctx.columnExpr())
@@ -479,9 +501,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             op=ast.CompareOperationOp.NotEq if ctx.NOT() else ast.CompareOperationOp.Eq,
         )
 
-    def visitColumnExprWinFunctionTarget(self, ctx: HogQLParser.ColumnExprWinFunctionTargetContext):
-        raise NotImplementedException(f"Unsupported node: ColumnExprWinFunctionTarget")
-
     def visitColumnExprTrim(self, ctx: HogQLParser.ColumnExprTrimContext):
         raise NotImplementedException(f"Unsupported node: ColumnExprTrim")
 
@@ -557,8 +576,19 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprNot(self, ctx: HogQLParser.ColumnExprNotContext):
         return ast.Not(expr=self.visit(ctx.columnExpr()))
 
+    def visitColumnExprWinFunctionTarget(self, ctx: HogQLParser.ColumnExprWinFunctionTargetContext):
+        return ast.WindowFunction(
+            name=self.visit(ctx.identifier(0)),
+            args=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            over_identifier=self.visit(ctx.identifier(1)),
+        )
+
     def visitColumnExprWinFunction(self, ctx: HogQLParser.ColumnExprWinFunctionContext):
-        raise NotImplementedException(f"Unsupported node: ColumnExprWinFunction")
+        return ast.WindowFunction(
+            name=self.visit(ctx.identifier()),
+            args=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            over_expr=self.visit(ctx.windowExpr()) if ctx.windowExpr() else None,
+        )
 
     def visitColumnExprIdentifier(self, ctx: HogQLParser.ColumnExprIdentifierContext):
         return self.visit(ctx.columnIdentifier())

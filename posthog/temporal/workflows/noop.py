@@ -5,7 +5,7 @@ from typing import Any
 
 from temporalio import activity, workflow
 
-from posthog.temporal.workflows.base import CommandableWorkflow
+from posthog.temporal.workflows.base import PostHogWorkflow
 
 
 @dataclass
@@ -22,7 +22,7 @@ async def noop_activity(input: NoopActivityArgs) -> str:
 
 
 @workflow.defn(name="no-op")
-class NoOpWorkflow(CommandableWorkflow):
+class NoOpWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> Any:
         """Parse inputs from the management command CLI.

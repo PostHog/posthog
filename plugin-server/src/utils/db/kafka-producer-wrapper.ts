@@ -25,7 +25,7 @@ export class KafkaProducerWrapper {
         this.waitForAck = waitForAck
     }
 
-    async queueMessage(kafkaMessage: ProducerRecord, waitForAck?: boolean) {
+    async queueMessage(kafkaMessage: ProducerRecord, waitForAck?: boolean): Promise<void> {
         try {
             return await Promise.all(
                 kafkaMessage.messages.map((message) =>
@@ -47,7 +47,9 @@ export class KafkaProducerWrapper {
                         waitForAck: waitForAck === undefined ? this.waitForAck : waitForAck,
                     })
                 )
-            )
+            ).then((_) => {
+                return // Swallow the returned offsets, and return a void for easier typing
+            })
         } catch (error) {
             status.error('⚠️', 'kafka_produce_error', { error: error, topic: kafkaMessage.topic })
 

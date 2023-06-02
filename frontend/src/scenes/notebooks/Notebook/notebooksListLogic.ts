@@ -1,14 +1,22 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
-import { NotebookListItemType } from '~/types'
+import { NotebookListItemType, NotebookType } from '~/types'
 
 import type { notebooksListLogicType } from './notebooksListLogicType'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
+import posthog from 'posthog-js'
+import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates'
+import { deleteWithUndo } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+import FuseClass from 'fuse.js'
+// Helping kea-typegen navigate the exported default class for Fuse
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface Fuse extends FuseClass<NotebookListItemType> {}
 
-const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
+export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
     title: 'Scratchpad',
     created_at: '',
@@ -22,6 +30,10 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
         createNotebook: (redirect = false) => ({ redirect }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
+        deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
+    }),
+    connect({
+        values: [teamLogic, ['currentTeamId']],
     }),
 
     reducers({
@@ -33,7 +45,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
         ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         notebooks: [
             [] as NotebookListItemType[],
             {
@@ -51,7 +63,21 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                         router.actions.push(urls.notebookEdit(notebook.short_id))
                     }
 
-                    return [notebook]
+                    posthog.capture(`notebook created`, {
+                        short_id: notebook.short_id,
+                    })
+
+                    return [notebook, ...values.notebooks]
+                },
+
+                deleteNotebook: async ({ shortId, title }) => {
+                    deleteWithUndo({
+                        endpoint: `projects/${values.currentTeamId}/notebooks`,
+                        object: { name: title || shortId, id: shortId },
+                        callback: actions.loadNotebooks,
+                    })
+
+                    return values.notebooks.filter((n) => n.short_id !== shortId)
                 },
 
                 receiveNotebookUpdate: ({ notebook }) => {
@@ -59,5 +85,22 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 },
             },
         ],
+        notebookTemplates: [
+            LOCAL_NOTEBOOK_TEMPLATES as NotebookType[],
+            {
+                // In the future we can load these from remote
+            },
+        ],
     })),
+    selectors({
+        fuse: [
+            (s) => [s.notebooks],
+            (notebooks): Fuse => {
+                return new FuseClass<NotebookListItemType>(notebooks, {
+                    keys: ['title'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+    }),
 ])

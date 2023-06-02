@@ -3,8 +3,12 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
-import { InsightShortId, ReplayTabs } from '~/types'
+import { InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 import { combineUrl } from 'kea-router'
+import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
+import { EventsQuery } from '~/queries/schema'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -293,6 +297,24 @@ export const redirects: Record<
     '/events/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
+    '/events/:id/*': ({ id, _ }) => {
+        const query = getDefaultEventsSceneQuery([
+            {
+                type: PropertyFilterType.HogQL,
+                key: `uuid = '${id.replaceAll(/[^a-f0-9\-]/g, '')}'`,
+                value: null,
+            },
+        ])
+        try {
+            const timestamp = decodeURIComponent(_)
+            const after = dayjs(timestamp).subtract(1, 'second').startOf('second').toISOString()
+            const before = dayjs(timestamp).add(1, 'second').startOf('second').toISOString()
+            Object.assign(query.source as EventsQuery, { before, after })
+        } catch (e) {
+            lemonToast.error('Invalid event timestamp')
+        }
+        return combineUrl(urls.events(), {}, { q: query }).url
+    },
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
     '/recordings/:id': ({ id }) => urls.replaySingle(id),

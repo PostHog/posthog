@@ -54,6 +54,12 @@ LOG_RATE_LIMITER = Limiter(
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
+EVENTS_RECEIVED_COUNTER = Counter(
+    "capture_events_received_total",
+    "Events received by capture, tagged by resource type.",
+    labelnames=[LABEL_RESOURCE_TYPE],
+)
+
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_dropped_over_quota",
     "Events dropped by capture due to quota-limiting, per resource_type and token.",
@@ -230,15 +236,18 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
 
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
             if token in limited_tokens_recordings:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     continue
 
-        elif token in limited_tokens_events:
-            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
-            if settings.QUOTA_LIMITING_ENABLED:
-                continue
+        else:
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="events").inc()
+            if token in limited_tokens_events:
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
+                if settings.QUOTA_LIMITING_ENABLED:
+                    continue
 
         results.append(event)
 

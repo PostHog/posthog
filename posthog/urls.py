@@ -90,7 +90,7 @@ def home(request, *args, **kwargs):
 
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if not request.GET.get("redirect"):
-        return HttpResponse("You need to pass a url to ?redirect=", status=401)
+        return HttpResponse("You need to pass a url to ?redirect=", status=400)
     if not request.META.get("HTTP_REFERER"):
         return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
 
@@ -99,17 +99,17 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     redirect_url = urlparse(request.GET["redirect"])
 
     if not current_team or not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname):
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=400)
+        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     if referer_url.hostname != redirect_url.hostname:
-        return HttpResponse(f"Can only redirect to the same domain as the referer: {referer_url.hostname}", status=400)
+        return HttpResponse(f"Can only redirect to the same domain as the referer: {referer_url.hostname}", status=403)
 
     if referer_url.scheme != redirect_url.scheme:
-        return HttpResponse(f"Can only redirect to the same scheme as the referer: {referer_url.scheme}", status=400)
+        return HttpResponse(f"Can only redirect to the same scheme as the referer: {referer_url.scheme}", status=403)
 
     if referer_url.port != redirect_url.port:
         return HttpResponse(
-            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}", status=400
+            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}", status=403
         )
 
     return render_template(

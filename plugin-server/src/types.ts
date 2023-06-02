@@ -26,6 +26,7 @@ import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
+import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { PersonManager } from './worker/ingestion/person-manager'
@@ -110,6 +111,7 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
+    KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
@@ -124,6 +126,7 @@ export interface PluginsServerConfig {
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
+    SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
@@ -433,7 +436,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
-    runEventPipeline: (event: PipelineEvent) => Promise<void>
+    runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 
 export type VMMethods = {
