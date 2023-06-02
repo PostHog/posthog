@@ -739,8 +739,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             {
                                 "action": "changed",
                                 "before": [
-                                    {"id": dashboard_two_id, "name": "dash 2"},
                                     {"id": dashboard_one_id, "name": "dash 1"},
+                                    {"id": dashboard_two_id, "name": "dash 2"},
                                 ],
                                 "after": [{"id": dashboard_one_id, "name": "dash 1"}],
                                 "field": "dashboards",
