@@ -6,23 +6,23 @@
     .NotebookEditor {
         flex: 1;
 
-        h1,
-        h2,
-        h3,
-        h4,
-        h5 {
+        > h1,
+        > h2,
+        > h3,
+        > h4,
+        > h5 {
             margin-top: 0.5rem;
         }
 
-        p {
+        > p {
             margin-bottom: 0.2rem;
         }
 
-        &.ProseMirror-focused {
+        > &.ProseMirror-focused {
             outline: none;
         }
 
-        .is-empty::before {
+        > .is-empty::before {
             content: attr(data-placeholder);
             float: left;
             color: rgba(0, 0, 0, 0.2);
@@ -30,12 +30,18 @@
             height: 0;
         }
 
-        ul,
+        > ul,
         ol {
             padding-left: 1rem;
+
+            li {
+                p {
+                    margin-bottom: 0.2rem;
+                }
+            }
         }
 
-        ul {
+        > ul {
             list-style: initial;
         }
     }

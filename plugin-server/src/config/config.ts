@@ -46,6 +46,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: 500, // Timeout on reads from the prefetch buffer before running consumer loops
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+        KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
         KAFKA_PRODUCER_WAIT_FOR_ACK: true, // Turning it off can lead to dropped data
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,

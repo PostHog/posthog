@@ -194,7 +194,7 @@ export function PropertyValue({
     return isDateTimeProperty ? (
         <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
     ) : isDurationProperty ? (
-        <DurationPicker autoFocus={autoFocus} initialValue={value as number} onChange={setValue} />
+        <DurationPicker autoFocus={autoFocus} value={value as number} onChange={setValue} />
     ) : (
         <AutoComplete
             {...commonInputProps}
