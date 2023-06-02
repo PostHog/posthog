@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
 import {
@@ -247,10 +247,12 @@ export const personsLogic = kea<personsLogicType>({
     }),
     loaders: ({ values, actions, props }) => ({
         persons: [
-            { next: null, previous: null, results: [] } as PaginatedResponse<PersonType>,
+            { next: null, previous: null, count: 0, results: [], offset: 0 } as PaginatedResponse<PersonType> & {
+                offset: number
+            },
             {
-                loadPersons: async ({ url }, breakpoint) => {
-                    let result: PaginatedResponse<PersonType>
+                loadPersons: async ({ url }) => {
+                    let result: PaginatedResponse<PersonType> & { offset: number }
                     if (!url) {
                         const newFilters = { ...values.listFilters }
                         newFilters.properties = [
@@ -258,14 +260,16 @@ export const personsLogic = kea<personsLogicType>({
                             ...values.hiddenListProperties,
                         ]
                         if (props.cohort) {
-                            result = await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)
+                            result = {
+                                ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
+                                offset: 0,
+                            }
                         } else {
-                            result = await api.persons.list(newFilters)
+                            result = { ...(await api.persons.list(newFilters)), offset: 0 }
                         }
                     } else {
-                        result = await api.get(url)
+                        result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) }
                     }
-                    breakpoint()
                     return result
                 },
             },
