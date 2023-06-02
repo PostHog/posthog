@@ -1,7 +1,7 @@
-import { useValues } from "kea"
-import { teamLogic } from "../teamLogic"
-import { useCallback, useEffect, useState } from "react"
-import api from "../../lib/api"
+import { useValues } from 'kea'
+import { teamLogic } from '../teamLogic'
+import { useCallback, useEffect, useState } from 'react'
+import api from '../../lib/api'
 
 export const useCurrentTeamId = (): { currentTeamId: number } => {
     // Returns the current team ID from the team logic. We assume that in all
@@ -72,7 +72,6 @@ type S3Destination = {
 
 type Destination = S3Destination
 
-
 export type BatchExportData = {
     // User provided data for the export. This is the data that the user
     // provides when creating the export.
@@ -92,7 +91,6 @@ export type BatchExport = {
 export type BatchExportsResponse = {
     results: BatchExport[]
 }
-
 
 export const useCreateExport = (): {
     loading: boolean
@@ -119,7 +117,6 @@ export const useCreateExport = (): {
 
     return { createExport, ...state }
 }
-
 
 export const useExport = (
     teamId: number,
