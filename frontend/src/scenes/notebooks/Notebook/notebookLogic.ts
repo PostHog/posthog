@@ -14,7 +14,7 @@ import {
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
-import { NotebookSyncStatus, NotebookType, NotebookNodeType } from '~/types'
+import { NotebookSyncStatus, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
 import { JSONContent, Editor } from './utils'
@@ -41,7 +41,6 @@ export const notebookLogic = kea<notebookLogicType>([
     }),
     actions({
         setEditorRef: (editor: Editor) => ({ editor }),
-        addNodeToNotebook: (type: NotebookNodeType, props: Record<string, any>) => ({ type, props }),
         onEditorUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearLocalContent: true,
@@ -182,6 +181,10 @@ export const notebookLogic = kea<notebookLogicType>([
         syncStatus: [
             (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
             (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus | undefined => {
+                if (notebook?.is_template) {
+                    return 'synced'
+                }
+
                 if (isLocalOnly) {
                     return 'local'
                 }
@@ -206,21 +209,6 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
     listeners(({ values, actions, sharedListeners }) => ({
-        addNodeToNotebook: ({ type, props }) => {
-            if (!values.editor) {
-                return
-            }
-
-            values.editor
-                .chain()
-                .focus()
-                .insertContent({
-                    type,
-                    attrs: props,
-                })
-                .run()
-        },
-
         setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
 

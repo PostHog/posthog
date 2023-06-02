@@ -93,6 +93,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                         size="small"
                                         onClick={() => setFullScreen(!fullScreen)}
                                         status="primary-alt"
+                                        active={fullScreen}
                                         icon={<IconFullScreen />}
                                     />
 

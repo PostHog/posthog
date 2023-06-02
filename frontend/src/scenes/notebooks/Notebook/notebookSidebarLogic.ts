@@ -1,5 +1,4 @@
 import { actions, kea, reducers, path, listeners, connect } from 'kea'
-import { notebookLogic } from './notebookLogic'
 
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
 import { urlToAction } from 'kea-router'
@@ -7,14 +6,12 @@ import { notebooksListLogic } from './notebooksListLogic'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
 import { subscriptions } from 'kea-subscriptions'
-import { NotebookNodeType } from '~/types'
 
 export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookSidebarLogic']),
     actions({
         setNotebookSideBarShown: (shown: boolean) => ({ shown }),
         setFullScreen: (full: boolean) => ({ full }),
-        addNodeToNotebook: (type: NotebookNodeType, properties: Record<string, any>) => ({ type, properties }),
         selectNotebook: (id: string) => ({ id }),
         onResize: (event: { originX: number; desiredX: number; finished: boolean }) => event,
         setDesiredWidth: (width: number) => ({ width }),
@@ -72,11 +69,6 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     }),
 
     listeners(({ values, actions, cache }) => ({
-        addNodeToNotebook: ({ type, properties }) => {
-            notebookLogic({ shortId: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
-            actions.setNotebookSideBarShown(true)
-        },
-
         createNotebookSuccess: ({ notebooks }) => {
             // NOTE: This is temporary: We probably only want to select it if it is created from the sidebar
             actions.selectNotebook(notebooks[notebooks.length - 1].short_id)
