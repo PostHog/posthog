@@ -34,7 +34,7 @@ def join_with_person_distinct_ids_table(
     if not requested_fields:
         raise HogQLException("No fields requested from person_distinct_ids.")
     join_expr = ast.JoinExpr(table=select_from_person_distinct_ids_table(requested_fields))
-    join_expr.join_type = "INNER JOIN"
+    join_expr.join_type = "LEFT JOIN"
     join_expr.alias = to_table
     join_expr.constraint = ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
