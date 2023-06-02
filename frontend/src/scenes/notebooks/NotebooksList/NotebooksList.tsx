@@ -5,11 +5,13 @@ import { NotebookListItemType } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { notebooksListLogic } from '../Notebook/notebooksListLogic'
 import { useEffect } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { router } from 'kea-router'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
 
 export function NotebooksTable(): JSX.Element {
     const { notebooks, notebooksLoading } = useValues(notebooksListLogic)
@@ -43,6 +45,38 @@ export function NotebooksTable(): JSX.Element {
             NotebookListItemType,
             keyof NotebookListItemType | undefined
         >,
+        {
+            title: 'Actions',
+            // dataIndex: 'title',
+            // width: '40%',
+            render: function Render(_, notebook) {
+                return (
+                    <LemonMenu
+                        items={[
+                            {
+                                items: [
+                                    {
+                                        label: 'Delete',
+                                        icon: <IconDelete />,
+                                        status: 'danger',
+
+                                        onClick: () => {
+                                            notebooksListLogic.actions.deleteNotebook(
+                                                notebook.short_id,
+                                                notebook?.title
+                                            )
+                                        },
+                                    },
+                                ],
+                            },
+                        ]}
+                        actionable
+                    >
+                        <LemonButton aria-label="more" icon={<IconEllipsis />} status="stealth" size="small" />
+                    </LemonMenu>
+                )
+            },
+        },
     ]
 
     return (

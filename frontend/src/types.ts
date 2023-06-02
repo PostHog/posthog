@@ -2896,6 +2896,7 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
+    is_template?: boolean
     content: JSONContent // TODO: Type this better
     version: number
 }

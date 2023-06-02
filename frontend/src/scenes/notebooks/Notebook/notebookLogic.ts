@@ -20,6 +20,10 @@ import { NotebookSyncStatus, NotebookType, NotebookNodeType } from '~/types'
 import { JSONContent, Editor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
+import { downloadFile, slugify } from 'lib/utils'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
+import { lemonToast } from '@posthog/lemon-ui'
 
 const SYNC_DELAY = 1000
 
@@ -32,7 +36,7 @@ export const notebookLogic = kea<notebookLogicType>([
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId }) => shortId),
     connect({
-        values: [notebooksListLogic, ['scratchpadNotebook']],
+        values: [notebooksListLogic, ['scratchpadNotebook', 'notebookTemplates']],
         actions: [notebooksListLogic, ['receiveNotebookUpdate']],
     }),
     actions({
@@ -44,6 +48,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setReady: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        exportJSON: true,
     }),
     reducers({
         localContent: [
@@ -82,6 +87,11 @@ export const notebookLogic = kea<notebookLogicType>([
                             content: {},
                             version: 0,
                         }
+                    } else if (props.shortId.startsWith('template-')) {
+                        response = values.notebookTemplates.find((template) => template.short_id === props.shortId)
+                        if (response) {
+                            response.is_template = true
+                        }
                     } else {
                         response = await api.notebooks.get(props.shortId)
                     }
@@ -113,6 +123,31 @@ export const notebookLogic = kea<notebookLogicType>([
                     if (notebook.content === values.localContent) {
                         actions.clearLocalContent()
                     }
+
+                    return response
+                },
+            },
+        ],
+
+        newNotebook: [
+            undefined as NotebookType | undefined,
+            {
+                duplicateNotebook: async () => {
+                    if (!values.notebook) {
+                        return
+                    }
+
+                    const response = await api.notebooks.create({
+                        content: values.notebook.content,
+                        title: values.notebook.title,
+                    })
+
+                    posthog.capture(`notebook duplicated`, {
+                        short_id: response.short_id,
+                    })
+
+                    lemonToast.success('Notebook created from template!')
+                    router.actions.push(urls.notebookEdit(response.short_id))
 
                     return response
                 },
@@ -211,6 +246,16 @@ export const notebookLogic = kea<notebookLogicType>([
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,
         loadNotebookSuccess: sharedListeners.onNotebookChange,
+
+        exportJSON: () => {
+            const file = new File(
+                [JSON.stringify(values.editor?.getJSON())],
+                `${slugify(values.title ?? 'untitled')}.ph-notebook.json`,
+                { type: 'application/json' }
+            )
+
+            downloadFile(file)
+        },
     })),
 
     afterMount(({ actions }) => {

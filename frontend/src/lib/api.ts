@@ -1164,8 +1164,11 @@ const api = {
         async list(): Promise<PaginatedResponse<NotebookType>> {
             return await new ApiRequest().notebooks().get()
         },
-        async create(data?: Pick<NotebookType, 'content'>): Promise<NotebookType> {
+        async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
+        },
+        async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).delete()
         },
     },
 

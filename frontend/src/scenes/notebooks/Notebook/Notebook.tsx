@@ -20,6 +20,7 @@ import { NotFound } from 'lib/components/NotFound'
 import clsx from 'clsx'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import posthog from 'posthog-js'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export type NotebookProps = {
     shortId: string
@@ -35,7 +36,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading, isEmpty } = useValues(logic)
-    const { setEditorRef, onEditorUpdate } = useActions(logic)
+    const { setEditorRef, onEditorUpdate, duplicateNotebook } = useActions(logic)
 
     const { isExpanded } = useValues(notebookSettingsLogic)
 
@@ -205,7 +206,23 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                         </h1>
                     </div>
                 ) : (
-                    <EditorContent editor={_editor} className="flex flex-col flex-1" />
+                    <>
+                        {notebook.is_template && (
+                            <LemonBanner
+                                type="info"
+                                className="my-4"
+                                action={{
+                                    onClick: () => {
+                                        duplicateNotebook()
+                                    },
+                                    children: 'Create notebook',
+                                }}
+                            >
+                                <b>This is a template.</b> You can create a copy of it to edit and use as your own.
+                            </LemonBanner>
+                        )}
+                        <EditorContent editor={_editor} className="flex flex-col flex-1" />
+                    </>
                 )}
             </div>
         </BindLogic>
