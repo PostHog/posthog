@@ -2899,6 +2899,7 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
+    is_template?: boolean
     content: JSONContent // TODO: Type this better
     version: number
 }
@@ -2906,6 +2907,16 @@ export type NotebookType = NotebookListItemType & {
 export enum NotebookMode {
     View = 'view',
     Edit = 'edit',
+}
+
+export enum NotebookNodeType {
+    Insight = 'ph-insight',
+    Query = 'ph-query',
+    Recording = 'ph-recording',
+    RecordingPlaylist = 'ph-recording-playlist',
+    FeatureFlag = 'ph-feature-flag',
+    Person = 'ph-person',
+    Link = 'ph-link',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
