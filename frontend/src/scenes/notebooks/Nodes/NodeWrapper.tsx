@@ -9,7 +9,7 @@ import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { posthog } from 'posthog-js'
-import { NotebookNodeType } from './types'
+import { NotebookNodeType } from '~/types'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string

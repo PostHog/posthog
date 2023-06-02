@@ -1,7 +1,7 @@
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconJournalPlus } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from '~/types'
 import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'

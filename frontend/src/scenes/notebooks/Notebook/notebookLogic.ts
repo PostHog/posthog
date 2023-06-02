@@ -11,12 +11,10 @@ import {
     selectors,
     sharedListeners,
 } from 'kea'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
-import { NotebookSyncStatus, NotebookType } from '~/types'
+import { NotebookSyncStatus, NotebookType, NotebookNodeType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
 import { JSONContent, Editor } from './utils'
@@ -141,7 +139,6 @@ export const notebookLogic = kea<notebookLogicType>([
 
         isEmpty: [
             (s) => [s.editor, s.content],
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             (editor): boolean => {
                 return editor?.isEmpty ?? false
             },

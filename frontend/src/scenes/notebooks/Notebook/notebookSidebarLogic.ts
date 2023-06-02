@@ -1,5 +1,4 @@
 import { actions, kea, reducers, path, listeners, connect } from 'kea'
-import { NotebookNodeType } from '../Nodes/types'
 import { notebookLogic } from './notebookLogic'
 
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
@@ -8,6 +7,7 @@ import { notebooksListLogic } from './notebooksListLogic'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
 import { subscriptions } from 'kea-subscriptions'
+import { NotebookNodeType } from '~/types'
 
 export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookSidebarLogic']),

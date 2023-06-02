@@ -1,5 +1,5 @@
 import React from 'react'
-import { NotebookNodeType } from '../Nodes/types'
+import { NotebookNodeType } from '~/types'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import './DraggableToNotebook.scss'
 import { useActions } from 'kea'
