@@ -37,7 +37,7 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractCommentOrAlias, removeCommentOrAlias } from '~/queries/nodes/DataTable/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
@@ -81,9 +81,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key, context }
-    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
-        dataTableLogic(dataTableLogicProps)
-    )
+    const { dataTableRows, columnsInLemonTable, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } =
+        useValues(dataTableLogic(dataTableLogicProps))
 
     const {
         showActions,
@@ -104,7 +103,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     const isReadOnly = setQuery === undefined
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
-    const columnsInLemonTable = isHogQLQuery(query.source) ? columnsInResponse ?? columnsInQuery : columnsInQuery
 
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
@@ -132,9 +130,9 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                 !isReadOnly && showActions && isEventsQuery(query.source) ? (
                     <>
                         <div className="px-2 py-1">
-                            <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
-                            {extractExpressionComment(key) !== removeExpressionComment(key) && (
-                                <div className="font-mono">{removeExpressionComment(key)}</div>
+                            <div className="font-mono font-bold">{extractCommentOrAlias(key)}</div>
+                            {extractCommentOrAlias(key) !== removeCommentOrAlias(key) && (
+                                <div className="font-mono">{removeCommentOrAlias(key)}</div>
                             )}
                         </div>
                         <LemonDivider />
@@ -259,15 +257,15 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                     status="danger"
                                     data-attr="datatable-remove-column"
                                     onClick={() => {
-                                        const cleanColumnKey = removeExpressionComment(key)
+                                        const cleanColumnKey = removeCommentOrAlias(key)
                                         const newSource: EventsQuery = {
                                             ...(query.source as EventsQuery),
                                             select: (query.source as EventsQuery).select.filter((_, i) => i !== index),
                                             // remove the current column from orderBy if it's there
                                             orderBy: (query.source as EventsQuery).orderBy?.find(
                                                 (orderKey) =>
-                                                    removeExpressionComment(orderKey) === cleanColumnKey ||
-                                                    removeExpressionComment(orderKey) === `-${cleanColumnKey}`
+                                                    removeCommentOrAlias(orderKey) === cleanColumnKey ||
+                                                    removeCommentOrAlias(orderKey) === `-${cleanColumnKey}`
                                             )
                                                 ? undefined
                                                 : (query.source as EventsQuery).orderBy,

@@ -1,24 +1,30 @@
 import {
     defaultDataTableEventColumns,
     defaultDataTablePersonColumns,
-    extractExpressionComment,
+    extractCommentOrAlias,
     getColumnsForQuery,
-    removeExpressionComment,
+    removeCommentOrAlias,
 } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema'
 
 describe('DataTable utils', () => {
-    it('extractExpressionComment', () => {
-        expect(extractExpressionComment('')).toBe('')
-        expect(extractExpressionComment('asd -- bla')).toBe('bla')
-        expect(extractExpressionComment('asd -- asd --   bla  ')).toBe('bla')
+    it('extractCommentOrAlias', () => {
+        expect(extractCommentOrAlias('')).toBe('')
+        expect(extractCommentOrAlias('asd -- bla')).toBe('bla')
+        expect(extractCommentOrAlias('asd -- asd --   bla  ')).toBe('bla')
+        expect(extractCommentOrAlias('asd as `hello`')).toBe('hello')
+        expect(extractCommentOrAlias('asd as "hello world"')).toBe('hello world')
+        expect(extractCommentOrAlias('asd as $bandana')).toBe('$bandana')
     })
 
-    it('removeExpressionComment', () => {
-        expect(removeExpressionComment('')).toBe('')
-        expect(removeExpressionComment('asd -- bla')).toBe('asd')
-        expect(removeExpressionComment('asd -- asd --   bla  ')).toBe('asd -- asd')
-        expect(removeExpressionComment(' hoho trim  -- trim')).toBe('hoho trim')
+    it('removeCommentOrAlias', () => {
+        expect(removeCommentOrAlias('')).toBe('')
+        expect(removeCommentOrAlias('asd -- bla')).toBe('asd')
+        expect(removeCommentOrAlias('asd -- asd --   bla  ')).toBe('asd -- asd')
+        expect(removeCommentOrAlias(' hoho trim  -- trim')).toBe('hoho trim')
+        expect(removeCommentOrAlias('asd as `hello`')).toBe('asd')
+        expect(removeCommentOrAlias('asd as "hello world"')).toBe('asd')
+        expect(removeCommentOrAlias('asd as $bandana')).toBe('asd')
     })
 
     it('getColumnsForQuery', () => {

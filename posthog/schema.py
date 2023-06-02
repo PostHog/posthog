@@ -181,7 +181,6 @@ class EventsQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    aliases: List[str]
     columns: List
     hasMore: Optional[bool] = None
     results: List[List]

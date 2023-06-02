@@ -33,14 +33,24 @@ export function getColumnsForQuery(query: DataTableNode): HogQLExpression[] {
     return query.columns ?? getDataNodeDefaultColumns(query.source)
 }
 
-export function extractExpressionComment(query: string): string {
+export function extractCommentOrAlias(query: string): string {
+    if (query.match(/ as (`[^`]+`|"[^"]+"|[a-zA-Z$][a-zA-Z0-9_$]*)\s*$/)) {
+        const comment = query.split(' as ').pop()?.trim() || query
+        if ((comment.startsWith('`') || comment.startsWith('"')) && comment.endsWith(comment[0])) {
+            return comment.slice(1, -1)
+        }
+        return comment
+    }
     if (query.includes('--')) {
         return query.split('--').pop()?.trim() || query
     }
     return query
 }
 
-export function removeExpressionComment(query: string): string {
+export function removeCommentOrAlias(query: string): string {
+    if (query.match(/ as (`[^`]+`|"[^"]+"|[a-zA-Z\$][a-zA-Z0-9\_\$]*)$/)) {
+        return query.split(' as ').slice(0, -1).join(' as ').trim()
+    }
     if (query.includes('--')) {
         return query.split('--').slice(0, -1).join('--').trim()
     }

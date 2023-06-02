@@ -782,12 +782,6 @@
         "EventsQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "aliases": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
                 "columns": {
                     "items": {},
                     "type": "array"
@@ -809,7 +803,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "aliases", "types", "results"],
+            "required": ["columns", "types", "results"],
             "type": "object"
         },
         "FeaturePropertyFilter": {

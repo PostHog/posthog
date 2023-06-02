@@ -9,9 +9,9 @@ import {
     QueryContext,
     TimeToSeeDataSessionsQuery,
 } from '~/queries/schema'
-import { getColumnsForQuery, removeExpressionComment } from './utils'
+import { getColumnsForQuery, removeCommentOrAlias } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
-import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { isDataTableNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -69,7 +69,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
         columnsInResponse: [
             (s) => [s.response],
             (response: AnyDataNode['response']): string[] | null =>
-                response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
+                response && 'columns' in response && Array.isArray(response.columns) ? response.columns : null,
+        ],
+        columnsInLemonTable: [
+            (s, p) => [p.query, s.columnsInResponse, s.columnsInQuery],
+            (query, columnsInResponse, columnsInQuery) =>
+                isHogQLQuery(query.source) ? columnsInResponse ?? columnsInQuery : columnsInQuery,
         ],
         dataTableRows: [
             (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.columnsInResponse],
@@ -95,8 +100,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         const orderKeyIndex =
                             columnsInResponse?.findIndex(
                                 (column) =>
-                                    removeExpressionComment(column) === orderKey ||
-                                    removeExpressionComment(column) === `-${orderKey}`
+                                    removeCommentOrAlias(column) === orderKey ||
+                                    removeCommentOrAlias(column) === `-${orderKey}`
                             ) ?? -1
 
                         // Add a label between results if the day changed

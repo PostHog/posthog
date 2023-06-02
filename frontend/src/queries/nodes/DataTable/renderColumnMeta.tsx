@@ -2,7 +2,7 @@ import { PropertyFilterType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { QueryContext, DataTableNode } from '~/queries/schema'
 import { isEventsQuery, isHogQLQuery } from '~/queries/utils'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractCommentOrAlias } from '~/queries/nodes/DataTable/utils'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 export interface ColumnMeta {
@@ -40,7 +40,7 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         // NOTE: PropertyFilterType.Event is not a mistake. PropertyKeyInfo only knows events vs elements ¯\_(ツ)_/¯
         title = <PropertyKeyInfo value={key.substring(18)} type={PropertyFilterType.Event} disableIcon />
     } else {
-        title = isEventsQuery(query.source) ? extractExpressionComment(key) : key
+        title = isEventsQuery(query.source) ? extractCommentOrAlias(key) : key
     }
 
     if (isEventsQuery(query.source) && !query.allowSorting) {

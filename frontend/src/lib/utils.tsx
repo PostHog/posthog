@@ -45,7 +45,7 @@ import {
 import { IconCopy } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractCommentOrAlias } from '~/queries/nodes/DataTable/utils'
 import { urls } from 'scenes/urls'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 
@@ -371,7 +371,7 @@ export function formatPropertyLabel(
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
     if (isHogQLPropertyFilter(item as AnyFilterLike)) {
-        return extractExpressionComment(item.key)
+        return extractCommentOrAlias(item.key)
     }
     const { value, key, operator, type } = item
     return type === 'cohort'

@@ -15,7 +15,7 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
-import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
+import { defaultDataTableColumns, extractCommentOrAlias, removeCommentOrAlias } from '../utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { isEventsQuery, taxonomicFilterToHogQl } from '~/queries/utils'
@@ -42,11 +42,11 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
             if (isEventsQuery(query.source)) {
                 let orderBy = query.source.orderBy
                 if (orderBy && orderBy.length > 0) {
-                    const orderColumn = removeExpressionComment(
+                    const orderColumn = removeCommentOrAlias(
                         orderBy[0].endsWith(' DESC') ? orderBy[0].replace(/ DESC$/, '') : orderBy[0]
                     )
                     // the old orderBy column was removed, so remove it from the new query
-                    if (!columns.some((c) => removeExpressionComment(c) === orderColumn)) {
+                    if (!columns.some((c) => removeCommentOrAlias(c) === orderColumn)) {
                         orderBy = undefined
                     }
                 }
@@ -110,7 +110,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
         }
 
         if (columnKey.includes('#')) {
-            columnKey = extractExpressionComment(columnKey)
+            columnKey = extractCommentOrAlias(columnKey)
         }
 
         return (

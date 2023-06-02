@@ -207,7 +207,6 @@ def run_events_query(
     return EventsQueryResponse(
         results=query_result.results[: limit - 1] if received_extra_row else query_result.results,
         columns=select_input,
-        aliases=[col.alias for col in select],
         types=[type for _, type in query_result.types],
         hasMore=received_extra_row,
     )

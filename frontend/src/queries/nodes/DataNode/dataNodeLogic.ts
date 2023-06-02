@@ -22,7 +22,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import clsx from 'clsx'
 import api, { ApiMethodOptions } from 'lib/api'
-import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { removeCommentOrAlias } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -287,7 +287,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
                     if (sortKey === 'timestamp DESC') {
                         const sortColumnIndex = query.select
-                            .map((hql) => removeExpressionComment(hql))
+                            .map((hql) => removeCommentOrAlias(hql))
                             .indexOf('timestamp')
                         if (sortColumnIndex !== -1) {
                             const typedResults = (response as EventsQuery['response'])?.results
@@ -321,7 +321,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const typedResults = (response as EventsQuery['response'])?.results
                         if (sortKey === 'timestamp DESC') {
                             const sortColumnIndex = query.select
-                                .map((hql) => removeExpressionComment(hql))
+                                .map((hql) => removeCommentOrAlias(hql))
                                 .indexOf('timestamp')
                             if (sortColumnIndex !== -1) {
                                 const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
