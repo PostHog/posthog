@@ -79,7 +79,7 @@ class LazyJoin(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    join_function: Callable[[str, str, Dict[str, Any]], Any]
+    join_function: Callable[[str, str, str, Dict[str, Any]], Any]
     join_table: Table
     from_field: str
 

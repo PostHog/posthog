@@ -26,7 +26,9 @@ def select_from_person_distinct_ids_table(requested_fields: Dict[str, List[str]]
     )
 
 
-def join_with_person_distinct_ids_table(from_table: str, to_table: str, requested_fields: Dict[str, List[str]]):
+def join_with_person_distinct_ids_table(
+    from_table: str, from_field: str, to_table: str, requested_fields: Dict[str, List[str]]
+):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -36,7 +38,7 @@ def join_with_person_distinct_ids_table(from_table: str, to_table: str, requeste
     join_expr.alias = to_table
     join_expr.constraint = ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=[from_table, "distinct_id"]),
+        left=ast.Field(chain=[from_table, from_field]),
         right=ast.Field(chain=[to_table, "distinct_id"]),
     )
     return join_expr
