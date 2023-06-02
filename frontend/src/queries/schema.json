@@ -1911,7 +1911,9 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
-                "formula": {},
+                "formula": {
+                    "type": "string"
+                },
                 "hidden_legend_indexes": {
                     "items": {
                         "type": "number"

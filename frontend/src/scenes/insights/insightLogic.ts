@@ -53,7 +53,6 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
-import { dayjs } from 'lib/dayjs'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
 import { globalInsightLogic } from './globalInsightLogic'
@@ -607,24 +606,9 @@ export const insightLogic = kea<insightLogicType>([
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
         derivedName: [
-            (s) => [
-                s.insight,
-                s.aggregationLabel,
-                s.cohortsById,
-                s.mathDefinitions,
-                s.isUsingDataExploration,
-                s.isUsingDashboardQueries,
-            ],
-            (
-                insight,
-                aggregationLabel,
-                cohortsById,
-                mathDefinitions,
-                isUsingDataExploration,
-                isUsingDashboardQueries
-            ) =>
+            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions, s.isUsingDashboardQueries],
+            (insight, aggregationLabel, cohortsById, mathDefinitions, isUsingDashboardQueries) =>
                 summarizeInsight(insight.query, insight.filters || {}, {
-                    isUsingDataExploration,
                     aggregationLabel,
                     cohortsById,
                     mathDefinitions,
@@ -803,29 +787,6 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.HOGQL]
-            },
-        ],
-        getInsightRefreshButtonDisabledReason: [
-            (s) => [s.nextAllowedRefresh, s.lastRefresh],
-            (nextAllowedRefresh: string | null, lastRefresh: string | null) => (): string => {
-                const now = dayjs()
-                let disabledReason = ''
-                if (!!nextAllowedRefresh && now.isBefore(dayjs(nextAllowedRefresh))) {
-                    // If this is a saved insight, the result will contain nextAllowedRefresh and we use that to disable the button
-                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).from(now)}`
-                } else if (
-                    !!lastRefresh &&
-                    now.subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes').isBefore(lastRefresh)
-                ) {
-                    // Unsaved insights don't get cached and get refreshed on every page load, but we avoid allowing users to click
-                    // 'refresh' more than once every UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES. This can be bypassed by simply
-                    // refreshing the page though, as there's no cache layer on the backend
-                    disabledReason = `You can refresh this insight again ${dayjs(lastRefresh)
-                        .add(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
-                        .from(now)}`
-                }
-
-                return disabledReason
             },
         ],
     }),

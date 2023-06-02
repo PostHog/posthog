@@ -39,13 +39,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['filters', 'insight', 'isUsingDashboardQueries', 'savedInsight'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
+            [
+                'dataLoading as insightDataLoading',
+                'responseErrorObject as insightDataError',
+                'getInsightRefreshButtonDisabledReason',
+            ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
         actions: [
             insightLogic,
             ['setInsight', 'loadInsightSuccess', 'loadResultsSuccess', 'saveInsight as insightLogicSaveInsight'],
+            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
+            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            ['loadData'],
         ],
         logic: [insightDataTimingLogic(props)],
     })),

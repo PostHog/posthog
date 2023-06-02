@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union, Literal
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.mixins.utils import cached_property
@@ -49,7 +49,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
        sum(click_count),
        sum(keypress_count),
        sum(mouse_activity_count),
-       round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+       sum(active_milliseconds)/1000 as active_seconds
     FROM session_replay_events
     PREWHERE team_id = %(team_id)s
          -- we can filter on the pre-aggregated timestamp columns
@@ -146,7 +146,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             "click_count",
             "keypress_count",
             "mouse_activity_count",
-            "active_time",
+            "active_seconds",
         ]
 
         return [
@@ -160,6 +160,24 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     def limit(self):
         return self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
 
+    def duration_clause(
+        self, duration_filter_type: Literal["duration", "active_seconds"]
+    ) -> Tuple[str, Dict[str, Any]]:
+        duration_clause = ""
+        duration_params = {}
+        if self._filter.recording_duration_filter:
+            if self._filter.recording_duration_filter.operator == "gt":
+                operator = ">"
+            else:
+                operator = "<"
+            duration_clause = "\nAND {duration_type} {operator} %(recording_duration)s".format(
+                duration_type=duration_filter_type, operator=operator
+            )
+            duration_params = {
+                "recording_duration": self._filter.recording_duration_filter.value,
+            }
+        return duration_clause, duration_params
+
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         offset = self._filter.offset or 0
         base_params = {"team_id": self._team_id, "limit": self.limit + 1, "offset": offset}
@@ -171,7 +189,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         _, recording_start_time_params = self._get_recording_start_time_clause
         session_ids_clause, session_ids_params = self.session_ids_clause
         person_id_clause, person_id_params = self._get_person_id_clause
-        duration_clause, duration_params = self._get_duration_clause
+        duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
 
         person_cte, person_cte_match_clause, person_person_cte_params = self._persons_cte_clause
 

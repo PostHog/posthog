@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
+import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -361,12 +361,12 @@ export function FeatureFlags(): JSX.Element {
                 onChange={(newKey) => setActiveTab(newKey)}
                 tabs={[
                     {
-                        key: FeatureFlagsTabs.OVERVIEW,
+                        key: FeatureFlagsTab.OVERVIEW,
                         label: 'Overview',
                         content: <OverViewTab />,
                     },
                     {
-                        key: FeatureFlagsTabs.HISTORY,
+                        key: FeatureFlagsTab.HISTORY,
                         label: 'History',
                         content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} />,
                     },

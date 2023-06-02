@@ -15,11 +15,11 @@ import {
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { NavbarItem } from './types'
-import { dashboardsSidebarLogic } from './sidebars/dashboardsSidebarLogic'
-import { featureFlagsSidebarLogic } from './sidebars/featureFlagsSidebarLogic'
-import { cohortsSidebarLogic } from './sidebars/cohortsSidebarLogic'
-import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroupsSidebarLogic'
-import { insightsSidebarLogic } from './sidebars/insightsSidebarLogic'
+import { dashboardsSidebarLogic } from './sidebars/dashboards'
+import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
+import { cohortsSidebarLogic } from './sidebars/cohorts'
+import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
+import { insightsSidebarLogic } from './sidebars/insights'
 
 /** A list of navbar sections with items. */
 export const NAVBAR_ITEMS: NavbarItem[][] = [

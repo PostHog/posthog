@@ -129,7 +129,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "keypress_count": 2,
                 "mouse_activity_count": 2,
                 "duration": 1980,
-                "active_time": 0.4,
+                "active_seconds": 792.0,
                 "start_time": self.base_time + relativedelta(seconds=20),
                 "end_time": self.base_time + relativedelta(seconds=2000),
                 "first_url": None,
@@ -142,7 +142,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "keypress_count": 4,
                 "mouse_activity_count": 4,
                 "duration": 50,
-                "active_time": 0.5,
+                "active_seconds": 25.0,
                 "start_time": self.base_time,
                 "end_time": self.base_time + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
@@ -150,6 +150,72 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         ]
 
         self.assertEqual(more_recordings_available, False)
+
+    @snapshot_clickhouse_queries
+    def test_basic_query_active_sessions(
+        self,
+    ):
+        user = "test_basic_query-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_total_is_61 = f"test_basic_query_active_sessions-total-{str(uuid4())}"
+        session_id_active_is_61 = f"test_basic_query_active_sessions-active-{str(uuid4())}"
+
+        produce_replay_summary(
+            session_id=session_id_total_is_61,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=self.base_time.isoformat().replace("T", " "),
+            last_timestamp=(self.base_time + relativedelta(seconds=61)).isoformat().replace("T", " "),
+            distinct_id=user,
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=59000,
+        )
+
+        produce_replay_summary(
+            session_id=session_id_active_is_61,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=(self.base_time),
+            last_timestamp=(self.base_time + relativedelta(seconds=59)),
+            distinct_id=user,
+            first_url="https://a-different-url.com",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=61000,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "duration_type_filter": "duration",
+                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, more_recordings_available) = session_recording_list_instance.run()
+
+        assert [(s["session_id"], s["duration"], s["active_seconds"]) for s in session_recordings] == [
+            (session_id_total_is_61, 61, 59.0)
+        ]
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "duration_type_filter": "active_seconds",
+                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, more_recordings_available) = session_recording_list_instance.run()
+
+        assert [(s["session_id"], s["duration"], s["active_seconds"]) for s in session_recordings] == [
+            (session_id_active_is_61, 59, 61.0)
+        ]
 
     @snapshot_clickhouse_queries
     def test_basic_query_with_paging(self):
@@ -214,7 +280,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "keypress_count": 2,
                 "mouse_activity_count": 2,
                 "duration": 1980,
-                "active_time": 0.4,
+                "active_seconds": 792.0,
                 "start_time": self.base_time + relativedelta(seconds=20),
                 "end_time": self.base_time + relativedelta(seconds=2000),
                 "first_url": None,
@@ -236,7 +302,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "keypress_count": 4,
                 "mouse_activity_count": 4,
                 "duration": 50,
-                "active_time": 0.5,
+                "active_seconds": 25.0,
                 "start_time": self.base_time,
                 "end_time": self.base_time + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
@@ -465,6 +531,80 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
+
+    @snapshot_clickhouse_queries
+    def test_event_filter_with_active_sessions(
+        self,
+    ):
+        user = "test_basic_query-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_total_is_61 = f"test_basic_query_active_sessions-total-{str(uuid4())}"
+        session_id_active_is_61 = f"test_basic_query_active_sessions-active-{str(uuid4())}"
+
+        self.create_event(
+            user, self.base_time, properties={"$session_id": session_id_total_is_61, "$window_id": str(uuid4())}
+        )
+        produce_replay_summary(
+            session_id=session_id_total_is_61,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=self.base_time.isoformat().replace("T", " "),
+            last_timestamp=(self.base_time + relativedelta(seconds=61)).isoformat().replace("T", " "),
+            distinct_id=user,
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=59000,
+        )
+
+        self.create_event(
+            user, self.base_time, properties={"$session_id": session_id_active_is_61, "$window_id": str(uuid4())}
+        )
+        produce_replay_summary(
+            session_id=session_id_active_is_61,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=(self.base_time),
+            last_timestamp=(self.base_time + relativedelta(seconds=59)),
+            distinct_id=user,
+            first_url="https://a-different-url.com",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=61000,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "duration_type_filter": "duration",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, more_recordings_available) = session_recording_list_instance.run()
+
+        assert [(s["session_id"], s["duration"], s["active_seconds"]) for s in session_recordings] == [
+            (session_id_total_is_61, 61, 59.0)
+        ]
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "duration_type_filter": "active_seconds",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, more_recordings_available) = session_recording_list_instance.run()
+
+        assert [(s["session_id"], s["duration"], s["active_seconds"]) for s in session_recordings] == [
+            (session_id_active_is_61, 59, 61.0)
+        ]
 
     @also_test_with_materialized_columns(["$current_url", "$browser"])
     @snapshot_clickhouse_queries

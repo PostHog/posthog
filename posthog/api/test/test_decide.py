@@ -116,7 +116,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response["sessionRecording"],
             {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
     def test_user_session_recording_version(self, *args):
         # :TRICKY: Test for regression around caching
@@ -175,7 +175,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response["sessionRecording"],
             {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
         # Make sure the domain matches exactly
         response = self._post_decide(origin="https://random.example.com.evilsite.com").json()
@@ -1564,7 +1564,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response["sessionRecording"],
             {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": True},
         )
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
         self.assertEqual(response["capturePerformance"], True)
         self.assertEqual(response["featureFlags"], {})
@@ -1577,7 +1577,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 response["sessionRecording"],
                 {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": True},
             )
-            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)
             self.assertEqual(response["featureFlags"], {})
@@ -1955,7 +1955,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
                 response["sessionRecording"],
                 {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": True},
             )
-            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)
             self.assertEqual(response["featureFlags"], {"no-props": True})

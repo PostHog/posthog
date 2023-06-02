@@ -701,7 +701,7 @@ class _Printer(Visitor):
 
     def visit_window_function(self, node: ast.WindowFunction):
         over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
-        return f"{self._print_identifier(node.name)}({', '.join(self.visit(expr) for expr in node.args)}) OVER {over}"
+        return f"{self._print_identifier(node.name)}({', '.join(self.visit(expr) for expr in node.args or [])}) OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         if node.frame_type == "PRECEDING":

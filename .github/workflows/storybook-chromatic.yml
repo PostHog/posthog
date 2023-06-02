@@ -52,11 +52,11 @@ jobs:
         runs-on: ubuntu-20.04
         timeout-minutes: 30
         container:
-            image: mcr.microsoft.com/playwright:v1.29.2-focal
+            image: mcr.microsoft.com/playwright:v1.29.2
         strategy:
             fail-fast: false
             matrix:
-                browser: ['chromium', 'webkit', 'firefox']
+                browser: ['chromium', 'webkit']
                 shard: [1, 2]
         env:
             SHARD_COUNT: '2'
@@ -202,7 +202,7 @@ jobs:
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   script: |
-                      const BROWSERS = ['chromium', 'webkit', 'firefox']
+                      const BROWSERS = ['chromium', 'webkit']
 
                       const diffJobOutputs = ${{ toJson(needs.visual-regression.outputs) }}
                       const summaryDiff = { total: 0, added: 0, modified: 0, deleted: 0 }

@@ -237,7 +237,6 @@ function InsightMeta({
         aggregationLabel,
         cohortsById,
         mathDefinitions,
-        isUsingDataExploration: true,
         isUsingDashboardQueries: !!featureFlags[FEATURE_FLAGS.HOGQL],
     })
 
