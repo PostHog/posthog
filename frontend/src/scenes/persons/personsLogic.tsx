@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { decodeParams, router } from 'kea-router'
-import api, { PaginatedResponse } from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
 import {
     PersonPropertyFilter,
@@ -22,12 +22,6 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-
-export interface PersonPaginatedResponse {
-    next: string | null
-    previous: string | null
-    results: PersonType[]
-}
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'
@@ -247,12 +241,12 @@ export const personsLogic = kea<personsLogicType>({
     }),
     loaders: ({ values, actions, props }) => ({
         persons: [
-            { next: null, previous: null, count: 0, results: [], offset: 0 } as PaginatedResponse<PersonType> & {
+            { next: null, previous: null, count: 0, results: [], offset: 0 } as CountedPaginatedResponse<PersonType> & {
                 offset: number
             },
             {
                 loadPersons: async ({ url }) => {
-                    let result: PaginatedResponse<PersonType> & { offset: number }
+                    let result: CountedPaginatedResponse<PersonType> & { offset: number }
                     if (!url) {
                         const newFilters = { ...values.listFilters }
                         newFilters.properties = [

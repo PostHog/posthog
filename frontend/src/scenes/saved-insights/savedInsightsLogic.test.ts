@@ -37,6 +37,7 @@ const createInsight = (id: number, string = 'hi'): InsightModel =>
 const createSavedInsights = (string = 'hello'): InsightsResult => ({
     count: 3,
     results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)],
+    offset: 0,
 })
 
 describe('savedInsightsLogic', () => {
