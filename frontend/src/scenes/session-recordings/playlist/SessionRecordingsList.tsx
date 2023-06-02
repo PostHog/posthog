@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { IconUnfoldLess, IconUnfoldMore, IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils'
-import React, { Fragment, useRef } from 'react'
+import React, { Fragment, useEffect, useRef } from 'react'
 import { SessionRecordingType } from '~/types'
 import {
     SessionRecordingPlaylistItem,
@@ -33,8 +33,8 @@ export type SessionRecordingsListProps = {
     onCollapse?: (collapsed: boolean) => void
     empty?: React.ReactNode
     className?: string
-    embedded?: boolean // if embedded don't show border
     footer?: React.ReactNode
+    subheader?: React.ReactNode
     onScrollToStart?: () => void
     onScrollToEnd?: () => void
     draggableHref?: string
@@ -56,13 +56,14 @@ export function SessionRecordingsList({
     activeRecordingId,
     className,
     footer,
+    subheader,
     onScrollToStart,
     onScrollToEnd,
-    embedded = false,
     draggableHref,
 }: SessionRecordingsListProps): JSX.Element {
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
     const lastScrollPositionRef = useRef(0)
+    const contentRef = useRef<HTMLDivElement | null>(null)
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
 
     const titleContent = (
@@ -83,7 +84,7 @@ export function SessionRecordingsList({
 
     const handleScroll =
         onScrollToEnd || onScrollToStart
-            ? (e: React.UIEvent<HTMLUListElement>): void => {
+            ? (e: React.UIEvent<HTMLDivElement>): void => {
                   // If we are scrolling down then check if we are at the bottom of the list
                   if (e.currentTarget.scrollTop > lastScrollPositionRef.current) {
                       const scrollPosition = e.currentTarget.scrollTop + e.currentTarget.clientHeight
@@ -103,9 +104,15 @@ export function SessionRecordingsList({
               }
             : undefined
 
+    useEffect(() => {
+        if (subheader && contentRef.current) {
+            contentRef.current.scrollTop = 0
+        }
+    }, [!!subheader])
+
     return (
         <div
-            className={clsx('flex flex-col w-full bg-white', className, !embedded && 'border rounded', {
+            className={clsx('flex flex-col w-full bg-white border rounded', className, {
                 'border-dashed': !recordings?.length,
                 'overflow-hidden': recordings?.length,
             })}
@@ -130,35 +137,44 @@ export function SessionRecordingsList({
                 </div>
             </DraggableToNotebook>
             {!collapsed ? (
-                recordings?.length ? (
-                    <ul className="overflow-y-auto border-t" onScroll={handleScroll}>
-                        {recordings.map((rec, i) => (
-                            <Fragment key={rec.id}>
-                                {i > 0 && <div className="border-t" />}
-                                <SessionRecordingPlaylistItem
-                                    recording={rec}
-                                    recordingProperties={recordingPropertiesById[rec.id]}
-                                    recordingPropertiesLoading={
-                                        !recordingPropertiesById[rec.id] && recordingPropertiesLoading
-                                    }
-                                    onClick={() => onRecordingClick(rec)}
-                                    onPropertyClick={onPropertyClick}
-                                    isActive={activeRecordingId === rec.id}
-                                />
-                            </Fragment>
-                        ))}
+                <div
+                    className={clsx('overflow-y-auto border-t ', {
+                        'border-dashed': !recordings?.length,
+                    })}
+                    onScroll={handleScroll}
+                    ref={contentRef}
+                >
+                    {subheader}
+                    {recordings?.length ? (
+                        <ul>
+                            {recordings.map((rec, i) => (
+                                <Fragment key={rec.id}>
+                                    {i > 0 && <div className="border-t" />}
+                                    <SessionRecordingPlaylistItem
+                                        recording={rec}
+                                        recordingProperties={recordingPropertiesById[rec.id]}
+                                        recordingPropertiesLoading={
+                                            !recordingPropertiesById[rec.id] && recordingPropertiesLoading
+                                        }
+                                        onClick={() => onRecordingClick(rec)}
+                                        onPropertyClick={onPropertyClick}
+                                        isActive={activeRecordingId === rec.id}
+                                    />
+                                </Fragment>
+                            ))}
 
-                        {footer}
-                    </ul>
-                ) : loading ? (
-                    <>
-                        {range(loadingSkeletonCount).map((i) => (
-                            <SessionRecordingPlaylistItemSkeleton key={i} />
-                        ))}
-                    </>
-                ) : (
-                    <div className="p-3 text-sm text-muted-alt border-t border-dashed">{empty || info}</div>
-                )
+                            {footer}
+                        </ul>
+                    ) : loading ? (
+                        <>
+                            {range(loadingSkeletonCount).map((i) => (
+                                <SessionRecordingPlaylistItemSkeleton key={i} />
+                            ))}
+                        </>
+                    ) : (
+                        <div className="p-3 text-sm text-muted-alt">{empty || info}</div>
+                    )}
+                </div>
             ) : null}
         </div>
     )
