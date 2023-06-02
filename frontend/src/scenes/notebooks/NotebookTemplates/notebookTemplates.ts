@@ -13,11 +13,12 @@ const TEMPLATE_USERS: Record<string, UserBasicType> = {
 export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
     {
         short_id: 'template-introduction',
-        title: 'Introducing Notebooks! 🥳',
+        title: 'Introducing Notebooks',
         created_at: '2023-06-02T00:00:00Z',
         last_modified_at: '2023-06-02T00:00:00Z',
         created_by: TEMPLATE_USERS['ben'],
         last_modified_by: TEMPLATE_USERS['ben'],
+        version: 1,
         content: {
             type: 'doc',
             content: [
@@ -26,7 +27,25 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                     attrs: { level: 1 },
                     content: [{ type: 'text', text: 'Introducing Notebooks! 🥳' }],
                 },
-                { type: 'paragraph', content: [{ type: 'text', text: 'Welcome to the preview of Notebooks!' }] },
+                {
+                    type: 'paragraph',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Notebooks are a powerful way of working with all of the various parts of PostHog, allowing you to bring Insights, Replays, Feature Flags, Events and much more into one place. Whether it is an ',
+                        },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'ad-hoc analysis' },
+                        { type: 'text', text: ' or a ' },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'bug investigation' },
+                        { type: 'text', text: ' or a ' },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'feature release' },
+                        {
+                            type: 'text',
+                            text: '. We have only just got started with Notebooks so try it out and let us know what you think.',
+                        },
+                    ],
+                },
+                { type: 'paragraph' },
                 { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'General text editing' }] },
                 {
                     type: 'paragraph',
@@ -38,6 +57,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                         { type: 'text', marks: [{ type: 'bold' }], text: 'Markdown.' },
                     ],
                 },
+                { type: 'paragraph' },
                 { type: 'paragraph', content: [{ type: 'text', text: '# Heading 1' }] },
                 { type: 'paragraph', content: [{ type: 'text', text: '## Heading 2' }] },
                 {
@@ -52,22 +72,27 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                 { type: 'paragraph', content: [{ type: 'text', text: '**Bold**' }] },
                 { type: 'paragraph', content: [{ type: 'text', text: '_italic_' }] },
                 { type: 'paragraph', content: [{ type: 'text', text: '`code`' }] },
-                { type: 'paragraph', content: [{ type: 'text', text: 'This is ' }] },
-                {
-                    type: 'paragraph',
-                    content: [
-                        { type: 'text', marks: [{ type: 'code' }], text: 'code' },
-                        { type: 'text', text: ' ' },
-                    ],
-                },
-                { type: 'paragraph' },
-                { type: 'codeBlock', attrs: { language: 'js' }, content: [{ type: 'text', text: 'lots of code' }] },
                 { type: 'paragraph' },
                 {
                     type: 'heading',
                     attrs: { level: 2 },
-                    content: [{ type: 'text', text: 'What is currently supported?' }],
+                    content: [{ type: 'text', text: 'What PostHog things are currently supported?' }],
                 },
+                {
+                    type: 'paragraph',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'The real power of Notebooks comes from pulling various PostHog resources into the document. Whilst this feature is in ',
+                        },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'beta' },
+                        {
+                            type: 'text',
+                            text: ", you will find that some things work and others don't... yet. We will keep this document updated with information about what is working and what isn't so be sure to check back.",
+                        },
+                    ],
+                },
+                { type: 'paragraph' },
                 { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: 'Drag and Drop' }] },
                 {
                     type: 'paragraph',
@@ -115,18 +140,8 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                         },
                         {
                             type: 'listItem',
-                            content: [
-                                {
-                                    type: 'paragraph',
-                                    content: [{ type: 'text', text: '✅ Feature Flags (partially)e' }],
-                                },
-                            ],
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '✅ Persons' }] }],
                         },
-                    ],
-                },
-                {
-                    type: 'bulletList',
-                    content: [
                         {
                             type: 'listItem',
                             content: [
@@ -135,7 +150,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                                     content: [
                                         {
                                             type: 'text',
-                                            text: '✅ Data Exploration nodes (such as the Event Explorer)',
+                                            text: '🤔 Data Exploration nodes (such as the Event Explorer) (partially)',
                                         },
                                     ],
                                 },
@@ -143,7 +158,12 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                         },
                         {
                             type: 'listItem',
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '✅ Persons' }] }],
+                            content: [
+                                {
+                                    type: 'paragraph',
+                                    content: [{ type: 'text', text: '🤔 Feature Flags (partially)' }],
+                                },
+                            ],
                         },
                         {
                             type: 'listItem',
@@ -170,7 +190,10 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                                 {
                                     type: 'paragraph',
                                     content: [
-                                        { type: 'text', text: 'Ad hoc queries without the need to create an Insight' },
+                                        {
+                                            type: 'text',
+                                            text: '🚧 Ad hoc queries without the need to create an Insight',
+                                        },
                                     ],
                                 },
                             ],
@@ -180,7 +203,22 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                             content: [
                                 {
                                     type: 'paragraph',
-                                    content: [{ type: 'text', text: 'Full interactivity and controls for Insights' }],
+                                    content: [
+                                        { type: 'text', text: '🚧 Full interactivity and controls for Insights' },
+                                    ],
+                                },
+                            ],
+                        },
+                        {
+                            type: 'listItem',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '🚧 HoqQL support' }] }],
+                        },
+                        {
+                            type: 'listItem',
+                            content: [
+                                {
+                                    type: 'paragraph',
+                                    content: [{ type: 'text', text: '🚧 Support for unfurling external links ' }],
                                 },
                             ],
                         },
@@ -202,7 +240,6 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                         },
                     ],
                 },
-                { type: 'paragraph' },
                 {
                     type: 'ph-recording-playlist',
                     attrs: {
@@ -212,6 +249,5 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                 },
             ],
         },
-        version: 1,
     },
 ]

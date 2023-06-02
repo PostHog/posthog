@@ -80,7 +80,7 @@ export function NotebookScene(): JSX.Element {
                                             exportJSON()
                                         },
                                     },
-                                    {
+                                    editEnabled && {
                                         label: 'Delete',
                                         icon: <IconDelete />,
                                         status: 'danger',
