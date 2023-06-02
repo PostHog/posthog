@@ -1,15 +1,15 @@
 import { LemonSelect } from '@posthog/lemon-ui'
-import { DurationFilterType } from '~/types'
+import { DurationTypeFilter } from '~/types'
 
 interface DurationTypeFilterProps {
-    onChange: (newFilter: DurationFilterType) => void
-    initialFilter?: DurationFilterType
+    onChange: (newFilter: DurationTypeFilter) => void
+    value?: DurationTypeFilter
 }
 
-export function DurationTypeFilter({ onChange, initialFilter }: DurationTypeFilterProps): JSX.Element {
+export function DurationTypeSelect({ onChange, value }: DurationTypeFilterProps): JSX.Element {
     return (
         <LemonSelect
-            onChange={(v) => onChange((v || 'all') as DurationFilterType)}
+            onChange={(v) => onChange((v || 'all') as DurationTypeFilter)}
             options={[
                 {
                     label: 'total duration',
@@ -21,7 +21,7 @@ export function DurationTypeFilter({ onChange, initialFilter }: DurationTypeFilt
                 },
             ]}
             size="small"
-            value={initialFilter || 'duration'}
+            value={value || 'duration'}
         />
     )
 }

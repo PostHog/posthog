@@ -96,10 +96,14 @@ export function SessionRecordingsFilters({
                     dropdownPlacement="bottom-start"
                 />
                 <DurationFilter
-                    onChange={(newFilter) => {
-                        setFilters({ session_recording_duration: newFilter })
+                    onChange={(newRecordingDurationFilter, newDurationType) => {
+                        setFilters({
+                            session_recording_duration: newRecordingDurationFilter,
+                            duration_type_filter: newDurationType,
+                        })
                     }}
-                    filter={filters.session_recording_duration as RecordingDurationFilter}
+                    recordingDurationFilter={filters.session_recording_duration as RecordingDurationFilter}
+                    durationTypeFilter={filters.duration_type_filter || 'duration'}
                     pageKey={'session-recordings'}
                 />
             </div>
