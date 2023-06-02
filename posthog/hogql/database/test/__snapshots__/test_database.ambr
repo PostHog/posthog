@@ -49,6 +49,11 @@
               ]
           },
           {
+              "key": "override_person",
+              "type": "lazy_table",
+              "table": "persons"
+          },
+          {
               "key": "poe",
               "type": "virtual_table",
               "table": "events",
@@ -482,6 +487,11 @@
                   "override",
                   "override_person_id"
               ]
+          },
+          {
+              "key": "override_person",
+              "type": "lazy_table",
+              "table": "persons"
           },
           {
               "key": "poe",

@@ -689,10 +689,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 group by col_a)
                 group by col_a ORDER BY col_a
             """
-            response = execute_hogql_query(
-                query,
-                team=self.team,
-            )
+            response = execute_hogql_query(query, team=self.team)
             self.assertEqual(response.results, [("0", [("random event", 1)]), ("1", [("random event", 1)])])
             self.assertEqual(
                 response.clickhouse,
@@ -726,10 +723,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 FROM events
                 WHERE events.event='empty event'
             """
-            response = execute_hogql_query(
-                query,
-                team=self.team,
-            )
+            response = execute_hogql_query(query, team=self.team)
             self.assertEqual(
                 response.results,
                 [
@@ -954,10 +948,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                      FROM PIVOT_FUNCTION_2
                  ORDER BY col_a
             """
-            response = execute_hogql_query(
-                query,
-                team=self.team,
-            )
+            response = execute_hogql_query(query, team=self.team)
             self.assertEqual(response.results, [("0", [("random event", 1)]), ("1", [("random event", 1)])])
             self.assertEqual(
                 response.clickhouse,
@@ -1000,10 +991,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                      FROM final
                  ORDER BY col_a
             """
-            response = execute_hogql_query(
-                query,
-                team=self.team,
-            )
+            response = execute_hogql_query(query, team=self.team)
             self.assertEqual(response.results, [("0", [("random event", 1)]), ("1", [("random event", 1)])])
             self.assertEqual(
                 response.clickhouse,
@@ -1017,3 +1005,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2) AS final ORDER BY final.col_a ASC LIMIT 100 "
                 f"SETTINGS readonly=1, max_execution_time=60",
             )
+
+    def test_person_override(self):
+        query = "select event, person.id, override_person.id from events"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [("0", [("random event", 1)]), ("1", [("random event", 1)])])
+        self.assertEqual(response.clickhouse, "")
