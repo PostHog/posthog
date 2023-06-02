@@ -71,7 +71,7 @@ def run_events_query(
 
     for column in select_input:
         expr = parse_expr(column)
-        # Split between fields to select or group by
+        # Split between fields to 1) select by and 2) select and group by
         if has_aggregation(expr):
             aggregations.append(expr)
         else:
@@ -86,11 +86,6 @@ def run_events_query(
             select.append(ast.Alias(expr=expr, alias=column))
 
     has_any_aggregation = len(aggregations) > 0
-
-    # select column names
-    for expr in select:
-        if not isinstance(expr, ast.Alias):
-            expr.alias = expr.expr.name
 
     # filters
     where_input = query.where or []
