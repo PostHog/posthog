@@ -31,7 +31,7 @@ const createExportServiceHandlers = (): any => {
 
     return {
         get: {
-            '/api/projects/:team_id/batch_exports/': (req: any, res: any, ctx: any) => {
+            '/api/projects/:team_id/batch_exports/': (_req: any, res: any, ctx: any) => {
                 return res(
                     ctx.delay(1000),
                     ctx.json({
@@ -64,7 +64,7 @@ const createExportServiceHandlers = (): any => {
         post: {
             '/api/projects/:team_id/batch_exports/': (req: any, res: any, ctx: any) => {
                 const body = req.body as BatchExportData
-                const id = Object.keys(exports).length + 1
+                const id = (Object.keys(exports).length + 1).toString()
                 exports[id] = {
                     ...body,
                     id: id,

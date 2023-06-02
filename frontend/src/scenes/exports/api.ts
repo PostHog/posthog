@@ -10,7 +10,7 @@ export const useCurrentTeamId = (): { currentTeamId: number } => {
     // undefined in the caller.
     const { currentTeamId } = useValues(teamLogic)
 
-    if (currentTeamId === undefined) {
+    if (currentTeamId == null) {
         throw Error('currentTeamId should not be undefined')
     }
 
