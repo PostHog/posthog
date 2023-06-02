@@ -6,7 +6,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { urls } from 'scenes/urls'
 import { BatchExport, BatchExportData, BatchExportsResponse } from './api'
 
-const createExportServiceHandlers = () => {
+const createExportServiceHandlers = (): any => {
     const exports: { [id: number]: BatchExport } = {
         1: {
             id: 'asdf',
@@ -31,7 +31,7 @@ const createExportServiceHandlers = () => {
 
     return {
         get: {
-            '/api/projects/:team_id/batch_exports/': (req, res, ctx) => {
+            '/api/projects/:team_id/batch_exports/': (req: any, res: any, ctx: any) => {
                 return res(
                     ctx.delay(1000),
                     ctx.json({
@@ -39,11 +39,11 @@ const createExportServiceHandlers = () => {
                     } as BatchExportsResponse)
                 )
             },
-            '/api/projects/:team_id/batch_exports/:export_id': (req, res, ctx) => {
+            '/api/projects/:team_id/batch_exports/:export_id': (req: any, res: any, ctx: any) => {
                 const id = req.params.export_id as string
                 return res(ctx.delay(1000), ctx.json(exports[id]))
             },
-            '/api/projects/:team_id/batch_exports/:export_id/runs': (req, res, ctx) => {
+            '/api/projects/:team_id/batch_exports/:export_id/runs': (req: any, res: any, ctx: any) => {
                 const id = req.params.export_id as string
                 return res(
                     ctx.delay(1000),
@@ -62,7 +62,7 @@ const createExportServiceHandlers = () => {
             },
         },
         post: {
-            '/api/projects/:team_id/batch_exports/': (req, res, ctx) => {
+            '/api/projects/:team_id/batch_exports/': (req: any, res: any, ctx: any) => {
                 const body = req.body as BatchExportData
                 const id = Object.keys(exports).length + 1
                 exports[id] = {
