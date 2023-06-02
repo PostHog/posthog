@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0317_alter_dashboardtemplate_scope"),
+        ("posthog", "0317_batch_export_models"),
     ]
 
     operations = [
