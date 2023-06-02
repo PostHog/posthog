@@ -27,7 +27,7 @@ export function NotebooksTable(): JSX.Element {
         {
             title: 'Title',
             dataIndex: 'title',
-            width: '40%',
+            width: '100%',
             render: function Render(title, { short_id }) {
                 return (
                     <Link data-attr="notebook-title" to={urls.notebook(short_id)} className="font-semibold">
@@ -46,9 +46,6 @@ export function NotebooksTable(): JSX.Element {
             keyof NotebookListItemType | undefined
         >,
         {
-            title: 'Actions',
-            // dataIndex: 'title',
-            // width: '40%',
             render: function Render(_, notebook) {
                 return (
                     <LemonMenu
