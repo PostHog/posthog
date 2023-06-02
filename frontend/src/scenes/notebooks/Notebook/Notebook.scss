@@ -44,6 +44,21 @@
         > ul {
             list-style: initial;
         }
+
+        > pre {
+            background-color: rgba(0, 0, 0, 0.05);
+            border-radius: var(--radius);
+            overflow-x: auto;
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+        }
+
+        > code,
+        > p code {
+            background-color: rgba(0, 0, 0, 0.05);
+            border-radius: var(--radius);
+            padding: 0.2rem;
+        }
     }
 
     &--compact {
