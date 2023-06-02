@@ -428,7 +428,7 @@ class TrendsFilter(BaseModel):
     breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
-    formula: Optional[Any] = None
+    formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None

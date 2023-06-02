@@ -43,9 +43,8 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
-from prometheus_client import Counter
 from rest_framework.request import Request
-from sentry_sdk import configure_scope
+from sentry_sdk import configure_scope, capture_message
 from sentry_sdk.api import capture_exception
 
 from posthog.cloud_utils import is_cloud
@@ -73,12 +72,6 @@ logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-
-counter_lz64_compressed_event = Counter(
-    "ingestion_lz64_compressed_event",
-    """Number of events compressed using lz64,
-    the theory is that we aren't receiving any of these and we can remove support to save on posthog-js bundle size""",
-)
 
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
@@ -649,7 +642,11 @@ def decompress(data: Any, compression: str):
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
-        counter_lz64_compressed_event.inc()
+        capture_message(
+            """lz64 compression is deprecated.
+            This is a tombstone message.
+            If we never see it, we can remove lzstring handling from the API"""
+        )
         if not isinstance(data, str):
             data = data.decode()
         data = data.replace(" ", "+")
