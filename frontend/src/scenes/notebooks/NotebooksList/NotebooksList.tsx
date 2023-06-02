@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { NotebookListItemType } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
@@ -7,17 +6,21 @@ import { urls } from 'scenes/urls'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { notebooksListLogic } from '../Notebook/notebooksListLogic'
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { router } from 'kea-router'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
 
 export function NotebooksTable(): JSX.Element {
-    const { notebooks, notebooksLoading } = useValues(notebooksListLogic)
+    const { notebooks, notebooksLoading, fuse } = useValues(notebooksListLogic)
     const { loadNotebooks } = useActions(notebooksListLogic)
-    const { filters } = useValues(dashboardsLogic)
-    const { setFilters } = useActions(dashboardsLogic)
+    const [searchTerm, setSearchTerm] = useState('')
+
+    const filteredNotebooks = useMemo(
+        () => (searchTerm ? fuse.search(searchTerm).map(({ item }) => item) : notebooks),
+        [searchTerm, notebooks, fuse]
+    )
 
     useEffect(() => {
         loadNotebooks()
@@ -92,14 +95,14 @@ export function NotebooksTable(): JSX.Element {
                 <LemonInput
                     type="search"
                     placeholder="Search for notebooks"
-                    onChange={(x) => setFilters({ search: x })}
-                    value={filters.search}
+                    onChange={setSearchTerm}
+                    value={searchTerm}
                 />
             </div>
             <LemonTable
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 100 }}
-                dataSource={notebooks as NotebookListItemType[]}
+                dataSource={filteredNotebooks as NotebookListItemType[]}
                 rowKey="short_id"
                 columns={columns}
                 loading={notebooksLoading}

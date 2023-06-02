@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookType } from '~/types'
@@ -11,6 +11,10 @@ import posthog from 'posthog-js'
 import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import FuseClass from 'fuse.js'
+// Helping kea-typegen navigate the exported default class for Fuse
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface Fuse extends FuseClass<NotebookListItemType> {}
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
@@ -88,4 +92,15 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
             },
         ],
     })),
+    selectors({
+        fuse: [
+            (s) => [s.notebooks],
+            (notebooks): Fuse => {
+                return new FuseClass<NotebookListItemType>(notebooks, {
+                    keys: ['title'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+    }),
 ])
