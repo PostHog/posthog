@@ -153,6 +153,7 @@ export interface ActionsNode extends EntityNode {
 
 export interface EventsQueryResponse {
     columns: any[]
+    aliases: string[]
     types: string[]
     results: any[][]
     hasMore?: boolean

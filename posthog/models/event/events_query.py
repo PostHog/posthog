@@ -50,27 +50,26 @@ def run_events_query(
     offset = 0 if query.offset is None else query.offset
 
     # columns & group_by
-    select_input_raw = ["*"] if len(query.select) == 0 else query.select
-    select_input: List[str] = []
+    select_input = ["*"] if len(query.select) == 0 else query.select
     person_indices: List[int] = []
-    for index, col in enumerate(select_input_raw):
-        # Selecting a "*" expands the list of columns, resulting in a table that's not what we asked for.
-        # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
-        if col == "*":
-            select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
-        elif col.split("--")[0].strip() == "person":
-            # This will be expanded into a followup query
-            select_input.append("distinct_id")
-            person_indices.append(index)
-        else:
-            select_input.append(col)
 
-    select: List[ast.Expr] = []
+    select: List[ast.Alias] = []
     group_by: List[ast.Expr] = []
     aggregations: List[ast.Expr] = []
 
-    for column in select_input:
-        expr = parse_expr(column)
+    for index, col in enumerate(select_input):
+        # Selecting a "*" expands the list of columns, resulting in a table that's not what we asked for.
+        # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
+        if col == "*":
+            select_expr = f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
+        elif col.split("--")[0].split(" as ")[0].strip() == "person":
+            # This will be expanded into a followup query
+            select_expr = "distinct_id"
+            person_indices.append(index)
+        else:
+            select_expr = col
+
+        expr = parse_expr(select_expr)
         # Split between fields to 1) select by and 2) select and group by
         if has_aggregation(expr):
             aggregations.append(expr)
@@ -83,7 +82,7 @@ def run_events_query(
         elif isinstance(expr, ast.Field):
             select.append(ast.Alias(expr=expr, alias=expr.chain[-1]))
         else:
-            select.append(ast.Alias(expr=expr, alias=column))
+            select.append(ast.Alias(expr=expr, alias=col))
 
     has_any_aggregation = len(aggregations) > 0
 
@@ -143,7 +142,7 @@ def run_events_query(
     elif "timestamp" in select_input:
         order_by = [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
     elif len(select) > 0:
-        order_by = [ast.OrderExpr(expr=select[0], order="ASC")]
+        order_by = [ast.OrderExpr(expr=select[0].expr, order="ASC")]
     else:
         order_by = []
 
@@ -158,23 +157,15 @@ def run_events_query(
         offset=ast.Constant(value=offset),
     )
 
-    if len(order_by) > 0:
-        stmt = ast.SelectQuery(
-            select=[ast.Field(chain=["*"])],
-            select_from=ast.JoinExpr(table=stmt),
-            order_by=order_by,
-            limit=ast.Constant(value=limit),
-        )
-
     query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.ONLINE, query_type="EventsQuery")
 
     # Convert star field from tuple to dict in each result
-    if "*" in select_input_raw:
-        star_idx = select_input_raw.index("*")
+    if "*" in select_input:
+        star_idx = select_input.index("*")
         for index, result in enumerate(query_result.results):
             query_result.results[index] = list(result)
-            select = result[star_idx]
-            new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
+            star_results = result[star_idx]
+            new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, star_results))
             new_result["properties"] = json.loads(new_result["properties"])
             if new_result["elements_chain"]:
                 new_result["elements"] = ElementSerializer(
@@ -215,7 +206,8 @@ def run_events_query(
     received_extra_row = len(query_result.results) == limit  # limit was +=1'd above
     return EventsQueryResponse(
         results=query_result.results[: limit - 1] if received_extra_row else query_result.results,
-        columns=select_input_raw,
+        columns=select_input,
+        aliases=[col.alias for col in select],
         types=[type for _, type in query_result.types],
         hasMore=received_extra_row,
     )
