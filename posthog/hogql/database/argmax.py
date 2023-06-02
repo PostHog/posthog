@@ -6,7 +6,7 @@ def argmax_select(
     select_fields: Dict[str, List[str]],
     group_fields: List[str],
     argmax_field: str,
-    deleted_field: Optional[str],
+    deleted_field: Optional[str] = None,
 ):
     from posthog.hogql import ast
 

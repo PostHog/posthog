@@ -12,7 +12,6 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, join_with_person_distinct_ids_table
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, join_with_person_overrides_table
-from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -59,13 +58,6 @@ class EventsTable(Table):
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
 
-    # Lazy table that adds a join to the persons table
-    pdi: LazyJoin = LazyJoin(
-        from_field="distinct_id",
-        join_table=PersonDistinctIdTable(),
-        join_function=join_with_person_distinct_ids_table,
-    )
-
     # Lazy table to fetch the overridden person_id
     override: LazyJoin = LazyJoin(
         from_field="person_id",
@@ -73,9 +65,16 @@ class EventsTable(Table):
         join_function=join_with_person_overrides_table,
     )
     override_person_id: BaseModel = FieldTraverser(chain=["override", "override_person_id"])
-    override_person: LazyJoin = LazyJoin(
-        from_field="override_person_id", join_table=PersonsTable(), join_function=join_with_persons_table
+    override_person: BaseModel = FieldTraverser(chain=["override", "person"])
+
+    # Lazy table that adds a join to the persons table
+    pdi: LazyJoin = LazyJoin(
+        from_field="distinct_id",
+        join_table=PersonDistinctIdTable(),
+        join_function=join_with_person_distinct_ids_table,
     )
+    pdi_person_id: BaseModel = FieldTraverser(chain=["pdi", "person_id"])
+    pdi_person: BaseModel = FieldTraverser(chain=["pdi", "person"])
 
     # Person and group fields on the event itself. Should not be used directly.
     poe: EventsPersonSubTable = EventsPersonSubTable()
@@ -86,8 +85,8 @@ class EventsTable(Table):
     goe_4: EventsGroupSubTable = EventsGroupSubTable(group_index=4)
 
     # These are swapped out if the user has PoE enabled
-    person: BaseModel = FieldTraverser(chain=["pdi", "person"])
-    person_id: BaseModel = FieldTraverser(chain=["pdi", "person_id"])
+    person_id: BaseModel = FieldTraverser(chain=["pdi_person_id"])
+    person: BaseModel = FieldTraverser(chain=["pdi_person"])
 
     def clickhouse_table(self):
         return "events"

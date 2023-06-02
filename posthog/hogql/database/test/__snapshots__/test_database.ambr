@@ -31,11 +31,6 @@
               "type": "datetime"
           },
           {
-              "key": "pdi",
-              "type": "lazy_table",
-              "table": "person_distinct_ids"
-          },
-          {
               "key": "override",
               "type": "lazy_table",
               "table": "person_overrides"
@@ -50,8 +45,32 @@
           },
           {
               "key": "override_person",
+              "type": "field_traverser",
+              "chain": [
+                  "override",
+                  "person"
+              ]
+          },
+          {
+              "key": "pdi",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "person_distinct_ids"
+          },
+          {
+              "key": "pdi_person_id",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person_id"
+              ]
+          },
+          {
+              "key": "pdi_person",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person"
+              ]
           },
           {
               "key": "poe",
@@ -114,19 +133,17 @@
               ]
           },
           {
-              "key": "person",
-              "type": "field_traverser",
-              "chain": [
-                  "pdi",
-                  "person"
-              ]
-          },
-          {
               "key": "person_id",
               "type": "field_traverser",
               "chain": [
-                  "pdi",
-                  "person_id"
+                  "pdi_person_id"
+              ]
+          },
+          {
+              "key": "person",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi_person"
               ]
           }
       ],
@@ -205,6 +222,11 @@
           {
               "key": "created_at",
               "type": "datetime"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
           }
       ],
       "session_recording_events": [
@@ -471,11 +493,6 @@
               "type": "datetime"
           },
           {
-              "key": "pdi",
-              "type": "lazy_table",
-              "table": "person_distinct_ids"
-          },
-          {
               "key": "override",
               "type": "lazy_table",
               "table": "person_overrides"
@@ -490,8 +507,32 @@
           },
           {
               "key": "override_person",
+              "type": "field_traverser",
+              "chain": [
+                  "override",
+                  "person"
+              ]
+          },
+          {
+              "key": "pdi",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "person_distinct_ids"
+          },
+          {
+              "key": "pdi_person_id",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person_id"
+              ]
+          },
+          {
+              "key": "pdi_person",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person"
+              ]
           },
           {
               "key": "poe",
@@ -554,15 +595,15 @@
               ]
           },
           {
+              "key": "person_id",
+              "type": "string"
+          },
+          {
               "key": "person",
               "type": "field_traverser",
               "chain": [
                   "poe"
               ]
-          },
-          {
-              "key": "person_id",
-              "type": "string"
           }
       ],
       "groups": [
@@ -640,6 +681,11 @@
           {
               "key": "created_at",
               "type": "datetime"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
           }
       ],
       "session_recording_events": [

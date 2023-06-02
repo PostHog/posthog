@@ -6,7 +6,9 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
     IntegerDatabaseField,
+    LazyJoin,
 )
+from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
 
 from posthog.hogql.errors import HogQLException
 
@@ -60,6 +62,9 @@ class PersonOverridesTable(Table):
     oldest_event: DateTimeDatabaseField = DateTimeDatabaseField(name="oldest_event")
     merged_at: DateTimeDatabaseField = DateTimeDatabaseField(name="merged_at")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    person: LazyJoin = LazyJoin(
+        from_field="override_person_id", join_table=PersonsTable(), join_function=join_with_persons_table
+    )
 
     def lazy_select(self, requested_fields: Dict[str, Any]):
         return select_from_person_overrides_table(requested_fields)
