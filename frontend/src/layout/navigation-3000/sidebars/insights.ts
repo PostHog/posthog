@@ -1,4 +1,4 @@
-import { connect, kea, path, reducers, selectors } from 'kea'
+import { afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -42,7 +42,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
             },
         ],
     })),
-    selectors(({ actions, values }) => ({
+    selectors(({ actions, values, cache }) => ({
         contents: [
             (s) => [s.insights, s.infiniteInsights, s.insightsLoading, teamLogic.selectors.currentTeamId],
             (insights, infiniteInsights, insightsLoading, currentTeamId) => [
@@ -110,7 +110,11 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                     ),
                     loading: insightsLoading,
                     remote: {
+                        isItemLoaded: (index) => !!(cache.requestedInsights[index] || infiniteInsights[index]),
                         loadMoreItems: async (startIndex) => {
+                            for (let i = startIndex; i < startIndex + INSIGHTS_PER_PAGE; i++) {
+                                cache.requestedInsights[i] = true
+                            }
                             await savedInsightsLogic.actions.setSavedInsightsFilters(
                                 { page: Math.floor(startIndex / INSIGHTS_PER_PAGE) + 1 },
                                 true,
@@ -137,4 +141,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
             actions.setSavedInsightsFilters({ search: searchTerm }, false, false)
         },
     })),
+    afterMount(({ cache }) => {
+        cache.requestedInsights = []
+    }),
 ])

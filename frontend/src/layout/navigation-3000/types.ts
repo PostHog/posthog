@@ -45,6 +45,7 @@ export interface SidebarCategory {
     loading: boolean
     /** Controls for data that's only loaded partially from the API at first. This powers infinite scroll. */
     remote?: {
+        isItemLoaded: (index: number) => boolean
         loadMoreItems: (startIndex: number, stopIndex: number) => Promise<void>
         itemCount: number
         /** The "page" size. @default 100 */

@@ -57,7 +57,7 @@ export function SidebarList({
                 {({ height }) =>
                     remote ? (
                         <InfiniteLoader
-                            isRowLoaded={({ index }) => !!items[index]}
+                            isRowLoaded={({ index }) => remote.isItemLoaded(index)}
                             loadMoreRows={({ startIndex, stopIndex }) => remote.loadMoreItems(startIndex, stopIndex)}
                             rowCount={remote.itemCount}
                             minimumBatchSize={remote.minimumBatchSize || 100} // Sync default with the REST_FRAMEWORK PAGE_SIZE setting
