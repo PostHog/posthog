@@ -7,10 +7,9 @@ import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogi
 import { NotebookMode } from '~/types'
 import { LemonButton } from '@posthog/lemon-ui'
 import { notebookSidebarLogic } from './Notebook/notebookSidebarLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { IconArrowRight } from 'lib/lemon-ui/icons'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -29,11 +28,30 @@ export function NotebookScene(): JSX.Element {
     const { setNotebookMode } = useActions(notebookSceneLogic)
     const { notebook, notebookLoading } = useValues(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setNotebookSideBarShown } = useActions(notebookSidebarLogic)
+    const { selectedNotebook, notebookSideBarShown } = useValues(notebookSidebarLogic)
 
     if (!notebook && !notebookLoading) {
         return <NotFound object="notebook" />
     }
 
+    if (notebookSideBarShown && selectedNotebook === notebookId) {
+        return (
+            <div className="flex flex-col justify-center items-center h-full text-muted-alt mx-10">
+                <h2 className="text-muted-alt">
+                    This Notebook is open in the sidebar <IconArrowRight />
+                </h2>
+
+                <p>
+                    You can navigate around PostHog and <b>drag and drop</b> thing into it. Or you can close the sidebar
+                    and it will be full screen here instead.
+                </p>
+
+                <LemonButton type="secondary" onClick={() => setNotebookSideBarShown(false)}>
+                    Open it here instead
+                </LemonButton>
+            </div>
+        )
+    }
     return (
         <div className="NotebookScene">
             <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-white z-10">
@@ -51,7 +69,6 @@ export function NotebookScene(): JSX.Element {
                         onClick={() => {
                             selectNotebook(notebookId)
                             setNotebookSideBarShown(true)
-                            router.actions.push(urls.notebooks())
                         }}
                         tooltip={
                             <>

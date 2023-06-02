@@ -139,6 +139,14 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
+        isEmpty: [
+            (s) => [s.editor, s.content],
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            (editor): boolean => {
+                return editor?.isEmpty ?? false
+            },
+        ],
+
         syncStatus: [
             (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
             (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus | undefined => {

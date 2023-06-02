@@ -34,7 +34,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading } = useValues(logic)
+    const { notebook, content, notebookLoading, isEmpty } = useValues(logic)
     const { setEditorRef, onEditorUpdate } = useActions(logic)
 
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -189,7 +189,6 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                     </LemonButton>
                 </FloatingMenu>
             )} */}
-
                 {!notebook && notebookLoading ? (
                     <div className="space-y-4 px-8 py-4">
                         <LemonSkeleton className="w-1/2 h-8" />
@@ -198,7 +197,13 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                         <LemonSkeleton className="h-4" />
                     </div>
                 ) : !notebook ? (
-                    <NotFound object={'recording'} />
+                    <NotFound object={'notebook'} />
+                ) : isEmpty && !editable ? (
+                    <div className="NotebookEditor">
+                        <h1>
+                            <i>Untitled</i>
+                        </h1>
+                    </div>
                 ) : (
                     <EditorContent editor={_editor} className="flex flex-col flex-1" />
                 )}
