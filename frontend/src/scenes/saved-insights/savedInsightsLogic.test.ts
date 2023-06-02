@@ -34,9 +34,9 @@ const createInsight = (id: number, string = 'hi'): InsightModel =>
         saved: true,
         filters: {},
     } as any as InsightModel)
-const createSavedInsights = (string = 'hello'): InsightsResult => ({
+const createSavedInsights = (string = 'hello', offset: number): InsightsResult => ({
     count: 3,
-    results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)],
+    results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)].slice(offset),
     offset: 0,
 })
 
@@ -48,16 +48,16 @@ describe('savedInsightsLogic', () => {
             get: {
                 '/api/projects/:team/insights/': (req) => [
                     200,
-                    createSavedInsights(req.url.searchParams.get('search') ?? ''),
+                    createSavedInsights(
+                        req.url.searchParams.get('search') ?? '',
+                        parseInt(req.url.searchParams.get('offset') ?? '0')
+                    ),
                 ],
                 '/api/projects/:team/insights/42': createInsight(42),
                 '/api/projects/:team/insights/123': createInsight(123),
             },
             post: {
-                '/api/projects/:team/insights/': (req) => [
-                    200,
-                    createSavedInsights(req.url.searchParams.get('search') ?? ''),
-                ],
+                '/api/projects/:team/insights/': () => [200, createInsight(42)],
             },
         })
         initKeaTests()
@@ -71,7 +71,7 @@ describe('savedInsightsLogic', () => {
         await expectLogic(logic).toDispatchActions(['setSavedInsightsFilters', 'loadInsights', 'loadInsightsSuccess'])
     })
 
-    it('can filter the flags', async () => {
+    it('can filter the insights', async () => {
         // makes a search query
         logic.actions.setSavedInsightsFilters({ search: 'hello' })
         await expectLogic(logic)
@@ -81,6 +81,7 @@ describe('savedInsightsLogic', () => {
                 insights: {
                     results: partial([partial({ name: 'hello 1' })]),
                     count: 3,
+                    offset: 0,
                     filters: partial({ search: 'hello' }),
                 },
             })
@@ -94,6 +95,7 @@ describe('savedInsightsLogic', () => {
                 insights: {
                     results: partial([partial({ name: 'hello 1' })]),
                     count: 3,
+                    offset: 0,
                     filters: partial({ search: 'hello' }),
                 },
             })
@@ -107,6 +109,7 @@ describe('savedInsightsLogic', () => {
                 insights: {
                     results: partial([partial({ name: 'hello 1' })]),
                     count: 3,
+                    offset: 0,
                     filters: partial({ search: 'hello' }),
                 },
             })
@@ -116,6 +119,7 @@ describe('savedInsightsLogic', () => {
                 insights: {
                     results: partial([partial({ name: 'hello again 1' })]),
                     count: 3,
+                    offset: 0,
                     filters: partial({ search: 'hello again' }),
                 },
             })
@@ -127,6 +131,12 @@ describe('savedInsightsLogic', () => {
             .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
             .toMatchValues({
                 filters: partial({ page: 2, search: '' }),
+                insights: {
+                    results: [],
+                    count: 3,
+                    offset: 30,
+                    filters: partial({ page: 2, search: '' }),
+                },
             })
 
         logic.actions.setSavedInsightsFilters({ search: 'hello' })
@@ -134,6 +144,12 @@ describe('savedInsightsLogic', () => {
             .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
             .toMatchValues({
                 filters: partial({ page: 1, search: 'hello' }),
+                insights: {
+                    results: partial([partial({ name: 'hello 1' })]),
+                    count: 3,
+                    offset: 0,
+                    filters: partial({ page: 1, search: 'hello' }),
+                },
             })
     })
 
