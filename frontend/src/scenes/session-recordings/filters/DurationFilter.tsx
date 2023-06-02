@@ -1,41 +1,46 @@
 import { PropertyOperator, RecordingDurationFilter } from '~/types'
-import { Row, Space } from 'antd'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { durationFilterLogic } from './durationFilterLogic'
-import { useActions, useValues } from 'kea'
-import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import { DurationPicker, convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
 import { LemonButton } from '@posthog/lemon-ui'
+import { useMemo, useState } from 'react'
 
 interface Props {
-    initialFilter: RecordingDurationFilter
+    filter: RecordingDurationFilter
     onChange: (value: RecordingDurationFilter) => void
     pageKey: string
 }
 
-export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX.Element {
-    const durationFilterLogicInstance = durationFilterLogic({ initialFilter, onChange, pageKey })
-    const { setValue, setIsOpen, setOperator } = useActions(durationFilterLogicInstance)
-    const { durationString, value, operator, isOpen } = useValues(durationFilterLogicInstance)
+export const humanFriendlyDurationFilter = (filter: RecordingDurationFilter): string => {
+    const operator = filter.operator === PropertyOperator.GreaterThan ? '>' : '<'
+    const duration = convertSecondsToDuration(filter.value || 0)
+    const unit = duration.timeValue === 1 ? duration.unit.slice(0, -1) : duration.unit
+    return `${operator} ${duration.timeValue || 0} ${unit}`
+}
+
+export function DurationFilter({ filter, onChange }: Props): JSX.Element {
+    const [isOpen, setIsOpen] = useState(false)
+    const durationString = useMemo(() => humanFriendlyDurationFilter(filter), [filter])
+
     return (
         <Popover
             visible={isOpen}
-            placement={'bottom-end'}
-            fallbackPlacements={['bottom-start']}
+            placement={'bottom-start'}
+            fallbackPlacements={['bottom-end']}
             onClickOutside={() => setIsOpen(false)}
             overlay={
-                <Row>
-                    <Space>
-                        <OperatorSelect
-                            operator={operator}
-                            operators={[PropertyOperator.GreaterThan, PropertyOperator.LessThan]}
-                            onChange={(newOperator) => {
-                                setOperator(newOperator)
-                            }}
-                        />
-                        <DurationPicker onChange={setValue} initialValue={value || 0} />
-                    </Space>
-                </Row>
+                <div className="flex gap-2">
+                    <OperatorSelect
+                        operator={filter.operator}
+                        operators={[PropertyOperator.GreaterThan, PropertyOperator.LessThan]}
+                        onChange={(newOperator) => onChange({ ...filter, operator: newOperator })}
+                        className="flex-1"
+                    />
+                    <DurationPicker
+                        onChange={(newValue) => onChange({ ...filter, value: newValue })}
+                        value={filter.value || undefined}
+                    />
+                </div>
             }
         >
             <LemonButton

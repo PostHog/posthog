@@ -4,7 +4,7 @@ import { LemonSelect, LemonInput } from '@posthog/lemon-ui'
 
 interface DurationPickerProps {
     onChange: (value_seconds: number) => void
-    initialValue?: number
+    value?: number
     autoFocus?: boolean
 }
 
@@ -28,38 +28,43 @@ export const convertSecondsToDuration = (seconds: number): Duration => {
     }
 }
 
-export function DurationPicker({ initialValue, onChange, autoFocus }: DurationPickerProps): JSX.Element {
-    const [timeValue, setTimeValue] = useState(convertSecondsToDuration(initialValue || 0).timeValue)
-    const [unit, setUnit] = useState(convertSecondsToDuration(initialValue || 0).unit)
+export function DurationPicker({ value, onChange, autoFocus }: DurationPickerProps): JSX.Element {
+    const duration = convertSecondsToDuration(value || 0)
+
+    const [localTimeValue, setLocalTimeValue] = useState<number | undefined>(duration.timeValue)
+    const [unit, setUnit] = useState<SmallTimeUnit>(duration.unit)
 
     useEffect(() => {
-        const timeValueToUse = timeValue || 0
-        const unitToUse = unit
+        // Update the local state when the value changes
+        setLocalTimeValue(convertSecondsToDuration(value || 0).timeValue)
+        setUnit(convertSecondsToDuration(value || 0).unit)
+    }, [value])
 
-        const seconds = timeValueToUse * TIME_MULTIPLIERS[unitToUse]
+    const _onChange = ({ newTimeValue, newUnit }: { newTimeValue?: number; newUnit: SmallTimeUnit }): void => {
+        setLocalTimeValue(newTimeValue)
+        setUnit(newUnit)
 
-        onChange(seconds)
-    }, [timeValue, unit])
+        if (newTimeValue !== undefined) {
+            const seconds = newTimeValue * TIME_MULTIPLIERS[newUnit]
+            // We want to allow clearing the input so we only trigger the change if it was actually set
+            onChange(seconds)
+        }
+    }
 
     return (
         <div className="flex items-center gap-2">
             <LemonInput
                 type="number"
-                value={timeValue ?? undefined}
+                value={localTimeValue}
                 placeholder="0"
                 min={0}
                 autoFocus={autoFocus}
                 step={1}
-                onChange={(val) => {
-                    const newValue = val
-                    setTimeValue(newValue || 0)
-                }}
+                onChange={(val) => _onChange({ newTimeValue: val, newUnit: unit })}
             />
             <LemonSelect
                 value={unit}
-                onChange={(newValue) => {
-                    setUnit(newValue as SmallTimeUnit)
-                }}
+                onChange={(newValue) => _onChange({ newUnit: newValue as SmallTimeUnit, newTimeValue: localTimeValue })}
                 options={durationOptions.map((value) => ({ value, label: value }))}
             />
         </div>
