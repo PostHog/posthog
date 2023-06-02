@@ -16,7 +16,11 @@ class PersonUUIDMixin(BaseParamMixin):
 class SessionRecordingsMixin(BaseParamMixin):
     @cached_property
     def duration_type_filter(self) -> Literal["duration", "active_seconds"]:
-        return self._data.get("duration_type_filter", None) or "duration"
+        user_value = self._data.get("duration_type_filter", None)
+        if user_value in ["duration", "active_seconds"]:
+            return user_value
+        else:
+            return "duration"
 
     @cached_property
     def recording_duration_filter(self) -> Optional[Property]:
