@@ -21,6 +21,7 @@ import clsx from 'clsx'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import posthog from 'posthog-js'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 
 export type NotebookProps = {
     shortId: string
@@ -221,6 +222,13 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                                 <b>This is a template.</b> You can create a copy of it to edit and use as your own.
                             </LemonBanner>
                         )}
+
+                        {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
+                            <LemonBanner type="info" dismissKey="notebook-sidebar-scratchpad" className="my-4">
+                                This is your scratchpad. It is only visible to you and is persisted only in this
+                                browser. It's a great place to gather ideas before turning into a saved Notebook!
+                            </LemonBanner>
+                        ) : null}
                         <EditorContent editor={_editor} className="flex flex-col flex-1" />
                     </>
                 )}

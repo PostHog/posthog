@@ -63,9 +63,7 @@
 
     &--highlighted {
         cursor: grab;
-        > * {
-            pointer-events: none;
-        }
+        z-index: var(--z-modal);
     }
 }
 
