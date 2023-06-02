@@ -12,6 +12,20 @@
   LIMIT 100
   '
 ---
+# name: TestPerson.test_filter_person_email.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))
+  '
+---
 # name: TestPerson.test_filter_person_email_materialized
   '
   /* user_id:0 request:_snapshot_ */
@@ -24,6 +38,20 @@
   AND has(['another@gmail.com'], "pmat_email")
   ORDER BY argMax(created_at, version) DESC, id
   LIMIT 100
+  '
+---
+# name: TestPerson.test_filter_person_email_materialized.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND has(['another@gmail.com'], "pmat_email"))
   '
 ---
 # name: TestPerson.test_filter_person_list
@@ -52,6 +80,29 @@
 # name: TestPerson.test_filter_person_list.1
   '
   /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND id IN
+       (SELECT person_id
+        FROM
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0)
+        where distinct_id = 'distinct_id' ))
+  '
+---
+# name: TestPerson.test_filter_person_list.2
+  '
+  /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
   WHERE team_id = 2
@@ -72,7 +123,30 @@
   LIMIT 100
   '
 ---
-# name: TestPerson.test_filter_person_list.2
+# name: TestPerson.test_filter_person_list.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND id IN
+       (SELECT person_id
+        FROM
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0)
+        where distinct_id = 'another_one' ))
+  '
+---
+# name: TestPerson.test_filter_person_list.4
   '
   /* user_id:0 request:_snapshot_ */
   SELECT id
@@ -86,7 +160,21 @@
   LIMIT 100
   '
 ---
-# name: TestPerson.test_filter_person_list.3
+# name: TestPerson.test_filter_person_list.5
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))
+  '
+---
+# name: TestPerson.test_filter_person_list.6
   '
   /* user_id:0 request:_snapshot_ */
   SELECT id
@@ -100,7 +188,21 @@
   LIMIT 100
   '
 ---
-# name: TestPerson.test_filter_person_list.4
+# name: TestPerson.test_filter_person_list.7
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))
+  '
+---
+# name: TestPerson.test_filter_person_list.8
   '
   /* user_id:0 request:_snapshot_ */
   SELECT id
@@ -123,6 +225,29 @@
   LIMIT 100
   '
 ---
+# name: TestPerson.test_filter_person_list.9
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND id IN
+       (SELECT person_id
+        FROM
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0)
+        where distinct_id = 'inexistent' ))
+  '
+---
 # name: TestPerson.test_filter_person_prop
   '
   /* user_id:0 request:_snapshot_ */
@@ -140,6 +265,25 @@
   AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'some_prop'), '^"|"$', '')))
   ORDER BY argMax(created_at, version) DESC, id
   LIMIT 100
+  '
+---
+# name: TestPerson.test_filter_person_prop.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'some_prop'), '^"|"$', ''))))
   '
 ---
 # name: TestPerson.test_person_property_values
@@ -238,6 +382,25 @@
 # name: TestPerson.test_properties.1
   '
   /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (JSONHas(properties, 'email')) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND (JSONHas(argMax(person.properties, version), 'email')))
+  '
+---
+# name: TestPerson.test_properties.2
+  '
+  /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
   WHERE team_id = 2
@@ -252,6 +415,25 @@
   AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
   ORDER BY argMax(created_at, version) DESC, id
   LIMIT 100
+  '
+---
+# name: TestPerson.test_properties.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%') )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%'))
   '
 ---
 # name: TestPerson.test_properties_materialized
@@ -276,6 +458,25 @@
 # name: TestPerson.test_properties_materialized.1
   '
   /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (notEmpty("pmat_email")) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND (notEmpty(argMax(person."pmat_email", version))))
+  '
+---
+# name: TestPerson.test_properties_materialized.2
+  '
+  /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
   WHERE team_id = 2
@@ -290,6 +491,25 @@
   AND (argMax(person."pmat_email", version) ILIKE '%another@gm%')
   ORDER BY argMax(created_at, version) DESC, id
   LIMIT 100
+  '
+---
+# name: TestPerson.test_properties_materialized.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ("pmat_email" ILIKE '%another@gm%') )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND (argMax(person."pmat_email", version) ILIKE '%another@gm%'))
   '
 ---
 # name: TestPerson.test_search
@@ -334,6 +554,45 @@
 # name: TestPerson.test_search.1
   '
   /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%')
+                 OR id IN
+                   (SELECT person_id
+                    FROM
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0)
+                    WHERE distinct_id = 'another@gm' )) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
+          OR id IN
+            (SELECT person_id
+             FROM
+               (SELECT distinct_id,
+                       argMax(person_id, version) as person_id
+                FROM person_distinct_id2
+                WHERE team_id = 2
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0)
+             WHERE distinct_id = 'another@gm' )))
+  '
+---
+# name: TestPerson.test_search.2
+  '
+  /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
   WHERE team_id = 2
@@ -368,6 +627,45 @@
           WHERE distinct_id = 'distinct_id_3' ))
   ORDER BY argMax(created_at, version) DESC, id
   LIMIT 100
+  '
+---
+# name: TestPerson.test_search.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%distinct_id_3%')
+                 OR id IN
+                   (SELECT person_id
+                    FROM
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0)
+                    WHERE distinct_id = 'distinct_id_3' )) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%distinct_id_3%')
+          OR id IN
+            (SELECT person_id
+             FROM
+               (SELECT distinct_id,
+                       argMax(person_id, version) as person_id
+                FROM person_distinct_id2
+                WHERE team_id = 2
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0)
+             WHERE distinct_id = 'distinct_id_3' )))
   '
 ---
 # name: TestPerson.test_search_materialized
@@ -412,6 +710,45 @@
 # name: TestPerson.test_search_materialized.1
   '
   /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (("pmat_email" ILIKE '%another@gm%')
+                 OR id IN
+                   (SELECT person_id
+                    FROM
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0)
+                    WHERE distinct_id = 'another@gm' )) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND ((argMax(person."pmat_email", version) ILIKE '%another@gm%')
+          OR id IN
+            (SELECT person_id
+             FROM
+               (SELECT distinct_id,
+                       argMax(person_id, version) as person_id
+                FROM person_distinct_id2
+                WHERE team_id = 2
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0)
+             WHERE distinct_id = 'another@gm' )))
+  '
+---
+# name: TestPerson.test_search_materialized.2
+  '
+  /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
   WHERE team_id = 2
@@ -446,5 +783,44 @@
           WHERE distinct_id = 'distinct_id_3' ))
   ORDER BY argMax(created_at, version) DESC, id
   LIMIT 100
+  '
+---
+# name: TestPerson.test_search_materialized.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count()
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (("pmat_email" ILIKE '%distinct_id_3%')
+                 OR id IN
+                   (SELECT person_id
+                    FROM
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0)
+                    WHERE distinct_id = 'distinct_id_3' )) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+     AND ((argMax(person."pmat_email", version) ILIKE '%distinct_id_3%')
+          OR id IN
+            (SELECT person_id
+             FROM
+               (SELECT distinct_id,
+                       argMax(person_id, version) as person_id
+                FROM person_distinct_id2
+                WHERE team_id = 2
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0)
+             WHERE distinct_id = 'distinct_id_3' )))
   '
 ---
