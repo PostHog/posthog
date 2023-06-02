@@ -1,7 +1,7 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { afterMount, connect, kea, path, selectors } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import type { personsAndGroupsSidebarLogicType } from './personsAndGroupsSidebarLogicType'
+import type { personsAndGroupsSidebarLogicType } from './personsAndGroupsType'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { navigation3000Logic } from '../navigationLogic'
@@ -13,11 +13,9 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsPaginatedResponse, groupsListLogic } from 'scenes/groups/groupsListLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 
-const SEARCH_DEBOUNCE_MS = 200
-
 export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'personsAndGroupsSidebarLogic']),
-    connect({
+    connect(() => ({
         values: [
             personsLogic,
             ['persons', 'personsLoading'],
@@ -25,17 +23,11 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
             ['groupTypes'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
+            navigation3000Logic,
+            ['searchTerm'],
         ],
-        actions: [personsLogic, ['setListFilters', 'loadPersons']],
-    }),
-    actions({
-        loadData: true,
-    }),
-    listeners({
-        loadData: () => {
-            personsLogic.actions.loadPersons()
-        },
-    }),
+        actions: [personsLogic, ['setListFilters as setPersonsListFilters', 'loadPersons']],
+    })),
     selectors(({ actions, values }) => ({
         isLoading: [(s) => [s.personsLoading], (personsLoading) => personsLoading],
         contents: [
@@ -68,14 +60,16 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                                 title: capitalizeFirstLetter(groupType.name_plural || `${groupType.group_type} groups`),
                                 items: groups[groupType.group_type_index].results.map((group) => {
                                     const { searchTerm } = values
+                                    const displayId = groupDisplayId(group.group_key, group.group_properties)
                                     return {
                                         key: group.group_key,
-                                        name: groupDisplayId(group.group_key, group.group_properties),
+                                        name: displayId,
                                         url: urls.group(groupType.group_type_index, group.group_key),
-                                        searchMatch: findSearchTermInItemName(group.group_key, searchTerm),
+                                        searchMatch: findSearchTermInItemName(displayId, searchTerm),
                                     } as BasicListItem
                                 }),
                                 loading: groupsLoading[groupType.group_type_index],
+                                // FIXME: Add loadMore
                             } as Accordion)
                     ),
                 ]
@@ -135,16 +129,19 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                 return null
             },
         ],
-        searchTerm: [() => [navigation3000Logic.selectors.searchTerm], (searchTerm) => searchTerm],
+        // kea-typegen doesn't like selectors without deps, so searchTerm is just for appearances
+        debounceSearch: [(s) => [s.searchTerm], () => true],
     })),
-    subscriptions(({ actions, cache }) => ({
+    subscriptions(({ actions, values }) => ({
         searchTerm: (searchTerm) => {
-            clearTimeout(cache.loadTimeout)
-            actions.setListFilters({ search: searchTerm })
-            cache.loadTimeout = setTimeout(() => actions.loadData(), SEARCH_DEBOUNCE_MS)
+            actions.setPersonsListFilters({ search: searchTerm })
+            actions.loadPersons()
+            for (const { group_type_index: groupTypeIndex } of values.groupTypes) {
+                groupsListLogic({ groupTypeIndex }).actions.setSearch(searchTerm, false)
+            }
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadData()
+        actions.loadPersons() // Groups are always loaded by groupsListLogic after mount
     }),
 ])

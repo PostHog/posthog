@@ -9,8 +9,6 @@ import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode, Tre
 import { InsightDateFilter } from './filters/InsightDateFilter'
 import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
 import { PathStepPicker } from './views/Paths/PathStepPicker'
-import { RetentionDatePicker } from './RetentionDatePicker'
-import { RetentionReferencePicker } from './filters/RetentionReferencePicker'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
@@ -92,7 +90,14 @@ function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
     return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
 }
 
-export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
+export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
+    if (!isFunnelsFilter(filters) && !isTrendsFilter(filters)) {
+        // The legacy InsightContainer should only be used in Experiments,
+        // where we only have funnel and trend insights, allowing us already
+        // to gradually remove the other insight types here
+        throw new Error('Unsupported insight type')
+    }
+
     const isFunnels = isFunnelsFilter(filters)
     const isPaths = isPathsFilter(filters)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -125,13 +130,6 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                     </ConfigFilter>
                 ) : null}
 
-                {isRetentionFilter(filters) && (
-                    <ConfigFilter>
-                        <RetentionDatePicker />
-                        <RetentionReferencePicker />
-                    </ConfigFilter>
-                )}
-
                 {isPaths && (
                     <ConfigFilter>
                         <PathStepPicker insightProps={insightProps} />
@@ -152,7 +150,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                                     ((isTrendsFilter(filters) ||
                                         isStickinessFilter(filters) ||
                                         isLifecycleFilter(filters)) &&
-                                        filters.show_values_on_series) ||
+                                        (filters as TrendsFilterType).show_values_on_series) ||
                                     // pie charts have value checked by default
                                     (isTrendsFilter(filters) &&
                                         filters.display === ChartDisplayType.ActionsPie &&

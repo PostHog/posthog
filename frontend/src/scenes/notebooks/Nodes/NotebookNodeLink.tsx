@@ -1,7 +1,7 @@
-import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-import { createUrlRegex } from './utils'
+import { posthogNodePasteRule } from './utils'
 import { Link } from '@posthog/lemon-ui'
 import { useMemo } from 'react'
 import {
@@ -95,8 +95,8 @@ export const NotebookNodeLink = Node.create({
 
     addPasteRules() {
         return [
-            nodePasteRule({
-                find: createUrlRegex('(.+)'),
+            posthogNodePasteRule({
+                find: '(.+)',
                 type: this.type,
                 getAttributes: (match) => {
                     return { href: match[0] }

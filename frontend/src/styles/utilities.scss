@@ -474,8 +474,10 @@ $decorations: underline, overline, line-through, no-underline;
     display: inline-flex;
 }
 
-.flex-1 {
-    flex: 1;
+@each $size in $flex_sizes {
+    .flex-#{escape-number($size)} {
+        flex: $size;
+    }
 }
 
 .flex-auto {

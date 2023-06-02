@@ -4,7 +4,6 @@ import api from 'lib/api'
 import { insightLogic } from '../insights/insightLogic'
 import {
     InsightLogicProps,
-    FilterType,
     TrendResult,
     ActionFilter,
     ChartDisplayType,
@@ -23,7 +22,6 @@ import {
     keyForInsightLogicProps,
 } from 'scenes/insights/sharedUtils'
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { subscriptions } from 'kea-subscriptions'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export const trendsLogic = kea<trendsLogicType>([
@@ -51,7 +49,7 @@ export const trendsLogic = kea<trendsLogicType>([
         setIsFormulaOn: (enabled: boolean) => ({ enabled }),
     })),
 
-    reducers(({ props }) => ({
+    reducers({
         targetAction: [
             {} as ActionFilter,
             {
@@ -64,13 +62,7 @@ export const trendsLogic = kea<trendsLogicType>([
                 setBreakdownValuesLoading: (_, { loading }) => loading,
             },
         ],
-        isFormulaOn: [
-            () => isTrendsFilter(props.cachedInsight?.filters) && !!props.cachedInsight?.filters?.formula,
-            {
-                setIsFormulaOn: (_, { enabled }) => enabled,
-            },
-        ],
-    })),
+    }),
 
     selectors({
         filters: [
@@ -193,25 +185,11 @@ export const trendsLogic = kea<trendsLogicType>([
             })
             actions.setBreakdownValuesLoading(false)
         },
-        setIsFormulaOn: ({ enabled }) => {
-            if (!enabled) {
-                actions.setFilters({ formula: undefined })
-            }
-        },
         toggleLifecycle: ({ lifecycleName }) => {
             const toggledLifecycles = values.toggledLifecycles.includes(lifecycleName)
                 ? values.toggledLifecycles.filter((s) => s !== lifecycleName)
                 : [...values.toggledLifecycles, lifecycleName]
             actions.setFilters({ toggledLifecycles } as Partial<LifecycleFilterType>, true)
-        },
-    })),
-    subscriptions(({ values, actions }) => ({
-        filters: (filters: Partial<FilterType>) => {
-            const shouldFormulaBeOn = isTrendsFilter(filters) && !!filters.formula
-            // Prevent too many renders by only firing the action if needed
-            if (values.isFormulaOn !== shouldFormulaBeOn) {
-                actions.setIsFormulaOn(shouldFormulaBeOn)
-            }
         },
     })),
 ])

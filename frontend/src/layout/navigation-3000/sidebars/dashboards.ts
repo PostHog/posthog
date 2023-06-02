@@ -4,7 +4,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { ExtendedListItem } from '../types'
-import type { dashboardsSidebarLogicType } from './dashboardsSidebarLogicType'
+import type { dashboardsSidebarLogicType } from './dashboardsType'
 import Fuse from 'fuse.js'
 import { DashboardType } from '~/types'
 import { subscriptions } from 'kea-subscriptions'
@@ -67,15 +67,6 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                                 {
                                     items: [
                                         {
-                                            onClick: () => {
-                                                ;(dashboard.pinned ? actions.unpinDashboard : actions.pinDashboard)(
-                                                    dashboard.id,
-                                                    DashboardEventSource.MoreDropdown
-                                                )
-                                            },
-                                            label: dashboard.pinned ? 'Unpin' : 'Pin',
-                                        },
-                                        {
                                             to: urls.dashboard(dashboard.id),
                                             onClick: () => {
                                                 dashboardLogic({ id: dashboard.id }).mount()
@@ -91,6 +82,19 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                                                 actions.showDuplicateDashboardModal(dashboard.id, dashboard.name)
                                             },
                                             label: 'Duplicate',
+                                        },
+                                    ],
+                                },
+                                {
+                                    items: [
+                                        {
+                                            onClick: () => {
+                                                ;(dashboard.pinned ? actions.unpinDashboard : actions.pinDashboard)(
+                                                    dashboard.id,
+                                                    DashboardEventSource.MoreDropdown
+                                                )
+                                            },
+                                            label: dashboard.pinned ? 'Unpin' : 'Pin',
                                         },
                                     ],
                                 },

@@ -6,7 +6,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { ExtendedListItem } from '../types'
-import type { featureFlagsSidebarLogicType } from './featureFlagsSidebarLogicType'
+import type { featureFlagsSidebarLogicType } from './featureFlagsType'
 import Fuse from 'fuse.js'
 import { FeatureFlagType } from '~/types'
 import { subscriptions } from 'kea-subscriptions'
@@ -70,23 +70,6 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                             {
                                 items: [
                                     {
-                                        label: 'Copy feature flag key',
-                                        onClick: () => {
-                                            copyToClipboard(featureFlag.key, 'feature flag key')
-                                        },
-                                    },
-                                    {
-                                        label: `${featureFlag.active ? 'Disable' : 'Enable'} feature flag`,
-                                        onClick: () =>
-                                            actions.updateFeatureFlag({
-                                                id: featureFlag.id as number,
-                                                payload: { active: !featureFlag.active },
-                                            }),
-                                        disabledReason: !featureFlag.can_edit
-                                            ? "You don't have permission to edit this feature flag."
-                                            : null,
-                                    },
-                                    {
                                         label: 'Edit',
                                         to: urls.featureFlag(featureFlag.id as number),
                                         onClick: () => {
@@ -98,6 +81,27 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                         disabledReason: !featureFlag.can_edit
                                             ? "You don't have permission to edit this feature flag."
                                             : null,
+                                    },
+                                ],
+                            },
+                            {
+                                items: [
+                                    {
+                                        label: `${featureFlag.active ? 'Disable' : 'Enable'} flag`,
+                                        onClick: () =>
+                                            actions.updateFeatureFlag({
+                                                id: featureFlag.id as number,
+                                                payload: { active: !featureFlag.active },
+                                            }),
+                                        disabledReason: !featureFlag.can_edit
+                                            ? "You don't have permission to edit this feature flag."
+                                            : null,
+                                    },
+                                    {
+                                        label: 'Copy flag key',
+                                        onClick: () => {
+                                            copyToClipboard(featureFlag.key, 'feature flag key')
+                                        },
                                     },
                                     {
                                         label: 'Try out in Insights',

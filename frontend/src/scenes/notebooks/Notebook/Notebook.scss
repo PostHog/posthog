@@ -29,6 +29,15 @@
             pointer-events: none;
             height: 0;
         }
+
+        ul,
+        ol {
+            padding-left: 1rem;
+        }
+
+        ul {
+            list-style: initial;
+        }
     }
 
     &--compact {

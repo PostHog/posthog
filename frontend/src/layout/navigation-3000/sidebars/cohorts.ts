@@ -3,7 +3,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { ExtendedListItem } from '../types'
-import type { cohortsSidebarLogicType } from './cohortsSidebarLogicType'
+import type { cohortsSidebarLogicType } from './cohortsType'
 import Fuse from 'fuse.js'
 import { CohortType } from '~/types'
 import { subscriptions } from 'kea-subscriptions'
@@ -11,6 +11,7 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { pluralize } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
+import { api } from '@posthog/apps-common'
 
 const fuse = new Fuse<CohortType>([], {
     keys: [{ name: 'name', weight: 2 }],
@@ -50,9 +51,14 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
                                       nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
                                   }
                                 : null,
-                            menuItems: [
+                            menuItems: (initiateRename) => [
                                 {
                                     items: [
+                                        {
+                                            onClick: initiateRename,
+                                            label: 'Rename',
+                                            keyboardShortcut: ['enter'],
+                                        },
                                         {
                                             onClick: () => {
                                                 actions.deleteCohort(cohort)
@@ -63,6 +69,10 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
                                     ],
                                 },
                             ],
+                            onRename: async (newName) => {
+                                await api.cohorts.update(cohort.id, { name: newName })
+                                cohortsModel.actions.updateCohort({ ...cohort, name: newName })
+                            },
                         } as ExtendedListItem)
                 ),
         ],

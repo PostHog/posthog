@@ -1,75 +1,34 @@
 import { useActions, useValues } from 'kea'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { retentionLogic } from 'scenes/retention/retentionLogic'
 import {
     dateOptionPlurals,
     dateOptions,
     retentionOptionDescriptions,
     retentionOptions,
 } from 'scenes/retention/constants'
-import { EditorFilterProps, FilterType, InsightLogicProps, QueryEditorFilterProps, RetentionType } from '~/types'
+import { FilterType, EditorFilterProps, RetentionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { AggregationSelect, AggregationSelectDataExploration } from 'scenes/insights/filters/AggregationSelect'
+import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { RetentionFilter } from '~/queries/schema'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-export function RetentionSummaryDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
+    const { showGroupsOptions } = useValues(groupsModel)
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
-    return (
-        <RetentionSummaryComponent
-            insightProps={insightProps}
-            setFilters={updateInsightFilter}
-            {...retentionFilter}
-            isDataExploration
-        />
-    )
-}
-
-export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
-    const { filters } = useValues(retentionLogic(insightProps))
-    const { setFilters } = useActions(retentionLogic(insightProps))
-    return <RetentionSummaryComponent insightProps={insightProps} setFilters={setFilters} {...filters} />
-}
-
-type RetentionSummaryComponentProps = {
-    setFilters: (filters: Partial<RetentionFilter>) => void
-    isDataExploration?: boolean
-    insightProps: InsightLogicProps
-} & RetentionFilter
-
-export function RetentionSummaryComponent({
-    target_entity,
-    returning_entity,
-    retention_type,
-    total_intervals,
-    period,
-    setFilters,
-    isDataExploration,
-    insightProps,
-}: RetentionSummaryComponentProps): JSX.Element {
-    const { showGroupsOptions } = useValues(groupsModel)
+    const { target_entity, returning_entity, retention_type, total_intervals, period } = retentionFilter || {}
 
     return (
         <div className="space-y-2" data-attr="retention-summary">
             <div className="flex items-center">
                 Show
                 {showGroupsOptions ? (
-                    isDataExploration ? (
-                        <AggregationSelectDataExploration
-                            className="mx-2"
-                            insightProps={insightProps}
-                            hogqlAvailable={false}
-                        />
-                    ) : (
-                        <AggregationSelect className="mx-2" insightProps={insightProps} hogqlAvailable={false} />
-                    )
+                    <AggregationSelect className="mx-2" insightProps={insightProps} hogqlAvailable={false} />
                 ) : (
                     <b> Unique users </b>
                 )}
@@ -86,11 +45,11 @@ export function RetentionSummaryComponent({
                     filters={{ events: [target_entity] } as FilterType} // retention filters use target and returning entity instead of events
                     setFilters={(newFilters: FilterType) => {
                         if (newFilters.events && newFilters.events.length > 0) {
-                            setFilters({ target_entity: newFilters.events[0] })
+                            updateInsightFilter({ target_entity: newFilters.events[0] })
                         } else if (newFilters.actions && newFilters.actions.length > 0) {
-                            setFilters({ target_entity: newFilters.actions[0] })
+                            updateInsightFilter({ target_entity: newFilters.actions[0] })
                         } else {
-                            setFilters({ target_entity: undefined })
+                            updateInsightFilter({ target_entity: undefined })
                         }
                     }}
                     typeKey="retention-table"
@@ -109,7 +68,7 @@ export function RetentionSummaryComponent({
                         ),
                     }))}
                     value={retention_type ? retentionOptions[retention_type] : undefined}
-                    onChange={(value): void => setFilters({ retention_type: value as RetentionType })}
+                    onChange={(value): void => updateInsightFilter({ retention_type: value as RetentionType })}
                     dropdownMatchSelectWidth={false}
                 />
             </div>
@@ -119,12 +78,12 @@ export function RetentionSummaryComponent({
                     type="number"
                     className="ml-2 w-20"
                     value={(total_intervals ?? 11) - 1}
-                    onChange={(value) => setFilters({ total_intervals: (value || 0) + 1 })}
+                    onChange={(value) => updateInsightFilter({ total_intervals: (value || 0) + 1 })}
                 />
                 <LemonSelect
                     className="mx-2"
                     value={period}
-                    onChange={(value): void => setFilters({ period: value ? value : undefined })}
+                    onChange={(value): void => updateInsightFilter({ period: value ? value : undefined })}
                     options={dateOptions.map((period) => ({
                         value: period,
                         label: dateOptionPlurals[period] || period,
@@ -144,11 +103,11 @@ export function RetentionSummaryComponent({
                     filters={{ events: [returning_entity] } as FilterType}
                     setFilters={(newFilters: FilterType) => {
                         if (newFilters.events && newFilters.events.length > 0) {
-                            setFilters({ returning_entity: newFilters.events[0] })
+                            updateInsightFilter({ returning_entity: newFilters.events[0] })
                         } else if (newFilters.actions && newFilters.actions.length > 0) {
-                            setFilters({ returning_entity: newFilters.actions[0] })
+                            updateInsightFilter({ returning_entity: newFilters.actions[0] })
                         } else {
-                            setFilters({ returning_entity: undefined })
+                            updateInsightFilter({ returning_entity: undefined })
                         }
                     }}
                     typeKey="retention-table-returning"

@@ -1,9 +1,7 @@
 import { useValues, useActions } from 'kea'
 import clsx from 'clsx'
-import { dayjs } from 'lib/dayjs'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { retentionLogic } from './retentionLogic'
 import { retentionTableLogic } from './retentionTableLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 
@@ -13,19 +11,8 @@ import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
 
 export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const {
-        results,
-        resultsLoading,
-        filters: { period, date_to },
-    } = useValues(retentionLogic(insightProps))
-    const { tableHeaders, tableRows } = useValues(retentionTableLogic(insightProps))
+    const { tableHeaders, tableRows, isLatestPeriod } = useValues(retentionTableLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
-
-    const isLatestPeriod = periodIsLatest(date_to || null, period || null)
-
-    if (resultsLoading || !results?.length) {
-        return null
-    }
 
     return (
         <table className="RetentionTable" data-attr="retention-table">
@@ -81,22 +68,4 @@ function CohortDay({ percentage, latest }: { percentage: number; latest: boolean
         </div>
     )
     return latest ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell
-}
-
-const periodIsLatest = (date_to: string | null, period: string | null): boolean => {
-    if (!date_to || !period) {
-        return true
-    }
-
-    const curr = dayjs(date_to)
-    if (
-        (period == 'Hour' && curr.isSame(dayjs(), 'hour')) ||
-        (period == 'Day' && curr.isSame(dayjs(), 'day')) ||
-        (period == 'Week' && curr.isSame(dayjs(), 'week')) ||
-        (period == 'Month' && curr.isSame(dayjs(), 'month'))
-    ) {
-        return true
-    } else {
-        return false
-    }
 }

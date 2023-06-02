@@ -13,6 +13,8 @@ export interface SidebarLogic extends Logic {
          * Otherwise a primitive (string or number key). Null if no item is active.
          */
         activeListItemKey: string | number | [string, string | number] | null
+        /** If this selector returns true, the searchTerm value will be debounced. */
+        debounceSearch?: boolean
     }
     selectors: {
         isLoading: (state: any, props?: any) => SidebarLogic['values']['isLoading']

@@ -19,6 +19,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { NotFound } from 'lib/components/NotFound'
 import clsx from 'clsx'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import posthog from 'posthog-js'
 
 export type NotebookProps = {
     shortId: string
@@ -109,6 +110,9 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                                 .setTextSelection(coordinates.pos)
                                 .insertContent({ type: node, attrs: JSON.parse(properties) })
                                 .run()
+
+                            // We report this case, the pasted version is handled by the posthogNodePasteRule
+                            posthog.capture('notebook node dropped', { node_type: node })
                         } else {
                             editor?.chain().focus().setTextSelection(coordinates.pos).run()
                             view.pasteText(text)
