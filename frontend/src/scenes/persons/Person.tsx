@@ -33,7 +33,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DEFAULT_PERSON_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { IconInfo } from 'lib/lemon-ui/icons'
 
 const { TabPane } = Tabs
@@ -209,11 +208,7 @@ export function Person(): JSX.Element | null {
                             </LemonBanner>
                         </div>
                     ) : null}
-                    <SessionRecordingsPlaylist
-                        personUUID={person.uuid}
-                        updateSearchParams
-                        filters={DEFAULT_PERSON_RECORDING_FILTERS}
-                    />
+                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>

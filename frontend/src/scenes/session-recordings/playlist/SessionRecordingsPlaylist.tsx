@@ -1,28 +1,29 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingFilters, SessionRecordingType, ReplayTabs } from '~/types'
 import {
     DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
+    SessionRecordingListLogicProps,
     sessionRecordingsListLogic,
 } from './sessionRecordingsListLogic'
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight, IconPause, IconPlay } from 'lib/lemon-ui/icons'
-import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
+import { IconChevronLeft, IconChevronRight, IconFilter, IconPause, IconPlay, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
-import { SessionRecordingsPlaylistFilters } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistFilters'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -51,8 +52,17 @@ export function RecordingsLists({
         showFilters,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
+        totalFiltersCount,
     } = useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev, setFilters, maybeLoadSessionRecordings } = useActions(logic)
+    const {
+        setSelectedRecordingId,
+        loadNext,
+        loadPrev,
+        setFilters,
+        maybeLoadSessionRecordings,
+        setShowFilters,
+        resetFilters,
+    } = useActions(logic)
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -92,9 +102,6 @@ export function RecordingsLists({
 
     return (
         <>
-            {showFilters ? (
-                <SessionRecordingsFilters filters={filters} setFilters={setFilters} showPropertyFilters={!personUUID} />
-            ) : null}
             <div className="SessionRecordingsPlaylist__lists">
                 {/* Pinned recordings */}
                 {!!playlistShortId && !showFilters ? (
@@ -158,6 +165,18 @@ export function RecordingsLists({
                                 paginationControls
                             )}
 
+                            <LemonButton
+                                noPadding
+                                status={showFilters ? 'primary' : 'primary-alt'}
+                                type={showFilters ? 'primary' : 'tertiary'}
+                                icon={
+                                    <IconWithCount count={totalFiltersCount}>
+                                        <IconFilter />
+                                    </IconWithCount>
+                                }
+                                onClick={() => setShowFilters(!showFilters)}
+                            />
+
                             <Tooltip
                                 title={
                                     <div className="text-center">
@@ -187,6 +206,16 @@ export function RecordingsLists({
                                 </span>
                             </Tooltip>
                         </>
+                    }
+                    subheader={
+                        showFilters ? (
+                            <SessionRecordingsFilters
+                                filters={filters}
+                                setFilters={setFilters}
+                                showPropertyFilters={!personUUID}
+                                onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                            />
+                        ) : null
                     }
                     onRecordingClick={onRecordingClick}
                     onPropertyClick={onPropertyClick}
@@ -268,33 +297,34 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         updateSearchParams,
         onFiltersChange,
         autoPlay = true,
-        mode = 'standard',
     } = props
 
-    const logicProps = {
+    const logicProps: SessionRecordingListLogicProps = {
         playlistShortId,
         personUUID,
         filters: defaultFilters,
         updateSearchParams,
         autoPlay,
+        onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, filters } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
         750: 'medium',
     })
 
-    useEffect(() => {
-        if (filters !== defaultFilters) {
-            onFiltersChange?.(filters)
-        }
-    }, [filters])
-
     return (
         <>
-            {mode === 'standard' ? <SessionRecordingsPlaylistFilters {...props} /> : null}
+            {/* This was added around Jun 23 so at some point can just be removed */}
+            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-2">
+                <b>Filters have moved!</b> You can now find all filters including time and duration by clicking the{' '}
+                <span className="mx-1 text-lg">
+                    <IconFilter />
+                </span>
+                icon at the top of the list of recordings.
+            </LemonBanner>
             <div
                 ref={playlistRef}
                 data-attr="session-recordings-playlist"
