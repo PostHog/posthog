@@ -3,14 +3,8 @@
         margin-top: 0.5rem;
     }
 
-    // .ActionFilterRow {
-    //     &:not(:last-child) {
-    //         margin-bottom: 0.5rem;
-    //     }
-    // }
-
     .ActionFilterRow-filters {
-        margin: 0.5rem 0;
+        padding: 0.5rem 0;
     }
 
     &.ActionFilter--bordered {
@@ -18,7 +12,7 @@
         border: 1px solid var(--border);
 
         .ActionFilterRow {
-            margin-bottom: 0;
+            margin-top: 0;
 
             .ActionFilterRow-content {
                 margin-bottom: 0px;
@@ -28,12 +22,14 @@
         }
 
         .ActionFilter-footer {
+            margin-top: 0;
             padding: 0.5rem;
         }
 
         .ActionFilterRow-filters {
             background-color: var(--side);
             border-bottom: 1px solid var(--border);
+            padding: 0.5rem;
         }
     }
 }
