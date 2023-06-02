@@ -43,7 +43,7 @@ export interface SidebarCategory {
     title: string
     items: BasicListItem[] | ExtendedListItem[]
     loading: boolean
-    /** Controls for data that's only loaded partially from the API at first. This powers infinite scroll. */
+    /** Controls for data that's only loaded partially from the API at first. This powers infinite loading. */
     remote?: {
         isItemLoaded: (index: number) => boolean
         loadMoreItems: (startIndex: number, stopIndex: number) => Promise<void>

@@ -628,6 +628,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         returned_ids = []
         with self.assertNumQueries(11):
             response = self.client.get("/api/person/?limit=10").json()
+        self.assertEqual(response["count"], 20)  # The TOTAL count is included
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
         response = self.client.get(response["next"]).json()
