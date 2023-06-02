@@ -183,8 +183,8 @@ dependencies:
     specifier: ^0.23.0
     version: 0.23.0
   posthog-js:
-    specifier: 1.63.2
-    version: 1.63.2
+    specifier: 1.63.3
+    version: 1.63.3
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -15609,11 +15609,10 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.63.2:
-    resolution: {integrity: sha512-XsoY5Yvl4KkKs+YNlz79iWPnVHXr+vMQ1DVh9gYYrneafTkaa5OvGPI1F0RCu65PIuYLK5wltYJa5vSu/h4MiA==}
+  /posthog-js@1.63.3:
+    resolution: {integrity: sha512-Ob2x1ENxx/mWAdhLhc6ouKAph9LwmitBy7M+hiaFoS0T9g7OVL4lYdrJbODbYV+HX/HeO3bsnQwYO1QLPWm/YA==}
     dependencies:
       fflate: 0.4.8
-      rrweb-snapshot: 1.1.14
     dev: false
 
   /prelude-ls@1.1.2:
@@ -17430,10 +17429,6 @@ packages:
     resolution: {integrity: sha512-rUyeS9fSOO6uSxCdeY5bQkKQTPECIgxsOCb/WR7eA/UsVkVpdDOyCV43wxm92V2JOtqMuv+36rUpEDFW+YFjOw==}
     dependencies:
       rrweb-snapshot: 2.0.0-alpha.8
-    dev: false
-
-  /rrweb-snapshot@1.1.14:
-    resolution: {integrity: sha512-eP5pirNjP5+GewQfcOQY4uBiDnpqxNRc65yKPW0eSoU1XamDfc4M8oqpXGMyUyvLyxFDB0q0+DChuxxiU2FXBQ==}
     dev: false
 
   /rrweb-snapshot@2.0.0-alpha.8:
