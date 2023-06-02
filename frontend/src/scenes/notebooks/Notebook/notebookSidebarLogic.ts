@@ -75,6 +75,9 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         },
 
         onResize: ({ originX, desiredX, finished }) => {
+            if (values.fullScreen) {
+                actions.setFullScreen(false)
+            }
             if (!values.elementRef?.current) {
                 return
             }
