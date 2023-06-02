@@ -6,13 +6,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, DefaultDict, Dict, Generator, List, Optional
 
-import brotli
 from dateutil.parser import parse, ParserError
 from prometheus_client import Histogram
 from prometheus_client.utils import INF
-from sentry_sdk.api import capture_exception, capture_message, start_span
+from sentry_sdk.api import capture_exception, capture_message
 
-from posthog import settings
 from posthog.models import utils
 from posthog.models.session_recording.metadata import (
     DecompressedRecordingData,
@@ -26,38 +24,18 @@ from posthog.models.session_recording.metadata import (
 FULL_SNAPSHOT = 2
 
 
-uncompressed_snapshot_size = Histogram(
-    "session_recordings_uncompressed_snapshot_size",
-    "We compress and chunk session recording snapshots. How big are they uncompressed (kilobytes-ish)?",
-    # 0.5, 1, 4, 8, 16, 32, or more
-    buckets=(512, 1024, 4096, 8192, 16384, 32768, INF),
-)
-
-gzipped_snapshot_size = Histogram(
-    "session_recordings_gzip_snapshot_size",
-    "We compress and chunk session recording snapshots. How big are they gzip compressed (kilobytes-ish)?",
-    # 0.5, 1, 4, 8, 16, 32, or more
-    buckets=(512, 1024, 4096, 8192, 16384, 32768, INF),
-)
-
-brotli_snapshot_size = Histogram(
-    "session_recordings_brotli_snapshot_size",
-    "We compress and chunk session recording snapshots. How big are they brotli compressed (kilobytes-ish)?",
-    # 0.5, 1, 4, 8, 16, 32, or more
-    buckets=(512, 1024, 4096, 8192, 16384, 32768, INF),
-)
-
-existing_grouped_snapshot_size = Histogram(
-    "session_recordings_grouped_snapshot_size",
-    "We compress and chunk session recording snapshots. How big are they grouped and gzipped (kilobytes-ish)?",
-    # 0.5, 1, 4, 8, 16, 32, or more
-    buckets=(512, 1024, 4096, 8192, 16384, 32768, INF),
-)
-
 # NOTE: For reference here are some helpful enum mappings from rrweb
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
 
 # event.type
+
+recordingsChunksLength = Histogram(
+    "session_recordings_chunks_length",
+    "We chunk session recordings to fit them into kafka, how often do we chunk and by how much?",
+    buckets=(0, 1, 2, 5, 7, 10, 15, 20, 50, 100, 500, INF),
+)
+
+
 class RRWEB_MAP_EVENT_TYPE:
     DomContentLoaded = 0
     Load = 1
@@ -143,29 +121,11 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
     has_full_snapshot = any(snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot for snapshot_data in data_list)
     window_id = events[0]["properties"].get("$window_id")
 
-    if settings.SESSION_RECORDINGS_TEST_COMPRESSION:
-        for data in data_list:
-            uncompressed_snapshot_size.observe(len(json.dumps(data)) / 1024)
-
-        with start_span(op="session_recording.gzip_compression_test") as span:
-            span.set_tag("rrweb_event.count", len(data_list))
-            span.set_tag("session_id", session_id)
-
-            for rrweb_snapshot in data_list:
-                gzipped_snapshot_size.observe(len(compress_to_string(json.dumps(rrweb_snapshot))) / 1024)
-
-        with start_span(op="session_recording.brotli_compression_test") as span:
-            span.set_tag("rrweb_event.count", len(data_list))
-            span.set_tag("session_id", session_id)
-
-            for rrweb_snapshot in data_list:
-                brotli_snapshot_size.observe(len(brotli_compress_to_string(json.dumps(rrweb_snapshot))) / 1024)
-
     compressed_data = compress_to_string(json.dumps(data_list))
-    existing_grouped_snapshot_size.observe(len(compressed_data) / 1024)
 
     id = str(utils.UUIDT())
     chunks = chunk_string(compressed_data, chunk_size)
+    recordingsChunksLength.observe(len(chunks))
 
     for index, chunk in enumerate(chunks):
         yield {
@@ -210,11 +170,6 @@ def is_unchunked_snapshot(event: Dict) -> bool:
 
 def compress_to_string(json_string: str) -> str:
     compressed_data = gzip.compress(json_string.encode("utf-16", "surrogatepass"))
-    return base64.b64encode(compressed_data).decode("utf-8")
-
-
-def brotli_compress_to_string(json_string: str) -> str:
-    compressed_data = brotli.compress(json_string.encode("utf-16", "surrogatepass"))
     return base64.b64encode(compressed_data).decode("utf-8")
 
 
