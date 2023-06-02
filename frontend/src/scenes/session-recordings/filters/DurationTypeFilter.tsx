@@ -12,7 +12,7 @@ export function DurationTypeFilter({ onChange, initialFilter }: DurationTypeFilt
             onChange={(v) => onChange((v || 'all') as DurationFilterType)}
             options={[
                 {
-                    label: 'Total duration',
+                    label: 'total duration',
                     value: 'duration',
                 },
                 {
