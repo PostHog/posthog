@@ -779,6 +779,7 @@ test('capture new person', async () => {
                 property_type: 'String',
                 property_type_format: null,
                 query_usage_30_day: null,
+                team_id: 2,
                 type: 2,
                 group_type_index: null,
                 volume_30_day: null,

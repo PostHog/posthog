@@ -170,9 +170,9 @@ test.concurrent(`event ingestion: ip kept if not anonymize`, async () => {
                 properties: expect.objectContaining({
                     $ip: '123.12.12.23',
                 }),
-                distinctId: distinctId,
+                distinct_id: distinctId,
                 uuid: firstUuid,
-                teamId: teamId,
+                team_id: teamId,
             })
         )
     })
@@ -199,9 +199,9 @@ test.concurrent(`event ingestion: anonymize ip respected`, async () => {
                 properties: expect.not.objectContaining({
                     $ip: '123.12.12.23',
                 }),
-                distinctId: distinctId,
+                distinct_id: distinctId,
                 uuid: firstUuid,
-                teamId: teamId,
+                team_id: teamId,
             })
         )
     })
