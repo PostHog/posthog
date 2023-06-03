@@ -2,8 +2,6 @@ import { EventType, RecordingEventType } from '~/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { IconFlag } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 
 function StackTrace({}: { rawTrace: string }): JSX.Element | null {
     return null
@@ -47,11 +45,13 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
                     <div className={'flex flex-row gap-2 flex-wrap'}>
                         {$active_feature_flags.map((flag: string, index: number) => {
                             return (
-                                <div key={index} className={'border rounded px-1.5 py-1 bg-primary-alt-highlight'}>
+                                <div
+                                    key={index}
+                                    className={'border rounded px-1.5 py-1 bg-primary-alt-highlight text-muted'}
+                                >
                                     <IconFlag className={'pr-1'} />
-                                    <Link to={urls.featureFlag(flag)} target={'blank'} className={'text-muted'}>
-                                        {flag}
-                                    </Link>
+
+                                    {flag}
                                 </div>
                             )
                         })}
