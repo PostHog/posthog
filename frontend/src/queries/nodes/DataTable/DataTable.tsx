@@ -454,6 +454,12 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                       },
                                       rowExpandable: ({ result }) => !!result,
                                       noIndent: true,
+                                      expandedRowClassName: ({ result }) => {
+                                          const record = Array.isArray(result) ? result[0] : result
+                                          return record && record['event'] === '$exception'
+                                              ? 'border border-danger-dark bg-danger-highlight'
+                                              : null
+                                      },
                                   }
                                 : undefined
                         }
@@ -461,7 +467,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             clsx('DataTable__row', {
                                 'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                 'DataTable__row--category_row': !!label,
-                                'border border-danger-dark bg-danger-highlight':
+                                'border-danger-dark bg-danger-highlight':
                                     result && result[0] && result[0]['event'] === '$exception',
                             })
                         }
