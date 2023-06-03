@@ -429,7 +429,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         if (
-                            miniFiltersByKey['all-errors']?.enabled &&
+                            (miniFiltersByKey['all-errors']?.enabled ||
+                                miniFiltersByKey['events-exceptions']?.enabled) &&
                             (item.data.event === '$exception' || item.data.event.toLowerCase().includes('error'))
                         ) {
                             include = true
