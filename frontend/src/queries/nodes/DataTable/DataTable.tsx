@@ -461,6 +461,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             clsx('DataTable__row', {
                                 'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                 'DataTable__row--category_row': !!label,
+                                'border border-danger-dark bg-danger-highlight':
+                                    result && result[0] && result[0]['event'] === '$exception',
                             })
                         }
                     />
