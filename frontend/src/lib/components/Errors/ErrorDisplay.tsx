@@ -44,11 +44,11 @@ export function ErrorDisplay({ event }: { event: EventType }): JSX.Element {
             <div className={'flex flex-col gap-1 mt-6'}>
                 <h2 className={'text-sm'}>Active Feature Flags</h2>
                 {$active_feature_flags && $active_feature_flags.length ? (
-                    <div className={'flex flex-row gap-2'}>
+                    <div className={'flex flex-row gap-2 flex-wrap'}>
                         {$active_feature_flags.map((flag: string, index: number) => {
                             return (
                                 <div key={index} className={'border rounded px-1.5 py-1'}>
-                                    <IconFlag />
+                                    <IconFlag className={'pr-1'} />
                                     <Link to={urls.featureFlag(flag)} target={'blank'}>
                                         {flag}
                                     </Link>
