@@ -1,4 +1,4 @@
-import { EventType } from '~/types'
+import { EventType, RecordingEventType } from '~/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { IconFlag } from 'lib/lemon-ui/icons'
@@ -9,7 +9,7 @@ function StackTrace({}: { rawTrace: string }): JSX.Element | null {
     return null
 }
 
-export function ErrorDisplay({ event }: { event: EventType }): JSX.Element {
+export function ErrorDisplay({ event }: { event: EventType | RecordingEventType }): JSX.Element {
     if (event.event !== '$exception') {
         return <>Unknown type of error</>
     }
@@ -29,7 +29,7 @@ export function ErrorDisplay({ event }: { event: EventType }): JSX.Element {
     return (
         <div className={'flex flex-col space-y-2'}>
             <h1 className={'mb-0'}>{$exception_message}</h1>
-            <div className={'flex flex-row gap-2'}>
+            <div className={'flex flex-row gap-2 flex-wrap'}>
                 <LemonTag type={'caution'}>{$exception_type}</LemonTag>
                 <LemonSnack color={'primary-highlight'}>
                     library: {$lib} {$lib_version}
@@ -47,9 +47,9 @@ export function ErrorDisplay({ event }: { event: EventType }): JSX.Element {
                     <div className={'flex flex-row gap-2 flex-wrap'}>
                         {$active_feature_flags.map((flag: string, index: number) => {
                             return (
-                                <div key={index} className={'border rounded px-1.5 py-1'}>
+                                <div key={index} className={'border rounded px-1.5 py-1 bg-primary-alt-highlight'}>
                                     <IconFlag className={'pr-1'} />
-                                    <Link to={urls.featureFlag(flag)} target={'blank'}>
+                                    <Link to={urls.featureFlag(flag)} target={'blank'} className={'text-muted'}>
                                         {flag}
                                     </Link>
                                 </div>

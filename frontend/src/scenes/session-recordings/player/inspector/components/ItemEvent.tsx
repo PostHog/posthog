@@ -5,6 +5,7 @@ import { capitalizeFirstLetter, autoCaptureEventToDescription, insightUrlForEven
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -62,7 +63,11 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                     ) : null}
 
                     {item.data.fullyLoaded ? (
-                        <SimpleKeyValueList item={item.data.properties} />
+                        item.data.event === '$exception' ? (
+                            <ErrorDisplay event={item.data} />
+                        ) : (
+                            <SimpleKeyValueList item={item.data.properties} />
+                        )
                     ) : (
                         <div className="text-muted-alt flex gap-1 items-center">
                             <Spinner monocolor />
