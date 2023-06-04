@@ -469,6 +469,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 'DataTable__row--category_row': !!label,
                                 'border border-danger-dark bg-danger-highlight':
                                     result && result[0] && result[0]['event'] === '$exception',
+                                [`row-type-${result?.[0]?.event}`]: result && result[0] && result[0]['event'],
                             })
                         }
                     />

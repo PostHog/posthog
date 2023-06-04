@@ -108,6 +108,11 @@
             &:not(:first-child) {
                 border-top: 1px solid var(--border);
             }
+            // some "row types" need to override defaults
+            // here, the $exception event needs to override border color
+            &:not(:first-child).row-type-\$exception {
+                border-top: 1px solid var(--danger-dark);
+            }
             > th,
             > td {
                 padding-left: 1rem;

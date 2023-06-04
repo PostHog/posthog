@@ -729,6 +729,18 @@ $decorations: underline, overline, line-through, no-underline;
     }
 }
 
+.rounded {
+    border-radius: var(--radius); /* 4px */
+}
+.rounded-l {
+    border-top-left-radius: var(--radius); /* 4px */
+    border-bottom-left-radius: var(--radius); /* 4px */
+}
+.rounded-r {
+    border-top-right-radius: var(--radius); /* 4px */
+    border-bottom-right-radius: var(--radius); /* 4px */
+}
+
 .rounded-none {
     border-radius: 0px;
 }
@@ -744,9 +756,11 @@ $decorations: underline, overline, line-through, no-underline;
 .rounded-sm {
     border-radius: calc(var(--radius) / 2); /* 2px */
 }
+
 .rounded {
     border-radius: var(--radius); /* 4px */
 }
+
 .rounded-t {
     border-top-left-radius: var(--radius); /* 4px */
     border-top-right-radius: var(--radius); /* 4px */
