@@ -52,10 +52,11 @@ function TemplateItem({
     )
 }
 
-export function DashboardTemplatePreview(): JSX.Element {
-    const { activeDashboardTemplate } = useValues(newDashboardLogic)
+export function DashboardTemplatePreview({ featureFlagId }: { featureFlagId?: number }): JSX.Element {
+    const _newDashboardLogic = newDashboardLogic({ featureFlagId })
+    const { activeDashboardTemplate } = useValues(_newDashboardLogic)
     const { variables } = useValues(dashboardTemplateVariablesLogic)
-    const { createDashboardFromTemplate, clearActiveDashboardTemplate } = useActions(newDashboardLogic)
+    const { createDashboardFromTemplate, clearActiveDashboardTemplate } = useActions(_newDashboardLogic)
 
     return (
         <div>
@@ -126,6 +127,7 @@ export function DashboardTemplateChooser({
                                 return
                             }
                             setIsLoading(true)
+                            console.log('HERE')
                             // while we might receive templates from the external repository
                             // we need to handle templates that don't have variables
                             if ((template.variables || []).length === 0) {
@@ -133,7 +135,6 @@ export function DashboardTemplateChooser({
                                     template.variables = []
                                 }
                                 createDashboardFromTemplate(template, template.variables || [])
-                            } else {
                                 setActiveDashboardTemplate(template)
                             }
                         }}
@@ -162,6 +163,12 @@ export function NewDashboardModal({ featureFlag }: { featureFlag?: FeatureFlagTy
         <DashboardTemplateChooser />
     )
 
+    const _dashboardTemplatePreview = featureFlag ? (
+        <DashboardTemplatePreview featureFlagId={featureFlag.id as number} />
+    ) : (
+        <DashboardTemplatePreview />
+    )
+
     return (
         <LemonModal
             onClose={hideNewDashboardModal}
@@ -179,7 +186,7 @@ export function NewDashboardModal({ featureFlag }: { featureFlag?: FeatureFlagTy
             }
         >
             <div className="NewDashboardModal">
-                {activeDashboardTemplate ? <DashboardTemplatePreview /> : _dashboardTemplateChooser}
+                {activeDashboardTemplate ? _dashboardTemplatePreview : _dashboardTemplateChooser}
             </div>
         </LemonModal>
     )
