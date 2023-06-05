@@ -167,7 +167,7 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
         return _response_to_dict(response)
     elif query_kind == "HogQLMetadata":
         metadata_query = HogQLMetadata.parse_obj(query_json)
-        response = get_hogql_metadata(query=metadata_query)
+        response = get_hogql_metadata(query=metadata_query, team=team)
         return _response_to_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
