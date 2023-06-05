@@ -56,6 +56,8 @@ def parse_domain(url: Any) -> Optional[str]:
     return urlparse(url).hostname
 
 
+print('test')
+
 @csrf_exempt
 @timed("posthog_cloud_decide_endpoint")
 def get_decide(request: HttpRequest):
