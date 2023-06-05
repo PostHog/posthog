@@ -80,6 +80,7 @@ def sync_execute(
     *,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
+    readonly=False,
 ):
     if TEST and flush:
         try:
@@ -89,7 +90,7 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
 
-    with get_pool(workload, team_id).get_client() as client:
+    with get_pool(workload, team_id, readonly).get_client() as client:
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
