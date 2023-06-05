@@ -1,7 +1,10 @@
+from typing import TYPE_CHECKING
 from posthog.redis import redis, get_client
 import time
-from posthoganalytics import Posthog
 from sentry_sdk import capture_exception
+
+if TYPE_CHECKING:
+    from posthoganalytics import Posthog
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
@@ -21,7 +24,7 @@ def increment_request_count(team_id: int, count: int = 1) -> None:
         capture_exception(error)
 
 
-def capture_team_decide_usage(ph_client: Posthog, team_id: int, team_uuid: str) -> None:
+def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str) -> None:
     try:
         client = get_client()
         total_request_count = 0
