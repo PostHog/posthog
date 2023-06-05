@@ -70,7 +70,7 @@ export function HogQLEditor({
                 type="primary"
                 onClick={submit}
                 loading={responseLoading}
-                disabledReason={!localValue ? 'Please enter a HogQL expression' : error}
+                disabledReason={!localValue ? 'Please enter a HogQL expression' : error ? 'Please fix the error' : null}
                 center
             >
                 {submitText ?? 'Update HogQL expression'}

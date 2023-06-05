@@ -101,6 +101,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         renameLocalFilter: (index: number, custom_name: string) => ({ index, custom_name }),
         showModal: true,
         hideModal: true,
+        showMathHogQL: true,
+        hideMathHogQL: true,
     }),
 
     reducers(({ props }) => ({
@@ -130,6 +132,13 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             {
                 showModal: () => true,
                 hideModal: () => false,
+            },
+        ],
+        mathHogQLVisible: [
+            false,
+            {
+                showMathHogQL: () => true,
+                hideMathHogQL: () => false,
             },
         ],
     })),
