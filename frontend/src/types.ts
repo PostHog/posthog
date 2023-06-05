@@ -679,6 +679,8 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export type DurationTypeFilter = 'duration' | 'active_seconds'
+
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
@@ -687,6 +689,7 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
+    duration_type_filter?: DurationTypeFilter
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -2896,6 +2899,7 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
+    is_template?: boolean
     content: JSONContent // TODO: Type this better
     version: number
 }
@@ -2903,6 +2907,16 @@ export type NotebookType = NotebookListItemType & {
 export enum NotebookMode {
     View = 'view',
     Edit = 'edit',
+}
+
+export enum NotebookNodeType {
+    Insight = 'ph-insight',
+    Query = 'ph-query',
+    Recording = 'ph-recording',
+    RecordingPlaylist = 'ph-recording-playlist',
+    FeatureFlag = 'ph-feature-flag',
+    Person = 'ph-person',
+    Link = 'ph-link',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'

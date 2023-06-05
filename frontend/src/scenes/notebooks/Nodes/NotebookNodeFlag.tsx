@@ -1,7 +1,7 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from '~/types'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { IconFlag, IconRecording } from 'lib/lemon-ui/icons'

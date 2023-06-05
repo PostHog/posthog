@@ -11,7 +11,8 @@ from posthog.hogql.placeholders import assert_no_placeholders, replace_placehold
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
-from posthog.queries.insight import insight_sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.client import sync_execute
 
 
 class HogQLQueryResponse(BaseModel):
@@ -74,23 +75,30 @@ def execute_hogql_query(
     clickhouse_context = HogQLContext(
         team_id=team.pk, enable_select_queries=True, person_on_events_mode=team.person_on_events_mode
     )
-    clickhouse = print_ast(
+    clickhouse_sql = print_ast(
         select_query, context=clickhouse_context, dialect="clickhouse", settings=settings or HogQLSettings()
     )
 
-    results, types = insight_sync_execute(
-        clickhouse,
+    tag_queries(
+        team_id=team.pk,
+        query_type=query_type,
+        has_joins="JOIN" in clickhouse_sql,
+        has_json_operations="JSONExtract" in clickhouse_sql or "JSONHas" in clickhouse_sql,
+    )
+
+    results, types = sync_execute(
+        clickhouse_sql,
         clickhouse_context.values,
         with_column_types=True,
-        query_type=query_type,
         workload=workload,
         team_id=team.pk,
+        readonly=True,
     )
 
     return HogQLQueryResponse(
         query=query,
         hogql=hogql,
-        clickhouse=clickhouse,
+        clickhouse=clickhouse_sql,
         results=results,
         columns=print_columns,
         types=types,

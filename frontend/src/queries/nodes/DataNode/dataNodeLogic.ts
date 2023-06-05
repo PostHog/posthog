@@ -75,7 +75,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh, queryId }, breakpoint) => {
-                    if (props.cachedResults) {
+                    if (props.cachedResults && !refresh) {
                         return props.cachedResults
                     }
 

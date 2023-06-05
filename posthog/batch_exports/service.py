@@ -13,6 +13,7 @@ from temporalio.client import (
     Client,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleIntervalSpec,
     ScheduleSpec,
     ScheduleState,
 )
@@ -42,7 +43,7 @@ class S3BatchExportInputs:
 
     bucket_name: str
     region: str
-    key_template: str
+    prefix: str
     batch_window_size: int
     team_id: int
     batch_export_id: str
@@ -60,11 +61,12 @@ DESTINATION_WORKFLOWS = {
 
 
 @async_to_sync
-async def create_schedule(temporal, id: str, schedule: Schedule):
+async def create_schedule(temporal, id: str, schedule: Schedule, trigger_immediately: bool = False):
     """Create a Temporal Schedule."""
     return await temporal.create_schedule(
         id=id,
         schedule=schedule,
+        trigger_immediately=trigger_immediately,
     )
 
 
@@ -199,6 +201,8 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
 
     temporal = sync_connect()
 
+    time_delta_from_interval = dt.timedelta(hours=1) if interval == "hour" else dt.timedelta(days=1)
+
     create_schedule(
         temporal,
         id=str(batch_export.id),
@@ -217,9 +221,12 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
                 id=str(batch_export.id),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             ),
-            spec=ScheduleSpec(),
+            spec=ScheduleSpec(
+                intervals=[ScheduleIntervalSpec(every=time_delta_from_interval)],
+            ),
             state=state,
         ),
+        trigger_immediately=True,
     )
 
     return batch_export
