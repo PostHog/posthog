@@ -232,6 +232,24 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         results: mergedResults,
                     }
                 },
+                setSelectedRecordingId: async ({ id }) => {
+                    const existing = [...(values.sessionRecordingsResponse?.results ?? [])]
+
+                    const updatedResults = existing.map((recording) => {
+                        if (recording.id === id) {
+                            return {
+                                ...recording,
+                                viewed: true,
+                            }
+                        }
+                        return recording
+                    })
+
+                    return {
+                        has_next: values.sessionRecordingsResponse.has_next,
+                        results: updatedResults,
+                    }
+                },
             },
         ],
         pinnedRecordingsResponse: [
