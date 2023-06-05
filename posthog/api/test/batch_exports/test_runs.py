@@ -30,7 +30,7 @@ def test_can_get_export_runs_for_your_organizations(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
@@ -67,7 +67,7 @@ def test_cannot_get_exports_for_other_organizations(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
@@ -112,7 +112,7 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
@@ -160,7 +160,7 @@ def test_batch_export_backfill_creates_a_run(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
