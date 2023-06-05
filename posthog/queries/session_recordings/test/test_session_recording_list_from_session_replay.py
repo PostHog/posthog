@@ -914,6 +914,52 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         self.assertEqual(session_recordings[0]["session_id"], "two days before base time")
 
     @snapshot_clickhouse_queries
+    def test_date_from_filter_cannot_search_before_ttl(self):
+        with freeze_time(self.base_time):
+            user = "test_date_from_filter_cannot_search_before_ttl-user"
+            Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+            produce_replay_summary(
+                distinct_id=user,
+                session_id="storage is past ttl",
+                first_timestamp=(self.base_time - relativedelta(days=22)),
+                # an illegally long session but it started 22 days ago
+                last_timestamp=(self.base_time - relativedelta(days=3)),
+                team_id=self.team.id,
+            )
+            produce_replay_summary(
+                distinct_id=user,
+                session_id="storage is not past ttl",
+                first_timestamp=(self.base_time - relativedelta(days=19)),
+                last_timestamp=(self.base_time - relativedelta(days=2)),
+                team_id=self.team.id,
+            )
+
+            filter = SessionRecordingsFilter(
+                team=self.team, data={"date_from": (self.base_time - relativedelta(days=20)).strftime("%Y-%m-%d")}
+            )
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["session_id"], "storage is not past ttl")
+
+            filter = SessionRecordingsFilter(
+                team=self.team, data={"date_from": (self.base_time - relativedelta(days=21)).strftime("%Y-%m-%d")}
+            )
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["session_id"], "storage is not past ttl")
+
+            filter = SessionRecordingsFilter(
+                team=self.team, data={"date_from": (self.base_time - relativedelta(days=22)).strftime("%Y-%m-%d")}
+            )
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["session_id"], "storage is not past ttl")
+
+    @snapshot_clickhouse_queries
     def test_date_to_filter(self):
         user = "test_date_to_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
