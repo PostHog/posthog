@@ -345,9 +345,10 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
 
 class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
     def _make_hash_value(self, user, timestamp):
-        if not isinstance(user, User):
-            raise TypeError("user is not of type User")
-        return f"{user.pk}{user.email}{user.requested_password_reset_at}{timestamp}"
+        # Due to type differences between the user model and the token generator, we need to
+        # re-fetch the user from the database to get the correct type.
+        usable_user: User = User.objects.get(pk=user.pk)
+        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}"
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()
