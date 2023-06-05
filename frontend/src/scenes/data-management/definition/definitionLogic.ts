@@ -77,7 +77,9 @@ export const definitionLogic = kea<definitionLogicType>([
                             definition = await api.propertyDefinitions.get({
                                 propertyDefinitionId: id,
                             })
-                            updatePropertyDefinitions([definition as PropertyDefinition])
+                            updatePropertyDefinitions({
+                                [`event/${definition.name}`]: definition as PropertyDefinition,
+                            })
                         }
                         breakpoint()
                     } catch (response: any) {

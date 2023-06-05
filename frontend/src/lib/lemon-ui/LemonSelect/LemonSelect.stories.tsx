@@ -115,12 +115,12 @@ CustomElement.args = {
     options: [
         {
             value: 1,
-            labelInMenuExtra: <i> (Surprised)</i>,
+            labelInMenu: <i>Wow (Surprised)</i>,
             label: 'Wow',
         },
         {
             value: 2,
-            labelInMenuExtra: <i> (Blushing)</i>,
+            labelInMenu: <i>Ohh (Blushing)</i>,
             label: 'Ohh',
         },
     ],

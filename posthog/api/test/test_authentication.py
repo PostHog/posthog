@@ -87,9 +87,8 @@ class TestLoginAPI(APIBaseTest):
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
-    @patch("posthoganalytics.get_feature_flag", return_value="test")
-    def test_email_unverified_user_cant_log_in_if_email_verification_true(
-        self, mock_feature_enabled, mock_send_email_verification, mock_is_email_available
+    def test_email_unverified_user_cant_log_in_if_email_available(
+        self, mock_send_email_verification, mock_is_email_available
     ):
         self.user.is_email_verified = False
         self.user.save()
@@ -102,18 +101,14 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         mock_is_email_available.assert_called_once()
-        mock_feature_enabled.assert_called_once_with(
-            "require-email-verification", str(self.user.distinct_id), person_properties={"email": self.CONFIG_EMAIL}
-        )
 
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
-    @patch("posthoganalytics.get_feature_flag", return_value="test")
-    def test_email_unverified_null_user_can_log_in_if_email_verification_true(
-        self, mock_feature_enabled, mock_send_email_verification, mock_is_email_available
+    def test_email_unverified_null_user_can_log_in_if_email_available(
+        self, mock_send_email_verification, mock_is_email_available
     ):
         """When email verification was added, existing users were set to is_email_verified=null.
         If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
@@ -124,17 +119,12 @@ class TestLoginAPI(APIBaseTest):
         # Test that we are logged in
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Assert we called the feature flag
-        mock_feature_enabled.assert_called_once_with(
-            "require-email-verification", str(self.user.distinct_id), person_properties={"email": self.CONFIG_EMAIL}
-        )
         mock_is_email_available.assert_called_once()
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):
-
         invalid_passwords = ["1234", "abcdefgh", "testpassword1234", "😈😈😈"]
 
         for password in invalid_passwords:
@@ -152,7 +142,6 @@ class TestLoginAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_email(self, mock_capture):
-
         response = self.client.post("/api/login", {"email": "user2@posthog.com", "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
@@ -529,7 +518,6 @@ class TestPasswordResetAPI(APIBaseTest):
             expired_token = default_token_generator.make_token(self.user)
 
         for token in [valid_token[:-1], "not_even_trying", self.user.uuid, expired_token]:
-
             response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "a12345678"})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(

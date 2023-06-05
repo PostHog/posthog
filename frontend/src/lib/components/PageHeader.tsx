@@ -1,6 +1,7 @@
 import { Row } from 'antd'
 import clsx from 'clsx'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 interface PageHeaderProps {
     title: string | JSX.Element
@@ -10,6 +11,7 @@ interface PageHeaderProps {
     style?: React.CSSProperties
     tabbedPage?: boolean // Whether the page has tabs for secondary navigation
     delimited?: boolean
+    notebookProps?: Pick<DraggableToNotebookProps, 'href' | 'node' | 'properties'>
 }
 
 export function PageHeader({
@@ -20,25 +22,24 @@ export function PageHeader({
     style,
     tabbedPage,
     delimited,
+    notebookProps,
 }: PageHeaderProps): JSX.Element {
-    const row = (
-        <div className="page-title-row flex justify-between" style={style}>
-            <div>
-                <h1 className="page-title">{title}</h1>
-                <span className="page-description">{description}</span>
-            </div>
-            <div className="page-buttons">{buttons}</div>
-        </div>
-    )
-    return caption || delimited ? (
+    const content = (
         <>
-            {row}
-            <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>
+            <div className="page-title-row flex justify-between" style={style}>
+                <div>
+                    <h1 className="page-title">{title}</h1>
+                    <span className="page-description">{description}</span>
+                </div>
+                <div className="page-buttons">{buttons}</div>
+            </div>
+
+            {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
             {delimited && <LemonDivider className="my-4" />}
         </>
-    ) : (
-        row
     )
+
+    return notebookProps ? <DraggableToNotebook {...notebookProps}>{content}</DraggableToNotebook> : <>{content}</>
 }
 
 interface SubtitleProps {

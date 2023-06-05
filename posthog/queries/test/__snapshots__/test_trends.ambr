@@ -717,7 +717,7 @@
                     day_start
            UNION ALL SELECT counts AS total,
                             timestamp AS day_start,
-                            breakdown_value
+                                         breakdown_value
            FROM
              (SELECT d.timestamp,
                      COUNT(DISTINCT person_id) counts,
@@ -765,8 +765,9 @@
                                  GROUP BY id
                                  HAVING max(is_deleted) = 0
                                  AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))))
-                 GROUP BY timestamp, person_id,
-                                     breakdown_value) e
+                 GROUP BY timestamp,
+                          person_id,
+                          breakdown_value) e
               WHERE e.timestamp <= d.timestamp
                 AND e.timestamp > d.timestamp - INTERVAL 6 DAY
               GROUP BY d.timestamp,
@@ -1461,7 +1462,7 @@
                     day_start
            UNION ALL SELECT counts AS total,
                             timestamp AS day_start,
-                            breakdown_value
+                                         breakdown_value
            FROM
              (SELECT d.timestamp,
                      COUNT(DISTINCT person_id) counts,
@@ -1502,8 +1503,9 @@
                    AND event = 'sign up'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-28 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                 GROUP BY timestamp, person_id,
-                                     breakdown_value) e
+                 GROUP BY timestamp,
+                          person_id,
+                          breakdown_value) e
               WHERE e.timestamp <= d.timestamp
                 AND e.timestamp > d.timestamp - INTERVAL 29 DAY
               GROUP BY d.timestamp,
@@ -1575,7 +1577,7 @@
                     day_start
            UNION ALL SELECT counts AS total,
                             timestamp AS day_start,
-                            breakdown_value
+                                         breakdown_value
            FROM
              (SELECT d.timestamp,
                      COUNT(DISTINCT person_id) counts,
@@ -1605,8 +1607,9 @@
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
                    AND notEmpty(e.person_id)
                    AND notEmpty(e.person_id)
-                 GROUP BY timestamp, person_id,
-                                     breakdown_value) e
+                 GROUP BY timestamp,
+                          person_id,
+                          breakdown_value) e
               WHERE e.timestamp <= d.timestamp
                 AND e.timestamp > d.timestamp - INTERVAL 29 DAY
               GROUP BY d.timestamp,
@@ -2399,7 +2402,8 @@
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -2656,7 +2660,8 @@
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'America/Phoenix')
                 AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -2913,7 +2918,8 @@
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')
                 AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -3959,7 +3965,8 @@
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 29 DAY
            GROUP BY d.timestamp
@@ -4001,7 +4008,8 @@
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-17 00:00:00', 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -4182,7 +4190,9 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                (SELECT pdi.person_id as person_id,
+                        timestamp,
+                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -4268,7 +4278,9 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id,
+                        timestamp,
+                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
                  FROM events e
                  LEFT OUTER JOIN
                    (SELECT argMax(override_person_id, version) as person_id,
@@ -5223,7 +5235,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5272,7 +5285,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'America/Phoenix')
                 AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-19 23:59:59', 'America/Phoenix')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5321,7 +5335,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'Asia/Tokyo')
                 AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5382,7 +5397,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5443,7 +5459,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5492,7 +5509,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 06:00:00', 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5541,7 +5559,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5590,7 +5609,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'America/Phoenix')
                 AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-02-29 23:59:59', 'America/Phoenix')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5639,7 +5659,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'Asia/Tokyo')
                 AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-02-29 23:59:59', 'Asia/Tokyo')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5688,7 +5709,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5737,7 +5759,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'America/Phoenix')
                 AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-18 23:59:59', 'America/Phoenix')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -5786,7 +5809,8 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')
                 AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo')
-              GROUP BY timestamp, actor_id) e
+              GROUP BY timestamp,
+                       actor_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp

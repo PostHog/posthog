@@ -8,6 +8,9 @@ import { useKeyboardNavigation } from './useKeyboardNavigation'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
+type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 
 export interface LemonMenuItemBase
     extends Pick<
@@ -18,28 +21,33 @@ export interface LemonMenuItemBase
 }
 export interface LemonMenuItemNode extends LemonMenuItemBase {
     items: (LemonMenuItemLeaf | false | null)[]
+    keyboardShortcut?: never
 }
 export type LemonMenuItemLeaf =
     | (LemonMenuItemBase & {
           onClick: () => void
           items?: never
+          keyboardShortcut?: KeyboardShortcut
       })
     | (LemonMenuItemBase & {
           to: string
           targetBlank?: boolean
           items?: never
+          keyboardShortcut?: KeyboardShortcut
       })
     | (LemonMenuItemBase & {
           onClick: () => void
           to: string
           targetBlank?: boolean
           items?: never
+          keyboardShortcut?: KeyboardShortcut
       })
 export interface LemonMenuItemCustom {
     /** A label that's a component means it will be rendered directly, and not wrapped in a button. */
     label: () => JSX.Element
     active?: never
     items?: never
+    keyboardShortcut?: never
 }
 export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode
 
@@ -224,38 +232,46 @@ interface LemonMenuItemButtonProps {
 }
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
-    React.forwardRef(({ item: { label, items, ...buttonProps }, size, tooltipPlacement }, ref): JSX.Element => {
-        const Label = typeof label === 'function' ? label : null
-        const button = Label ? (
-            <Label key="x" />
-        ) : (
-            <LemonButton
-                ref={ref}
-                tooltipPlacement={tooltipPlacement}
-                status="stealth"
-                fullWidth
-                role="menuitem"
-                size={size}
-                {...buttonProps}
-            >
-                {label}
-            </LemonButton>
-        )
+    React.forwardRef(
+        ({ item: { label, items, keyboardShortcut, ...buttonProps }, size, tooltipPlacement }, ref): JSX.Element => {
+            const Label = typeof label === 'function' ? label : null
+            const button = Label ? (
+                <Label key="x" />
+            ) : (
+                <LemonButton
+                    ref={ref}
+                    tooltipPlacement={tooltipPlacement}
+                    status="stealth"
+                    fullWidth
+                    role="menuitem"
+                    size={size}
+                    {...buttonProps}
+                >
+                    {label}
+                    {keyboardShortcut && (
+                        <div className="-mr-0.5 inline-flex grow justify-end">
+                            {/* Show the keyboard shortcut on the right */}
+                            <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
+                        </div>
+                    )}
+                </LemonButton>
+            )
 
-        return items ? (
-            <LemonMenu
-                items={items}
-                tooltipPlacement={tooltipPlacement}
-                placement="right-start"
-                actionable
-                closeParentPopoverOnClickInside
-            >
-                {button}
-            </LemonMenu>
-        ) : (
-            button
-        )
-    })
+            return items ? (
+                <LemonMenu
+                    items={items}
+                    tooltipPlacement={tooltipPlacement}
+                    placement="right-start"
+                    actionable
+                    closeParentPopoverOnClickInside
+                >
+                    {button}
+                </LemonMenu>
+            ) : (
+                button
+            )
+        }
+    )
 LemonMenuItemButton.displayName = 'LemonMenuItemButton'
 
 function normalizeItems(sectionsAndItems: LemonMenuItems): LemonMenuItem[] | LemonMenuSection[] {

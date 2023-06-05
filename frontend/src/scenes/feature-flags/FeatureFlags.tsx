@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
+import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -24,6 +24,11 @@ import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useEffect } from 'react'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -41,9 +46,19 @@ export function OverViewTab({
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } = useValues(flagLogic)
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters, shouldShowEmptyState } =
+        useValues(flagLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { reportEmptyStateShown } = useActions(eventUsageLogic)
+
+    useEffect(() => {
+        if (shouldShowEmptyState) {
+            reportEmptyStateShown('feature_flags')
+        }
+    }, [shouldShowEmptyState])
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -216,7 +231,15 @@ export function OverViewTab({
         },
     ]
 
-    return (
+    return shouldShowEmptyState && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
+        <ProductEmptyState
+            productName="Feature flags"
+            thingName="feature flag"
+            description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
+            docsURL="https://posthog.com/docs/feature-flags/manual"
+            action={() => router.actions.push(urls.featureFlag('new'))}
+        />
+    ) : (
         <>
             <div>
                 <div className="flex justify-between mb-4">
@@ -313,6 +336,7 @@ export function OverViewTab({
                 pagination={{ pageSize: 100 }}
                 nouns={nouns}
                 data-attr="feature-flag-table"
+                emptyState="No results. Create a new flag?"
             />
         </>
     )
@@ -337,12 +361,12 @@ export function FeatureFlags(): JSX.Element {
                 onChange={(newKey) => setActiveTab(newKey)}
                 tabs={[
                     {
-                        key: FeatureFlagsTabs.OVERVIEW,
+                        key: FeatureFlagsTab.OVERVIEW,
                         label: 'Overview',
                         content: <OverViewTab />,
                     },
                     {
-                        key: FeatureFlagsTabs.HISTORY,
+                        key: FeatureFlagsTab.HISTORY,
                         label: 'History',
                         content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} />,
                     },

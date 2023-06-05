@@ -130,9 +130,7 @@ export const FEATURE_FLAGS = {
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
-    DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
-    REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
     SAMPLING: 'sampling', // owner: @yakkomajuri
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
@@ -151,6 +149,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_INFINITE_LIST: 'session-recording-infinite-list', // owner: #team-monitoring
     SESSION_RECORDING_SUMMARY_LISTING: 'session-recording-summary-listing', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
+    NEW_EMPTY_STATES: 'new-empty-states', // owner: @raquelmsmith
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

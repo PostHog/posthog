@@ -97,10 +97,88 @@ describe('hooks', () => {
     describe('getValueOfToken', () => {
         const action = { id: 1, name: 'action1' } as Action
         const event = {
+            eventUuid: '123',
+            event: '$pageview',
             distinctId: 'WALL-E',
             properties: { $browser: 'Chrome' },
             person_properties: { enjoys_broccoli_on_pizza: false },
+            timestamp: '2021-10-31T00:44:00.000Z',
         } as unknown as PostIngestionEvent
+
+        test('event', () => {
+            const tokenUserName = ['event']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('$pageview')
+            expect(markdown).toBe('[$pageview](http://localhost:8000/events/123/2021-10-31T00%3A44%3A00.000Z)')
+        })
+
+        test('event UUID', () => {
+            const tokenUserName = ['event', 'uuid']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('123')
+            expect(markdown).toBe('123')
+        })
+
+        test('event name', () => {
+            const tokenUserName = ['event', 'name']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('$pageview')
+            expect(markdown).toBe('$pageview')
+        })
+
+        test('event event', () => {
+            const tokenUserName = ['event', 'event']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('$pageview')
+            expect(markdown).toBe('$pageview')
+        })
+
+        test('event distinct_id', () => {
+            const tokenUserName = ['event', 'distinct_id']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('WALL-E')
+            expect(markdown).toBe('WALL-E')
+        })
 
         test('person with just distinct ID', () => {
             const tokenUserName = ['person']
@@ -190,6 +268,36 @@ describe('hooks', () => {
 
             expect(text).toBe('undefined')
             expect(markdown).toBe('undefined')
+        })
+
+        test('escapes slack', () => {
+            const [text, markdown] = getValueOfToken(
+                action,
+                { ...event, eventUuid: '**>)', event: 'text><new link' },
+                'http://localhost:8000',
+                WebhookType.Slack,
+                ['event']
+            )
+
+            expect(text).toBe('text&gt;&lt;new link')
+            expect(markdown).toBe(
+                '<http://localhost:8000/events/**%3E)/2021-10-31T00%3A44%3A00.000Z|text&gt;&lt;new link>'
+            )
+        })
+
+        test('escapes teams', () => {
+            const [text, markdown] = getValueOfToken(
+                action,
+                { ...event, eventUuid: '**)', event: 'text](yes!), [new link' },
+                'http://localhost:8000',
+                WebhookType.Teams,
+                ['event']
+            )
+
+            expect(text).toBe('text\\]\\(yes\\!\\), \\[new link')
+            expect(markdown).toBe(
+                '[text\\]\\(yes\\!\\), \\[new link](http://localhost:8000/events/\\*\\*\\)/2021-10-31T00%3A44%3A00.000Z)'
+            )
         })
     })
 
