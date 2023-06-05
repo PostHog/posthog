@@ -28,7 +28,7 @@ export function HogQLEditor({
 }: HogQLEditorProps): JSX.Element {
     const [key] = useState(() => `HogQLEditor.${uniqueNode++}`)
     const logic = hogQLEditorLogic({ key, value, onChange })
-    const { localValue, error } = useValues(logic)
+    const { localValue, error, responseLoading } = useValues(logic)
     const { setLocalValue, submit } = useActions(logic)
 
     return (
@@ -67,7 +67,8 @@ export function HogQLEditor({
                 fullWidth
                 type="primary"
                 onClick={submit}
-                disabledReason={!localValue ? 'Please enter a HogQL expression' : undefined}
+                loading={responseLoading}
+                disabledReason={!localValue ? 'Please enter a HogQL expression' : error}
                 center
             >
                 {submitText ?? 'Update HogQL expression'}
