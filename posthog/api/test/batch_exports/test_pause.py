@@ -35,7 +35,7 @@ def test_pause_and_unpause_batch_export(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
@@ -90,7 +90,7 @@ def test_connot_pause_and_unpause_batch_exports_of_other_organizations(client: H
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
@@ -157,7 +157,7 @@ def test_pause_and_unpause_are_partitioned_by_team_id(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",

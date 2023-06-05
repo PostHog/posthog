@@ -162,7 +162,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
     insert_inputs = S3InsertInputs(
         bucket_name=bucket_name,
         region="us-east-1",
-        key_template=f"{prefix}",
+        prefix=prefix,
         team_id=team_id,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -229,7 +229,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
