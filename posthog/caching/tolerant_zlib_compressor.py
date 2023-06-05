@@ -29,7 +29,8 @@ class TolerantZlibCompressor(BaseCompressor):
     This compressor is a tolerant reader and will return the original value if it can't be decompressed.
     """
 
-    min_length = 15
+    # we don't want to compress all values, e.g. feature flag cache in decide is already small
+    min_length = 1024
     preset = 6
 
     def compress(self, value: bytes) -> bytes:
