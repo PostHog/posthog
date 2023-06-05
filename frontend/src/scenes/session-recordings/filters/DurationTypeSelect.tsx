@@ -9,6 +9,7 @@ interface DurationTypeFilterProps {
 export function DurationTypeSelect({ onChange, value }: DurationTypeFilterProps): JSX.Element {
     return (
         <LemonSelect
+            data-attr="duration-type-selector"
             onChange={(v) => onChange((v || 'all') as DurationTypeFilter)}
             options={[
                 {

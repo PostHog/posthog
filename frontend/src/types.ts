@@ -2108,6 +2108,7 @@ export interface CombinedFeatureFlagAndValueType {
 }
 
 export enum EarlyAccessFeatureStage {
+    Draft = 'draft',
     Concept = 'concept',
     Alpha = 'alpha',
     Beta = 'beta',

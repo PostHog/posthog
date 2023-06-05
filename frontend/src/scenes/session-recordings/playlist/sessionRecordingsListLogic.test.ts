@@ -8,7 +8,8 @@ import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 
 describe('sessionRecordingsListLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsListLogic.build>
-    const listOfSessionRecordings = [{ id: 'abc', viewed: false, recording_duration: 10 }]
+    const aRecording = { id: 'abc', viewed: false, recording_duration: 10 }
+    const listOfSessionRecordings = [aRecording]
 
     beforeEach(() => {
         useMocks({
@@ -292,45 +293,40 @@ describe('sessionRecordingsListLogic', () => {
         })
 
         describe('sessionRecording.viewed', () => {
-            it('changes when setSelectedRecordingId is called', () => {
-                expectLogic(logic, () => {
-                    logic.actions.getSessionRecordingsSuccess({
-                        results: [
+            it('changes when setSelectedRecordingId is called', async () => {
+                await expectLogic(logic)
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        sessionRecordingsResponse: {
+                            results: [{ ...aRecording }],
+                        },
+                        sessionRecordings: [
                             {
-                                id: 'abc',
-                                viewed: false,
-                                recording_duration: 1,
-                                start_time: '',
-                                end_time: '',
+                                ...aRecording,
                             },
                         ],
-                        has_next: false,
                     })
-                }).toMatchValues({
-                    sessionRecordings: [
-                        {
-                            id: 'abc',
-                            viewed: false,
-                            recording_duration: 1,
-                            start_time: '',
-                            end_time: '',
-                        },
-                    ],
-                })
 
-                expectLogic(logic, () => {
+                await expectLogic(logic, () => {
                     logic.actions.setSelectedRecordingId('abc')
-                }).toMatchValues({
-                    sessionRecordings: [
-                        {
-                            id: 'abc',
-                            viewed: true,
-                            recording_duration: 1,
-                            start_time: '',
-                            end_time: '',
-                        },
-                    ],
                 })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        sessionRecordingsResponse: {
+                            results: [
+                                {
+                                    ...aRecording,
+                                    viewed: true,
+                                },
+                            ],
+                        },
+                        sessionRecordings: [
+                            {
+                                ...aRecording,
+                                viewed: true,
+                            },
+                        ],
+                    })
             })
 
             it('is set by setFilters and loads filtered results', async () => {
