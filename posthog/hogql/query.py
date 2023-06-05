@@ -1,6 +1,4 @@
-from typing import Dict, List, Optional, Union, cast
-
-from pydantic import BaseModel, Extra
+from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
@@ -12,18 +10,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_pre
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
-
-
-class HogQLQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    clickhouse: Optional[str] = None
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    query: Optional[str] = None
-    results: Optional[List] = None
-    types: Optional[List] = None
+from posthog.schema import HogQLQueryResponse
 
 
 def execute_hogql_query(

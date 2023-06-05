@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconInfo } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
+import { useActions, useValues } from 'kea'
+import { hogQLEditorLogic } from './hogQLEditorLogic'
 
 export interface HogQLEditorProps {
     onChange: (value: string) => void
@@ -13,6 +15,7 @@ export interface HogQLEditorProps {
     submitText?: string
     placeholder?: string
 }
+let uniqueNode = 0
 
 export function HogQLEditor({
     onChange,
@@ -23,10 +26,10 @@ export function HogQLEditor({
     submitText,
     placeholder,
 }: HogQLEditorProps): JSX.Element {
-    const [localValue, setLocalValue] = useState(value || '')
-    useEffect(() => {
-        setLocalValue(value || '')
-    }, [value])
+    const [key] = useState(() => `HogQLEditor.${uniqueNode++}`)
+    const logic = hogQLEditorLogic({ key, value, onChange })
+    const { localValue, error } = useValues(logic)
+    const { setLocalValue, submit } = useActions(logic)
 
     return (
         <>
@@ -53,11 +56,17 @@ export function HogQLEditor({
                         : "Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')")
                 }
             />
+            {error ? (
+                <div className="text-danger flex mt-1 gap-1 text-sm max-h-20 overflow-auto">
+                    <IconErrorOutline className="text-xl" />
+                    <span>{error}</span>
+                </div>
+            ) : null}
             <LemonButton
                 className="mt-2"
                 fullWidth
                 type="primary"
-                onClick={() => onChange(localValue)}
+                onClick={submit}
                 disabledReason={!localValue ? 'Please enter a HogQL expression' : undefined}
                 center
             >
