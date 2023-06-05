@@ -80,8 +80,12 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
         },
     )
     ch_persons_to_version = {row[0]: row[1] for row in rows}
+    total_pg = len(persons)
+    logger.info(f"Got ${total_pg} in PG and ${len(ch_persons_to_version)} in CH")
 
-    for person in persons:
+    for i, person in enumerate(persons):
+        if i % (max(total_pg // 10, 1)) == 0 and i > 0:
+            logger.info(f"Processed {i / total_pg * 100}%")
         ch_version = ch_persons_to_version.get(person.uuid, None)
         pg_version = person.version or 0
         if ch_version is None or ch_version < pg_version:
@@ -134,7 +138,12 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
     )
     ch_distinct_id_to_version = {row[0]: row[1] for row in rows}
 
-    for person_distinct_id in person_distinct_ids:
+    total_pg = len(person_distinct_ids)
+    logger.info(f"Got ${total_pg} in PG and ${len(ch_distinct_id_to_version)} in CH")
+
+    for i, person_distinct_id in enumerate(person_distinct_ids):
+        if i % (max(total_pg // 10, 1)) == 0 and i > 0:
+            logger.info(f"Processed {i / total_pg * 100}%")
         ch_version = ch_distinct_id_to_version.get(person_distinct_id.distinct_id, None)
         pg_version = person_distinct_id.version or 0
         if ch_version is None or ch_version < pg_version:
@@ -180,8 +189,12 @@ def run_person_override_sync(team_id: int, live_run: bool, deletes: bool, sync: 
         },
     )
     ch_override_to_version = {row[0]: row[1] for row in rows}
-    # Add / update missing rows in CH
-    for pg_override in pg_overrides:
+    total_pg = len(pg_overrides)
+    logger.info(f"Got ${total_pg} in PG and ${len(ch_override_to_version)} in CH")
+
+    for i, pg_override in enumerate(pg_overrides):
+        if i % (max(total_pg // 10, 1)) == 0 and i > 0:
+            logger.info(f"Processed {i / total_pg * 100}%")
         ch_version = ch_override_to_version.get(pg_override.old_person_id.uuid, None)
         if ch_version is None or ch_version < pg_override.version:
             logger.info(
@@ -219,8 +232,12 @@ def run_group_sync(team_id: int, live_run: bool, sync: bool):
         },
     )
     ch_groups = {(row[0], row[1]): {"properties": row[2], "created_at": row[3]} for row in rows}
+    total_pg = len(pg_groups)
+    logger.info(f"Got ${total_pg} in PG and ${len(ch_groups)} in CH")
 
-    for pg_group in pg_groups:
+    for i, pg_group in enumerate(pg_groups):
+        if i % (max(total_pg // 10, 1)) == 0 and i > 0:
+            logger.info(f"Processed {i / total_pg * 100}%")
         ch_group = ch_groups.get((pg_group["group_type_index"], pg_group["group_key"]), None)
         if ch_group is None or should_update_group(ch_group, pg_group):
             logger.info(

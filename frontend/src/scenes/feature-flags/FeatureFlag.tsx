@@ -55,7 +55,7 @@ import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { FeatureFlagsTabs } from './featureFlagsLogic'
+import { FeatureFlagsTab } from './featureFlagsLogic'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
@@ -75,9 +75,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import clsx from 'clsx'
 
 export const scene: SceneExport = {
@@ -114,7 +111,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
+    const [activeTab, setActiveTab] = useState(FeatureFlagsTab.OVERVIEW)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
@@ -378,6 +375,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         ) : (
                             <>
                                 <PageHeader
+                                    notebookProps={{
+                                        href: urls.featureFlag(id),
+                                    }}
                                     title={
                                         <div className="flex items-center gap-2 mb-2">
                                             {featureFlag.key || 'Untitled'}
@@ -489,15 +489,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
-                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                                                    <span>
-                                                        <AddToNotebook
-                                                            node={NotebookNodeType.FeatureFlag}
-                                                            properties={{ id }}
-                                                            type="secondary"
-                                                        />
-                                                    </span>
-                                                </FlaggedFeature>
                                             </div>
                                         </>
                                     }
@@ -505,7 +496,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <Tabs
                                     activeKey={activeTab}
                                     destroyInactiveTabPane
-                                    onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
+                                    onChange={(t) => setActiveTab(t as FeatureFlagsTab)}
                                 >
                                     <Tabs.TabPane tab="Overview" key="overview">
                                         <Row>

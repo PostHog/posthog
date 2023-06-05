@@ -1,51 +1,20 @@
 import { useValues, useActions } from 'kea'
-import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { PathType, EditorFilterProps, QueryEditorFilterProps, PathsFilterType } from '~/types'
+import { PathType, EditorFilterProps, PathsFilterType } from '~/types'
 import { LemonButtonWithDropdown, LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanizePathsEventTypes } from '../utils'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-export function PathsEventsTypesDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    return (
-        <PathsEventTypesComponent
-            includeEventTypes={(insightFilter as PathsFilterType)?.include_event_types}
-            setIncludeEventTypes={(includeEventTypes: PathsFilterType['include_event_types']) => {
-                updateInsightFilter({ include_event_types: includeEventTypes })
-            }}
-        />
-    )
-}
+    const includeEventTypes = (insightFilter as PathsFilterType)?.include_event_types
+    const setIncludeEventTypes = (includeEventTypes: PathsFilterType['include_event_types']): void => {
+        updateInsightFilter({ include_event_types: includeEventTypes })
+    }
 
-export function PathsEventTypes({ insightProps }: EditorFilterProps): JSX.Element {
-    const { filter } = useValues(pathsLogic(insightProps))
-    const { setFilter } = useActions(pathsLogic(insightProps))
-
-    return (
-        <PathsEventTypesComponent
-            includeEventTypes={filter.include_event_types}
-            setIncludeEventTypes={(includeEventTypes: PathsFilterType['include_event_types']) => {
-                setFilter({
-                    include_event_types: includeEventTypes,
-                })
-            }}
-        />
-    )
-}
-
-type PathsEventTypesComponentProps = {
-    includeEventTypes: PathsFilterType['include_event_types']
-    setIncludeEventTypes: (includeEventTypes: PathsFilterType['include_event_types']) => void
-}
-
-export function PathsEventTypesComponent({
-    includeEventTypes,
-    setIncludeEventTypes,
-}: PathsEventTypesComponentProps): JSX.Element {
     const options = [
         {
             type: PathType.PageView,

@@ -211,6 +211,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
         ),
         {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit},
         query_type="get_person_ids_by_cohort_id",
+        team_id=team.pk,
     )
 
     return [str(row[0]) for row in results]

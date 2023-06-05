@@ -132,18 +132,17 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         return <></>
     }
 
+    const description: string | JSX.Element | undefined | null =
+        (definition && 'description' in definition && definition?.description) ||
+        (definition?.name &&
+            (keyMapping.element[definition.name]?.description || keyMapping.event[definition.name]?.description))
+
     const sharedComponents = (
         <>
-            {hasTaxonomyFeatures &&
-                definition &&
-                'description' in definition &&
-                (hasTaxonomyFeatures && definition.description ? (
-                    <DefinitionPopover.Description description={definition.description} />
-                ) : (
-                    <DefinitionPopover.DescriptionEmpty />
-                ))}
-            {isElement && definition?.name && (
-                <DefinitionPopover.Description description={keyMapping.element[definition.name].description} />
+            {description ? (
+                <DefinitionPopover.Description description={description} />
+            ) : (
+                <DefinitionPopover.DescriptionEmpty />
             )}
             <DefinitionPopover.Example value={group?.getValue?.(definition)?.toString()} />
             {hasTaxonomyFeatures && definition && 'tags' in definition && !!definition.tags?.length && (

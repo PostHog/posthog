@@ -53,7 +53,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     result = await api.earlyAccessFeatures.create(
                         updatedEarlyAccessFeature as NewEarlyAccessFeatureType
                     )
-                    router.actions.push(urls.earlyAccessFeature(result.id))
+                    router.actions.replace(urls.earlyAccessFeature(result.id))
                 } else {
                     result = await api.earlyAccessFeatures.update(
                         props.id,

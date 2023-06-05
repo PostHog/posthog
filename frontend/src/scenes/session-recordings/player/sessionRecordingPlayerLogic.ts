@@ -93,6 +93,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadRecording',
                 'loadRecordingSnapshotsSuccess',
                 'loadRecordingSnapshotsFailure',
+                'loadRecordingBlobSnapshotsFailure',
                 'loadRecordingMetaSuccess',
             ],
             playerSettingsLogic,
@@ -472,6 +473,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setErrorPlayerState(true)
             }
         },
+
+        loadRecordingBlobSnapshotsFailure: () => {
+            if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
+                console.error('PostHog Recording Playback Error: No snapshots loaded')
+                actions.setErrorPlayerState(true)
+            }
+        },
+
         setPlay: () => {
             actions.stopAnimation()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change

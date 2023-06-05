@@ -1,44 +1,13 @@
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useState } from 'react'
-import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit, FunnelsFilterType } from '~/types'
+import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useDebouncedCallback } from 'use-debounce'
 import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
-import { Noun } from '~/models/groupsModel'
 import { useActions, useValues } from 'kea'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-
-export function FunnelConversionWindowFilterDataExploration({
-    insightProps,
-}: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
-    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
-    const { insightFilter } = useValues(funnelDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
-
-    return (
-        <FunnelConversionWindowFilterComponent
-            aggregationTargetLabel={aggregationTargetLabel}
-            setFilter={updateInsightFilter}
-            {...insightFilter}
-        />
-    )
-}
-
-export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
-    const { aggregationTargetLabel } = useValues(funnelLogic(insightProps))
-    const { filters } = useValues(funnelLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
-
-    return (
-        <FunnelConversionWindowFilterComponent
-            aggregationTargetLabel={aggregationTargetLabel}
-            setFilter={setFilters}
-            {...filters}
-        />
-    )
-}
+import { FunnelsFilter } from '~/queries/schema'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
@@ -49,18 +18,14 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Month]: [1, 12],
 }
 
-type FunnelConversionWindowFilterComponentProps = {
-    setFilter: (filter: FunnelsFilterType) => void
-    aggregationTargetLabel: Noun
-} & FunnelsFilterType
+export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
+    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { insightFilter, querySource } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-export function FunnelConversionWindowFilterComponent({
-    aggregation_group_type_index,
-    funnel_window_interval = 14,
-    funnel_window_interval_unit = FunnelConversionWindowTimeUnit.Day,
-    aggregationTargetLabel,
-    setFilter,
-}: FunnelConversionWindowFilterComponentProps): JSX.Element {
+    const { funnel_window_interval = 14, funnel_window_interval_unit = FunnelConversionWindowTimeUnit.Day } =
+        (insightFilter || {}) as FunnelsFilter
+
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>({
         funnel_window_interval,
         funnel_window_interval_unit,
@@ -79,7 +44,7 @@ export function FunnelConversionWindowFilterComponent({
             localConversionWindow.funnel_window_interval !== funnel_window_interval ||
             localConversionWindow.funnel_window_interval_unit !== funnel_window_interval_unit
         ) {
-            setFilter(localConversionWindow)
+            updateInsightFilter(localConversionWindow)
         }
     }, 200)
 
@@ -91,10 +56,10 @@ export function FunnelConversionWindowFilterComponent({
                     title={
                         <>
                             <b>Recommended!</b> Limit to {aggregationTargetLabel.plural}{' '}
-                            {aggregation_group_type_index != undefined ? 'that' : 'who'} converted within a specific
-                            time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                            {aggregation_group_type_index != undefined ? 'that' : 'who'} do not convert in this time
-                            frame will be considered as drop-offs.
+                            {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted within a
+                            specific time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
+                            {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} do not convert in
+                            this time frame will be considered as drop-offs.
                         </>
                     }
                 >

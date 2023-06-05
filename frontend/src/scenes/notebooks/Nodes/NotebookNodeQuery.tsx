@@ -3,7 +3,7 @@ import { ReactNodeViewRenderer } from '@tiptap/react'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from '~/types'
 import { BindLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
@@ -27,7 +27,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const { insightProps } = useValues(logic)
 
     return (
-        <NodeWrapper className={NotebookNodeType.Query} title="Query" {...props}>
+        <NodeWrapper nodeType={NotebookNodeType.Query} title="Query" {...props}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <div className="max-h-120 overflow-y-auto">
                     <Query query={query} setQuery={(t) => setQuery(t as any)} />

@@ -3,7 +3,7 @@ import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema'
 import { isEventsQuery } from '~/queries/utils'
 import equal from 'fast-deep-equal'
-import { getDefaultEventsSceneQuery } from 'scenes/events/eventsSceneLogic'
+import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 
 interface SavedQueriesProps {
     query: DataTableNode

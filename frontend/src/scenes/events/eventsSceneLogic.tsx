@@ -3,25 +3,11 @@ import { actions, kea, path, reducers } from 'kea'
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
 import { actionToUrl, urlToAction } from 'kea-router'
 import equal from 'fast-deep-equal'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema'
+import { Node } from '~/queries/schema'
 import { urls } from 'scenes/urls'
 import { objectsEqual } from 'lib/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-
-export const getDefaultEventsSceneQuery = (): DataTableNode => ({
-    kind: NodeKind.DataTableNode,
-    full: true,
-    source: {
-        kind: NodeKind.EventsQuery,
-        select: defaultDataTableColumns(NodeKind.EventsQuery),
-        orderBy: ['timestamp DESC'],
-        after: '-24h',
-        limit: 100,
-    },
-    propertiesViaUrl: true,
-    showSavedQueries: true,
-})
+import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),

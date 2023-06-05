@@ -128,6 +128,9 @@ class Resolver(CloningVisitor):
         new_node.limit_with_ties = node.limit_with_ties
         new_node.offset = self.visit(node.offset)
         new_node.distinct = node.distinct
+        new_node.window_exprs = (
+            {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
+        )
 
         self.scopes.pop()
 
@@ -251,11 +254,7 @@ class Resolver(CloningVisitor):
             raise ResolverException("Alias cannot be empty")
 
         node = super().visit_alias(node)
-
-        if not node.expr.type:
-            raise ResolverException(f"Cannot alias an expression without a type: {node.alias}")
-
-        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type)
+        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
         scope.aliases[node.alias] = node.type
         return node
 

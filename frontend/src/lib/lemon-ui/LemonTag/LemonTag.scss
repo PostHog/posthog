@@ -34,8 +34,8 @@
     }
 
     &.purple {
-        background-color: #ebe3ed;
-        color: var(--purple);
+        background-color: var(--purple-light);
+        color: var(--purple-dark);
     }
 
     &.caution {
