@@ -1117,14 +1117,20 @@
                 "error": {
                     "type": "string"
                 },
-                "expr": {
+                "errorEnd": {
+                    "type": "number"
+                },
+                "errorStart": {
+                    "type": "number"
+                },
+                "inputExpr": {
+                    "type": "string"
+                },
+                "inputSelect": {
                     "type": "string"
                 },
                 "isValid": {
                     "type": "boolean"
-                },
-                "select": {
-                    "type": "string"
                 }
             },
             "type": "object"

@@ -11,8 +11,11 @@ def get_hogql_metadata(
     query: HogQLMetadata,
     team: Team,
 ) -> HogQLMetadataResponse:
-    is_valid = True
-    error: str | None = None
+    response = HogQLMetadataResponse(
+        isValid=True,
+        inputExpr=query.expr,
+        inputSelect=query.select,
+    )
 
     try:
         if isinstance(query.expr, str):
@@ -24,21 +27,18 @@ def get_hogql_metadata(
         else:
             raise ValueError("Either expr or select must be provided")
     except Exception as e:
-        is_valid = False
+        response.isValid = False
         if isinstance(e, ValueError):
-            error = str(e)
+            response.error = str(e)
         elif isinstance(e, HogQLException):
-            error = f"[{e.start}:{e.stop}] {str(e)}"
+            response.error = str(e)
+            response.errorStart = e.start
+            response.errorStop = e.stop
         else:
             # We don't want to accidentally expose too much data via errors
-            error = f"Unexpected f{e.__class__.__name__}"
+            response.error = f"Unexpected f{e.__class__.__name__}"
 
-    if error and "mismatched input '<EOF>' expecting" in error:
-        error = "Unexpected end of query"
+    if response.error and "mismatched input '<EOF>' expecting" in response.error:
+        response.error = "Unexpected end of query"
 
-    return HogQLMetadataResponse(
-        isValid=is_valid,
-        expr=query.expr,
-        select=query.select,
-        error=error,
-    )
+    return response
