@@ -514,7 +514,7 @@ export interface Team {
     name: string
     anonymize_ips: boolean
     api_token: string
-    slack_incoming_webhook: string
+    slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
     ingested_event: boolean
     person_display_name_properties: string[] | null
