@@ -6,7 +6,7 @@ import { Action, Hook, PostIngestionEvent, Team } from '../../types'
 import { DB } from '../../utils/db/db'
 import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
-import { stringify } from '../../utils/utils'
+import { getPropertyValueByPath, stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
 import { SiteUrlManager } from './site-url-manager'
 import { TeamManager } from './team-manager'
@@ -157,8 +157,9 @@ export function getValueOfToken(
         if (tokenParts.length === 1) {
             ;[text, markdown] = getPersonDetails(event, team, siteUrl, webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
-            const propertyName = tokenParts[2]
-            const property = event.person_properties?.[propertyName]
+            const property = event.person_properties
+                ? getPropertyValueByPath(event.person_properties, tokenParts.slice(2))
+                : undefined
             markdown = text = webhookEscape(property, webhookType)
         }
     } else if (tokenParts[0] === 'action') {
@@ -178,8 +179,9 @@ export function getValueOfToken(
         } else if (tokenParts[1] === 'distinct_id') {
             markdown = text = webhookEscape(event.distinctId, webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
-            const propertyName = tokenParts[2]
-            const property = event.properties?.[propertyName]
+            const property = event.properties
+                ? getPropertyValueByPath(event.properties, tokenParts.slice(2))
+                : undefined
             markdown = text = webhookEscape(property, webhookType)
         }
     } else {
