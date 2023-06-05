@@ -8,7 +8,8 @@ import { Region } from '~/types'
 import { router } from 'kea-router'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
-import { CLOUD_HOSTNAMES } from 'lib/constants'
+import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: SignupContainer,
@@ -49,6 +50,9 @@ export function SignupContainer(): JSX.Element | null {
 
 export function SignupLeftContainer(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const showGenericSignupBenefits: boolean = featureFlags[FEATURE_FLAGS.GENERIC_SIGNUP_BENEFITS] === 'test'
 
     const getRegionUrl = (region: string): string => {
         const { pathname, search, hash } = router.values.currentLocation
@@ -58,21 +62,37 @@ export function SignupLeftContainer(): JSX.Element {
     const productBenefits: {
         benefit: string
         description: string
-    }[] = [
-        {
-            benefit: 'Free for 1M events every month',
-            description: 'Product analytics, feature flags, experiments, and more.',
-        },
-        {
-            benefit: 'Start collecting events immediately',
-            description: 'Integrate with developer-friendly APIs or use our easy autocapture script.',
-        },
-        {
-            benefit: 'Join industry leaders that run on PostHog',
-            description:
-                'ClickHouse, Airbus, Hasura, Y Combinator, and thousands more trust PostHog as their Product OS.',
-        },
-    ]
+    }[] = showGenericSignupBenefits
+        ? [
+              {
+                  benefit: 'Get loads of free usage every month - even on paid plans',
+                  description: '1M free events, 15K free session recordings, and more. Every month. Forever.',
+              },
+              {
+                  benefit: 'Everything you need to understand your users, all in one place',
+                  description: 'Analytics. Session replay. Feature flags. A/B testing. CDP. The list goes on.',
+              },
+              {
+                  benefit: 'Join industry leaders that run on PostHog',
+                  description:
+                      'ClickHouse, Airbus, Hasura, Y Combinator, and thousands more trust PostHog as their Product OS.',
+              },
+          ]
+        : [
+              {
+                  benefit: 'Free for 1M events every month',
+                  description: 'Product analytics, feature flags, experiments, and more.',
+              },
+              {
+                  benefit: 'Start collecting events immediately',
+                  description: 'Integrate with developer-friendly APIs or use our easy autocapture script.',
+              },
+              {
+                  benefit: 'Join industry leaders that run on PostHog',
+                  description:
+                      'ClickHouse, Airbus, Hasura, Y Combinator, and thousands more trust PostHog as their Product OS.',
+              },
+          ]
 
     return (
         <>
@@ -83,7 +103,7 @@ export function SignupLeftContainer(): JSX.Element {
                             <IconCheckCircleOutline className="mt-2 w-4 h-4 text-primary" />
                         </div>
                         <div>
-                            <h3 className="mb-0 font-bold">{benefit.benefit}</h3>
+                            <h3 className="mb-1 font-bold leading-6">{benefit.benefit}</h3>
                             <p className="m-0 text-sm">{benefit.description}</p>
                         </div>
                     </div>
