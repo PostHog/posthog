@@ -8,7 +8,7 @@ from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -344,7 +344,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
         return response
 
 
-class PasswordResetTokenGenerator(PasswordResetTokenGenerator):
+class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
     def _make_hash_value(self, user: AbstractBaseUser, timestamp):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
