@@ -15,10 +15,11 @@ def get_hogql_metadata(
     error: str | None = None
 
     try:
-        context = HogQLContext(team_id=team.pk)
         if isinstance(query.expr, str):
+            context = HogQLContext(team_id=team.pk)
             translate_hogql(query.expr, context=context)
         elif isinstance(query.select, str):
+            context = HogQLContext(team_id=team.pk, enable_select_queries=True)
             print_ast(parse_select(query.select), context=context, dialect="clickhouse")
         else:
             raise ValueError("Either expr or select must be provided")

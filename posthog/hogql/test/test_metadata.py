@@ -10,7 +10,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     def _select(self, query: str) -> HogQLMetadataResponse:
         return get_hogql_metadata(query=HogQLMetadata(select=query), team=self.team)
 
-    def test_netadata_valid_expr_select(self):
+    def test_metadata_valid_expr_select(self):
         metadata = self._expr("select 1")
         self.assertEqual(
             metadata.dict(),
