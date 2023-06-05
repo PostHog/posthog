@@ -1,41 +1,72 @@
-import { PropertyOperator, RecordingDurationFilter } from '~/types'
-import { Row, Space } from 'antd'
+import { DurationTypeFilter, PropertyOperator, RecordingDurationFilter } from '~/types'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { durationFilterLogic } from './durationFilterLogic'
-import { useActions, useValues } from 'kea'
-import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import { DurationPicker, convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
 import { LemonButton } from '@posthog/lemon-ui'
+import { useMemo, useState } from 'react'
+import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
 
 interface Props {
-    initialFilter: RecordingDurationFilter
-    onChange: (value: RecordingDurationFilter) => void
+    recordingDurationFilter: RecordingDurationFilter
+    durationTypeFilter: DurationTypeFilter
+    onChange: (recordingDurationFilter: RecordingDurationFilter, durationType: DurationTypeFilter) => void
     pageKey: string
+    // TODO this can be removed when replay summary is the default
+    usesListingV3?: boolean
 }
 
-export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX.Element {
-    const durationFilterLogicInstance = durationFilterLogic({ initialFilter, onChange, pageKey })
-    const { setValue, setIsOpen, setOperator } = useActions(durationFilterLogicInstance)
-    const { durationString, value, operator, isOpen } = useValues(durationFilterLogicInstance)
+export const humanFriendlyDurationFilter = (
+    recordingDurationFilter: RecordingDurationFilter,
+    durationTypeFilter: DurationTypeFilter
+): string => {
+    const operator = recordingDurationFilter.operator === PropertyOperator.GreaterThan ? '>' : '<'
+    const duration = convertSecondsToDuration(recordingDurationFilter.value || 0)
+    const durationDescription = durationTypeFilter === 'active_seconds' ? 'active ' : ''
+    const unit = duration.timeValue === 1 ? duration.unit.slice(0, -1) : duration.unit
+    return `${operator} ${duration.timeValue || 0} ${durationDescription}${unit}`
+}
+
+export function DurationFilter({
+    recordingDurationFilter,
+    durationTypeFilter,
+    onChange,
+    usesListingV3,
+}: Props): JSX.Element {
+    const [isOpen, setIsOpen] = useState(false)
+    const durationString = useMemo(
+        () => humanFriendlyDurationFilter(recordingDurationFilter, durationTypeFilter),
+        [recordingDurationFilter, durationTypeFilter]
+    )
+
     return (
         <Popover
             visible={isOpen}
-            placement={'bottom-end'}
-            fallbackPlacements={['bottom-start']}
+            placement={'bottom-start'}
+            fallbackPlacements={['bottom-end']}
             onClickOutside={() => setIsOpen(false)}
             overlay={
-                <Row>
-                    <Space>
-                        <OperatorSelect
-                            operator={operator}
-                            operators={[PropertyOperator.GreaterThan, PropertyOperator.LessThan]}
-                            onChange={(newOperator) => {
-                                setOperator(newOperator)
-                            }}
+                <div className="flex gap-2">
+                    <OperatorSelect
+                        operator={recordingDurationFilter.operator}
+                        operators={[PropertyOperator.GreaterThan, PropertyOperator.LessThan]}
+                        onChange={(newOperator) =>
+                            onChange({ ...recordingDurationFilter, operator: newOperator }, durationTypeFilter)
+                        }
+                        className="flex-1"
+                    />
+                    <DurationPicker
+                        onChange={(newValue) =>
+                            onChange({ ...recordingDurationFilter, value: newValue }, durationTypeFilter)
+                        }
+                        value={recordingDurationFilter.value || undefined}
+                    />
+                    {usesListingV3 ? (
+                        <DurationTypeSelect
+                            onChange={(v) => onChange(recordingDurationFilter, v)}
+                            value={durationTypeFilter}
                         />
-                        <DurationPicker onChange={setValue} initialValue={value || 0} />
-                    </Space>
-                </Row>
+                    ) : null}
+                </div>
             }
         >
             <LemonButton

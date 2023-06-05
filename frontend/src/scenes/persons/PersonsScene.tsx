@@ -19,7 +19,7 @@ export function PersonsScene(): JSX.Element {
 
     return (
         <>
-            <PersonPageHeader />
+            <PersonPageHeader activeGroupTypeIndex={-1} />
             {featureDataExploration ? <Query query={query} setQuery={setQuery} /> : <Persons />}
         </>
     )

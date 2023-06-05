@@ -21,6 +21,8 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { urls } from 'scenes/urls'
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     includeMeta?: boolean
@@ -132,29 +134,37 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
-            <div
-                ref={playerRef}
-                className={clsx('SessionRecordingPlayer', {
-                    'SessionRecordingPlayer--fullscreen': isFullScreen,
-                    'SessionRecordingPlayer--no-border': noBorder,
-                    'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
-                    'SessionRecordingPlayer--explorer-mode': !!explorerMode,
-                    'SessionRecordingPlayer--inspector-focus': inspectorFocus,
-                    'SessionRecordingPlayer--inspector-hidden': noInspector,
-                })}
+            <DraggableToNotebook
+                href={urls.replaySingle(logicProps.sessionRecordingId)}
+                className="h-full w-full"
+                noOverflow
             >
-                <div className="SessionRecordingPlayer__main">
-                    {includeMeta || isFullScreen ? <PlayerMeta /> : null}
-                    <div className="SessionRecordingPlayer__body">
-                        <PlayerFrame />
-                        <PlayerFrameOverlay />
+                <div
+                    ref={playerRef}
+                    className={clsx('SessionRecordingPlayer', {
+                        'SessionRecordingPlayer--fullscreen': isFullScreen,
+                        'SessionRecordingPlayer--no-border': noBorder,
+                        'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
+                        'SessionRecordingPlayer--explorer-mode': !!explorerMode,
+                        'SessionRecordingPlayer--inspector-focus': inspectorFocus,
+                        'SessionRecordingPlayer--inspector-hidden': noInspector,
+                    })}
+                >
+                    <div className="SessionRecordingPlayer__main">
+                        {includeMeta || isFullScreen ? <PlayerMeta /> : null}
+                        <div className="SessionRecordingPlayer__body">
+                            <PlayerFrame />
+                            <PlayerFrameOverlay />
+                        </div>
+                        <LemonDivider className="my-0" />
+                        <PlayerController />
                     </div>
-                    <LemonDivider className="my-0" />
-                    <PlayerController />
+                    {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
+                    {explorerMode && (
+                        <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
+                    )}
                 </div>
-                {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
-                {explorerMode && <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />}
-            </div>
+            </DraggableToNotebook>
         </BindLogic>
     )
 }

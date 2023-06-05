@@ -1,4 +1,3 @@
-import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
 
 describe('Invite Signup', () => {
@@ -59,7 +58,7 @@ describe('Invite Signup', () => {
         cy.get('.Popover li:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=password-signup]').click()
-        cy.location('pathname').should('include', urls.projectHomepage())
+        cy.location('pathname').should('include', 'verify_email')
     })
 
     it('can navigate to organization settings and invite/change users', () => {
@@ -89,7 +88,7 @@ describe('Invite Signup', () => {
         cy.get('.Popover li:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=password-signup]').click()
-        cy.location('pathname').should('include', urls.projectHomepage())
+        cy.location('pathname').should('include', 'verify_email')
 
         // Log out, log in as main
         cy.get('[data-attr=top-menu-toggle]').click()

@@ -1,28 +1,23 @@
 import { useValues, useActions } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import { EditorFilterProps, FilterType, FunnelsFilterType, InsightLogicProps, QueryEditorFilterProps } from '~/types'
+import { FilterType, EditorFilterProps } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { FunnelVizType, FunnelVizTypeDataExploration } from '../views/Funnels/FunnelVizType'
+import { FunnelVizType } from '../views/Funnels/FunnelVizType'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { AggregationSelect, AggregationSelectDataExploration } from '../filters/AggregationSelect'
-import {
-    FunnelConversionWindowFilter,
-    FunnelConversionWindowFilterDataExploration,
-} from '../views/Funnels/FunnelConversionWindowFilter'
+import { AggregationSelect } from '../filters/AggregationSelect'
+import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { FunnelsQuery } from '~/queries/schema'
-import { isStepsEmpty } from 'scenes/funnels/funnelUtils'
 import { isInsightQueryNode } from '~/queries/utils'
 
-const FUNNEL_STEP_COUNT_LIMIT = 20
+export const FUNNEL_STEP_COUNT_LIMIT = 20
 
-export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element | null {
+export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { querySource, series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
 
@@ -35,51 +30,10 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
         updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as FunnelsQuery)
     }
 
-    return (
-        <FunnelsQueryStepsComponent
-            actionFilters={actionFilters}
-            setActionFilters={setActionFilters}
-            filterSteps={series || []}
-            showSeriesIndicator={(series || []).length > 0}
-            isDataExploration
-            insightProps={insightProps}
-        />
-    )
-}
-
-export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element {
-    const { filterSteps, filters } = useValues(funnelLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
-
-    return (
-        <FunnelsQueryStepsComponent
-            actionFilters={filters}
-            setActionFilters={setFilters}
-            filterSteps={filterSteps}
-            showSeriesIndicator={!isStepsEmpty(filters)}
-            insightProps={insightProps}
-        />
-    )
-}
-
-type FunnelsQueryStepsComponentProps = {
-    actionFilters: Partial<FunnelsFilterType>
-    setActionFilters: (filters: Partial<FunnelsFilterType>) => void
-    filterSteps: Record<string, any>[]
-    showSeriesIndicator: boolean
-    isDataExploration?: boolean
-    insightProps: InsightLogicProps
-}
-
-export function FunnelsQueryStepsComponent({
-    actionFilters,
-    setActionFilters,
-    filterSteps,
-    showSeriesIndicator,
-    isDataExploration,
-    insightProps,
-}: FunnelsQueryStepsComponentProps): JSX.Element {
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
+
+    const filterSteps = series || []
+    const showSeriesIndicator = (series || []).length > 0
 
     // TODO: Sort out title offset
     return (
@@ -89,11 +43,7 @@ export function FunnelsQueryStepsComponent({
 
                 <div className="flex items-center gap-2">
                     <span className="text-muted">Graph type</span>
-                    {isDataExploration ? (
-                        <FunnelVizTypeDataExploration insightProps={insightProps} />
-                    ) : (
-                        <FunnelVizType insightProps={insightProps} />
-                    )}
+                    <FunnelVizType insightProps={insightProps} />
                 </div>
             </div>
             <ActionFilter
@@ -123,19 +73,11 @@ export function FunnelsQueryStepsComponent({
                 {showGroupsOptions && (
                     <div className="flex items-center w-full gap-2">
                         <span>Aggregating by</span>
-                        {isDataExploration ? (
-                            <AggregationSelectDataExploration insightProps={insightProps} hogqlAvailable />
-                        ) : (
-                            <AggregationSelect insightProps={insightProps} hogqlAvailable />
-                        )}
+                        <AggregationSelect insightProps={insightProps} hogqlAvailable />
                     </div>
                 )}
 
-                {isDataExploration ? (
-                    <FunnelConversionWindowFilterDataExploration insightProps={insightProps} />
-                ) : (
-                    <FunnelConversionWindowFilter insightProps={insightProps} />
-                )}
+                <FunnelConversionWindowFilter insightProps={insightProps} />
             </div>
         </>
     )

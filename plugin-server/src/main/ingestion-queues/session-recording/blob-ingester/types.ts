@@ -17,7 +17,7 @@ export type IncomingRecordingMessage = {
     chunk_index: number
     chunk_count: number
     data: string
-    compresssion: string
+    compression: string
     has_full_snapshot: boolean
     events_summary: {
         timestamp: number

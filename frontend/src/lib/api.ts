@@ -41,6 +41,7 @@ import {
     NewEarlyAccessFeatureType,
     Survey,
     NotebookType,
+    PropertyDefinitionType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -61,8 +62,8 @@ export const ACTIVITY_PAGE_SIZE = 20
 
 export interface PaginatedResponse<T> {
     results: T[]
-    next?: string
-    previous?: string
+    next?: string | null
+    previous?: string | null
     missing_persons?: number
 }
 
@@ -751,6 +752,7 @@ const api = {
             excluded_properties?: string[]
             properties?: string[]
             filter_by_event_names?: boolean
+            type?: PropertyDefinitionType
             limit?: number
             offset?: number
             teamId?: TeamType['id']
@@ -778,7 +780,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            type?: 'event' | 'person' | 'group'
+            type?: PropertyDefinitionType
             group_type_index?: number
         }): string {
             return new ApiRequest()
@@ -1162,8 +1164,11 @@ const api = {
         async list(): Promise<PaginatedResponse<NotebookType>> {
             return await new ApiRequest().notebooks().get()
         },
-        async create(data?: Pick<NotebookType, 'content'>): Promise<NotebookType> {
+        async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
+        },
+        async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).delete()
         },
     },
 

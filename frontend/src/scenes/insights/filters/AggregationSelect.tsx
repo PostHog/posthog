@@ -166,7 +166,7 @@ function AggregationSelectComponent({
                 // set a custom value (because actually _all_ the options are HogQL)
                 value: !value || baseValues.includes(value) ? '' : value,
                 label: <span className="font-mono">{value}</span>,
-                CustomControl: function CustomHogQLOptionWrapped({ onSelect }) {
+                labelInMenu: function CustomHogQLOptionWrapped({ onSelect }) {
                     return (
                         <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                             <HogQLEditor

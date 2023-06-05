@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 export interface HogQLEditorProps {
     onChange: (value: string) => void
@@ -43,7 +44,7 @@ export function HogQLEditor({
                 }
                 onPressCmdEnter={disableCmdEnter ? undefined : () => onChange(localValue)}
                 className={`font-mono ${CLICK_OUTSIDE_BLOCK_CLASS}`}
-                minRows={6}
+                minRows={3}
                 maxRows={6}
                 placeholder={
                     placeholder ??
@@ -53,6 +54,7 @@ export function HogQLEditor({
                 }
             />
             <LemonButton
+                className="mt-2"
                 fullWidth
                 type="primary"
                 onClick={() => onChange(localValue)}
@@ -63,11 +65,18 @@ export function HogQLEditor({
             </LemonButton>
             <div className="flex mt-1 gap-1">
                 {disablePersonProperties ? (
-                    <div className="flex-1 text-muted">
-                        Note: <code>person.properties</code> can't be used here.
+                    <div className="flex-1 flex items-center text-muted select-none">
+                        <IconInfo className="text-base mr-1" />
+                        <span>
+                            <code>person.properties</code> can't be used here.
+                        </span>
                     </div>
                 ) : null}
-                <div className={`${disablePersonProperties ? '' : 'w-full '}text-right ${CLICK_OUTSIDE_BLOCK_CLASS}`}>
+                <div
+                    className={`${
+                        disablePersonProperties ? '' : 'w-full '
+                    }text-right select-none ${CLICK_OUTSIDE_BLOCK_CLASS}`}
+                >
                     <a href="https://posthog.com/manual/hogql" target={'_blank'}>
                         Learn more about HogQL
                     </a>

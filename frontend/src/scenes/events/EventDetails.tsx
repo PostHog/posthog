@@ -4,7 +4,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { Tabs } from 'antd'
 import { EventJSON } from 'scenes/events/EventJSON'
-import { EventType } from '../../types'
+import { EventType, PropertyDefinitionType } from '../../types'
 import { Properties } from '@posthog/plugin-scaffold'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -49,6 +49,7 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             <TabPane tab="Properties" key="properties">
                 <div className="ml-10 mt-2">
                     <PropertiesTable
+                        type={PropertyDefinitionType.Event}
                         properties={{
                             $timestamp: dayjs(event.timestamp).toISOString(),
                             ...displayedEventProperties,

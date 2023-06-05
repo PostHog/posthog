@@ -3,14 +3,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { BreakdownTagMenu } from './BreakdownTagMenu'
+import { PropertyFilterType } from '~/types'
 
 type BreakdownTagProps = {
     breakdown: string | number
+    breakdownType: PropertyFilterType
     isTrends: boolean
 }
 
-export function BreakdownTag({ breakdown, isTrends }: BreakdownTagProps): JSX.Element {
-    const logicProps = { breakdown, isTrends }
+export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTagProps): JSX.Element {
+    const logicProps = { breakdown, isTrends, breakdownType }
     const { isViewOnly, shouldShowMenu, propertyName } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
 

@@ -64,22 +64,26 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         logic: [eventUsageLogic],
     },
     actions: {
-        setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
+        setSavedInsightsFilters: (
+            filters: Partial<SavedInsightFilters>,
+            merge: boolean = true,
+            debounce: boolean = true
+        ) => ({ filters, merge, debounce }),
         updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
         renameInsight: (insight: InsightModel) => ({ insight }),
         duplicateInsight: (insight: InsightModel, redirectToInsight = false) => ({
             insight,
             redirectToInsight,
         }),
-        loadInsights: true,
+        loadInsights: (debounce: boolean = true) => ({ debounce }),
         setInsight: (insight: InsightModel) => ({ insight }),
         addInsight: (insight: InsightModel) => ({ insight }),
     },
     loaders: ({ values }) => ({
         insights: {
             __default: { results: [], count: 0, filters: null } as InsightsResult,
-            loadInsights: async (_, breakpoint) => {
-                if (values.insights.filters !== null) {
+            loadInsights: async ({ debounce }, breakpoint) => {
+                if (debounce && values.insights.filters !== null) {
                     await breakpoint(300)
                 }
                 const { filters } = values
@@ -235,16 +239,21 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         ],
     }),
     listeners: ({ actions, values, selectors }) => ({
-        setSavedInsightsFilters: async ({ merge }, breakpoint, __, previousState) => {
+        setSavedInsightsFilters: async ({ merge, debounce }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
             const { filters } = values // not taking from props because sometimes we merge them
 
-            if (!firstLoad && typeof filters.search !== 'undefined' && filters.search !== oldFilters.search) {
+            if (
+                debounce &&
+                !firstLoad &&
+                typeof filters.search !== 'undefined' &&
+                filters.search !== oldFilters.search
+            ) {
                 await breakpoint(300)
             }
             if (firstLoad || !objectsEqual(oldFilters, filters)) {
-                actions.loadInsights()
+                actions.loadInsights(debounce)
             }
 
             // Filters from clicks come with "merge: true",
