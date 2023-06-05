@@ -5,7 +5,7 @@ import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId, ItemMode } from '~/types'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from '~/types'
 import { posthogNodePasteRule } from './utils'
 import { urls } from 'scenes/urls'
 

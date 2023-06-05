@@ -19,12 +19,15 @@ class Workload(Enum):
 _default_workload = Workload.ONLINE
 
 
-def get_pool(workload: Workload):
+def get_pool(workload: Workload, team_id=None):
     """
     Returns the right connection pool given a workload.
 
     Note that the same pool should be returned every call.
     """
+    if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
+        return make_ch_pool(**settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)])
+
     if (
         workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
     ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:

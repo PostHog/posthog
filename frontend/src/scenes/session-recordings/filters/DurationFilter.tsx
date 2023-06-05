@@ -1,26 +1,42 @@
-import { PropertyOperator, RecordingDurationFilter } from '~/types'
+import { DurationTypeFilter, PropertyOperator, RecordingDurationFilter } from '~/types'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { DurationPicker, convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useMemo, useState } from 'react'
+import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
 
 interface Props {
-    filter: RecordingDurationFilter
-    onChange: (value: RecordingDurationFilter) => void
+    recordingDurationFilter: RecordingDurationFilter
+    durationTypeFilter: DurationTypeFilter
+    onChange: (recordingDurationFilter: RecordingDurationFilter, durationType: DurationTypeFilter) => void
     pageKey: string
+    // TODO this can be removed when replay summary is the default
+    usesListingV3?: boolean
 }
 
-export const humanFriendlyDurationFilter = (filter: RecordingDurationFilter): string => {
-    const operator = filter.operator === PropertyOperator.GreaterThan ? '>' : '<'
-    const duration = convertSecondsToDuration(filter.value || 0)
+export const humanFriendlyDurationFilter = (
+    recordingDurationFilter: RecordingDurationFilter,
+    durationTypeFilter: DurationTypeFilter
+): string => {
+    const operator = recordingDurationFilter.operator === PropertyOperator.GreaterThan ? '>' : '<'
+    const duration = convertSecondsToDuration(recordingDurationFilter.value || 0)
+    const durationDescription = durationTypeFilter === 'active_seconds' ? 'active ' : ''
     const unit = duration.timeValue === 1 ? duration.unit.slice(0, -1) : duration.unit
-    return `${operator} ${duration.timeValue || 0} ${unit}`
+    return `${operator} ${duration.timeValue || 0} ${durationDescription}${unit}`
 }
 
-export function DurationFilter({ filter, onChange }: Props): JSX.Element {
+export function DurationFilter({
+    recordingDurationFilter,
+    durationTypeFilter,
+    onChange,
+    usesListingV3,
+}: Props): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
-    const durationString = useMemo(() => humanFriendlyDurationFilter(filter), [filter])
+    const durationString = useMemo(
+        () => humanFriendlyDurationFilter(recordingDurationFilter, durationTypeFilter),
+        [recordingDurationFilter, durationTypeFilter]
+    )
 
     return (
         <Popover
@@ -31,15 +47,25 @@ export function DurationFilter({ filter, onChange }: Props): JSX.Element {
             overlay={
                 <div className="flex gap-2">
                     <OperatorSelect
-                        operator={filter.operator}
+                        operator={recordingDurationFilter.operator}
                         operators={[PropertyOperator.GreaterThan, PropertyOperator.LessThan]}
-                        onChange={(newOperator) => onChange({ ...filter, operator: newOperator })}
+                        onChange={(newOperator) =>
+                            onChange({ ...recordingDurationFilter, operator: newOperator }, durationTypeFilter)
+                        }
                         className="flex-1"
                     />
                     <DurationPicker
-                        onChange={(newValue) => onChange({ ...filter, value: newValue })}
-                        value={filter.value || undefined}
+                        onChange={(newValue) =>
+                            onChange({ ...recordingDurationFilter, value: newValue }, durationTypeFilter)
+                        }
+                        value={recordingDurationFilter.value || undefined}
                     />
+                    {usesListingV3 ? (
+                        <DurationTypeSelect
+                            onChange={(v) => onChange(recordingDurationFilter, v)}
+                            value={durationTypeFilter}
+                        />
+                    ) : null}
                 </div>
             }
         >
