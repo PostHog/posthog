@@ -1,10 +1,17 @@
 from posthog.hogql.metadata import get_hogql_metadata
+from posthog.schema import HogQLMetadata, HogQLMetadataResponse
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
+    def _expr(self, query: str) -> HogQLMetadataResponse:
+        return get_hogql_metadata(query=HogQLMetadata(expr=query), team=self.team)
+
+    def _select(self, query: str) -> HogQLMetadataResponse:
+        return get_hogql_metadata(query=HogQLMetadata(select=query), team=self.team)
+
     def test_netadata_valid_expr_select(self):
-        metadata = get_hogql_metadata(expr="select 1")
+        metadata = self._expr("select 1")
         self.assertEqual(
             metadata.dict(),
             metadata.dict()
@@ -16,7 +23,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        metadata = get_hogql_metadata(select="select 1")
+        metadata = self._select("select 1")
         self.assertEqual(
             metadata.dict(),
             metadata.dict()
@@ -28,7 +35,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        metadata = get_hogql_metadata(expr="timestamp")
+        metadata = self._expr("timestamp")
         self.assertEqual(
             metadata.dict(),
             metadata.dict()
@@ -40,7 +47,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        metadata = get_hogql_metadata(select="timestamp")
+        metadata = self._select("timestamp")
         self.assertEqual(
             metadata.dict(),
             metadata.dict()
