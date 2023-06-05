@@ -517,6 +517,7 @@ export interface Team {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     ingested_event: boolean
+    person_display_name_properties: string[] | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
