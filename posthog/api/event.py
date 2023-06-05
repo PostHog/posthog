@@ -178,7 +178,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error"}, status=400
             )
         query_result = query_with_columns(
-            SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")}
+            SELECT_ONE_EVENT_SQL,
+            {"team_id": self.team.pk, "event_id": pk.replace("-", "")},
+            team_id=self.team.pk,
         )
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
@@ -199,7 +201,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
         flattened = []
         if key == "custom_event":
-            events = sync_execute(GET_CUSTOM_EVENTS, {"team_id": team.pk})
+            events = sync_execute(GET_CUSTOM_EVENTS, {"team_id": team.pk}, team_id=team.pk)
             return response.Response([{"name": event[0]} for event in events])
         elif key:
             result = get_property_values_for_key(key, team, event_names, value=request.GET.get("value"))

@@ -31,7 +31,7 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
@@ -81,7 +81,7 @@ def test_cannot_create_a_batch_export_for_another_organization(client: HttpClien
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",

@@ -29,7 +29,7 @@ def test_can_put_config(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
@@ -86,7 +86,7 @@ def test_can_patch_config(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
@@ -119,7 +119,7 @@ def test_can_patch_config(client: HttpClient):
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
-            "key_template": "posthog-events/{table_name}.csv",
+            "prefix": "posthog-events/",
         },
     }
 

@@ -9,7 +9,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0317_batch_export_models"),
+        ("posthog", "0318_alter_earlyaccessfeature_stage"),
     ]
 
     operations = [

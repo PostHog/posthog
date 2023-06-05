@@ -52,7 +52,7 @@ class S3InsertInputs:
 
     bucket_name: str
     region: str
-    key_template: str
+    prefix: str
     team_id: int
     data_interval_start: str
     data_interval_end: str
@@ -133,14 +133,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
-        template_vars = prepare_template_vars(inputs)
-
         query_template = Template(SELECT_QUERY_TEMPLATE.template)
 
         activity.logger.debug(query_template.template)
 
         # Create a multipart upload to S3
-        key = inputs.key_template.format(**template_vars)
+        key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
         s3_client = boto3.client(
             "s3",
             region_name=inputs.region,
@@ -273,7 +271,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
             region=inputs.region,
-            key_template=inputs.key_template,
+            prefix=inputs.prefix,
             team_id=inputs.team_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,

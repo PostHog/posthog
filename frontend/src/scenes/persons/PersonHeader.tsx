@@ -39,8 +39,9 @@ export function asDisplay(person: PersonPropType | null | undefined, maxLength?:
         return 'Unknown'
     }
     const team = teamLogic.findMounted()?.values?.currentTeam
-    const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
+    // Sync the logic below with the plugin server `getPersonDetails`
+    const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
     const customPropertyKey = personDisplayNameProperties.find((x) => person.properties?.[x])
     const propertyIdentifier = customPropertyKey ? person.properties?.[customPropertyKey] : undefined
 
