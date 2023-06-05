@@ -212,18 +212,30 @@ export function filterForQuery(node: InsightQueryNode): InsightFilter | undefine
     return node[filterProperty]
 }
 
+/** Make sure the property key is wrapped in quotes if it contains any special characters. */
+export function propertyKeyToHogQlIdentifier(identifier: string): string {
+    if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
+        // Same regex as in the backend escape_hogql_identifier
+        return identifier // This identifier is simple
+    }
+    if (identifier.startsWith('"') && identifier.endsWith('"')) {
+        return identifier // This identifier is already quoted
+    }
+    return `"${identifier}"`
+}
+
 export function taxonomicFilterToHogQl(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType === TaxonomicFilterGroupType.EventProperties) {
-        return `properties."${value}"`
+        return `properties.${propertyKeyToHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-        return `person.properties."${value}"`
+        return `person.properties.${propertyKeyToHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
-        return `properties."${value}"`
+        return `properties.${propertyKeyToHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
