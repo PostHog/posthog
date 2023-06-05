@@ -17,7 +17,7 @@ const createExportServiceHandlers = (): any => {
                 config: {
                     bucket_name: 'my-bucket',
                     region: 'us-east-1',
-                    key_template: 'my-prefix',
+                    prefix: 'my-prefix',
                     aws_access_key_id: 'my-access-key-id',
                     aws_secret_access_key: '',
                 },
