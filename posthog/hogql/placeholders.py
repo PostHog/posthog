@@ -18,7 +18,7 @@ class ReplacePlaceholders(CloningVisitor):
         if node.field in self.placeholders:
             new_node = self.placeholders[node.field]
             new_node.start = node.start
-            new_node.stop = node.stop
+            new_node.end = node.end
             return new_node
         raise HogQLException(
             f"Placeholder '{node.field}' not found in provided dict: {', '.join(list(self.placeholders))}"

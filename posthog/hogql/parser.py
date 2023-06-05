@@ -66,17 +66,17 @@ class HogQLErrorListener(ErrorListener):
 class HogQLParseTreeConverter(ParseTreeVisitor):
     def visit(self, ctx: ParserRuleContext):
         start = ctx.start.start if ctx.start else None
-        stop = ctx.stop.stop if ctx.stop else None
+        end = ctx.stop.stop + 1 if ctx.stop else None
         try:
             node = super().visit(ctx)
             if isinstance(node, ast.AST):
                 node.start = start
-                node.stop = stop
+                node.end = end
             return node
         except HogQLException as e:
-            if e.start is None or e.stop is None:
+            if start is not None and end is not None and e.start is None or e.end is None:
                 e.start = start
-                e.stop = stop
+                e.end = end
             raise e
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):

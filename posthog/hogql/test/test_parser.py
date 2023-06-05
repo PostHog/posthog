@@ -715,15 +715,15 @@ class TestParser(BaseTest):
     def test_order_by(self):
         self.assertEqual(
             parse_order_expr("1 ASC"),
-            ast.OrderExpr(expr=ast.Constant(value=1, start=0, stop=0), order="ASC", start=0, stop=4),
+            ast.OrderExpr(expr=ast.Constant(value=1, start=0, end=1), order="ASC", start=0, end=5),
         )
         self.assertEqual(
             parse_order_expr("event"),
-            ast.OrderExpr(expr=ast.Field(chain=["event"], start=0, stop=4), order="ASC", start=0, stop=4),
+            ast.OrderExpr(expr=ast.Field(chain=["event"], start=0, end=5), order="ASC", start=0, end=5),
         )
         self.assertEqual(
             parse_order_expr("timestamp DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["timestamp"], start=0, stop=8), order="DESC", start=0, stop=13),
+            ast.OrderExpr(expr=ast.Field(chain=["timestamp"], start=0, end=9), order="DESC", start=0, end=14),
         )
 
     def test_select_order_by(self):
@@ -1053,9 +1053,9 @@ class TestParser(BaseTest):
         )
         self.assertEqual(expr, expected)
 
-    def test_parser_error_start_stop(self):
+    def test_parser_error_start_end(self):
         query = "SELECT person.id as true FROM events"
         with self.assertRaises(HogQLException) as e:
             self._select(query)
         self.assertEqual(e.exception.start, 7)
-        self.assertEqual(e.exception.stop, 23)
+        self.assertEqual(e.exception.end, 24)

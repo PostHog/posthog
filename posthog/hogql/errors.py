@@ -5,12 +5,12 @@ class HogQLException(Exception):
     """Base exception for HogQL. These are exposed to the user."""
 
     start: Optional[int]
-    stop: Optional[int]
+    end: Optional[int]
 
-    def __init__(self, message: str, *, start: Optional[int] = None, stop: Optional[int] = None):
+    def __init__(self, message: str, *, start: Optional[int] = None, end: Optional[int] = None):
         super().__init__(message)
         self.start = start
-        self.stop = stop
+        self.end = end
 
 
 class SyntaxException(HogQLException):

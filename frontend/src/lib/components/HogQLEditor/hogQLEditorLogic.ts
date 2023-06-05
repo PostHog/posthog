@@ -39,11 +39,11 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
                         if (
                             textArea &&
                             typeof response.errorStart === 'number' &&
-                            typeof response.errorStop === 'number'
+                            typeof response.errorEnd === 'number'
                         ) {
                             textArea.focus()
                             textArea.selectionStart = response.errorStart
-                            textArea.selectionEnd = response.errorStop + 1
+                            textArea.selectionEnd = response.errorEnd
                         }
                     } else if (response) {
                         props.onChange(values.localValue)
@@ -63,13 +63,7 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
             (s) => [s.response],
             (response) => {
                 let error = response?.error ?? null
-                if (
-                    response &&
-                    error &&
-                    response.inputExpr &&
-                    typeof response.errorStart === 'number' &&
-                    typeof response.errorStop === 'number'
-                ) {
+                if (error && response?.inputExpr && typeof response?.errorStart === 'number') {
                     let row = 0
                     let col = 0
                     for (let pos = 0; pos < response.errorStart; pos++) {

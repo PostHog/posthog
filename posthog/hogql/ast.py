@@ -29,7 +29,7 @@ camel_case_pattern = re.compile(r"(?<!^)(?=[A-Z])")
 
 class AST(BaseModel):
     start: Optional[int] = None
-    stop: Optional[int] = None
+    end: Optional[int] = None
 
     class Config:
         extra = Extra.forbid

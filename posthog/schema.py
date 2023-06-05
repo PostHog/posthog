@@ -247,8 +247,8 @@ class HogQLMetadataResponse(BaseModel):
         extra = Extra.forbid
 
     error: Optional[str] = None
+    errorEnd: Optional[float] = None
     errorStart: Optional[float] = None
-    errorStop: Optional[float] = None
     inputExpr: Optional[str] = None
     inputSelect: Optional[str] = None
     isValid: Optional[bool] = None

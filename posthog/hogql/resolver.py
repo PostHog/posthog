@@ -85,7 +85,7 @@ class Resolver(CloningVisitor):
         # Clone the select query, piece by piece
         new_node = ast.SelectQuery(
             start=node.start,
-            stop=node.stop,
+            end=node.end,
             type=node_type,
             # macros have been expanded (moved to the type for now), so remove from the printable "WITH" clause
             macros=None,

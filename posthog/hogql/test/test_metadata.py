@@ -57,7 +57,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": "timestamp",
                 "error": "Syntax error at line 1, column 0: mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
                 "errorStart": None,
-                "errorStop": None,
+                "errorEnd": None,
             },
         )
 
@@ -72,7 +72,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": None,
                 "error": "Alias 'true' is a reserved keyword.",
                 "errorStart": 0,
-                "errorStop": 8,
+                "errorEnd": 9,
             },
         )
 
@@ -87,6 +87,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": None,
                 "error": "Unable to resolve field: no_field",
                 "errorStart": 4,
-                "errorStop": 11,
+                "errorEnd": 12,
             },
         )

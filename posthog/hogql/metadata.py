@@ -33,7 +33,7 @@ def get_hogql_metadata(
         elif isinstance(e, HogQLException):
             response.error = str(e)
             response.errorStart = e.start
-            response.errorStop = e.stop
+            response.errorEnd = e.end
         else:
             # We don't want to accidentally expose too much data via errors
             response.error = f"Unexpected f{e.__class__.__name__}"

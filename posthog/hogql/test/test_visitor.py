@@ -121,7 +121,7 @@ class TestVisitor(BaseTest):
             UnknownNotDefinedVisitor().visit(parse_expr("1 + 3 / 'asd2'"))
         self.assertEqual(str(e.exception), "Visitor has no method visit_constant")
 
-    def test_hogql_exception_start_stop(self):
+    def test_hogql_exception_start_end(self):
         class EternalVisitor(TraversingVisitor):
             def visit_constant(self, node: ast.Constant):
                 if node.value == 616:
@@ -131,4 +131,4 @@ class TestVisitor(BaseTest):
             EternalVisitor().visit(parse_expr("1 + 616 / 'asd2'"))
         self.assertEqual(str(e.exception), "You tried accessing a forbidden number, perish.")
         self.assertEqual(e.exception.start, 4)
-        self.assertEqual(e.exception.stop, 6)
+        self.assertEqual(e.exception.end, 7)
