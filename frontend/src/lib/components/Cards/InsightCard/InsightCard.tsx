@@ -428,7 +428,7 @@ export interface InsightVizProps
     context?: QueryContext
 }
 
-export function InsightViz({
+export function FilterBasedCardContent({
     insight,
     loading,
     setAreDetailsShown,
@@ -614,7 +614,7 @@ function InsightCardInternal(
                         )}
                     </div>
                 ) : (
-                    <InsightViz
+                    <FilterBasedCardContent
                         insight={insight}
                         loading={loading}
                         apiErrored={apiErrored}
