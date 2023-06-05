@@ -25,8 +25,13 @@ def get_hogql_metadata(
             raise ValueError("Either expr or select must be provided")
     except Exception as e:
         is_valid = False
-        if isinstance(e, ValueError) or isinstance(e, HogQLException):
+        if isinstance(e, ValueError):
             error = str(e)
+        elif isinstance(e, HogQLException):
+            error = f"[{e.start}:{e.stop}] {str(e)}"
+        else:
+            # We don't want to accidentally expose too much data via errors
+            error = f"Unexpected f{e.__class__.__name__}"
 
     if error and "mismatched input '<EOF>' expecting" in error:
         error = "Unexpected end of query"

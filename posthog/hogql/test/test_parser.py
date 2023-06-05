@@ -3,6 +3,7 @@ from typing import cast
 import math
 
 from posthog.hogql import ast
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.test.base import BaseTest
 
@@ -1044,3 +1045,10 @@ class TestParser(BaseTest):
             },
         )
         self.assertEqual(expr, expected)
+
+    def test_parser_error_start_stop(self):
+        query = "SELECT person.id as true FROM events"
+        with self.assertRaises(HogQLException) as e:
+            parse_select(query)
+        self.assertEqual(e.exception.start, 7)
+        self.assertEqual(e.exception.stop, 23)

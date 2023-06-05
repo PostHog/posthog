@@ -1,6 +1,6 @@
 from typing import Dict, List, Literal, Optional, cast
 
-from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
+from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
 
 from posthog.hogql import ast
@@ -64,6 +64,21 @@ class HogQLErrorListener(ErrorListener):
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
+    def visit(self, ctx: ParserRuleContext):
+        start = ctx.start.start if ctx.start else None
+        stop = ctx.stop.stop if ctx.stop else None
+        try:
+            node = super().visit(ctx)
+            if isinstance(node, ast.AST):
+                node.start = start
+                node.stop = stop
+            return node
+        except HogQLException as e:
+            if e.start is None or e.stop is None:
+                e.start = start
+                e.stop = stop
+            raise e
+
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
 

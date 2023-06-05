@@ -13,7 +13,14 @@ class Visitor(object):
     def visit(self, node: ast.AST):
         if node is None:
             return node
-        return node.accept(self)
+
+        try:
+            return node.accept(self)
+        except HogQLException as e:
+            if e.start is None or e.stop is None:
+                e.start = node.start
+                e.stop = node.stop
+            raise e
 
 
 class TraversingVisitor(Visitor):
@@ -229,6 +236,8 @@ class CloningVisitor(Visitor):
 
     def visit_macro(self, node: ast.Macro):
         return ast.Macro(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             name=node.name,
             expr=clone_expr(node.expr),
@@ -237,6 +246,8 @@ class CloningVisitor(Visitor):
 
     def visit_alias(self, node: ast.Alias):
         return ast.Alias(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             alias=node.alias,
             expr=self.visit(node.expr),
@@ -244,6 +255,8 @@ class CloningVisitor(Visitor):
 
     def visit_binary_operation(self, node: ast.BinaryOperation):
         return ast.BinaryOperation(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             left=self.visit(node.left),
             right=self.visit(node.right),
@@ -251,13 +264,25 @@ class CloningVisitor(Visitor):
         )
 
     def visit_and(self, node: ast.And):
-        return ast.And(type=None if self.clear_types else node.type, exprs=[self.visit(expr) for expr in node.exprs])
+        return ast.And(
+            start=node.start,
+            stop=node.stop,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
+        )
 
     def visit_or(self, node: ast.Or):
-        return ast.Or(type=None if self.clear_types else node.type, exprs=[self.visit(expr) for expr in node.exprs])
+        return ast.Or(
+            start=node.start,
+            stop=node.stop,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
+        )
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         return ast.CompareOperation(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             left=self.visit(node.left),
             right=self.visit(node.right),
@@ -265,10 +290,14 @@ class CloningVisitor(Visitor):
         )
 
     def visit_not(self, node: ast.Not):
-        return ast.Not(type=None if self.clear_types else node.type, expr=self.visit(node.expr))
+        return ast.Not(
+            start=node.start, stop=node.stop, type=None if self.clear_types else node.type, expr=self.visit(node.expr)
+        )
 
     def visit_order_expr(self, node: ast.OrderExpr):
         return ast.OrderExpr(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             order=node.order,
@@ -276,40 +305,66 @@ class CloningVisitor(Visitor):
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         return ast.TupleAccess(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             tuple=self.visit(node.tuple),
             index=node.index,
         )
 
     def visit_tuple(self, node: ast.Array):
-        return ast.Tuple(type=None if self.clear_types else node.type, exprs=[self.visit(expr) for expr in node.exprs])
+        return ast.Tuple(
+            start=node.start,
+            stop=node.stop,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
+        )
 
     def visit_lambda(self, node: ast.Lambda):
         return ast.Lambda(
-            type=None if self.clear_types else node.type, args=[arg for arg in node.args], expr=self.visit(node.expr)
+            start=node.start,
+            stop=node.stop,
+            type=None if self.clear_types else node.type,
+            args=[arg for arg in node.args],
+            expr=self.visit(node.expr),
         )
 
     def visit_array_access(self, node: ast.ArrayAccess):
         return ast.ArrayAccess(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             array=self.visit(node.array),
             property=self.visit(node.property),
         )
 
     def visit_array(self, node: ast.Array):
-        return ast.Array(type=None if self.clear_types else node.type, exprs=[self.visit(expr) for expr in node.exprs])
+        return ast.Array(
+            start=node.start,
+            stop=node.stop,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
+        )
 
     def visit_constant(self, node: ast.Constant):
-        return ast.Constant(type=None if self.clear_types else node.type, value=node.value)
+        return ast.Constant(
+            start=node.start, stop=node.stop, type=None if self.clear_types else node.type, value=node.value
+        )
 
     def visit_field(self, node: ast.Field):
-        return ast.Field(type=None if self.clear_types else node.type, chain=node.chain)
+        return ast.Field(
+            start=node.start, stop=node.stop, type=None if self.clear_types else node.type, chain=node.chain
+        )
 
     def visit_placeholder(self, node: ast.Placeholder):
-        return ast.Placeholder(type=None if self.clear_types else node.type, field=node.field)
+        return ast.Placeholder(
+            start=node.start, stop=node.stop, type=None if self.clear_types else node.type, field=node.field
+        )
 
     def visit_call(self, node: ast.Call):
         return ast.Call(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             name=node.name,
             args=[self.visit(arg) for arg in node.args],
@@ -318,11 +373,17 @@ class CloningVisitor(Visitor):
 
     def visit_ratio_expr(self, node: ast.RatioExpr):
         return ast.RatioExpr(
-            type=None if self.clear_types else node.type, left=self.visit(node.left), right=self.visit(node.right)
+            start=node.start,
+            stop=node.stop,
+            type=None if self.clear_types else node.type,
+            left=self.visit(node.left),
+            right=self.visit(node.right),
         )
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         return ast.SampleExpr(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             sample_value=self.visit(node.sample_value),
             offset_value=self.visit(node.offset_value),
@@ -331,6 +392,8 @@ class CloningVisitor(Visitor):
     def visit_join_expr(self, node: ast.JoinExpr):
         # :TRICKY: when adding new fields, also add them to visit_join_expr of resolver.py
         return ast.JoinExpr(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
             next_join=self.visit(node.next_join),
@@ -343,6 +406,8 @@ class CloningVisitor(Visitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         return ast.SelectQuery(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             macros={key: expr for key, expr in node.macros.items()} if node.macros else None,  # to not traverse
             select_from=self.visit(node.select_from),  # keep "select_from" before "select" to resolve tables first
@@ -364,12 +429,16 @@ class CloningVisitor(Visitor):
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         return ast.SelectUnionQuery(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             select_queries=[self.visit(expr) for expr in node.select_queries],
         )
 
     def visit_window_expr(self, node: ast.WindowExpr):
         return ast.WindowExpr(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             partition_by=[self.visit(expr) for expr in node.partition_by] if node.partition_by else None,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
@@ -380,6 +449,8 @@ class CloningVisitor(Visitor):
 
     def visit_window_function(self, node: ast.WindowFunction):
         return ast.WindowFunction(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             name=node.name,
             args=[self.visit(expr) for expr in node.args] if node.args else None,
@@ -389,6 +460,8 @@ class CloningVisitor(Visitor):
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         return ast.WindowFrameExpr(
+            start=node.start,
+            stop=node.stop,
             type=None if self.clear_types else node.type,
             frame_type=node.frame_type,
             frame_value=node.frame_value,
