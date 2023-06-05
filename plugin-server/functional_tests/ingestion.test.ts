@@ -150,16 +150,17 @@ test.concurrent(`event ingestion: handles $groupidentify with no properties`, as
 })
 
 test.concurrent(`event ingestion: ip kept if not anonymize`, async () => {
-    const teamId = await createTeam(organizationId)
+    const teamId = await createTeam(organizationId, '', 'test_team_token', false, false)
     const distinctId = new UUIDT().toString()
     const firstUuid = new UUIDT().toString()
 
     await capture({
-        teamId,
+        teamId: null, // making sure we go through normal ingestion flow
         distinctId,
         uuid: firstUuid,
         event: 'random',
         ip: '123.12.12.23',
+        token: 'test_team_token',
     })
 
     await waitForExpect(async () => {
@@ -179,16 +180,17 @@ test.concurrent(`event ingestion: ip kept if not anonymize`, async () => {
 })
 
 test.concurrent(`event ingestion: anonymize ip respected`, async () => {
-    const teamId = await createTeam(organizationId, '', '', false, true)
+    const teamId = await createTeam(organizationId, '', 'test_team_token', false, true)
     const distinctId = new UUIDT().toString()
     const firstUuid = new UUIDT().toString()
 
     await capture({
-        teamId,
+        teamId: null, // making sure we go through normal ingestion flow
         distinctId,
         uuid: firstUuid,
         event: 'random',
         ip: '123.12.12.23',
+        token: 'test_team_token',
     })
 
     await waitForExpect(async () => {
