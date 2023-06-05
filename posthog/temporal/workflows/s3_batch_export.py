@@ -271,7 +271,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
             region=inputs.region,
-            prefix=inputs.key_template,
+            prefix=inputs.prefix,
             team_id=inputs.team_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,

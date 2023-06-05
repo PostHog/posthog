@@ -42,7 +42,7 @@ class S3BatchExportInputs:
 
     bucket_name: str
     region: str
-    key_template: str
+    prefix: str
     batch_window_size: int
     team_id: int
     batch_export_id: str
