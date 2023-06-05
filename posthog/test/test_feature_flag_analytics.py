@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time, configure  # type: ignore
 from posthog.models.feature_flag.flag_analytics import increment_request_count, capture_team_decide_usage
@@ -56,8 +56,8 @@ class TestFeatureFlagAnalytics(BaseTest):
             self.assertEqual(client.hgetall(f"posthog:decide_requests:other"), {})
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    @patch("posthog.models.feature_flag.flag_analytics.posthoganalytics.capture")
-    def test_capture_team_decide_usage(self, mock_capture):
+    def test_capture_team_decide_usage(self):
+        mock_capture = MagicMock()
         team_id = 3
         other_team_id = 1243
         team_uuid = "team-uuid"
@@ -87,24 +87,24 @@ class TestFeatureFlagAnalytics(BaseTest):
                 increment_request_count(team_id)
                 increment_request_count(other_team_id)
 
-            capture_team_decide_usage(team_id, team_uuid)
+            capture_team_decide_usage(mock_capture, team_id, team_uuid)
             # these other requests should not add duplicate counts
-            capture_team_decide_usage(team_id, team_uuid)
-            capture_team_decide_usage(team_id, team_uuid)
-            mock_capture.assert_called_once_with(
-                team_uuid, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
+            capture_team_decide_usage(mock_capture, team_id, team_uuid)
+            capture_team_decide_usage(mock_capture, team_id, team_uuid)
+            mock_capture.capture.assert_called_once_with(
+                team_id, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
             )
 
             mock_capture.reset_mock()
-            capture_team_decide_usage(other_team_id, other_team_uuid)
-            capture_team_decide_usage(other_team_id, other_team_uuid)
-            mock_capture.assert_called_once_with(
-                other_team_uuid, "decide usage", {"count": 10, "team_id": other_team_id, "team_uuid": other_team_uuid}
+            capture_team_decide_usage(mock_capture, other_team_id, other_team_uuid)
+            capture_team_decide_usage(mock_capture, other_team_id, other_team_uuid)
+            mock_capture.capture.assert_called_once_with(
+                other_team_id, "decide usage", {"count": 10, "team_id": other_team_id, "team_uuid": other_team_uuid}
             )
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    @patch("posthog.models.feature_flag.flag_analytics.posthoganalytics.capture")
-    def test_locking_works_for_capture_team_decide_usage(self, mock_capture):
+    def test_locking_works_for_capture_team_decide_usage(self):
+        mock_capture = MagicMock()
         team_id = 3
         other_team_id = 1243
         team_uuid = "team-uuid"
@@ -138,10 +138,11 @@ class TestFeatureFlagAnalytics(BaseTest):
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 future_to_index = {
-                    executor.submit(capture_team_decide_usage, team_id, team_uuid): index for index in range(5)
+                    executor.submit(capture_team_decide_usage, mock_capture, team_id, team_uuid): index
+                    for index in range(5)
                 }
                 future_to_index = {
-                    executor.submit(capture_team_decide_usage, other_team_id, other_team_uuid): index
+                    executor.submit(capture_team_decide_usage, mock_capture, other_team_id, other_team_uuid): index
                     for index in range(5, 10)
                 }
 
@@ -150,17 +151,17 @@ class TestFeatureFlagAnalytics(BaseTest):
                 assert result is None
                 assert future.exception() is None
 
-            mock_capture.assert_any_call(
-                team_uuid, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
+            mock_capture.capture.assert_any_call(
+                team_id, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
             )
-            mock_capture.assert_any_call(
-                other_team_uuid, "decide usage", {"count": 10, "team_id": other_team_id, "team_uuid": other_team_uuid}
+            mock_capture.capture.assert_any_call(
+                other_team_id, "decide usage", {"count": 10, "team_id": other_team_id, "team_uuid": other_team_uuid}
             )
-            assert mock_capture.call_count == 2
+            assert mock_capture.capture.call_count == 2
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    @patch("posthog.models.feature_flag.flag_analytics.posthoganalytics.capture")
-    def test_locking_in_redis_doesnt_block_new_incoming_increments(self, mock_capture):
+    def test_locking_in_redis_doesnt_block_new_incoming_increments(self):
+        mock_capture = MagicMock()
         team_id = 3
         other_team_id = 1243
         team_uuid = "team-uuid"
@@ -186,7 +187,8 @@ class TestFeatureFlagAnalytics(BaseTest):
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 future_to_index = {
-                    executor.submit(capture_team_decide_usage, team_id, team_uuid): index for index in range(5)
+                    executor.submit(capture_team_decide_usage, mock_capture, team_id, team_uuid): index
+                    for index in range(5)
                 }
                 future_to_index = {executor.submit(increment_request_count, team_id): index for index in range(5, 10)}
 
@@ -195,10 +197,10 @@ class TestFeatureFlagAnalytics(BaseTest):
                 assert result is None
                 assert future.exception() is None
 
-            mock_capture.assert_any_call(
-                team_uuid, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
+            mock_capture.capture.assert_any_call(
+                team_id, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
             )
-            assert mock_capture.call_count == 1
+            assert mock_capture.capture.call_count == 1
 
             client = redis.get_client()
 

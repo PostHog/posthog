@@ -1,6 +1,6 @@
 from posthog.redis import redis, get_client
 import time
-import posthoganalytics
+from posthoganalytics import Posthog
 from sentry_sdk import capture_exception
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
@@ -11,17 +11,17 @@ def get_team_request_key(team_id: int) -> str:
     return f"posthog:decide_requests:{team_id}"
 
 
-def increment_request_count(team_id: int) -> None:
+def increment_request_count(team_id: int, count: int = 1) -> None:
     try:
         client = get_client()
         time_bucket = str(int(time.time() / CACHE_BUCKET_SIZE))
         key_name = get_team_request_key(team_id)
-        client.hincrby(key_name, time_bucket, 1)
+        client.hincrby(key_name, time_bucket, count)
     except Exception as error:
         capture_exception(error)
 
 
-def capture_team_decide_usage(team_id: int, team_uuid: str) -> None:
+def capture_team_decide_usage(ph_client: Posthog, team_id: int, team_uuid: str) -> None:
     try:
         client = get_client()
         total_request_count = 0
@@ -39,8 +39,8 @@ def capture_team_decide_usage(team_id: int, team_uuid: str) -> None:
                     client.hdel(key_name, time_bucket)
 
             if total_request_count > 0:
-                posthoganalytics.capture(
-                    team_uuid,
+                ph_client.capture(
+                    team_id,
                     "decide usage",
                     {"count": total_request_count, "team_id": team_id, "team_uuid": team_uuid},
                 )

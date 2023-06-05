@@ -1,3 +1,4 @@
+from random import random
 import re
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
@@ -210,7 +211,11 @@ def get_decide(request: HttpRequest):
 
             if feature_flags and settings.ENABLE_DECIDE_BILLING_ANALYTICS:
                 # Billing analytics for decide requests with feature flags
-                increment_request_count(team.pk)
+
+                # Sampling to relax the load on redis
+                if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+                    count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+                    increment_request_count(team.pk, count)
 
             # Analytics for decide requests with feature flags
             # Only send once flag definitions are loaded
