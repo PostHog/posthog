@@ -17,8 +17,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "expr": "select 1",
-                "select": None,
+                "inputExpr": "select 1",
+                "inputSelect": None,
                 "error": "Syntax error at line 1, column 7: extraneous input '1' expecting <EOF>",
             },
         )
@@ -29,8 +29,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "expr": None,
-                "select": "select 1",
+                "inputExpr": None,
+                "inputSelect": "select 1",
                 "error": None,
             },
         )
@@ -41,8 +41,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "expr": "timestamp",
-                "select": None,
+                "inputExpr": "timestamp",
+                "inputSelect": None,
                 "error": None,
             },
         )
@@ -53,8 +53,40 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "expr": None,
-                "select": "timestamp",
+                "inputExpr": None,
+                "inputSelect": "timestamp",
                 "error": "Syntax error at line 1, column 0: mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
+                "errorStart": None,
+                "errorStop": None,
+            },
+        )
+
+    def test_metadata_expr_parse_error(self):
+        metadata = self._expr("1 as true")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": False,
+                "inputExpr": "1 as true",
+                "inputSelect": None,
+                "error": "Alias 'true' is a reserved keyword.",
+                "errorStart": 0,
+                "errorStop": 8,
+            },
+        )
+
+    def test_metadata_expr_resolve_error(self):
+        metadata = self._expr("1 + no_field")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": False,
+                "inputExpr": "1 + no_field",
+                "inputSelect": None,
+                "error": "Unable to resolve field: no_field",
+                "errorStart": 4,
+                "errorStop": 11,
             },
         )
