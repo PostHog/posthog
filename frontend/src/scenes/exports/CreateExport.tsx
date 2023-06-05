@@ -53,14 +53,14 @@ export function CreateExport(): JSX.Element {
                 type: 'S3',
                 config: {
                     bucket_name: bucket,
-                    region: 'us-east-1',
+                    region: 'us-east-1', // TODO: pull this from the form
                     key_template: keyTemplate,
                     batch_window_size: 3600,
                     aws_access_key_id: accessKeyId,
                     aws_secret_access_key: secretAccessKey,
                 },
             },
-            interval: 'hour',
+            interval: 'hour', // TODO: pull this from the form
         } as const
 
         // Create the export.
