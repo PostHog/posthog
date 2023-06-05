@@ -1,8 +1,8 @@
 import { PropertyFilterType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { QueryContext, DataTableNode } from '~/queries/schema'
-import { isEventsQuery, isHogQLQuery } from '~/queries/utils'
-import { extractExpressionComment, trimQuotes } from '~/queries/nodes/DataTable/utils'
+import { isEventsQuery, isHogQLQuery, trimQuotes } from '~/queries/utils'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 export interface ColumnMeta {

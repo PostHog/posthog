@@ -7,7 +7,7 @@ import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, QueryContext } from '~/queries/schema'
-import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery } from '~/queries/utils'
+import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery, trimQuotes } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
@@ -15,7 +15,6 @@ import ReactJson from 'react-json-view'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { trimQuotes } from './utils'
 
 export function renderColumn(
     key: string,

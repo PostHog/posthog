@@ -212,16 +212,30 @@ export function filterForQuery(node: InsightQueryNode): InsightFilter | undefine
     return node[filterProperty]
 }
 
+export function isQuoted(identifier: string): boolean {
+    return (
+        (identifier.startsWith('"') && identifier.endsWith('"')) ||
+        (identifier.startsWith('`') && identifier.endsWith('`'))
+    )
+}
+
+export function trimQuotes(identifier: string): string {
+    if (isQuoted(identifier)) {
+        return identifier.slice(1, -1)
+    }
+    return identifier
+}
+
 /** Make sure the property key is wrapped in quotes if it contains any special characters. */
-export function propertyKeyToHogQlIdentifier(identifier: string): string {
+export function escapePropertyAsHogQlIdentifier(identifier: string): string {
     if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
         // Same regex as in the backend escape_hogql_identifier
         return identifier // This identifier is simple
     }
-    if (identifier.startsWith('"') && identifier.endsWith('"')) {
+    if (isQuoted(identifier)) {
         return identifier // This identifier is already quoted
     }
-    return `"${identifier}"`
+    return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
 }
 
 export function taxonomicFilterToHogQl(
@@ -229,13 +243,13 @@ export function taxonomicFilterToHogQl(
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType === TaxonomicFilterGroupType.EventProperties) {
-        return `properties.${propertyKeyToHogQlIdentifier(String(value))}`
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-        return `person.properties.${propertyKeyToHogQlIdentifier(String(value))}`
+        return `person.properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
-        return `properties.${propertyKeyToHogQlIdentifier(String(value))}`
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
