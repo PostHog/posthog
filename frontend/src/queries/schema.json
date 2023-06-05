@@ -1117,10 +1117,10 @@
                 "error": {
                     "type": "string"
                 },
-                "errorEnd": {
+                "errorStart": {
                     "type": "number"
                 },
-                "errorStart": {
+                "errorStop": {
                     "type": "number"
                 },
                 "inputExpr": {

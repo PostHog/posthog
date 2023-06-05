@@ -45,7 +45,33 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
         response: { setLocalValue: () => null },
     })),
     selectors({
-        error: [(s) => [s.response], (response) => response?.error ?? null],
+        error: [
+            (s) => [s.response],
+            (response) => {
+                let error = response?.error ?? null
+                if (
+                    response &&
+                    error &&
+                    response.inputExpr &&
+                    typeof response.errorStart === 'number' &&
+                    typeof response.errorStop === 'number'
+                ) {
+                    let row = 0
+                    let col = 0
+                    for (let pos = 0; pos < response.errorStart; pos++) {
+                        if (response.inputExpr[pos] === '\n') {
+                            row += 1
+                            col = 0
+                        } else {
+                            col += 1
+                        }
+                    }
+                    error = `Line ${row + 1}, column ${col + 1}: ${error}`
+                }
+
+                return error
+            },
+        ],
     }),
     propsChanged(({ props, actions }, oldProps) => {
         if (props.value !== oldProps.value) {

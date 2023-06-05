@@ -139,7 +139,7 @@ export interface HogQLMetadataResponse {
     isValid?: boolean
     error?: string
     errorStart?: number
-    errorEnd?: number
+    errorStop?: number
 }
 
 export interface HogQLMetadata extends DataNode {
