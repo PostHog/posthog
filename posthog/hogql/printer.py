@@ -407,6 +407,9 @@ class _Printer(Visitor):
             return ".".join([self._print_identifier(identifier) for identifier in node.chain])
 
         if node.type is not None:
+            if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
+                raise HogQLException(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
+
             return self.visit(node.type)
         else:
             raise HogQLException(f"Unknown Type, can not print {type(node.type).__name__}")
@@ -540,8 +543,8 @@ class _Printer(Visitor):
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
-
             else:
+                # this errors because resolved_field is of type ast.Alias and not a field - what's the best way to solve?
                 field_sql = self._print_identifier(resolved_field.name)
                 if self.context.within_non_hogql_query and type_with_name_in_scope == type:
                     # Do not prepend table name in non-hogql context. We don't know what it actually is.
@@ -561,7 +564,7 @@ class _Printer(Visitor):
                     field_sql = "person_props"
 
         else:
-            raise HogQLException(f"Unknown FieldType table type: {type(type.table_type).__name__}")
+            raise HogQLException(f"Unknown FieldType table type: {type.table_type.__class__.__name__}")
 
         return field_sql
 

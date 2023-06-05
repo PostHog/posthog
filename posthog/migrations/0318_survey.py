@@ -9,7 +9,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0316_action_href_text_matching"),
+        ("posthog", "0317_batch_export_models"),
     ]
 
     operations = [
