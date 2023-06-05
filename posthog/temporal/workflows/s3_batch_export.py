@@ -181,7 +181,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 # Write the results to a local file
                 local_results_file.write(json.dumps(result).encode("utf-8"))
                 local_results_file.write("\n".encode("utf-8"))
-                local_results_file.flush()
 
                 # Write results to S3 when the file reaches 50MB and reset the
                 # file, or if there is nothing else to write.
@@ -191,6 +190,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 ):
                     activity.logger.info("Uploading part %s", part_number)
 
+                    local_results_file.flush()
                     local_results_file.seek(0)
                     response = s3_client.upload_part(
                         Bucket=inputs.bucket_name,
@@ -210,6 +210,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     local_results_file.truncate()
 
             # Upload the last part
+            local_results_file.flush()
             local_results_file.seek(0)
             response = s3_client.upload_part(
                 Bucket=inputs.bucket_name,
