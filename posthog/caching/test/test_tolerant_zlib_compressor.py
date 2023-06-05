@@ -10,8 +10,8 @@ class TestTolerantZlibCompressor(TestCase):
 
     short_uncompressed_bytes = b"hello world"
     # needs to be long enough to trigger compression
-    uncompressed_bytes = b"hello world hello world hello world hello world hello world"
-    compressed_bytes = b"x\x9c\xcbH\xcd\xc9\xc9W(\xcf/\xcaIQ\xc8 \x8d\r\x00\x9cy\x16M"
+    uncompressed_bytes = ("hello world hello world hello world hello world hello world" * 100).encode("utf-8")
+    compressed_bytes = b"x\x9c\xed\xcb\xb1\t\x00 \x0c\x00\xc1U2\x9cB\x8a@\xc0\xc6\xf5\x9d!\x95\xcdu_\xfc\xe5\xae\xea\xb8}jE\xcez\xb8\xa3(\x8a\xa2(\x8a\xa2(\x8a\xa2(\x8a\xa2(\x8a\xa2\xe8\x1f\xfa\x00\xaf\xed\xb6)"
 
     @parameterized.expand(
         [
@@ -27,7 +27,8 @@ class TestTolerantZlibCompressor(TestCase):
     )
     def test_the_zlib_compressor_compression(self, _, setting: bool, input: bytes, output: bytes) -> None:
         with self.settings(USE_REDIS_COMPRESSION=setting):
-            assert self.compressor.compress(input) == output
+            compressed = self.compressor.compress(input)
+            assert compressed == output
 
     @parameterized.expand(
         [

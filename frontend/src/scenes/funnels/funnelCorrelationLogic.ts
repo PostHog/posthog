@@ -17,7 +17,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { appendToCorrelationConfig } from './funnelUtils'
 
 export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
@@ -26,8 +25,6 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     path((key) => ['scenes', 'funnels', 'funnelCorrelationLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [
-            insightLogic(props),
-            ['isUsingDataExploration'],
             funnelLogic(props),
             ['filters'],
             funnelDataLogic(props),
@@ -140,14 +137,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
         },
     }),
     selectors({
-        // apiParams for data exploration and legacy mode
         apiParams: [
-            (s) => [s.isUsingDataExploration, s.dataExplorationApiParams, s.legacyApiParams],
-            (isUsingDataExploration, dataExplorationApiParams, legacyApiParams) => {
-                return isUsingDataExploration ? dataExplorationApiParams : legacyApiParams
-            },
-        ],
-        dataExplorationApiParams: [
             (s) => [s.querySource],
             (querySource) => {
                 const cleanedParams: Partial<FunnelsFilterType> = querySource
@@ -156,22 +146,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                 return cleanedParams
             },
         ],
-        legacyApiParams: [
-            (s) => [s.filters],
-            (filters) => {
-                const cleanedParams: Partial<FunnelsFilterType> = cleanFilters(filters)
-                return cleanedParams
-            },
-        ],
-        // aggregationGroupTypeIndex for data exploration and legacy mode
-        aggregationGroupTypeIndex: [
-            (s) => [s.isUsingDataExploration, s.querySource, s.filters],
-            (isUsingDataExploration, querySource, filters) => {
-                return isUsingDataExploration
-                    ? querySource?.aggregation_group_type_index
-                    : filters?.aggregation_group_type_index
-            },
-        ],
+        aggregationGroupTypeIndex: [(s) => [s.querySource], (querySource) => querySource?.aggregation_group_type_index],
 
         // event correlation
         correlationValues: [
