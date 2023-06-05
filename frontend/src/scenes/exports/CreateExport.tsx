@@ -23,7 +23,7 @@ export function CreateExport(): JSX.Element {
 
     const nameRef = useRef<HTMLInputElement>(null)
     const bucketRef = useRef<HTMLInputElement>(null)
-    const keyTemplateRef = useRef<HTMLInputElement>(null)
+    const prefixRef = useRef<HTMLInputElement>(null)
     const accessKeyIdRef = useRef<HTMLInputElement>(null)
     const secretAccessKeyRef = useRef<HTMLInputElement>(null)
 
@@ -33,7 +33,7 @@ export function CreateExport(): JSX.Element {
         if (
             !nameRef.current ||
             !bucketRef.current ||
-            !keyTemplateRef.current ||
+            !prefixRef.current ||
             !accessKeyIdRef.current ||
             !secretAccessKeyRef.current
         ) {
@@ -43,7 +43,7 @@ export function CreateExport(): JSX.Element {
         // Get the values from the form fields.
         const name = nameRef.current?.value ?? ''
         const bucket = bucketRef.current?.value ?? ''
-        const keyTemplate = keyTemplateRef.current?.value ?? ''
+        const prefix = prefixRef.current?.value ?? ''
         const accessKeyId = accessKeyIdRef.current?.value ?? ''
         const secretAccessKey = secretAccessKeyRef.current?.value ?? ''
 
@@ -54,7 +54,7 @@ export function CreateExport(): JSX.Element {
                 config: {
                     bucket_name: bucket,
                     region: 'us-east-1', // TODO: pull this from the form
-                    key_template: keyTemplate,
+                    prefix: prefix,
                     batch_window_size: 3600,
                     aws_access_key_id: accessKeyId,
                     aws_secret_access_key: secretAccessKey,
@@ -111,8 +111,8 @@ export function CreateExport(): JSX.Element {
                 />
             </PureField>
 
-            <PureField label="Key template">
-                <LemonInput placeholder="posthog-events/" ref={keyTemplateRef} />
+            <PureField label="Key prefix">
+                <LemonInput placeholder="posthog-events/" ref={prefixRef} />
             </PureField>
 
             <PureField label="AWS Access Key ID">
