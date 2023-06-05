@@ -14,6 +14,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { PathNodeData } from './pathUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { isPathsQuery } from '~/queries/utils'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -53,6 +55,8 @@ export const pathsLogic = kea<pathsLogicType>({
             ['filters as inflightFilters', 'insight', 'insightLoading'],
             trendsLogic(props),
             ['aggregationTargetLabel'],
+            insightVizDataLogic(props),
+            ['insightQuery', 'insightData'],
         ],
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
@@ -134,8 +138,10 @@ export const pathsLogic = kea<pathsLogicType>({
                 inflightFilters && isPathsFilter(inflightFilters) ? inflightFilters : {},
         ],
         results: [
-            (s) => [s.insight],
-            ({ filters, result }): PathNode[] => (filters && isPathsFilter(filters) ? result || [] : []),
+            (s) => [s.insightQuery, s.insightData],
+            (insightQuery, insightData): PathNode[] => {
+                return isPathsQuery(insightQuery) ? insightData?.result ?? [] : []
+            },
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         paths: [
@@ -157,6 +163,7 @@ export const pathsLogic = kea<pathsLogicType>({
                 }
             },
         ],
+        // TODO
         pathsError: [(s) => [s.insight], (insight): PathNode => insight.result?.error],
         taxonomicGroupTypes: [
             (s) => [s.filter],

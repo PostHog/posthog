@@ -27,6 +27,7 @@ import {
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
+    isTrendsLikeQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -65,7 +66,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['query'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response as insightData', 'dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
+            [
+                'response as insightData',
+                'dataLoading as insightDataLoading',
+                'responseErrorObject as insightDataError',
+                'query as insightQuery',
+            ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
@@ -111,7 +117,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isPaths: [(s) => [s.querySource], (q) => isPathsQuery(q)],
         isStickiness: [(s) => [s.querySource], (q) => isStickinessQuery(q)],
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
-        isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
+        isTrendsLike: [(s) => [s.querySource], (q) => isTrendsLikeQuery(q)],
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
 

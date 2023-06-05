@@ -119,6 +119,10 @@ export function isLifecycleQuery(node?: Node | null): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
+export function isTrendsLikeQuery(node?: Node | null): node is TrendsQuery | LifecycleQuery | StickinessQuery {
+    return isTrendsQuery(node) || isLifecycleQuery(node) || isStickinessQuery(node)
+}
+
 export function isInsightQueryWithDisplay(node?: Node | null): node is TrendsQuery | StickinessQuery {
     return isTrendsQuery(node) || isStickinessQuery(node)
 }

@@ -18,11 +18,13 @@ import {
     isFilterWithDisplay,
     isLifecycleFilter,
     isStickinessFilter,
-    isTrendsInsight,
+    isTrendsLikeInsight,
     keyForInsightLogicProps,
 } from 'scenes/insights/sharedUtils'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { isTrendsLikeQuery } from '~/queries/utils'
 
 export const trendsLogic = kea<trendsLogicType>([
     props({} as InsightLogicProps),
@@ -35,6 +37,8 @@ export const trendsLogic = kea<trendsLogicType>([
             ['filters as inflightFilters', 'insight', 'insightLoading', 'hiddenLegendKeys', 'localFilters'],
             groupsModel,
             ['aggregationLabel'],
+            insightVizDataLogic(props),
+            ['insightQuery', 'insightData'],
         ],
         actions: [insightLogic(props), ['loadResultsSuccess', 'toggleVisibility']],
     })),
@@ -83,13 +87,14 @@ export const trendsLogic = kea<trendsLogicType>([
                 filters && (isFilterWithDisplay(filters) || isLifecycleFilter(filters)) ? filters : {},
         ],
         results: [
-            (s) => [s.insight],
-            ({ filters, result }): TrendResult[] =>
-                isTrendsInsight(filters?.insight) && Array.isArray(result) ? result : [],
+            (s) => [s.insightQuery, s.insightData],
+            (insightQuery, insightData): TrendResult[] => {
+                return isTrendsLikeQuery(insightQuery) ? insightData?.result ?? [] : []
+            },
         ],
         loadMoreBreakdownUrl: [
             (s) => [s.insight],
-            ({ filters, next }) => (isTrendsInsight(filters?.insight) ? next : null),
+            ({ filters, next }) => (isTrendsLikeInsight(filters?.insight) ? next : null),
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         numberOfSeries: [

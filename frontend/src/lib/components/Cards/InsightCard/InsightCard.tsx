@@ -37,7 +37,7 @@ import { InsightDetails } from './InsightDetails'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
-import { Funnel } from 'scenes/funnels/Funnel'
+import { Funnel, FunnelDataExploration } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -68,6 +68,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { QueryContext } from '~/queries/schema'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -420,6 +423,7 @@ function VizComponentFallback(): JSX.Element {
 
 export interface InsightVizProps
     extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+    insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
     invalidFunnelExclusion?: boolean
     empty?: boolean
@@ -430,6 +434,7 @@ export interface InsightVizProps
 
 export function InsightViz({
     insight,
+    insightProps,
     loading,
     setAreDetailsShown,
     style,
@@ -442,6 +447,11 @@ export function InsightViz({
 }: InsightVizProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: filtersToQueryNode(insight.filters),
+        key: insightVizDataNodeKey(insightProps),
+        // cachedResults: getCachedResults(insightProps.cachedInsight, query.source),
+    }
 
     useEffect(() => {
         // If displaying a BoldNumber Trends insight, we need to fire the window resize event
@@ -457,37 +467,39 @@ export function InsightViz({
     }, [style?.height])
 
     return (
-        <div
-            className="InsightViz"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={style}
-            onClick={
-                setAreDetailsShown
-                    ? () => {
-                          setAreDetailsShown?.(false)
-                      }
-                    : undefined
-            }
-        >
-            {loading && <SpinnerOverlay />}
-            {tooFewFunnelSteps ? (
-                <FunnelSingleStepState actionable={false} />
-            ) : invalidFunnelExclusion ? (
-                <FunnelInvalidExclusionState />
-            ) : empty ? (
-                <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
-            ) : !loading && timedOut ? (
-                <InsightTimeoutState
-                    isLoading={false}
-                    insightProps={{ dashboardItemId: undefined }}
-                    insightType={insight.filters.insight}
-                />
-            ) : apiErrored && !loading ? (
-                <InsightErrorState excludeDetail />
-            ) : (
-                !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} context={context} />
-            )}
-        </div>
+        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+            <div
+                className="InsightViz"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={style}
+                onClick={
+                    setAreDetailsShown
+                        ? () => {
+                              setAreDetailsShown?.(false)
+                          }
+                        : undefined
+                }
+            >
+                {loading && <SpinnerOverlay />}
+                {tooFewFunnelSteps ? (
+                    <FunnelSingleStepState actionable={false} />
+                ) : invalidFunnelExclusion ? (
+                    <FunnelInvalidExclusionState />
+                ) : empty ? (
+                    <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+                ) : !loading && timedOut ? (
+                    <InsightTimeoutState
+                        isLoading={false}
+                        insightProps={{ dashboardItemId: undefined }}
+                        insightType={insight.filters.insight}
+                    />
+                ) : apiErrored && !loading ? (
+                    <InsightErrorState excludeDetail />
+                ) : (
+                    !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} context={context} />
+                )}
+            </div>
+        </BindLogic>
     )
 }
 
@@ -616,6 +628,7 @@ function InsightCardInternal(
                 ) : (
                     <InsightViz
                         insight={insight}
+                        insightProps={insightLogicProps}
                         loading={loading}
                         apiErrored={apiErrored}
                         timedOut={timedOut}
