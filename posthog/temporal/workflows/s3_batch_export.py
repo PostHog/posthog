@@ -190,7 +190,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 ):
                     activity.logger.info("Uploading part %s", part_number)
 
-                    local_results_file.flush()
                     local_results_file.seek(0)
                     response = s3_client.upload_part(
                         Bucket=inputs.bucket_name,
@@ -210,7 +209,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     local_results_file.truncate()
 
             # Upload the last part
-            local_results_file.flush()
             local_results_file.seek(0)
             response = s3_client.upload_part(
                 Bucket=inputs.bucket_name,
