@@ -63,13 +63,14 @@ export function Surveys(): JSX.Element {
                             )
                         },
                     },
-                    {
-                        title: 'Responses',
-                        render: function RenderResponses() {
-                            // const responsesCount = getResponsesCount(survey)
-                            return <div>{0}</div>
-                        },
-                    },
+                    // add responses count later
+                    // {
+                    //     title: 'Responses',
+                    //     render: function RenderResponses() {
+                    //         // const responsesCount = getResponsesCount(survey)
+                    //         return <div>{0}</div>
+                    //     },
+                    // },
                     {
                         dataIndex: 'type',
                         title: 'Type',
