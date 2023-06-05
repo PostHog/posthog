@@ -15,7 +15,7 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
-import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
+import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment, trimQuotes } from '../utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { isEventsQuery, taxonomicFilterToHogQl } from '~/queries/utils'
@@ -109,9 +109,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             columnKey = column.substring(11)
         }
 
-        if (columnKey.includes('#')) {
-            columnKey = extractExpressionComment(columnKey)
-        }
+        columnKey = columnKey.includes('#') ? extractExpressionComment(columnKey) : trimQuotes(columnKey)
 
         return (
             <div className={clsx(['SelectedColumn', 'selected'])} style={{ height: rowItemHeight }}>

@@ -46,3 +46,10 @@ export function removeExpressionComment(query: string): string {
     }
     return query.trim()
 }
+
+export function trimQuotes(identifier: string): string {
+    if (identifier.startsWith('"') && identifier.endsWith('"')) {
+        return identifier.slice(1, -1)
+    }
+    return identifier
+}
