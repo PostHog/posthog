@@ -36,7 +36,7 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import INSTANCE_TAG
-from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day
+from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_machine_id, get_previous_day
 from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
@@ -386,12 +386,35 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     return result
 
 
+def get_team_uuids_with_decide_requests_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+    # depending on the region, events are stored in different teams
+    team_to_query = 1 if get_instance_region() == 'EU' else 2
+
+    result = sync_execute(
+        """
+        SELECT distinct_id as team_uuid, sum(JSONExtractInt(properties, count)) as sum
+        FROM events
+        WHERE team_id = %(team_to_query) AND event='decide usage' AND timestamp between %(begin)s AND %(end)s
+        GROUP BY team_uuid
+    """,
+        {"begin": begin, "end": end, "team_to_query": team_to_query},
+    )
+    return result
+
 def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
     for row in rows:
         if "team_id" in row:
             if row["team_id"] == team_id:
                 return row["total"]
         elif row[0] == team_id:
+            return row[1]
+    return 0
+
+
+def find_sum_for_team_uuid_in_rows(team_uuid: str, rows: list) -> int:
+    for row in rows:
+        print(row)
+        if row[0] == team_uuid:
             return row[1]
     return 0
 
@@ -473,6 +496,8 @@ def send_all_org_usage_reports(
         teams_with_ff_active_count=list(
             FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
+        team_uuids_with_decide_requests_in_period=get_team_uuids_with_decide_requests_count_in_period(period_start, period_end),
+        team_uuids_with_decide_requests_in_month=get_team_uuids_with_decide_requests_count_in_period(period_start.replace(day=1), period_end),
     )
 
     teams: Sequence[Team] = list(
@@ -506,6 +531,8 @@ def send_all_org_usage_reports(
             dashboard_tagged_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_tagged_count"]),
             ff_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_count"]),
             ff_active_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_active_count"]),
+            decide_requests_in_period=find_sum_for_team_uuid_in_rows(team.uuid, all_data["team_uuids_with_decide_requests_in_period"]),
+            decide_requests_in_month=find_sum_for_team_uuid_in_rows(team.uuid, all_data["team_uuids_with_decide_requests_in_month"]),
         )
 
         org_id = str(team.organization.id)

@@ -18,7 +18,7 @@ from prometheus_client import Gauge
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
 from posthog.redis import get_client
-from posthog.utils import get_crontab
+from posthog.utils import get_crontab, get_instance_region
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -757,6 +757,10 @@ def calculate_decide_usage() -> None:
     from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
     from posthog.models import Team
     from django.db.models import Q
+
+    api_key = 'eu api key' if get_instance_region() == 'EU' else 'other api key'
+    # create client here; flush on end of task
+        
 
     for team in Team.objects.select_related("organization").exclude(
         Q(organization__for_internal_metrics=True) | Q(is_demo=True)
