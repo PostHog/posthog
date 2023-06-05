@@ -7,7 +7,7 @@ import boto3
 from aiochclient import ChClient
 import pytest
 from django.conf import settings
-from django.test import Client as HttpClient
+from django.test import Client as HttpClient, override_settings
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -130,23 +130,20 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
         database=settings.CLICKHOUSE_DATABASE,
     )
 
+    # Create enough events to ensure we span more than 5MB, the smallest
+    # multipart chunk size for multipart uploads to S3.
     events: list[EventValues] = [
         {
             "uuid": str(uuid4()),
             "event": "test",
-            "timestamp": "2023-04-20 14:30:00.000000",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
             "person_id": str(uuid4()),
             "team_id": team_id,
             "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 14:30:00.000000",
-            "person_id": str(uuid4()),
-            "team_id": team_id,
-            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
-        },
+        }
+        # NOTE: we have to do a lot here, otherwise we do not trigger a
+        # multipart upload, and the minimum part chunk size is 5MB.
+        for i in range(10000)
     ]
 
     # Insert some data into the `sharded_events` table.
@@ -170,7 +167,8 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
         aws_secret_access_key="object_storage_root_password",
     )
 
-    await activity_environment.run(insert_into_s3_activity, insert_inputs)
+    with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+        await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     # Check that the data was written to S3.
     s3_client = boto3.client(
@@ -206,6 +204,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
         }
         for event in json_data
     ]
+    json_data.sort(key=lambda x: x["timestamp"])
     assert json_data == events
 
 
