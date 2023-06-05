@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -27,7 +27,8 @@ export function HogQLEditor({
     placeholder,
 }: HogQLEditorProps): JSX.Element {
     const [key] = useState(() => `HogQLEditor.${uniqueNode++}`)
-    const logic = hogQLEditorLogic({ key, value, onChange })
+    const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+    const logic = hogQLEditorLogic({ key, value, onChange, textareaRef })
     const { localValue, error, responseLoading } = useValues(logic)
     const { setLocalValue, submit } = useActions(logic)
 
@@ -38,6 +39,7 @@ export function HogQLEditor({
                 value={localValue || ''}
                 onChange={(newValue) => setLocalValue(newValue)}
                 autoFocus={!disableAutoFocus}
+                ref={textareaRef}
                 onFocus={
                     disableAutoFocus
                         ? undefined
@@ -45,7 +47,7 @@ export function HogQLEditor({
                               e.target.selectionStart = localValue.length // Focus at the end of the input
                           }
                 }
-                onPressCmdEnter={disableCmdEnter ? undefined : () => onChange(localValue)}
+                onPressCmdEnter={disableCmdEnter ? undefined : submit}
                 className={`font-mono ${CLICK_OUTSIDE_BLOCK_CLASS}`}
                 minRows={3}
                 maxRows={6}

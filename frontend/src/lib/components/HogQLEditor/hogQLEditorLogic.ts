@@ -4,11 +4,13 @@ import { query } from '~/queries/query'
 import type { hogQLEditorLogicType } from './hogQLEditorLogicType'
 import { HogQLMetadata, HogQLMetadataResponse, NodeKind } from '~/queries/schema'
 import { loaders } from 'kea-loaders'
+import React from 'react'
 
 export interface HogQLEditorLogicProps {
     key: string
     value: string | undefined
     onChange: (value: string) => void
+    textareaRef?: React.MutableRefObject<HTMLTextAreaElement | null>
 }
 
 export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
@@ -32,9 +34,21 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
                         expr: values.localValue,
                     })
                     breakpoint()
-                    if (response && !response?.error) {
+                    if (response?.error) {
+                        const textArea = props.textareaRef?.current
+                        if (
+                            textArea &&
+                            typeof response.errorStart === 'number' &&
+                            typeof response.errorStop === 'number'
+                        ) {
+                            textArea.focus()
+                            textArea.selectionStart = response.errorStart
+                            textArea.selectionEnd = response.errorStop + 1
+                        }
+                    } else if (response) {
                         props.onChange(values.localValue)
                     }
+
                     return response ?? null
                 },
             },
