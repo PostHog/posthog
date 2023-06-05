@@ -63,7 +63,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightSaving,
         hasDashboardItemId,
         exporterResourceParams,
-        isUsingDataExploration,
         isUsingDashboardQueries,
     } = useValues(logic)
     const { setInsightMetadata, saveAs } = useActions(logic)
@@ -320,7 +319,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 insightChanged={insightChanged || queryChanged}
                             />
                         )}
-                        {isUsingDataExploration && isInsightVizNode(query) ? (
+                        {isInsightVizNode(query) ? (
                             <LemonButton
                                 tooltip={
                                     showQueryEditor ? (
