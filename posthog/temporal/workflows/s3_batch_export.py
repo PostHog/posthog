@@ -181,11 +181,13 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 # Write the results to a local file
                 local_results_file.write(json.dumps(result).encode("utf-8"))
                 local_results_file.write("\n".encode("utf-8"))
-                local_results_file.flush()
 
                 # Write results to S3 when the file reaches 50MB and reset the
                 # file, or if there is nothing else to write.
-                if local_results_file.tell() > 50 * 1024 * 1024:
+                if (
+                    local_results_file.tell()
+                    and local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES
+                ):
                     activity.logger.info("Uploading part %s", part_number)
 
                     local_results_file.seek(0)
@@ -196,10 +198,11 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         UploadId=upload_id,
                         Body=local_results_file,
                     )
-                    part_number += 1
 
                     # Record the ETag for the part
                     parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+
+                    part_number += 1
 
                     # Reset the file
                     local_results_file.seek(0)
