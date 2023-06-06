@@ -227,38 +227,32 @@ export function ActionsTable(): JSX.Element {
                 buttons={<NewActionButton />}
             />
             <DataManagementPageTabs tab={DataManagementTab.Actions} />
-            {actionsFiltered.length > 0 || actionsLoading ? (
-                <>
-                    <div className="flex items-center justify-between gap-2 mb-4">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search for actions"
-                            onChange={setSearchTerm}
-                            value={searchTerm}
-                        />
-                        <Radio.Group
-                            buttonStyle="solid"
-                            value={filterByMe}
-                            onChange={(e) => setFilterByMe(e.target.value)}
-                        >
-                            <Radio.Button value={false}>All actions</Radio.Button>
-                            <Radio.Button value={true}>My actions</Radio.Button>
-                        </Radio.Group>
-                    </div>
-                    <LemonTable
-                        columns={columns}
-                        loading={actionsLoading}
-                        rowKey="id"
-                        pagination={{ pageSize: 100 }}
-                        data-attr="actions-table"
-                        dataSource={actionsFiltered}
-                        defaultSorting={{
-                            columnKey: 'created_by',
-                            order: -1,
-                        }}
-                        emptyState="No results. Create a new action?"
-                    />
-                </>
+            <div className="flex items-center justify-between gap-2 mb-4">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for actions"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
+                />
+                <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
+                    <Radio.Button value={false}>All actions</Radio.Button>
+                    <Radio.Button value={true}>My actions</Radio.Button>
+                </Radio.Group>
+            </div>
+            {actionsFiltered.length > 0 || actionsLoading || (actionsFiltered.length === 0 && searchTerm.length > 0) ? (
+                <LemonTable
+                    columns={columns}
+                    loading={actionsLoading}
+                    rowKey="id"
+                    pagination={{ pageSize: 100 }}
+                    data-attr="actions-table"
+                    dataSource={actionsFiltered}
+                    defaultSorting={{
+                        columnKey: 'created_by',
+                        order: -1,
+                    }}
+                    emptyState="No results. Create a new action?"
+                />
             ) : (
                 <ProductEmptyState
                     productName="Actions"
