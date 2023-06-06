@@ -60,7 +60,7 @@ export function DashboardTemplatePreview({ featureFlagId }: { featureFlagId?: nu
 
     return (
         <div>
-            <DashboardTemplateVariables />
+            <DashboardTemplateVariables featureFlagId={featureFlagId} />
 
             <div className="flex justify-between my-4">
                 <LemonButton onClick={clearActiveDashboardTemplate} type="secondary">
@@ -92,9 +92,14 @@ export function DashboardTemplateChooser({
     const { allTemplates } = useValues(templatesLogic)
 
     const _newDashboardLogic = newDashboardLogic({ featureFlagId })
-    const { isLoading } = useValues(_newDashboardLogic)
-    const { setActiveDashboardTemplate, createDashboardFromTemplate, addDashboard, setIsLoading } =
-        useActions(_newDashboardLogic)
+    const { isLoading, newDashboardModalVisible } = useValues(_newDashboardLogic)
+    const {
+        setActiveDashboardTemplate,
+        createDashboardFromTemplate,
+        addDashboard,
+        setIsLoading,
+        setNewDashboardModalVisible,
+    } = useActions(_newDashboardLogic)
 
     return (
         <div>
@@ -127,7 +132,6 @@ export function DashboardTemplateChooser({
                                 return
                             }
                             setIsLoading(true)
-                            console.log('HERE')
                             // while we might receive templates from the external repository
                             // we need to handle templates that don't have variables
                             if ((template.variables || []).length === 0) {
@@ -135,6 +139,11 @@ export function DashboardTemplateChooser({
                                     template.variables = []
                                 }
                                 createDashboardFromTemplate(template, template.variables || [])
+                            } else {
+                                if (!newDashboardModalVisible) {
+                                    setNewDashboardModalVisible()
+                                }
+
                                 setActiveDashboardTemplate(template)
                             }
                         }}

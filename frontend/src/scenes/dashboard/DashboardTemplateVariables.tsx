@@ -5,8 +5,9 @@ import { FilterType, InsightType } from '~/types'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from './newDashboardLogic'
 
-export function DashboardTemplateVariables(): JSX.Element {
-    const { activeDashboardTemplate } = useValues(newDashboardLogic)
+export function DashboardTemplateVariables({ featureFlagId }: { featureFlagId?: number }): JSX.Element {
+    const _newDashboardLogic = newDashboardLogic({ featureFlagId })
+    const { activeDashboardTemplate } = useValues(_newDashboardLogic)
 
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],

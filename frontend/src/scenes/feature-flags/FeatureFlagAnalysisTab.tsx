@@ -15,7 +15,12 @@ export function AnalysisTab({ featureFlag }: { id: string; featureFlag: FeatureF
             {featureFlag.dashboards && featureFlag.dashboards.length > 0 ? (
                 <FeatureFlagDashboardsTableContainer featureFlag={featureFlag} />
             ) : (
-                featureFlag.id && <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id} />
+                featureFlag.id && (
+                    <>
+                        <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id} />
+                        <NewDashboardModal featureFlag={featureFlag} />
+                    </>
+                )
             )}
         </div>
     )
