@@ -441,6 +441,46 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Sentry tags',
             description: 'Tags sent to Sentry along with the exception',
         },
+        $exception_type: {
+            label: 'Exception type',
+            description: 'Exception categorized into types. E.g. "Error"',
+        },
+        $exception_message: {
+            label: 'Exception Message',
+            description: 'The message detected on the error.',
+        },
+        $exception_source: {
+            label: 'Exception source',
+            description: 'The source of the exception. E.g. JS file.',
+        },
+        $exception_lineno: {
+            label: 'Exception source line number',
+            description: 'Which line in the exception source that caused the exception.',
+        },
+        $exception_colno: {
+            label: 'Exception source column number',
+            description: 'Which column of the line in the exception source that caused the exception.',
+        },
+        $exception_DOMException_code: {
+            label: 'DOMException code',
+            description: 'If a DOMException was thrown, it also has a DOMException code.',
+        },
+        $exception_is_synthetic: {
+            label: 'Exception is synthetic',
+            description: 'Whether this was detected as a synthetic exception',
+        },
+        $exception_stack_trace_raw: {
+            label: 'Exception raw stack trace',
+            description: "The exception's stack trace, as a string.",
+        },
+        $exception_handled: {
+            label: 'Exception was handled',
+            description: 'Whether this was a handled or unhandled exception',
+        },
+        $exception_personURL: {
+            label: 'Exception person URL',
+            description: 'The PostHog person that experienced the exception',
+        },
         $ce_version: {
             label: '$ce_version',
             description: '',
@@ -655,7 +695,7 @@ export const keyMappingKeys = Object.keys(keyMapping.event)
 
 export function isPostHogProp(key: string): boolean {
     /*
-    Returns whether a given property is a PostHog-defined property. If the property is custom-defined, 
+    Returns whether a given property is a PostHog-defined property. If the property is custom-defined,
         function will return false.
     */
     if (Object.keys(keyMapping.event).includes(key) || Object.keys(keyMapping.element).includes(key)) {
