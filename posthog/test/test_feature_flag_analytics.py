@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-from freezegun import freeze_time, configure, config
-import pytest  # type: ignore
+from freezegun import freeze_time, configure, config  # type: ignore
+import pytest
 from posthog.models.feature_flag.flag_analytics import increment_request_count, capture_team_decide_usage
 from posthog.test.base import BaseTest
 from posthog import redis
