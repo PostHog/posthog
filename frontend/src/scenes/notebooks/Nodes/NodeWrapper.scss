@@ -1,4 +1,5 @@
 .NotebookNode {
+    transform: translate3d(0, 0, 0);
     .NotebookNode__meta {
         opacity: 0;
         transition: 150ms ease-out;

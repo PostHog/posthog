@@ -352,7 +352,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full h-full space-y-4">
+                <div className="relative w-full h-full flex flex-col gap-4">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
                     ) : null}
@@ -366,7 +366,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             ) : null}
                         </div>
                     )}
-                    {showFirstRow && showSecondRow && <LemonDivider />}
+                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (
                         <div className="flex gap-4 items-center">
                             {secondRowLeft}

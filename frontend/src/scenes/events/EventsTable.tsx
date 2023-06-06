@@ -551,7 +551,7 @@ export function EventsTable({
                         type="primary"
                         onClick={fetchNextEvents}
                         loading={isLoadingNext}
-                        className="my-8 mx-auto"
+                        className="my-2 mx-auto"
                     >
                         Load more events
                     </LemonButton>

@@ -12,7 +12,7 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
     const { loadNextData } = useActions(dataNodeLogic)
 
     return (
-        <LemonButton type="primary" onClick={loadNextData} loading={nextDataLoading} className="my-8 mx-auto">
+        <LemonButton type="primary" onClick={loadNextData} loading={nextDataLoading} className="my-2 mx-auto">
             Load more {isPersonsNode(query) ? 'people' : 'events'}
         </LemonButton>
     )

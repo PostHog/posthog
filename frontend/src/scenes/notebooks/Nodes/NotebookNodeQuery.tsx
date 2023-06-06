@@ -26,13 +26,15 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
 
+    query.showOpenEditorButton = false
+
     return (
         <NodeWrapper nodeType={NotebookNodeType.Query} title="Query" {...props}>
-            <BindLogic logic={insightLogic} props={insightProps}>
-                <div className="max-h-120 overflow-y-auto">
+            <div style={{ height: 500 }}>
+                <BindLogic logic={insightLogic} props={insightProps}>
                     <Query query={query} setQuery={(t) => setQuery(t as any)} />
-                </div>
-            </BindLogic>
+                </BindLogic>
+            </div>
         </NodeWrapper>
     )
 }

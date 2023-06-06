@@ -5,6 +5,7 @@
     border-radius: var(--radius);
     border: 1px solid var(--border);
     overflow: hidden;
+    flex: 1;
     --row-base-height: 3rem;
     &--xs {
         --row-base-height: 2rem;
@@ -64,7 +65,9 @@
     border-collapse: collapse;
     border-spacing: 0;
     > thead {
-        position: relative;
+        position: sticky;
+        top: 0;
+        z-index: 1;
         border-bottom: 1px solid var(--border);
         background: var(--mid);
         font-size: 0.75rem;

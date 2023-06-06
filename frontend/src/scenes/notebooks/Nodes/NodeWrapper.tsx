@@ -79,9 +79,7 @@ export function NodeWrapper({
                                 )}
                             </div>
                         </div>
-                        <div className="flex flex-row gap-4 relative z-0">
-                            <div className={clsx('relative mb-2 overflow-y-auto flex-1')}>{children}</div>
-                        </div>
+                        <div className="relative z-0 overflow-hidden">{children}</div>
                     </>
                 )}
             </ErrorBoundary>
