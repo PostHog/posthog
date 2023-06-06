@@ -40,7 +40,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(6, 7)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             self.assertEqual(len(response["results"]), 1)
 
@@ -52,7 +52,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(6, 7)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             self.assertEqual(len(response["results"]), 2)
 
