@@ -1,6 +1,7 @@
 import { TeamType } from '~/types'
 import { EventsQuery, NodeKind } from '~/queries/schema'
 import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
+import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
 
 /** Indicates HogQL usage if team.live_events_columns = [HOGQL_COLUMNS_KEY, ...] */
 export const HOGQL_COLUMNS_KEY = '--v2:hogql'
@@ -23,7 +24,7 @@ export function cleanLiveEventsColumns(columns: string[]): string[] {
             if (column === 'source') {
                 return 'properties.$lib'
             }
-            return `properties.${column}`
+            return `properties.${escapePropertyAsHogQlIdentifier(String(column))}`
         }),
         'timestamp',
     ]
