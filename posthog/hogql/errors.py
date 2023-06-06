@@ -1,7 +1,16 @@
+from typing import Optional
+
+
 class HogQLException(Exception):
     """Base exception for HogQL. These are exposed to the user."""
 
-    pass
+    start: Optional[int]
+    end: Optional[int]
+
+    def __init__(self, message: str, *, start: Optional[int] = None, end: Optional[int] = None):
+        super().__init__(message)
+        self.start = start
+        self.end = end
 
 
 class SyntaxException(HogQLException):
