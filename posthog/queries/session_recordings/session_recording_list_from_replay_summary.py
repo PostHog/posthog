@@ -16,13 +16,6 @@ class SummaryEventFiltersSQL:
 
 
 class SessionRecordingListFromReplaySummary(SessionRecordingList):
-    # Based on the filter we can find session ids for the matched events
-    # then load sessions for those ids from the replay table
-    # The SessionRecordingList interface is to have a run method
-    # run implicitly calls get_query
-    # and returns SessionRecordingQueryResult
-    # because it doesn't return MatchingEvents any person/event selection templating is redundant here
-
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 
     def __init__(
