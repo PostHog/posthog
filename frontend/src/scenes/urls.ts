@@ -1,4 +1,5 @@
 import {
+    ActionType,
     AnyPartialFilterType,
     DashboardType,
     FilterType,
@@ -35,6 +36,10 @@ export const urls = {
 
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     createAction: (): string => `/data-management/actions/new`,
+    copyAction: (action: ActionType | null): string => {
+        const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
+        return `/data-management/actions/new/${queryParams}`
+    },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',

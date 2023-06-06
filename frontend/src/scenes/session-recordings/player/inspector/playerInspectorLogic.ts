@@ -360,7 +360,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         timeInRecording: timestamp.diff(start, 'ms'),
                         search: search,
                         data: event,
-                        highlightColor: isMatchingEvent ? 'primary' : undefined,
+                        highlightColor: isMatchingEvent
+                            ? 'primary'
+                            : event.event === '$exception'
+                            ? 'danger'
+                            : undefined,
                         windowId: event.properties?.$window_id,
                     })
                 }
@@ -429,7 +433,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         if (
-                            miniFiltersByKey['all-errors']?.enabled &&
+                            (miniFiltersByKey['all-errors']?.enabled ||
+                                miniFiltersByKey['events-exceptions']?.enabled) &&
                             (item.data.event === '$exception' || item.data.event.toLowerCase().includes('error'))
                         ) {
                             include = true

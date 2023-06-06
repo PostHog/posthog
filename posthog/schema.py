@@ -242,6 +242,18 @@ class FunnelCorrelationPersonConverted(str, Enum):
     false = "false"
 
 
+class HogQLMetadataResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    error: Optional[str] = None
+    errorEnd: Optional[float] = None
+    errorStart: Optional[float] = None
+    inputExpr: Optional[str] = None
+    inputSelect: Optional[str] = None
+    isValid: Optional[bool] = None
+
+
 class HogQLQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -528,6 +540,16 @@ class GroupPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: str = Field("group", const=True)
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
+
+
+class HogQLMetadata(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    expr: Optional[str] = None
+    kind: str = Field("HogQLMetadata", const=True)
+    response: Optional[HogQLMetadataResponse] = Field(None, description="Cached query response")
+    select: Optional[str] = None
 
 
 class HogQLPropertyFilter(BaseModel):
@@ -1115,7 +1137,7 @@ class Model(BaseModel):
         RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
         DatabaseSchemaQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery],
+        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, HogQLMetadata, TimeToSeeDataSessionsQuery],
     ]
 
 

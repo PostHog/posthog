@@ -91,6 +91,9 @@
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
+                    "$ref": "#/definitions/HogQLMetadata"
+                },
+                {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 }
             ]
@@ -1086,6 +1089,51 @@
         "HogQLMathType": {
             "const": "hogql",
             "type": "string"
+        },
+        "HogQLMetadata": {
+            "additionalProperties": false,
+            "properties": {
+                "expr": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "HogQLMetadata",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLMetadataResponse",
+                    "description": "Cached query response"
+                },
+                "select": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "HogQLMetadataResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "errorEnd": {
+                    "type": "number"
+                },
+                "errorStart": {
+                    "type": "number"
+                },
+                "inputExpr": {
+                    "type": "string"
+                },
+                "inputSelect": {
+                    "type": "string"
+                },
+                "isValid": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
         },
         "HogQLPropertyFilter": {
             "additionalProperties": false,

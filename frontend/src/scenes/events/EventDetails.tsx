@@ -11,6 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import ReactJson from 'react-json-view'
+import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 
 const { TabPane } = Tabs
 
@@ -42,7 +43,7 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
     return (
         <Tabs
             data-attr="event-details"
-            defaultActiveKey="properties"
+            defaultActiveKey={event.event === '$exception' ? 'exception' : 'properties'}
             style={{ float: 'left', width: '100%' }}
             tabBarStyle={{ margin: 0, paddingLeft: 12 }}
         >
@@ -81,6 +82,14 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             {event.elements && event.elements.length > 0 && (
                 <TabPane tab="Elements" key="elements">
                     <HTMLElementsDisplay elements={event.elements} />
+                </TabPane>
+            )}
+
+            {event.event === '$exception' && (
+                <TabPane tab="Exception" key="exception">
+                    <div className="ml-10 my-2">
+                        <ErrorDisplay event={event} />
+                    </div>
                 </TabPane>
             )}
         </Tabs>
