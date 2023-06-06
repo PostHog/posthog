@@ -6,6 +6,17 @@
         transform: translateY(100%);
     }
 
+    outline: 2px solid transparent;
+    outline-offset: 1rem;
+    border-radius: 0.125rem;
+
+    transition: outline 150ms ease-out, outline-offset 150ms ease-out;
+
+    &--selected {
+        outline: 2px solid var(--accent-3000-light);
+        outline-offset: 0.25rem;
+    }
+
     &:hover,
     &--selected {
         .NotebookNode__meta {

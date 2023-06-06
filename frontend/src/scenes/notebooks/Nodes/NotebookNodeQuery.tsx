@@ -7,6 +7,7 @@ import { NotebookNodeType } from '~/types'
 import { BindLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
+import { useEffect, useMemo, useState } from 'react'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -24,18 +25,35 @@ const DEFAULT_QUERY: QuerySchema = {
 const HEIGHT = 500
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const [query, setQuery] = useJsonNodeState(props, 'query')
+    const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
 
-    // We don't want to show the insights button for now
-    query.showOpenEditorButton = false
+    const [editing, setEditing] = useState(false)
+
+    useEffect(() => {
+        // We probably want a dedicated edit button for this
+        setEditing(props.selected)
+    }, [props.selected])
+
+    const title = query.kind ?? 'Query'
+
+    const modifiedQuery = useMemo(() => {
+        const modifiedQuery = { ...query }
+
+        if (NodeKind.DataTableNode === modifiedQuery.kind) {
+            // We don't want to show the insights button for now
+            modifiedQuery.showOpenEditorButton = false
+            modifiedQuery.full = editing
+        }
+        return modifiedQuery
+    }, [query, editing])
 
     return (
-        <NodeWrapper nodeType={NotebookNodeType.Query} title="Query" heightEstimate={HEIGHT} {...props}>
+        <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={HEIGHT} {...props}>
             <div style={{ height: HEIGHT }}>
                 <BindLogic logic={insightLogic} props={insightProps}>
-                    <Query query={query} setQuery={(t) => setQuery(t as any)} />
+                    <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
                 </BindLogic>
             </div>
         </NodeWrapper>
