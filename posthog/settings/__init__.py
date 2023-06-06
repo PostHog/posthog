@@ -90,10 +90,6 @@ HOOK_EVENTS: Dict[str, str] = {}
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)
 
-# DEPRECATED - replaced by cloud license
-# Overriden by posthog-cloud
-MULTI_TENANCY = False
-
 BILLING_V2_ENABLED = get_from_env("BILLING_V2_ENABLED", False, type_cast=str_to_bool)
 
 AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)

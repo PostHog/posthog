@@ -89,9 +89,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # PostHog Cloud cron jobs
     if is_cloud():
-        # TODO EC this should be triggered only for instances that haven't been migrated to the new billing
-        # Calculate billing usage for the day every day at midnight UTC
-        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
         # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
@@ -736,16 +733,6 @@ def count_teams_with_no_property_query_count():
             )
         except Exception as exc:
             logger.error("calculate_event_property_usage.count_teams_failed", exc=exc, exc_info=True)
-
-
-@app.task(ignore_result=True)
-def calculate_billing_daily_usage():
-    try:
-        from multi_tenancy.tasks import compute_daily_usage_for_organizations  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        compute_daily_usage_for_organizations()
 
 
 @app.task(ignore_result=True)

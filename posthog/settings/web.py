@@ -6,6 +6,7 @@ from typing import List
 
 from corsheaders.defaults import default_headers
 
+from posthog.cloud_utils import is_cloud
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
@@ -89,6 +90,10 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
 ]
+
+if is_cloud():
+    MIDDLEWARE.append("posthog.middleware.PostHogTokenCookieMiddleware")
+
 
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")

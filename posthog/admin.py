@@ -235,7 +235,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         "updated_at",
         "plugins_access_level",
         "billing_plan",
-        "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
         "usage",
@@ -245,7 +244,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
         "billing_plan",
-        "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
         "usage",
@@ -257,7 +255,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         "plugins_access_level",
         "members_count",
         "first_member",
-        "organization_billing_link",
         "billing_link_v2",
     )
 
@@ -267,11 +264,6 @@ class OrganizationAdmin(admin.ModelAdmin):
     def first_member(self, organization: Organization):
         user = organization.members.order_by("id").first()
         return format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
-
-    def organization_billing_link(self, organization: Organization) -> str:
-        return format_html(
-            '<a href="/admin/multi_tenancy/organizationbilling/{}/change/">Billing →</a>', organization.pk
-        )
 
     def billing_link_v2(self, organization: Organization) -> str:
         if not organization.has_billing_v2_setup:
