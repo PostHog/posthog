@@ -3,15 +3,15 @@ import json
 from dataclasses import dataclass
 from string import Template
 import tempfile
-from typing import TYPE_CHECKING, List
+import uuid
 from aiochclient import ChClient
 
 from django.conf import settings
-import boto3
+import snowflake.connector
 from aiohttp import ClientSession
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.batch_exports.service import S3BatchExportInputs
+from posthog.batch_exports.service import SnowflakeBatchExportInputs
 
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
@@ -20,9 +20,6 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-
-if TYPE_CHECKING:
-    from mypy_boto3_s3.type_defs import CompletedPartTypeDef
 
 
 SELECT_QUERY_TEMPLATE = Template(
@@ -38,33 +35,31 @@ SELECT_QUERY_TEMPLATE = Template(
 
 
 @dataclass
-class S3InsertInputs:
-    """Inputs for S3 exports."""
+class SnowflakeInsertInputs:
+    """Inputs for Snowflake."""
 
     # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
     # to keep track of where credentials are being stored and increases the
     # attach surface for credential leaks.
 
-    bucket_name: str
-    region: str
-    prefix: str
     team_id: int
+    user: str
+    password: str
+    account: str
+    database: str
+    warehouse: str
+    schema: str
+    table_name: str
     data_interval_start: str
     data_interval_end: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
 
 
 @activity.defn
-async def insert_into_s3_activity(inputs: S3InsertInputs):
+async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
     """
-    Activity streams data from ClickHouse to S3. It currently only creates a
-    single file per run, and uploads as a multipart upload.
+    Activity streams data from ClickHouse to Snowflake.
 
-    TODO: this implementation currently tries to export as one run, but it could
-    be a very big date range and time consuming, better to split into multiple
-    runs, timing out after say 30 seconds or something and upload multiple
-    files.
+    TODO: We're using JSON here, it's not the most efficient way to do this.
 
     TODO: at the moment this doesn't do anything about catching data that might
     be late being ingested into the specified time range. To work around this,
@@ -74,7 +69,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     have or haven't processed yet. We have `_timestamp` in the events table, but
     this is the time
     """
-    activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
+    activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
     async with ClientSession() as s:
         client = ChClient(
@@ -109,7 +104,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 "Nothing to export in batch %s - %s. Exiting.",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
-                count,
             )
             return
 
@@ -119,116 +113,140 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         activity.logger.debug(query_template.template)
 
-        # Create a multipart upload to S3
-        key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
-        s3_client = boto3.client(
-            "s3",
-            region_name=inputs.region,
-            aws_access_key_id=inputs.aws_access_key_id,
-            aws_secret_access_key=inputs.aws_secret_access_key,
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        )
-        multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
-        upload_id = multipart_response["UploadId"]
-
-        # Iterate through chunks of results from ClickHouse and push them to S3
-        # as a multipart upload. The intention here is to keep memory usage low,
-        # even if the entire results set is large. We receive results from
-        # ClickHouse, write them to a local file, and then upload the file to S3
-        # when it reaches 50MB in size.
-        parts: List[CompletedPartTypeDef] = []
-        part_number = 1
-        results_iterator = client.iterate(
-            query_template.safe_substitute(fields="*"),
-            json=True,
-            params={
-                "aws_access_key_id": inputs.aws_access_key_id,
-                "aws_secret_access_key": inputs.aws_secret_access_key,
-                "team_id": inputs.team_id,
-                "data_interval_start": data_interval_start_ch,
-                "data_interval_end": data_interval_end_ch,
-            },
+        conn = snowflake.connector.connect(
+            user=inputs.user,
+            password=inputs.password,
+            account=inputs.account,
+            warehouse=inputs.warehouse,
+            database=inputs.database,
+            schema=inputs.schema,
         )
 
-        with tempfile.NamedTemporaryFile() as local_results_file:
-            while True:
-                try:
-                    result = await results_iterator.__anext__()
-                except StopAsyncIteration:
-                    break
-
-                if not result:
-                    break
-
-                # Write the results to a local file
-                local_results_file.write(json.dumps(result).encode("utf-8"))
-                local_results_file.write("\n".encode("utf-8"))
-
-                # Write results to S3 when the file reaches 50MB and reset the
-                # file, or if there is nothing else to write.
-                if (
-                    local_results_file.tell()
-                    and local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES
-                ):
-                    activity.logger.info("Uploading part %s", part_number)
-
-                    local_results_file.seek(0)
-                    response = s3_client.upload_part(
-                        Bucket=inputs.bucket_name,
-                        Key=key,
-                        PartNumber=part_number,
-                        UploadId=upload_id,
-                        Body=local_results_file,
-                    )
-
-                    # Record the ETag for the part
-                    parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
-
-                    part_number += 1
-
-                    # Reset the file
-                    local_results_file.seek(0)
-                    local_results_file.truncate()
-
-            # Upload the last part
-            local_results_file.seek(0)
-            response = s3_client.upload_part(
-                Bucket=inputs.bucket_name,
-                Key=key,
-                PartNumber=part_number,
-                UploadId=upload_id,
-                Body=local_results_file,
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"""
+                CREATE DATABASE IF NOT EXISTS "{inputs.database}"
+                COMMENT = 'PostHog generated database'
+                """
             )
 
-            # Record the ETag for the last part
-            parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+            cursor.execute(
+                f"""
+                CREATE SCHEMA IF NOT EXISTS "{inputs.database}"."{inputs.schema}"
+                COMMENT = 'PostHog generated schema'
+                """
+            )
 
-        # Complete the multipart upload
-        s3_client.complete_multipart_upload(
-            Bucket=inputs.bucket_name,
-            Key=key,
-            UploadId=upload_id,
-            MultipartUpload={"Parts": parts},
-        )
+            cursor.execute(f'USE DATABASE "{inputs.database}"')
+            cursor.execute(f'USE SCHEMA "{inputs.schema}"')
+
+            # Create the table if it doesn't exist. Note that we use the same schema
+            # as the snowflake-plugin for backwards compatibility.
+            cursor.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS "{inputs.database}"."{inputs.schema}"."{inputs.table_name}" (
+                    "uuid" STRING,
+                    "event" STRING,
+                    "properties" VARIANT,
+                    "elements" VARIANT,
+                    "people_set" VARIANT,
+                    "people_set_once" VARIANT,
+                    "distinct_id" STRING,
+                    "team_id" INTEGER,
+                    "ip" STRING,
+                    "site_url" STRING,
+                    "timestamp" TIMESTAMP
+                )
+                COMMENT = 'PostHog generated events table'
+                """
+            )
+
+            results_iterator = client.iterate(
+                query_template.safe_substitute(fields="*"),
+                json=True,
+                params={
+                    "team_id": inputs.team_id,
+                    "data_interval_start": data_interval_start_ch,
+                    "data_interval_end": data_interval_end_ch,
+                },
+            )
+
+            with tempfile.NamedTemporaryFile() as local_results_file:
+                while True:
+                    try:
+                        result = await results_iterator.__anext__()
+                    except StopAsyncIteration:
+                        break
+
+                    if not result:
+                        break
+
+                    # Write the results to a local file
+                    local_results_file.write(json.dumps(result).encode("utf-8"))
+                    local_results_file.write("\n".encode("utf-8"))
+
+                    # Write results to Snowflake when the file reaches 50MB and
+                    # reset the file, or if there is nothing else to write.
+                    if (
+                        local_results_file.tell()
+                        and local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES
+                    ):
+                        activity.logger.info("Uploading to Snowflake")
+
+                        local_results_file.seek(0)
+
+                        # Make sure that the staged file has a unique name
+                        staged_file_name = f"{inputs.table_name}_{uuid.uuid4()}.json"
+                        cursor.execute(
+                            f"PUT file://{local_results_file.name} @%{inputs.table_name}/{staged_file_name}",
+                        )
+
+                        # Reset the file
+                        local_results_file.seek(0)
+                        local_results_file.truncate()
+
+                # Upload the last part
+                local_results_file.seek(0)
+
+                # Make sure that the staged file has a unique name
+                staged_file_name = f"{inputs.table_name}_{uuid.uuid4()}.json"
+
+                cursor.execute(
+                    f"""
+                    PUT file://{local_results_file.name} @%"{inputs.table_name}/{staged_file_name}"
+                    """
+                )
+                cursor.execute(
+                    f"""
+                    COPY INTO "{inputs.table_name}"
+                    FILE_FORMAT = (TYPE = 'JSON')
+                    MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
+                    PURGE = TRUE
+                    """
+                )
+        finally:
+            conn.close()
 
 
-@workflow.defn(name="s3-export")
-class S3BatchExportWorkflow(PostHogWorkflow):
-    """A Temporal Workflow to export ClickHouse data into S3.
+@workflow.defn(name="snowflake-export")
+class SnowflakeBatchExportWorkflow(PostHogWorkflow):
+    """A Temporal Workflow to export ClickHouse data into Snowflake.
 
-    This Workflow is intended to be executed both manually and by a Temporal Schedule.
-    When ran by a schedule, `data_interval_end` should be set to `None` so that we will fetch the
-    end of the interval from the Temporal search attribute `TemporalScheduledStartTime`.
+    This Workflow is intended to be executed both manually and by a Temporal
+    Schedule. When ran by a schedule, `data_interval_end` should be set to
+    `None` so that we will fetch the end of the interval from the Temporal
+    search attribute `TemporalScheduledStartTime`.
     """
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> S3BatchExportInputs:
+    def parse_inputs(inputs: list[str]) -> SnowflakeBatchExportInputs:
         """Parse inputs from the management command CLI."""
         loaded = json.loads(inputs[0])
-        return S3BatchExportInputs(**loaded)
+        return SnowflakeBatchExportInputs(**loaded)
 
     @workflow.run
-    async def run(self, inputs: S3BatchExportInputs):
+    async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
         workflow.logger.info("Starting S3 export")
 
@@ -253,26 +271,29 @@ class S3BatchExportWorkflow(PostHogWorkflow):
 
         update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
 
-        insert_inputs = S3InsertInputs(
-            bucket_name=inputs.bucket_name,
-            region=inputs.region,
-            prefix=inputs.prefix,
+        insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
-            aws_access_key_id=inputs.aws_access_key_id,
-            aws_secret_access_key=inputs.aws_secret_access_key,
+            user=inputs.user,
+            password=inputs.password,
+            account=inputs.account,
+            warehouse=inputs.warehouse,
+            database=inputs.database,
+            schema=inputs.schema,
+            table_name=inputs.table_name,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
         )
         try:
             await workflow.execute_activity(
-                insert_into_s3_activity,
+                insert_into_snowflake_activity,
                 insert_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=20),
                 schedule_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
                     non_retryable_error_types=[
-                        # If we can't connect to ClickHouse, no point in retrying.
+                        # If we can't connect to ClickHouse, no point in
+                        # retrying.
                         "ConnectionError",
                         # Validation failed, and will keep failing.
                         "ValueError",
@@ -281,7 +302,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             )
 
         except Exception as e:
-            workflow.logger.exception("S3 BatchExport failed.", exc_info=e)
+            workflow.logger.exception("Snowflake BatchExport failed.", exc_info=e)
             update_inputs.status = "Failed"
             raise
 
@@ -295,17 +316,21 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             )
 
 
-def get_data_interval_from_workflow_inputs(inputs: S3BatchExportInputs) -> tuple[dt.datetime, dt.datetime]:
+def get_data_interval_from_workflow_inputs(inputs: SnowflakeBatchExportInputs) -> tuple[dt.datetime, dt.datetime]:
     """Return the start and end of an export's data interval.
 
     Args:
-        inputs: The S3 BatchExport inputs.
+        inputs: The Snowflake BatchExport inputs.
 
     Raises:
         TypeError: If when trying to obtain the data interval end we run into non-str types.
 
     Returns:
-        A tuple of two dt.datetime indicating start and end of the data_interval.
+        A tuple of two dt.datetime indicating start and end of the
+        data_interval.
+
+    TODO: this is pretty much a straight copy of the same function for S3.
+    Refactor to not use the destination specific inputs.
     """
     data_interval_end_str = inputs.data_interval_end
 
@@ -339,6 +364,10 @@ def get_data_interval_from_workflow_inputs(inputs: S3BatchExportInputs) -> tuple
     else:
         data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
 
-    data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
+    # TODO: handle different time intervals. I'm also no 100% happy with how we
+    # decide on the interval start/end. I would be much happier if we were to
+    # inspect the previous `data_interval_end` and used that as the start of
+    # the next interval. This would be more robust to failures and retries.
+    data_interval_start = data_interval_end - dt.timedelta(seconds=3600)
 
     return (data_interval_start, data_interval_end)
