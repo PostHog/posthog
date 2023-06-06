@@ -60,7 +60,8 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
        sum(click_count),
        sum(keypress_count),
        sum(mouse_activity_count),
-       sum(active_milliseconds)/1000 as active_seconds
+       sum(active_milliseconds)/1000 as active_seconds,
+       duration-active_seconds as inactive_seconds
     FROM session_replay_events
     PREWHERE team_id = %(team_id)s
         -- regardless of what other filters are applied
@@ -161,6 +162,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             "keypress_count",
             "mouse_activity_count",
             "active_seconds",
+            "inactive_seconds",
         ]
 
         return [
@@ -175,7 +177,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         return self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
 
     def duration_clause(
-        self, duration_filter_type: Literal["duration", "active_seconds"]
+        self, duration_filter_type: Literal["duration", "active_seconds", "inactive_seconds"]
     ) -> Tuple[str, Dict[str, Any]]:
         duration_clause = ""
         duration_params = {}
