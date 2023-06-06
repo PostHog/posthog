@@ -130,6 +130,39 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
         })
 
+        it('creates person if they are new as is_identified if $identify event', async () => {
+            const event_uuid = new UUIDT().toString()
+            const person = await personState({
+                event: '$identify',
+                distinct_id: 'new-user',
+                uuid: event_uuid,
+            }).updateProperties()
+            await hub.db.kafkaProducer.flush()
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: uuid.toString(),
+                    properties: { $creator_event_uuid: event_uuid },
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: true,
+                })
+            )
+
+            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
+        })
+
         it('handles person being created in a race condition', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, uuid.toString(), ['new-user'])
 
@@ -353,14 +386,13 @@ describe('PersonState.update()', () => {
             expect(persons[0]).toEqual(person)
         })
 
-        it('marks user as is_identified', async () => {
+        it('marks user as is_identified on $identify event', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, uuid.toString(), ['new-user'])
             const personS = personState({
-                event: '$pageview',
+                event: '$identify',
                 distinct_id: 'new-user',
                 properties: {},
             })
-            personS.updateIsIdentified = true
 
             const person = await personS.updateProperties()
             await hub.db.kafkaProducer.flush()
@@ -383,8 +415,6 @@ describe('PersonState.update()', () => {
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
-            // Second call no-update
-            personS.updateIsIdentified = true // double just in case
             await personS.updateProperties()
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
         })
@@ -495,41 +525,7 @@ describe('PersonState.update()', () => {
                 expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
             })
 
-            it(`marks is_identified to be updated when no changes to distinct_ids but $anon_distinct_id passe`, async () => {
-                await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, uuid.toString(), [
-                    'new-user',
-                    'old-user',
-                ])
-
-                const personS = personState({
-                    event: '$identify',
-                    distinct_id: 'new-user',
-                    properties: {
-                        $anon_distinct_id: 'old-user',
-                    },
-                })
-                const person = await personS.handleIdentifyOrAlias()
-                await hub.db.kafkaProducer.flush()
-
-                expect(person).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(Number),
-                        uuid: uuid.toString(),
-                        properties: {},
-                        created_at: timestamp,
-                        version: 0,
-                        is_identified: false,
-                    })
-                )
-                expect(personS.updateIsIdentified).toBeTruthy()
-
-                // verify Postgres persons
-                const persons = await fetchPostgresPersonsH()
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-            })
-
-            it(`add distinct id and marks user is_identified when passed $anon_distinct_id person does not exists and distinct_id does`, async () => {
+            it(`add distinct id when passed $anon_distinct_id person does not exists and distinct_id does`, async () => {
                 await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, uuid.toString(), ['new-user'])
 
                 const personS = personState({
@@ -553,7 +549,6 @@ describe('PersonState.update()', () => {
                         is_identified: false,
                     })
                 )
-                expect(personS.updateIsIdentified).toBeTruthy()
 
                 // verify Postgres persons
                 expect(persons.length).toEqual(1)
@@ -564,7 +559,7 @@ describe('PersonState.update()', () => {
                 expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
             })
 
-            it(`add distinct id and marks user as is_identified when passed $anon_distinct_id person exists and distinct_id does not`, async () => {
+            it(`add distinct id when passed $anon_distinct_id person exists and distinct_id does not`, async () => {
                 await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, uuid.toString(), ['old-user'])
 
                 const personS = personState({
@@ -589,7 +584,6 @@ describe('PersonState.update()', () => {
                         is_identified: false,
                     })
                 )
-                expect(personS.updateIsIdentified).toBeTruthy()
 
                 // verify Postgres persons
                 expect(persons.length).toEqual(1)
@@ -742,7 +736,6 @@ describe('PersonState.update()', () => {
                 const person = await personS.handleIdentifyOrAlias()
                 await hub.db.kafkaProducer.flush()
 
-                expect(personS.updateIsIdentified).toBeTruthy()
                 expect(person).toEqual(
                     expect.objectContaining({
                         id: expect.any(Number),

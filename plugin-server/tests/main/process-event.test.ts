@@ -1459,7 +1459,7 @@ test('identify set', async () => {
     const [person] = await hub.db.fetchPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
     expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-    expect(person.is_identified).toEqual(false)
+    expect(person.is_identified).toEqual(true)
 
     await processEvent(
         'distinct_id1',
@@ -1510,7 +1510,7 @@ test('identify set_once', async () => {
     const [person] = await hub.db.fetchPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
     expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-    expect(person.is_identified).toEqual(false)
+    expect(person.is_identified).toEqual(true)
 
     await processEvent(
         'distinct_id1',
@@ -1531,7 +1531,7 @@ test('identify set_once', async () => {
     expect((await hub.db.fetchEvents()).length).toBe(2)
     const [person2] = await hub.db.fetchPersons()
     expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
-    expect(person2.is_identified).toEqual(false)
+    expect(person2.is_identified).toEqual(true)
 })
 
 test('identify with illegal (generic) id', async () => {
@@ -1713,7 +1713,7 @@ test('identify with the same distinct_id as anon_distinct_id', async () => {
 
     const [person] = await hub.db.fetchPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id'])
-    expect(person.is_identified).toEqual(false)
+    expect(person.is_identified).toEqual(true)
 })
 
 test('distinct with multiple anonymous_ids which were already created', async () => {
