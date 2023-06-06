@@ -234,7 +234,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
@@ -284,7 +284,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
         response = self.client.delete(f"/api/person/{person.uuid}/?delete_events=true")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
@@ -603,7 +603,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_person = self.client.get("/api/person/%s/" % person.uuid).json()
         created_person["properties"]["a"] = "b"
         response = self.client.patch("/api/person/%s/" % person.uuid, created_person)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
         self.client.get("/api/person/%s/" % person.uuid)
 
