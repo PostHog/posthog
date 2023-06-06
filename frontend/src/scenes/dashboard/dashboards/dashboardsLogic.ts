@@ -73,7 +73,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             (dashboards, filters, fuse) => {
                 let haystack = dashboards
                 if (filters.search) {
-                    haystack = fuse.search(filters.search).map((result: any) => result.item)
+                    haystack = fuse.search(filters.search).map((result) => result.item)
                 }
 
                 if (filters.pinned) {

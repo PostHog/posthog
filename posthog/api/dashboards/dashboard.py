@@ -6,7 +6,7 @@ import structlog
 from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
-from rest_framework import exceptions, serializers, viewsets, mixins
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -76,7 +76,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         return representation
 
 
-class DashboardBasicSerializer(TaggedItemSerializerMixin, mixins.RetrieveModelMixin, UserPermissionsSerializerMixin):
+class DashboardBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserPermissionsSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()
@@ -112,7 +112,7 @@ class DashboardBasicSerializer(TaggedItemSerializerMixin, mixins.RetrieveModelMi
         return self.user_permissions.dashboard(dashboard).effective_privilege_level
 
 
-class DashboardSerializer(DashboardBasicSerializer, serializers.ModelSerializer):
+class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
