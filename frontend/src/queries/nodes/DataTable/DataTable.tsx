@@ -142,6 +142,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
                             renderValue={() => <>Edit column</>}
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -208,6 +210,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             value={''}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -232,6 +236,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             value={''}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
