@@ -12,7 +12,7 @@ class TestFeatureFlagAnalytics(BaseTest):
     maxDiff = None
 
     def tearDown(self):
-        config.reset_config()
+        configure(default_ignore_list=config.DEFAULT_IGNORE_LIST)
         return super().tearDown()
 
     def setUp(self):
