@@ -18,7 +18,7 @@ import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnC
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { isEventsQuery, taxonomicFilterToHogQl } from '~/queries/utils'
+import { isEventsQuery, taxonomicFilterToHogQl, trimQuotes } from '~/queries/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -109,9 +109,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             columnKey = column.substring(11)
         }
 
-        if (columnKey.includes('#')) {
-            columnKey = extractExpressionComment(columnKey)
-        }
+        columnKey = trimQuotes(extractExpressionComment(columnKey))
 
         return (
             <div className={clsx(['SelectedColumn', 'selected'])} style={{ height: rowItemHeight }}>

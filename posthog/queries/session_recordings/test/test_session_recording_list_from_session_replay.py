@@ -130,6 +130,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "mouse_activity_count": 2,
                 "duration": 1980,
                 "active_seconds": 792.0,
+                "inactive_seconds": 1188.0,
                 "start_time": self.base_time + relativedelta(seconds=20),
                 "end_time": self.base_time + relativedelta(seconds=2000),
                 "first_url": None,
@@ -143,6 +144,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "mouse_activity_count": 4,
                 "duration": 50,
                 "active_seconds": 25.0,
+                "inactive_seconds": 25.0,
                 "start_time": self.base_time,
                 "end_time": self.base_time + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
@@ -160,6 +162,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         session_id_total_is_61 = f"test_basic_query_active_sessions-total-{str(uuid4())}"
         session_id_active_is_61 = f"test_basic_query_active_sessions-active-{str(uuid4())}"
+        session_id_inactive_is_61 = f"test_basic_query_active_sessions-inactive-{str(uuid4())}"
 
         produce_replay_summary(
             session_id=session_id_total_is_61,
@@ -189,6 +192,20 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             active_milliseconds=61000,
         )
 
+        produce_replay_summary(
+            session_id=session_id_inactive_is_61,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=(self.base_time),
+            last_timestamp=(self.base_time + relativedelta(seconds=61)),
+            distinct_id=user,
+            first_url="https://a-different-url.com",
+            click_count=0,
+            keypress_count=0,
+            mouse_activity_count=0,
+            active_milliseconds=0,
+        )
+
         filter = SessionRecordingsFilter(
             team=self.team,
             data={
@@ -199,8 +216,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
-        assert [(s["session_id"], s["duration"], s["active_seconds"]) for s in session_recordings] == [
-            (session_id_total_is_61, 61, 59.0)
+        assert sorted(
+            [(s["session_id"], s["duration"], s["active_seconds"]) for s in session_recordings],
+            key=lambda x: x[0],
+        ) == [
+            (session_id_inactive_is_61, 61, 0.0),
+            (session_id_total_is_61, 61, 59.0),
         ]
 
         filter = SessionRecordingsFilter(
@@ -215,6 +236,20 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert [(s["session_id"], s["duration"], s["active_seconds"]) for s in session_recordings] == [
             (session_id_active_is_61, 59, 61.0)
+        ]
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "duration_type_filter": "inactive_seconds",
+                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, more_recordings_available) = session_recording_list_instance.run()
+
+        assert [(s["session_id"], s["duration"], s["inactive_seconds"]) for s in session_recordings] == [
+            (session_id_inactive_is_61, 61, 61.0)
         ]
 
     @snapshot_clickhouse_queries
@@ -281,6 +316,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "mouse_activity_count": 2,
                 "duration": 1980,
                 "active_seconds": 792.0,
+                "inactive_seconds": 1188.0,
                 "start_time": self.base_time + relativedelta(seconds=20),
                 "end_time": self.base_time + relativedelta(seconds=2000),
                 "first_url": None,
@@ -303,6 +339,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "mouse_activity_count": 4,
                 "duration": 50,
                 "active_seconds": 25.0,
+                "inactive_seconds": 25.0,
                 "start_time": self.base_time,
                 "end_time": self.base_time + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
@@ -912,6 +949,52 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "two days before base time")
+
+    @snapshot_clickhouse_queries
+    def test_date_from_filter_cannot_search_before_ttl(self):
+        with freeze_time(self.base_time):
+            user = "test_date_from_filter_cannot_search_before_ttl-user"
+            Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+            produce_replay_summary(
+                distinct_id=user,
+                session_id="storage is past ttl",
+                first_timestamp=(self.base_time - relativedelta(days=22)),
+                # an illegally long session but it started 22 days ago
+                last_timestamp=(self.base_time - relativedelta(days=3)),
+                team_id=self.team.id,
+            )
+            produce_replay_summary(
+                distinct_id=user,
+                session_id="storage is not past ttl",
+                first_timestamp=(self.base_time - relativedelta(days=19)),
+                last_timestamp=(self.base_time - relativedelta(days=2)),
+                team_id=self.team.id,
+            )
+
+            filter = SessionRecordingsFilter(
+                team=self.team, data={"date_from": (self.base_time - relativedelta(days=20)).strftime("%Y-%m-%d")}
+            )
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["session_id"], "storage is not past ttl")
+
+            filter = SessionRecordingsFilter(
+                team=self.team, data={"date_from": (self.base_time - relativedelta(days=21)).strftime("%Y-%m-%d")}
+            )
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["session_id"], "storage is not past ttl")
+
+            filter = SessionRecordingsFilter(
+                team=self.team, data={"date_from": (self.base_time - relativedelta(days=22)).strftime("%Y-%m-%d")}
+            )
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["session_id"], "storage is not past ttl")
 
     @snapshot_clickhouse_queries
     def test_date_to_filter(self):
