@@ -1,6 +1,5 @@
 from collections import deque
 import json
-from random import randint
 import re
 from typing import TypedDict
 from uuid import uuid4
@@ -22,7 +21,6 @@ from posthog.temporal.workflows.base import create_export_run, update_export_run
 from posthog.temporal.workflows.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
-    SnowflakeInsertInputs,
     insert_into_snowflake_activity,
 )
 from requests.models import PreparedRequest
@@ -67,103 +65,6 @@ async def insert_events(client: ChClient, events: list[EventValues]):
         ],
         json=False,
     )
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_insert_into_snowflake_activity_puts_data_into_snowflake(activity_environment):
-    """
-    Test that the insert_into_snowflake_activity function puts data into Snowflake. We do not
-    assume anything about the Django models, and instead just check that the
-    data is in Snowflake.
-    """
-
-    data_interval_start = "2023-04-20 14:00:00"
-    data_interval_end = "2023-04-25 15:00:00"
-
-    # Generate a random team id integer. There's still a chance of a collision,
-    # but it's very small.
-    team_id = randint(1, 1000000)
-
-    client = ChClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
-
-    # Create enough events to ensure we span more than 5MB, the smallest
-    # multipart chunk size for multipart uploads to Snowflake.
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "person_id": str(uuid4()),
-            "team_id": team_id,
-            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
-        }
-        # NOTE: we have to do a lot here, otherwise we do not trigger a
-        # multipart upload, and the minimum part chunk size is 5MB.
-        for i in range(10000)
-    ]
-
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
-        client=client,
-        events=events,
-    )
-
-    insert_inputs = SnowflakeInsertInputs(
-        team_id=team_id,
-        user="hazzadous",
-        password="password",
-        account="account",
-        database="PostHog",
-        schema="test",
-        warehouse="COMPUTE_WH",
-        table_name="events",
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-    )
-
-    with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1**2):
-        with responses.RequestsMock(target="snowflake.connector.vendored.requests.adapters.HTTPAdapter.send") as rsps:
-            queries, staged_files = add_mock_snowflake_api(rsps)
-            await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
-
-            assert contains_queries_in_order(
-                queries,
-                'CREATE DATABASE IF NOT EXISTS "PostHog"',
-                'CREATE SCHEMA IF NOT EXISTS "PostHog"."test"',
-                'USE DATABASE "PostHog"',
-                'USE SCHEMA "test"',
-                'CREATE TABLE IF NOT EXISTS "PostHog"."test"."events"',
-                # NOTE: we check that we at least have two PUT queries to
-                # ensure we hit the multi file upload code path
-                "PUT file://",
-                "PUT file://",
-                'COPY INTO "events"',
-            )
-
-            staged_data = "\n".join(staged_files)
-
-            # Check that the data is correct.
-            json_data = [json.loads(line) for line in staged_data.split("\n") if line]
-            # Pull out the fields we inserted only
-            json_data = [
-                {
-                    "uuid": event["uuid"],
-                    "event": event["event"],
-                    "timestamp": event["timestamp"],
-                    "properties": event["properties"],
-                    "person_id": event["person_id"],
-                    "team_id": int(event["team_id"]),
-                }
-                for event in json_data
-            ]
-            json_data.sort(key=lambda x: x["timestamp"])
-            assert json_data == events
 
 
 def contains_queries_in_order(queries: list[str], *queries_to_find: str):
@@ -244,7 +145,7 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_snowflake_export_workflow():
+async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the_right_team():
     """
     Test that the whole workflow not just the activity works. It should update
     the batch export run status to completed, as well as updating the record
@@ -285,23 +186,20 @@ async def test_snowflake_export_workflow():
         interval=batch_export_data["interval"],
     )
 
+    # Create enough events to ensure we span more than 5MB, the smallest
+    # multipart chunk size for multipart uploads to Snowflake.
     events: list[EventValues] = [
         {
             "uuid": str(uuid4()),
             "event": "test",
-            "timestamp": "2023-04-20 14:30:00.000000",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
             "person_id": str(uuid4()),
             "team_id": team.pk,
             "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 14:30:00.000000",
-            "person_id": str(uuid4()),
-            "team_id": team.pk,
-            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
-        },
+        }
+        # NOTE: we have to do a lot here, otherwise we do not trigger a
+        # multipart upload, and the minimum part chunk size is 5MB.
+        for i in range(10000)
     ]
 
     # Insert some data into the `sharded_events` table.
@@ -310,11 +208,46 @@ async def test_snowflake_export_workflow():
         events=events,
     )
 
+    other_team = await acreate_team(organization=organization)
+
+    # Insert some events before the hour and after the hour, as well as some
+    # events from another team to ensure that we only export the events from
+    # the team that the batch export is for.
+    await insert_events(
+        client=ch_client,
+        events=[
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 13:30:00",
+                "person_id": str(uuid4()),
+                "team_id": team.pk,
+                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            },
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 15:30:00",
+                "person_id": str(uuid4()),
+                "team_id": team.pk,
+                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            },
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 14:30:00",
+                "person_id": str(uuid4()),
+                "team_id": other_team.pk,
+                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            },
+        ],
+    )
+
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
         team_id=team.pk,
         batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:40:00.000000",
+        data_interval_end="2023-04-20 14:40:00.000000",
         **batch_export.destination.config,
     )
 
@@ -328,8 +261,8 @@ async def test_snowflake_export_workflow():
         ):
             with responses.RequestsMock(
                 target="snowflake.connector.vendored.requests.adapters.HTTPAdapter.send"
-            ) as rsps:
-                add_mock_snowflake_api(rsps)
+            ) as rsps, override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1**2):
+                queries, staged_files = add_mock_snowflake_api(rsps)
                 await activity_environment.client.execute_workflow(
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
@@ -338,8 +271,101 @@ async def test_snowflake_export_workflow():
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
+                assert contains_queries_in_order(
+                    queries,
+                    'CREATE DATABASE IF NOT EXISTS "PostHog"',
+                    'CREATE SCHEMA IF NOT EXISTS "PostHog"."test"',
+                    'USE DATABASE "PostHog"',
+                    'USE SCHEMA "test"',
+                    'CREATE TABLE IF NOT EXISTS "PostHog"."test"."events"',
+                    # NOTE: we check that we at least have two PUT queries to
+                    # ensure we hit the multi file upload code path
+                    "PUT file://",
+                    "PUT file://",
+                    'COPY INTO "events"',
+                )
+
+                staged_data = "\n".join(staged_files)
+
+                # Check that the data is correct.
+                json_data = [json.loads(line) for line in staged_data.split("\n") if line]
+                # Pull out the fields we inserted only
+                json_data = [
+                    {
+                        "uuid": event["uuid"],
+                        "event": event["event"],
+                        "timestamp": event["timestamp"],
+                        "properties": event["properties"],
+                        "person_id": event["person_id"],
+                        "team_id": int(event["team_id"]),
+                    }
+                    for event in json_data
+                ]
+                json_data.sort(key=lambda x: x["timestamp"])
+                assert json_data == events
+
         runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
         assert len(runs) == 1
 
         run = runs[0]
+        assert run.status == "Completed"
+
+    # Check that the workflow runs successfully for a period that has no
+    # events.
+
+    inputs = SnowflakeBatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=str(batch_export.id),
+        data_interval_end="2023-03-20 14:40:00.000000",
+        **batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SnowflakeBatchExportWorkflow],
+            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with responses.RequestsMock(
+                target="snowflake.connector.vendored.requests.adapters.HTTPAdapter.send",
+                assert_all_requests_are_fired=False,
+            ) as rsps, override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1**2):
+                queries, staged_files = add_mock_snowflake_api(rsps)
+                await activity_environment.client.execute_workflow(
+                    SnowflakeBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+                assert contains_queries_in_order(
+                    queries,
+                )
+
+                staged_data = "\n".join(staged_files)
+
+                # Check that the data is correct.
+                json_data = [json.loads(line) for line in staged_data.split("\n") if line]
+                # Pull out the fields we inserted only
+                json_data = [
+                    {
+                        "uuid": event["uuid"],
+                        "event": event["event"],
+                        "timestamp": event["timestamp"],
+                        "properties": event["properties"],
+                        "person_id": event["person_id"],
+                        "team_id": int(event["team_id"]),
+                    }
+                    for event in json_data
+                ]
+                json_data.sort(key=lambda x: x["timestamp"])
+                assert json_data == []
+
+        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+        assert len(runs) == 2
+
+        run = runs[1]
         assert run.status == "Completed"
