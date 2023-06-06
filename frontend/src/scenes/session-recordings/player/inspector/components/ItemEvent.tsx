@@ -5,6 +5,7 @@ import { capitalizeFirstLetter, autoCaptureEventToDescription, insightUrlForEven
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -23,7 +24,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
             : undefined
 
     return (
-        <div>
+        <div data-attr={'item-event'}>
             <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
                 <div className="flex gap-2 items-start p-2 text-xs cursor-pointer truncate">
                     <PropertyKeyInfo
@@ -62,7 +63,11 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                     ) : null}
 
                     {item.data.fullyLoaded ? (
-                        <SimpleKeyValueList item={item.data.properties} />
+                        item.data.event === '$exception' ? (
+                            <ErrorDisplay event={item.data} />
+                        ) : (
+                            <SimpleKeyValueList item={item.data.properties} />
+                        )
                     ) : (
                         <div className="text-muted-alt flex gap-1 items-center">
                             <Spinner monocolor />

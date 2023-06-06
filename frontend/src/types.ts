@@ -1272,17 +1272,15 @@ export interface InsightModel extends Cacheable {
     query?: Node | null
 }
 
-export interface DashboardType {
+export interface DashboardBasicType {
     id: number
     name: string
     description: string
     pinned: boolean
-    tiles: DashboardTile[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
     deleted: boolean
-    filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
@@ -1290,6 +1288,11 @@ export interface DashboardType {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+}
+
+export interface DashboardType extends DashboardBasicType {
+    tiles: DashboardTile[]
+    filters: Record<string, any>
 }
 
 export interface DashboardTemplateType {

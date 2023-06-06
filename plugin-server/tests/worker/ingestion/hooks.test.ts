@@ -46,9 +46,9 @@ describe('hooks', () => {
         test('Slack', () => {
             const [userDetails, userDetailsMarkdown] = getPersonDetails(
                 event,
-                team,
                 'http://localhost:8000',
-                WebhookType.Slack
+                WebhookType.Slack,
+                team
             )
 
             expect(userDetails).toBe('test@posthog.com')
@@ -58,9 +58,9 @@ describe('hooks', () => {
         test('Teams', () => {
             const [userDetails, userDetailsMarkdown] = getPersonDetails(
                 event,
-                team,
                 'http://localhost:8000',
-                WebhookType.Teams
+                WebhookType.Teams,
+                team
             )
 
             expect(userDetails).toBe('test@posthog.com')

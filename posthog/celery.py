@@ -18,7 +18,7 @@ from prometheus_client import Gauge
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
 from posthog.redis import get_client
-from posthog.utils import get_crontab
+from posthog.utils import get_crontab, get_instance_region
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -94,6 +94,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
         # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
+
+        if settings.ENABLE_DECIDE_BILLING_ANALYTICS:
+            # Every 30 minutes, send decide request counts to the main posthog instance
+            sender.add_periodic_task(crontab(minute="*/30"), calculate_decide_usage.s(), name="calculate decide usage")
 
     # if is_cloud() or settings.DEMO:
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
@@ -746,6 +750,26 @@ def calculate_billing_daily_usage():
         pass
     else:
         compute_daily_usage_for_organizations()
+
+
+@app.task(ignore_result=True, max_retries=1)
+def calculate_decide_usage() -> None:
+    from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
+    from posthog.models import Team
+    from django.db.models import Q
+    from posthoganalytics import Posthog
+
+    # send EU data to EU, US data to US
+    api_key = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF" if get_instance_region() == "EU" else "sTMFPsFhdP1Ssg"
+
+    ph_client = Posthog(api_key)
+
+    for team in Team.objects.select_related("organization").exclude(
+        Q(organization__for_internal_metrics=True) | Q(is_demo=True)
+    ):
+        capture_team_decide_usage(ph_client, team.id, team.uuid)
+
+    ph_client.shutdown()
 
 
 @app.task(ignore_result=True)
