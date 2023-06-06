@@ -11,8 +11,6 @@ import {
     selectors,
     sharedListeners,
 } from 'kea'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
@@ -22,6 +20,10 @@ import { NotebookSyncStatus, NotebookType } from '~/types'
 import { JSONContent, Editor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
+import { downloadFile, slugify } from 'lib/utils'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
+import { lemonToast } from '@posthog/lemon-ui'
 
 const SYNC_DELAY = 1000
 
@@ -34,18 +36,18 @@ export const notebookLogic = kea<notebookLogicType>([
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId }) => shortId),
     connect({
-        values: [notebooksListLogic, ['scratchpadNotebook']],
+        values: [notebooksListLogic, ['scratchpadNotebook', 'notebookTemplates']],
         actions: [notebooksListLogic, ['receiveNotebookUpdate']],
     }),
     actions({
         setEditorRef: (editor: Editor) => ({ editor }),
-        addNodeToNotebook: (type: NotebookNodeType, props: Record<string, any>) => ({ type, props }),
         onEditorUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearLocalContent: true,
         setReady: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        exportJSON: true,
     }),
     reducers({
         localContent: [
@@ -84,6 +86,11 @@ export const notebookLogic = kea<notebookLogicType>([
                             content: {},
                             version: 0,
                         }
+                    } else if (props.shortId.startsWith('template-')) {
+                        response = values.notebookTemplates.find((template) => template.short_id === props.shortId)
+                        if (response) {
+                            response.is_template = true
+                        }
                     } else {
                         response = await api.notebooks.get(props.shortId)
                     }
@@ -120,6 +127,31 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
             },
         ],
+
+        newNotebook: [
+            undefined as NotebookType | undefined,
+            {
+                duplicateNotebook: async () => {
+                    if (!values.notebook) {
+                        return
+                    }
+
+                    const response = await api.notebooks.create({
+                        content: values.notebook.content,
+                        title: values.notebook.title,
+                    })
+
+                    posthog.capture(`notebook duplicated`, {
+                        short_id: response.short_id,
+                    })
+
+                    lemonToast.success('Notebook created from template!')
+                    router.actions.push(urls.notebookEdit(response.short_id))
+
+                    return response
+                },
+            },
+        ],
     })),
     selectors({
         shortId: [() => [(_, props) => props], (props): string => props.shortId],
@@ -139,9 +171,20 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
+        isEmpty: [
+            (s) => [s.editor, s.content],
+            (editor): boolean => {
+                return editor?.isEmpty ?? false
+            },
+        ],
+
         syncStatus: [
             (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
             (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus | undefined => {
+                if (notebook?.is_template) {
+                    return 'synced'
+                }
+
                 if (isLocalOnly) {
                     return 'local'
                 }
@@ -166,21 +209,6 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
     listeners(({ values, actions, sharedListeners }) => ({
-        addNodeToNotebook: ({ type, props }) => {
-            if (!values.editor) {
-                return
-            }
-
-            values.editor
-                .chain()
-                .focus()
-                .insertContent({
-                    type,
-                    attrs: props,
-                })
-                .run()
-        },
-
         setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
 
@@ -206,6 +234,16 @@ export const notebookLogic = kea<notebookLogicType>([
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,
         loadNotebookSuccess: sharedListeners.onNotebookChange,
+
+        exportJSON: () => {
+            const file = new File(
+                [JSON.stringify(values.editor?.getJSON())],
+                `${slugify(values.title ?? 'untitled')}.ph-notebook.json`,
+                { type: 'application/json' }
+            )
+
+            downloadFile(file)
+        },
     })),
 
     afterMount(({ actions }) => {

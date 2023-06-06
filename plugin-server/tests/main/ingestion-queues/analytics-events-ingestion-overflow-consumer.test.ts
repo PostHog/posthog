@@ -67,7 +67,7 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
             },
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
-                runEventPipeline: jest.fn(),
+                runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
     })

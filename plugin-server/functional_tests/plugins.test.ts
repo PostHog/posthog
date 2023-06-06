@@ -567,7 +567,7 @@ test.concurrent('plugins can use attachements', async () => {
         source__index_ts: indexJs,
     })
 
-    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id })
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} })
 
     await createPluginAttachment({
         teamId,
@@ -706,6 +706,68 @@ test.concurrent('plugins can use config variables', async () => {
         normalVariable: 'look at me',
     })
 })
+
+test.concurrent(
+    'plugin configs are still loaded if is_global = false and the team does not own the plugin',
+    async () => {
+        // The is mainly to verify that we can make plugins non-global without
+        // breaking existing pluginconfigs.
+        const indexJs = `
+        export function processEvent(event) {
+            return {
+                ...event,
+                properties: {
+                    ...event.properties,
+                    processed: true
+                }
+            };
+        }`
+
+        const plugin = await createPlugin({
+            organization_id: organizationId,
+            name: 'plugin config',
+            plugin_type: 'source',
+            is_global: false,
+            source__index_ts: indexJs,
+        })
+
+        // Create a plugin config that is in a different organization
+        const otherOrganizationId = await createOrganization()
+        const otherTeamId = await createTeam(otherOrganizationId)
+        const otherPluginConfig = await createPluginConfig({
+            team_id: otherTeamId,
+            plugin_id: plugin.id,
+            config: {},
+        })
+
+        await reloadPlugins()
+        await waitForPluginToLoad(otherPluginConfig)
+
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
+
+        // First let's ingest an event
+        await capture({
+            teamId: otherTeamId,
+            distinctId,
+            uuid,
+            event: 'custom event',
+            properties: {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+            },
+        })
+
+        const [event] = await waitForExpect(async () => {
+            const events = await fetchEvents(otherTeamId)
+            expect(events.length).toBe(1)
+            return events
+        })
+
+        // Check it was processed
+        expect(event.properties.processed).toEqual(true)
+    }
+)
 
 test.concurrent(`liveness check endpoint works`, async () => {
     await waitForExpect(async () => {

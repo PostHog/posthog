@@ -106,7 +106,7 @@ describe('eachBatchX', () => {
             },
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
-                runEventPipeline: jest.fn(),
+                runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
     })
@@ -168,6 +168,28 @@ describe('eachBatchX', () => {
                 'kafka_queue.each_batch_parallel_ingestion',
                 expect.any(Date)
             )
+        })
+
+        it('fails the batch if runEventPipeline rejects', async () => {
+            const batch = createBatch(captureEndpointEvent)
+            queue.workerMethods.runEventPipeline = jest.fn(() => Promise.reject('runEventPipeline nopes out'))
+            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
+                'runEventPipeline nopes out'
+            )
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(1)
+        })
+
+        it('fails the batch if one deferred promise rejects', async () => {
+            const batch = createBatch(captureEndpointEvent)
+            queue.workerMethods.runEventPipeline = jest.fn(() =>
+                Promise.resolve({
+                    promises: [Promise.resolve(), Promise.reject('deferred nopes out')],
+                })
+            )
+            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
+                'deferred nopes out'
+            )
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(1)
         })
 
         it('batches events by team or token and distinct_id', () => {

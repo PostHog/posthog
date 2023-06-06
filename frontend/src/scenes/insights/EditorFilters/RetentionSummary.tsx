@@ -36,24 +36,26 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
             </div>
             <div className="flex items-center">
                 event or action
-                <ActionFilter
-                    entitiesLimit={1}
-                    mathAvailability={MathAvailability.None}
-                    hideFilter
-                    hideRename
-                    buttonCopy="Add graph series"
-                    filters={{ events: [target_entity] } as FilterType} // retention filters use target and returning entity instead of events
-                    setFilters={(newFilters: FilterType) => {
-                        if (newFilters.events && newFilters.events.length > 0) {
-                            updateInsightFilter({ target_entity: newFilters.events[0] })
-                        } else if (newFilters.actions && newFilters.actions.length > 0) {
-                            updateInsightFilter({ target_entity: newFilters.actions[0] })
-                        } else {
-                            updateInsightFilter({ target_entity: undefined })
-                        }
-                    }}
-                    typeKey="retention-table"
-                />
+                <span className="mx-2">
+                    <ActionFilter
+                        entitiesLimit={1}
+                        mathAvailability={MathAvailability.None}
+                        hideFilter
+                        hideRename
+                        buttonCopy="Add graph series"
+                        filters={{ events: [target_entity] } as FilterType} // retention filters use target and returning entity instead of events
+                        setFilters={(newFilters: FilterType) => {
+                            if (newFilters.events && newFilters.events.length > 0) {
+                                updateInsightFilter({ target_entity: newFilters.events[0] })
+                            } else if (newFilters.actions && newFilters.actions.length > 0) {
+                                updateInsightFilter({ target_entity: newFilters.actions[0] })
+                            } else {
+                                updateInsightFilter({ target_entity: undefined })
+                            }
+                        }}
+                        typeKey="retention-table"
+                    />
+                </span>
                 <LemonSelect
                     options={Object.entries(retentionOptions).map(([key, value]) => ({
                         label: value,
@@ -94,24 +96,26 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
             </div>
             <div className="flex items-center">
                 event or action
-                <ActionFilter
-                    entitiesLimit={1}
-                    mathAvailability={MathAvailability.None}
-                    hideFilter
-                    hideRename
-                    buttonCopy="Add graph series"
-                    filters={{ events: [returning_entity] } as FilterType}
-                    setFilters={(newFilters: FilterType) => {
-                        if (newFilters.events && newFilters.events.length > 0) {
-                            updateInsightFilter({ returning_entity: newFilters.events[0] })
-                        } else if (newFilters.actions && newFilters.actions.length > 0) {
-                            updateInsightFilter({ returning_entity: newFilters.actions[0] })
-                        } else {
-                            updateInsightFilter({ returning_entity: undefined })
-                        }
-                    }}
-                    typeKey="retention-table-returning"
-                />
+                <span className="mx-2">
+                    <ActionFilter
+                        entitiesLimit={1}
+                        mathAvailability={MathAvailability.None}
+                        hideFilter
+                        hideRename
+                        buttonCopy="Add graph series"
+                        filters={{ events: [returning_entity] } as FilterType}
+                        setFilters={(newFilters: FilterType) => {
+                            if (newFilters.events && newFilters.events.length > 0) {
+                                updateInsightFilter({ returning_entity: newFilters.events[0] })
+                            } else if (newFilters.actions && newFilters.actions.length > 0) {
+                                updateInsightFilter({ returning_entity: newFilters.actions[0] })
+                            } else {
+                                updateInsightFilter({ returning_entity: undefined })
+                            }
+                        }}
+                        typeKey="retention-table-returning"
+                    />
+                </span>
                 on any of the next {dateOptionPlurals[period ?? 'Day']}.
             </div>
             <div>

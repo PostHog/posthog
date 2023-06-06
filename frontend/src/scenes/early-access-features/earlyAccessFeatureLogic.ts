@@ -13,7 +13,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
-    stage: EarlyAccessFeatureStage.Beta,
+    stage: EarlyAccessFeatureStage.Draft,
     documentation_url: '',
     feature_flag_id: undefined,
 }
@@ -35,7 +35,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
-        promote: true,
+        releaseBeta: true,
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
     }),
     loaders(({ props }) => ({
@@ -102,7 +102,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         cancel: () => {
             if (!('id' in values.earlyAccessFeature)) {
                 actions.resetEarlyAccessFeature()
@@ -110,8 +110,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             }
             actions.editFeature(false)
         },
-        promote: async () => {
-            'id' in values.earlyAccessFeature && (await api.earlyAccessFeatures.promote(values.earlyAccessFeature.id))
+        releaseBeta: async () => {
+            'id' in values.earlyAccessFeature &&
+                (await api.earlyAccessFeatures.update(props.id, {
+                    ...values.earlyAccessFeature,
+                    stage: EarlyAccessFeatureStage.Beta,
+                }))
             actions.loadEarlyAccessFeature()
             actions.loadEarlyAccessFeatures()
         },
