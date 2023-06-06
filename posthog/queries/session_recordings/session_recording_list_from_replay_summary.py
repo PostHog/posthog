@@ -10,6 +10,7 @@ from posthog.queries.session_recordings.session_recording_list import SessionRec
 
 @dataclasses.dataclass(frozen=True)
 class SummaryEventFiltersSQL:
+    having_conditions: str
     where_conditions: str
     params: Dict[str, Any]
 
@@ -95,7 +96,9 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         WITH {person_cte}
         events_session_ids AS (
             SELECT
-                groupArray(uuid) as event_ids, `$session_id` as session_id
+                groupUniqArray(event) as event_names,
+                groupArray(uuid) as event_ids,
+                `$session_id` as session_id
             FROM events
             PREWHERE
                 team_id = %(team_id)s
@@ -103,6 +106,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 and notEmpty(session_id)
                 WHERE 1=1 {event_filter_where_conditions}
             GROUP BY session_id
+            {event_filter_having_events_condition}
         )
         {session_recordings_base_query}
         -- these condition are in the prewhere from the base query
@@ -119,11 +123,12 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     @cached_property
     def build_event_filters(self) -> SummaryEventFiltersSQL:
         condition_sql = ""
-        where_conditions = "AND event IN %(event_names)s"
+
         event_names_to_filter: List[Union[int, str]] = []
 
         params: Dict = {}
 
+        condition_sql = ""
         for index, entity in enumerate(self._filter.entities):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
@@ -132,20 +137,24 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 if entity.id and entity.id not in event_names_to_filter:
                     event_names_to_filter.append(entity.id)
 
-            condition_sql, filter_params = self.format_event_filter(
+            this_entity_condition_sql, this_entity_filter_params = self.format_event_filter(
                 entity, prepend=f"event_matcher_{index}", team_id=self._team_id
             )
-
-            params = {**params, **filter_params}
+            joining = "OR" if index > 0 else ""
+            condition_sql += f"{joining} ({this_entity_condition_sql})"
+            params = {**params, **this_entity_filter_params}
 
         params = {**params, "event_names": list(event_names_to_filter)}
 
         if len(event_names_to_filter) == 0:
             # using "All events"
-            where_conditions = ""
+            having_conditions = ""
+        else:
+            having_conditions = "HAVING hasAll(event_names, %(event_names)s)"
 
         return SummaryEventFiltersSQL(
-            where_conditions=where_conditions + f"AND {condition_sql}" if condition_sql else "",
+            having_conditions=having_conditions,
+            where_conditions=f"AND {condition_sql}" if condition_sql else "",
             params=params,
         )
 
@@ -243,6 +252,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             self._session_recordings_query_with_events.format(
                 person_id_clause=person_id_clause,
                 event_filter_where_conditions=event_filters.where_conditions,
+                event_filter_having_events_condition=event_filters.having_conditions,
                 events_timestamp_clause=events_timestamp_clause,
                 duration_clause=duration_clause,
                 person_cte=f"{person_cte}," if person_cte else "",

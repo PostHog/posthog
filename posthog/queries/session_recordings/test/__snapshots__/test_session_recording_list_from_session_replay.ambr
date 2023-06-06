@@ -1,19 +1,20 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2022-12-27 12:00:00'
      AND timestamp <= '2023-01-04 12:00:00'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['custom-event']
-       AND ((event = 'custom-event'
-             AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
-                  AND has(['test_action_filter-session-one'], "$session_id")
-                  AND has(['test_action_filter-window-id'], "$window_id"))))
-     GROUP BY session_id)
+       AND (((event = 'custom-event'
+              AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
+                   AND has(['test_action_filter-session-one'], "$session_id")
+                   AND has(['test_action_filter-window-id'], "$window_id")))))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['custom-event']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -43,18 +44,19 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.1
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2022-12-27 12:00:00'
      AND timestamp <= '2023-01-04 12:00:00'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['custom-event']
-       AND ((event = 'custom-event'
-             AND (has(['test_action_filter-session-one'], "$session_id")
-                  AND has(['test_action_filter-window-id'], "$window_id"))))
-     GROUP BY session_id)
+       AND (((event = 'custom-event'
+              AND (has(['test_action_filter-session-one'], "$session_id")
+                   AND has(['test_action_filter-window-id'], "$window_id")))))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['custom-event']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -84,19 +86,63 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.2
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2022-12-27 12:00:00'
      AND timestamp <= '2023-01-04 12:00:00'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['custom-event']
-       AND ((event = 'custom-event'
-             AND (has(['test_action_filter-session-one'], "$session_id")
-                  AND has(['test_action_filter-window-id'], "$window_id"))))
-       AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
-     GROUP BY session_id)
+       AND (((event = 'custom-event'
+              AND (has(['test_action_filter-session-one'], "$session_id")
+                   AND has(['test_action_filter-window-id'], "$window_id"))))
+            AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['custom-event']))
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds ,
+         any(e.event_ids) as matching_events
+  FROM session_replay_events s
+  JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2022-12-14 00:00:00'
+  AND s.min_first_timestamp >= '2022-12-28 00:00:00'
+  AND s.max_last_timestamp <= '2023-01-04 00:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.3
+  '
+  WITH events_session_ids AS
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
+            `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2022-12-27 12:00:00'
+     AND timestamp <= '2023-01-04 12:00:00'
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND (((event = 'custom-event'
+              AND (has(['test_action_filter-session-one'], "$session_id")
+                   AND has(['test_action_filter-window-id'], "$window_id"))))
+            AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['custom-event']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -139,16 +185,18 @@
      HAVING argMax(is_deleted, version) = 0
      and person_id = '00000000-0000-0000-0000-000000000000') ,
        events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-21 12:00:00'
      AND timestamp <= '2021-01-05 11:59:59'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview', 'custom-event']
-       AND ((event = 'custom-event'))
-     GROUP BY session_id)
+       AND (event = '$pageview')
+       OR (((event = 'custom-event')))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview', 'custom-event']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -182,14 +230,15 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
      and notEmpty(session_id)
      WHERE 1=1
-       AND 1 = 1
+       AND (1 = 1)
      GROUP BY session_id)
   SELECT s.session_id,
          any(s.team_id),
@@ -220,15 +269,16 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties.1
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
      and notEmpty(session_id)
      WHERE 1=1
-       AND 1 = 1
-       AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
+       AND (1 = 1
+            AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
      GROUP BY session_id)
   SELECT s.session_id,
          any(s.team_id),
@@ -259,15 +309,16 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties.2
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
      and notEmpty(session_id)
      WHERE 1=1
-       AND 1 = 1
-       AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
+       AND (1 = 1
+            AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
      GROUP BY session_id)
   SELECT s.session_id,
          any(s.team_id),
@@ -298,14 +349,15 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
      and notEmpty(session_id)
      WHERE 1=1
-       AND 1 = 1
+       AND (1 = 1)
      GROUP BY session_id)
   SELECT s.session_id,
          any(s.team_id),
@@ -336,15 +388,16 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized.1
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
      and notEmpty(session_id)
      WHERE 1=1
-       AND 1 = 1
-       AND (has(['Chrome'], "mat_$browser"))
+       AND (1 = 1
+            AND (has(['Chrome'], "mat_$browser")))
      GROUP BY session_id)
   SELECT s.session_id,
          any(s.team_id),
@@ -375,15 +428,16 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized.2
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 08:00:00'
      and notEmpty(session_id)
      WHERE 1=1
-       AND 1 = 1
-       AND (has(['Firefox'], "mat_$browser"))
+       AND (1 = 1
+            AND (has(['Firefox'], "mat_$browser")))
      GROUP BY session_id)
   SELECT s.session_id,
          any(s.team_id),
@@ -851,16 +905,17 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview']
-       AND event = '$pageview'
-     GROUP BY session_id)
+       AND (event = '$pageview')
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -890,16 +945,17 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter.1
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$autocapture']
-       AND event = '$autocapture'
-     GROUP BY session_id)
+       AND (event = '$autocapture')
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$autocapture']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -929,16 +985,17 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_active_sessions
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview']
-       AND event = '$pageview'
-     GROUP BY session_id)
+       AND (event = '$pageview')
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -969,16 +1026,17 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_active_sessions.1
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview']
-       AND event = '$pageview'
-     GROUP BY session_id)
+       AND (event = '$pageview')
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -1076,16 +1134,17 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_matching_on_session_id
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview']
-       AND event = '$pageview'
-     GROUP BY session_id)
+       AND (event = '$pageview')
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -1115,16 +1174,17 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_matching_on_session_id.1
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$autocapture']
-       AND event = '$autocapture'
-     GROUP BY session_id)
+       AND (event = '$autocapture')
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$autocapture']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -1201,17 +1261,18 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview']
-       AND event = '$pageview'
-       AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
-     GROUP BY session_id)
+       AND (event = '$pageview'
+            AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -1241,17 +1302,18 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties.1
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview']
-       AND event = '$pageview'
-       AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
-     GROUP BY session_id)
+       AND (event = '$pageview'
+            AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -1281,17 +1343,18 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties_materialized
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview']
-       AND event = '$pageview'
-       AND (has(['Chrome'], "mat_$browser"))
-     GROUP BY session_id)
+       AND (event = '$pageview'
+            AND (has(['Chrome'], "mat_$browser")))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -1321,17 +1384,18 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties_materialized.1
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview']
-       AND event = '$pageview'
-       AND (has(['Firefox'], "mat_$browser"))
-     GROUP BY session_id)
+       AND (event = '$pageview'
+            AND (has(['Firefox'], "mat_$browser")))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -1361,16 +1425,18 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_multiple_event_filters
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview', 'new-event']
-       AND event = 'new-event'
-     GROUP BY session_id)
+       AND (event = '$pageview')
+       OR (event = 'new-event')
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview', 'new-event']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
@@ -1400,16 +1466,18 @@
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_multiple_event_filters.1
   '
   WITH events_session_ids AS
-    (SELECT groupArray(uuid) as event_ids,
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
             `$session_id` as session_id
      FROM events PREWHERE team_id = 2
      AND timestamp >= '2020-12-24 12:00:00'
      AND timestamp <= '2021-01-02 01:46:23'
      and notEmpty(session_id)
      WHERE 1=1
-       AND event IN ['$pageview', 'new-event2']
-       AND event = 'new-event2'
-     GROUP BY session_id)
+       AND (event = '$pageview')
+       OR (event = 'new-event2')
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview', 'new-event2']))
   SELECT s.session_id,
          any(s.team_id),
          any(s.distinct_id),
