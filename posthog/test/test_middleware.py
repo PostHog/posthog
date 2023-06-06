@@ -1,6 +1,4 @@
-from django.conf import settings
 from rest_framework import status
-from posthog.cloud_utils import is_cloud
 
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
