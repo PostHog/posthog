@@ -1394,21 +1394,21 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         my_custom_event_session_id = f"my-custom-event-session-{str(uuid4())}"
         non_matching__event_session_id = f"non-matching-event-session-{str(uuid4())}"
 
-        self.create_event(
+        chrome_pageview_event = self.create_event(
             "user",
             self.base_time,
             properties={"$browser": "Chrome", "$session_id": page_view_session_id, "$window_id": "1"},
             event_name="$pageview",
         )
 
-        self.create_event(
+        chrome_custom_event = self.create_event(
             "user",
             self.base_time,
             properties={"$browser": "Chrome", "$session_id": my_custom_event_session_id, "$window_id": "1"},
             event_name="my-custom-event",
         )
 
-        self.create_event(
+        safari_non_matching_event = self.create_event(
             "user",
             self.base_time,
             properties={"$browser": "Safari", "$session_id": non_matching__event_session_id, "$window_id": "1"},
@@ -1452,9 +1452,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
 
-        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
-            [non_matching__event_session_id, my_custom_event_session_id, page_view_session_id]
-        )
+        assert sorted(
+            [(sr["session_id"], [str(ei) for ei in sr["matching_events"]]) for sr in session_recordings],
+            key=lambda x: x[0],
+        ) == [
+            (my_custom_event_session_id, [chrome_custom_event]),
+            (non_matching__event_session_id, [safari_non_matching_event]),
+            (page_view_session_id, [chrome_pageview_event]),
+        ]
 
         filter = SessionRecordingsFilter(
             team=self.team,
@@ -1474,9 +1479,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
 
-        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
-            [my_custom_event_session_id, page_view_session_id]
-        )
+        assert sorted(
+            [(sr["session_id"], [str(ei) for ei in sr["matching_events"]]) for sr in session_recordings],
+            key=lambda x: x[0],
+        ) == [
+            (my_custom_event_session_id, [chrome_custom_event]),
+            (page_view_session_id, [chrome_pageview_event]),
+        ]
 
         filter = SessionRecordingsFilter(
             team=self.team,

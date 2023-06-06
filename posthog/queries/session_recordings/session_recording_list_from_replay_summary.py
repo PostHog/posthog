@@ -15,8 +15,7 @@ class SummaryEventFiltersSQL:
 
 
 class SessionRecordingListFromReplaySummary(SessionRecordingList):
-    # no longer need to return matching events or segments
-    # so based on the filter we can find session ids for the matched events
+    # Based on the filter we can find session ids for the matched events
     # then load sessions for those ids from the replay table
     # The SessionRecordingList interface is to have a run method
     # run implicitly calls get_query
@@ -50,28 +49,30 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
     _session_recordings_base_query: str = """
     SELECT
-       session_id,
-       any(team_id),
-       any(distinct_id),
-       min(min_first_timestamp) as start_time,
-       max(max_last_timestamp) as end_time,
+       s.session_id,
+       any(s.team_id),
+       any(s.distinct_id),
+       min(s.min_first_timestamp) as start_time,
+       max(s.max_last_timestamp) as end_time,
        dateDiff('SECOND', start_time, end_time) as duration,
-       argMinMerge(first_url) as first_url,
-       sum(click_count),
-       sum(keypress_count),
-       sum(mouse_activity_count),
-       sum(active_milliseconds)/1000 as active_seconds,
+       argMinMerge(s.first_url) as first_url,
+       sum(s.click_count),
+       sum(s.keypress_count),
+       sum(s.mouse_activity_count),
+       sum(s.active_milliseconds)/1000 as active_seconds,
        duration-active_seconds as inactive_seconds
-    FROM session_replay_events
-    PREWHERE team_id = %(team_id)s
+       {event_ids_selector}
+    FROM session_replay_events s
+    {events_join_clause}
+    PREWHERE s.team_id = %(team_id)s
         -- regardless of what other filters are applied
         -- limit by storage TTL
-        AND min_first_timestamp >= %(clamped_to_storage_ttl)s
+        AND s.min_first_timestamp >= %(clamped_to_storage_ttl)s
          -- we can filter on the pre-aggregated timestamp columns
         -- because any not-the-lowest min value is _more_ greater than the min value
         -- and any not-the-highest max value is _less_ lower than the max value
-        AND min_first_timestamp >= %(start_time)s
-        AND max_last_timestamp <= %(end_time)s
+        AND s.min_first_timestamp >= %(start_time)s
+        AND s.max_last_timestamp <= %(end_time)s
     """
 
     _session_recordings_query: str = """
@@ -94,18 +95,17 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         WITH {person_cte}
         events_session_ids AS (
             SELECT
-                distinct `$session_id` as session_id
+                groupArray(uuid) as event_ids, `$session_id` as session_id
             FROM events
             PREWHERE
                 team_id = %(team_id)s
                 {events_timestamp_clause}
                 and notEmpty(session_id)
                 WHERE 1=1 {event_filter_where_conditions}
+            GROUP BY session_id
         )
         {session_recordings_base_query}
         -- these condition are in the prewhere from the base query
-        -- matches session ids from events CTE
-        AND session_id in (select session_id from events_session_ids)
         -- may need to match fixed session ids from the query filter
         {session_ids_clause}
         -- person cte is matched in a where clause
@@ -163,6 +163,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             "mouse_activity_count",
             "active_seconds",
             "inactive_seconds",
+            "matching_events",
         ]
 
         return [
@@ -223,7 +224,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                     person_cte=f"with {person_cte}" if person_cte else "",
                     person_cte_match_clause=person_cte_match_clause,
                     session_ids_clause=session_ids_clause,
-                    session_recordings_base_query=self._session_recordings_base_query,
+                    session_recordings_base_query=self._session_recordings_base_query.format(
+                        event_ids_selector="",
+                        events_join_clause="",
+                    ),
                 ),
                 {
                     **base_params,
@@ -244,7 +248,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 person_cte=f"{person_cte}," if person_cte else "",
                 person_cte_match_clause=person_cte_match_clause,
                 session_ids_clause=session_ids_clause,
-                session_recordings_base_query=self._session_recordings_base_query,
+                session_recordings_base_query=self._session_recordings_base_query.format(
+                    event_ids_selector=",any(e.event_ids) as matching_events",
+                    events_join_clause="JOIN events_session_ids e ON s.session_id = e.session_id",
+                ),
             ),
             {
                 **base_params,
