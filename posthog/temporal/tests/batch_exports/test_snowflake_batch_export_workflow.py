@@ -29,9 +29,6 @@ from requests.models import PreparedRequest
 import responses
 
 
-TEST_ROOT_BUCKET = "test-batch-exports"
-
-
 class EventValues(TypedDict):
     """Events to be inserted for testing."""
 
