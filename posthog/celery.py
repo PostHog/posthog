@@ -82,10 +82,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s()  # check twice a week
     )
 
-    if settings.ENABLE_DECIDE_BILLING_ANALYTICS:
-        # Every 30 minutes, send decide request counts to the main posthog instance
-        sender.add_periodic_task(30 * 60.0, calculate_decide_usage.s(), name="calculate decide usage")
-
     # Send all instance usage to the Billing service
     sender.add_periodic_task(crontab(hour=0, minute=0), send_org_usage_reports.s(), name="send instance usage report")
     # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
@@ -98,6 +94,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
         # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
+
+        if settings.ENABLE_DECIDE_BILLING_ANALYTICS:
+            # Every 30 minutes, send decide request counts to the main posthog instance
+            sender.add_periodic_task(crontab(minute="*/30"), calculate_decide_usage.s(), name="calculate decide usage")
 
     # if is_cloud() or settings.DEMO:
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
