@@ -7,7 +7,7 @@ import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, QueryContext } from '~/queries/schema'
-import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery } from '~/queries/utils'
+import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery, trimQuotes } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
@@ -77,7 +77,7 @@ export function renderColumn(
     } else if (key === 'timestamp' || key === 'created_at' || key === 'session_start' || key === 'session_end') {
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
-        const propertyKey = key.substring(11)
+        const propertyKey = trimQuotes(key.substring(11))
         if (setQuery && (isEventsQuery(query.source) || isPersonsNode(query.source)) && query.showPropertyFilter) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
@@ -123,7 +123,7 @@ export function renderColumn(
         return <Property value={record.properties[propertyKey]} />
     } else if (key.startsWith('person.properties.')) {
         const eventRecord = record as EventType
-        const propertyKey = key.substring(18)
+        const propertyKey = trimQuotes(key.substring(18))
         if (setQuery && isEventsQuery(query.source)) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
@@ -187,7 +187,7 @@ export function renderColumn(
         const personRecord = record as PersonType
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
-        const Component = context?.columns?.[key.substring(16)]?.render
+        const Component = context?.columns?.[trimQuotes(key.substring(16))]?.render
         return Component ? <Component record={record} /> : ''
     } else if (key === 'id' && isPersonsNode(query.source)) {
         return (
