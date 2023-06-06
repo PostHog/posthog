@@ -11,8 +11,9 @@ export function cleanLiveEventsColumns(columns: string[]): string[] {
         return columns.slice(1)
     }
     // legacy columns
-    return columns
-        .map((column) => {
+    return [
+        '*',
+        ...columns.map((column) => {
             if (column === 'event' || column === 'person') {
                 return column
             }
@@ -23,8 +24,9 @@ export function cleanLiveEventsColumns(columns: string[]): string[] {
                 return 'properties.$lib'
             }
             return `properties.${column}`
-        })
-        .concat(['timestamp'])
+        }),
+        'timestamp',
+    ]
 }
 
 export function getDefaultEventsQueryForTeam(team: Partial<TeamType>): EventsQuery | null {
