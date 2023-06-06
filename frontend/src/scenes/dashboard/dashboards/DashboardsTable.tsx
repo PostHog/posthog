@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
+import { AvailableFeature, DashboardBasicType, DashboardMode, DashboardType } from '~/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
@@ -32,7 +32,7 @@ export function DashboardsTableContainer(): JSX.Element {
 }
 
 interface DashboardsTableProps {
-    dashboards: DashboardType[]
+    dashboards: DashboardBasicType[]
     filters: DashboardsFilters
     dashboardsLoading: boolean
     extraActions?: JSX.Element | JSX.Element[]
