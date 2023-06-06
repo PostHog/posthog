@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from freezegun import freeze_time, configure  # type: ignore
+from freezegun import freeze_time, configure, config  # type: ignore
 from posthog.models.feature_flag.flag_analytics import increment_request_count, capture_team_decide_usage
 from posthog.test.base import BaseTest
 from posthog import redis
@@ -8,38 +8,25 @@ import datetime
 import concurrent.futures
 
 
-FREEZEGUN_DEFAULT_IGNORE_LIST = [
-    "nose.plugins",
-    "six.moves",
-    "django.utils.six.moves",
-    "google.gax",
-    "threading",
-    "Queue",
-    "selenium",
-    "_pytest.terminal.",
-    "_pytest.runner.",
-    "gi",
-]
-
-
 class TestFeatureFlagAnalytics(BaseTest):
     maxDiff = None
 
-    def setUp(self):
-
+    @classmethod
+    def setup_class(cls):
         # we want freezetime to apply to threads too.
         # However, the list can't be empty, so we need to add something.
         configure(default_ignore_list=["tensorflow"])
 
+    @classmethod
+    def teardown_class(cls):
+        config.reset_config()
+
+    def setUp(self):
         # delete all keys in redis
         r = redis.get_client()
         for key in r.scan_iter("*"):
             r.delete(key)
         return super().setUp()
-
-    def tearDown(self):
-        configure(default_ignore_list=FREEZEGUN_DEFAULT_IGNORE_LIST)
-        return super().tearDown()
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_increment_request_count_adds_requests_to_appropriate_buckets(self):
