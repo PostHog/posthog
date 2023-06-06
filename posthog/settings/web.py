@@ -89,10 +89,8 @@ MIDDLEWARE = [
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
     "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
+    "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
-
-if is_cloud():
-    MIDDLEWARE.append("posthog.middleware.PostHogTokenCookieMiddleware")
 
 
 if STATSD_HOST is not None:

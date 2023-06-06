@@ -21,6 +21,7 @@ from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
@@ -499,6 +500,9 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
 
     def process_response(self, request, response):
         response = super().process_response(request, response)
+
+        if not is_cloud():
+            return response
 
         # skip adding the cookie on API requests
         split_request_path = request.path.split("/")
