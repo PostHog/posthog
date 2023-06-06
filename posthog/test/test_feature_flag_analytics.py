@@ -7,20 +7,39 @@ from posthog import redis
 import datetime
 import concurrent.futures
 
-# we want freezetime to apply to threads too.
-# However, the list can't be empty, so we need to add something.
-configure(default_ignore_list=["tensorflow"])
+
+FREEZEGUN_DEFAULT_IGNORE_LIST = [
+    "nose.plugins",
+    "six.moves",
+    "django.utils.six.moves",
+    "google.gax",
+    "threading",
+    "Queue",
+    "selenium",
+    "_pytest.terminal.",
+    "_pytest.runner.",
+    "gi",
+]
 
 
 class TestFeatureFlagAnalytics(BaseTest):
     maxDiff = None
 
     def setUp(self):
+
+        # we want freezetime to apply to threads too.
+        # However, the list can't be empty, so we need to add something.
+        configure(default_ignore_list=["tensorflow"])
+
         # delete all keys in redis
         r = redis.get_client()
         for key in r.scan_iter("*"):
             r.delete(key)
         return super().setUp()
+
+    def tearDown(self):
+        configure(default_ignore_list=FREEZEGUN_DEFAULT_IGNORE_LIST)
+        return super().tearDown()
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_increment_request_count_adds_requests_to_appropriate_buckets(self):
