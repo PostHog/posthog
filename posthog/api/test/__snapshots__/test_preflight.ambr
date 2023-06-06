@@ -1,5 +1,17 @@
 # name: TestPreflight.test_cloud_preflight_limited_db_queries
   '
+  SELECT "ee_license"."id",
+         "ee_license"."created_at",
+         "ee_license"."plan",
+         "ee_license"."valid_until",
+         "ee_license"."key",
+         "ee_license"."max_users"
+  FROM "ee_license"
+  WHERE ""ee_license"."valid_until">='LICENSE-TIMESTAMP'::timestamptz"
+  '
+---
+# name: TestPreflight.test_cloud_preflight_limited_db_queries.1
+  '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -26,7 +38,7 @@
   LIMIT 21 /**/
   '
 ---
-# name: TestPreflight.test_cloud_preflight_limited_db_queries.1
+# name: TestPreflight.test_cloud_preflight_limited_db_queries.2
   '
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
