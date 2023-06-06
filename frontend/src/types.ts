@@ -1272,17 +1272,15 @@ export interface InsightModel extends Cacheable {
     query?: Node | null
 }
 
-export interface DashboardType {
+export interface DashboardBasicType {
     id: number
     name: string
     description: string
     pinned: boolean
-    tiles: DashboardTile[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
     deleted: boolean
-    filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
@@ -1297,6 +1295,11 @@ export interface DashboardTemplateListParams {
 }
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+
+export interface DashboardType extends DashboardBasicType {
+    tiles: DashboardTile[]
+    filters: Record<string, any>
+}
 
 export interface DashboardTemplateType {
     id: string

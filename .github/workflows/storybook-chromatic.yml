@@ -49,7 +49,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-latest-frontend
         timeout-minutes: 30
         container:
             image: mcr.microsoft.com/playwright:v1.29.2
@@ -191,7 +191,7 @@ jobs:
 
     visual-regression-summary:
         name: Summarize visual regression tests
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-latest-frontend
         timeout-minutes: 5
         needs: visual-regression
         if: always() # Run even if visual-regression fails for one (or more) of the browsers
