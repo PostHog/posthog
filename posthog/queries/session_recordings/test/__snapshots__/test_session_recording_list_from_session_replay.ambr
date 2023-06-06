@@ -500,6 +500,7 @@
          sum(active_milliseconds)/1000 as active_seconds,
          duration-active_seconds as inactive_seconds
   FROM session_replay_events PREWHERE team_id = 2
+  AND min_first_timestamp >= '2020-12-11 13:46:23'
   AND min_first_timestamp >= '2020-12-25 00:00:00'
   AND max_last_timestamp <= '2021-01-01 13:46:23'
   WHERE 1=1
@@ -659,7 +660,8 @@
          sum(click_count),
          sum(keypress_count),
          sum(mouse_activity_count),
-         sum(active_milliseconds)/1000 as active_seconds
+         sum(active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2020-12-11 12:46:00'
   AND min_first_timestamp >= '2020-12-12 00:00:00'
@@ -685,7 +687,8 @@
          sum(click_count),
          sum(keypress_count),
          sum(mouse_activity_count),
-         sum(active_milliseconds)/1000 as active_seconds
+         sum(active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2020-12-11 12:46:00'
   AND min_first_timestamp >= '2020-12-11 00:00:00'
@@ -711,7 +714,8 @@
          sum(click_count),
          sum(keypress_count),
          sum(mouse_activity_count),
-         sum(active_milliseconds)/1000 as active_seconds
+         sum(active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds
   FROM session_replay_events PREWHERE team_id = 2
   AND min_first_timestamp >= '2020-12-11 12:46:00'
   AND min_first_timestamp >= '2020-12-10 00:00:00'
