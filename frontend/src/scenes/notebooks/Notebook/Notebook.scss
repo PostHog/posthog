@@ -68,3 +68,12 @@
         margin-right: auto;
     }
 }
+
+.NotebookFloatingButton {
+    .LemonButton {
+        border-radius: 1rem;
+        min-height: 0.25rem;
+        padding: 0.25rem !important; // NOTE - yuck
+        transform: translate3d(-150%, 0, 0);
+    }
+}

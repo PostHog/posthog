@@ -1,7 +1,7 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 const HEIGHT = 'calc(100vh - 20rem)'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const [filters, setFilters] = useJsonNodeState(props, 'filters')
+    const [filters, setFilters] = useJsonNodeState<RecordingFilters>(props, 'filters')
 
     const playerKey = useRef(`notebook-${uuid()}`).current
 

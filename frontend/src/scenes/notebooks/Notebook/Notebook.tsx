@@ -1,4 +1,4 @@
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEditor, EditorContent, FloatingMenu } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionDocument from '@tiptap/extension-document'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
@@ -22,6 +22,8 @@ import { notebookSettingsLogic } from './notebookSettingsLogic'
 import posthog from 'posthog-js'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconPlus } from 'lib/lemon-ui/icons'
 
 export type NotebookProps = {
     shortId: string
@@ -161,36 +163,11 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
             <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
-                {/* {editor && (
-                <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex items-center gap-2">
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-query />').run()}
-                    >
-                        Query
-                    </LemonButton>
-
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-playlist />').run()}
-                    >
-                        Recordings
-                    </LemonButton>
-
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-embed />').run()}
-                    >
-                        Embed
-                    </LemonButton>
-                </FloatingMenu>
-            )} */}
+                {_editor && (
+                    <FloatingMenu editor={_editor} tippyOptions={{ duration: 100 }} className="NotebookFloatingButton">
+                        <LemonButton size="small" onClick={() => alert('Coming soon!')} icon={<IconPlus />} />
+                    </FloatingMenu>
+                )}
                 {!notebook && notebookLoading ? (
                     <div className="space-y-4 px-8 py-4">
                         <LemonSkeleton className="w-1/2 h-8" />
