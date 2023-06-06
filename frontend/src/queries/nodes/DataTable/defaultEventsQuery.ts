@@ -11,18 +11,20 @@ export function cleanLiveEventsColumns(columns: string[]): string[] {
         return columns.slice(1)
     }
     // legacy columns
-    return columns.map((column) => {
-        if (column === 'event' || column === 'person') {
-            return column
-        }
-        if (column === 'url') {
-            return 'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen'
-        }
-        if (column === 'source') {
-            return 'properties.$lib'
-        }
-        return `properties.${column}`
-    })
+    return columns
+        .map((column) => {
+            if (column === 'event' || column === 'person') {
+                return column
+            }
+            if (column === 'url') {
+                return 'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen'
+            }
+            if (column === 'source') {
+                return 'properties.$lib'
+            }
+            return `properties.${column}`
+        })
+        .concat(['timestamp'])
 }
 
 export function getDefaultEventsQueryForTeam(team: Partial<TeamType>): EventsQuery | null {
