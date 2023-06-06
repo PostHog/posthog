@@ -4,7 +4,7 @@ from typing import Dict, List
 from unittest.mock import MagicMock, call, patch
 
 from django.test.utils import CaptureQueriesContext
-from freezegun import freeze_time
+from freezegun import freeze_time, config  #  type: ignore
 
 from posthog.models import EventDefinition, EventProperty, Insight, Organization, PropertyDefinition, Team
 from posthog.tasks.calculate_event_property_usage import (
@@ -19,6 +19,13 @@ from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        # https://github.com/PostHog/posthog/blob/master/posthog/test/test_feature_flag_analytics.py -> this file adds
+        # a config option to ignore threading module, which _should_ restrict only to the test file, but it somehow doesn't.
+        # This option ensures things work as expected.
+        config.reset_config()
+        return super().setUp()
+
     def test_updating_team_events_or_related_updates_event_definitions(self) -> None:
         random.seed(900)  # ensure random data is consistent
 
