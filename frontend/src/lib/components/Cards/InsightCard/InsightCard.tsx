@@ -151,32 +151,6 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     placement: DashboardPlacement | 'SavedInsightGrid'
 }
 
-export interface InsightMetaProps
-    extends Pick<
-        InsightCardProps,
-        | 'insight'
-        | 'ribbonColor'
-        | 'updateColor'
-        | 'removeFromDashboard'
-        | 'deleteWithUndo'
-        | 'refresh'
-        | 'rename'
-        | 'duplicate'
-        | 'dashboardId'
-        | 'moveToDashboard'
-        | 'showEditingControls'
-        | 'showDetailsControls'
-        | 'moreButtons'
-    > {
-    /**
-     * Optional callback to update height of the primary InsightMeta div. Allow for coordinating InsightViz height
-     * with InsightMeta in a way that makes it possible for meta to overlay viz in expanded (InsightDetails) state.
-     */
-    setPrimaryHeight?: (primaryHeight: number | undefined) => void
-    areDetailsShown?: boolean
-    setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
-}
-
 function VizComponentFallback(): JSX.Element {
     return <LemonBanner type="warning">Unknown insight display type</LemonBanner>
 }

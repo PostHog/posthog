@@ -24,7 +24,33 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { InsightMetaProps } from './InsightCard'
+import { InsightCardProps } from './InsightCard'
+
+interface InsightMetaProps
+    extends Pick<
+        InsightCardProps,
+        | 'insight'
+        | 'ribbonColor'
+        | 'updateColor'
+        | 'removeFromDashboard'
+        | 'deleteWithUndo'
+        | 'refresh'
+        | 'rename'
+        | 'duplicate'
+        | 'dashboardId'
+        | 'moveToDashboard'
+        | 'showEditingControls'
+        | 'showDetailsControls'
+        | 'moreButtons'
+    > {
+    /**
+     * Optional callback to update height of the primary InsightMeta div. Allow for coordinating InsightViz height
+     * with InsightMeta in a way that makes it possible for meta to overlay viz in expanded (InsightDetails) state.
+     */
+    setPrimaryHeight?: (primaryHeight: number | undefined) => void
+    areDetailsShown?: boolean
+    setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+}
 
 export function InsightMeta({
     insight,
