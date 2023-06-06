@@ -20,6 +20,10 @@ export function DurationTypeSelect({ onChange, value }: DurationTypeFilterProps)
                     label: 'active duration',
                     value: 'active_seconds',
                 },
+                {
+                    label: 'inactive duration',
+                    value: 'inactive_seconds',
+                },
             ]}
             size="small"
             value={value || 'duration'}
