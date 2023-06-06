@@ -1,6 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { BindLogic, useValues } from 'kea'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import {
@@ -11,44 +10,29 @@ import {
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { urls } from 'scenes/urls'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     ChartDisplayType,
     ChartParams,
     DashboardPlacement,
     DashboardTile,
     DashboardType,
-    ExporterFormat,
     FilterType,
     InsightColor,
     InsightLogicProps,
     InsightModel,
     InsightType,
 } from '~/types'
-import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Link } from 'lib/lemon-ui/Link'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
-import { InsightDetails } from './InsightDetails'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityIndicator'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import {
@@ -58,16 +42,11 @@ import {
     isRetentionFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { Query } from '~/queries/Query/Query'
-import { PieChartFilled } from '@ant-design/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { QueryContext } from '~/queries/schema'
+import { InsightMeta } from './InsightMeta'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -172,7 +151,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     placement: DashboardPlacement | 'SavedInsightGrid'
 }
 
-interface InsightMetaProps
+export interface InsightMetaProps
     extends Pick<
         InsightCardProps,
         | 'insight'
@@ -196,222 +175,6 @@ interface InsightMetaProps
     setPrimaryHeight?: (primaryHeight: number | undefined) => void
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
-}
-
-function InsightMeta({
-    insight,
-    ribbonColor,
-    dashboardId,
-    updateColor,
-    removeFromDashboard,
-    deleteWithUndo,
-    refresh,
-    rename,
-    duplicate,
-    moveToDashboard,
-    setPrimaryHeight,
-    areDetailsShown,
-    setAreDetailsShown,
-    showEditingControls = true,
-    showDetailsControls = true,
-    moreButtons,
-}: InsightMetaProps): JSX.Element {
-    const { short_id, name, dashboards } = insight
-    const { exporterResourceParams, insightProps } = useValues(insightLogic)
-    const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
-        (d: DashboardType) => !dashboards?.includes(d.id)
-    )
-    const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
-
-    // not all interactions are currently implemented for queries
-    const allInteractionsAllowed = !insight.query
-
-    const summary = summarizeInsight(insight.query, insight.filters, {
-        aggregationLabel,
-        cohortsById,
-        mathDefinitions,
-        isUsingDashboardQueries: !!featureFlags[FEATURE_FLAGS.HOGQL],
-    })
-
-    return (
-        <CardMeta
-            setPrimaryHeight={setPrimaryHeight}
-            ribbonColor={ribbonColor}
-            showEditingControls={showEditingControls}
-            showDetailsControls={showDetailsControls}
-            setAreDetailsShown={setAreDetailsShown}
-            areDetailsShown={areDetailsShown}
-            className={'border-b'}
-            topHeading={<TopHeading insight={insight} />}
-            meta={
-                <>
-                    <Link to={urls.insightView(short_id)}>
-                        <h4 title={name} data-attr="insight-card-title">
-                            {name || <i>{summary}</i>}
-                        </h4>
-                    </Link>
-
-                    {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
-                    {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
-                    <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
-                </>
-            }
-            metaDetails={<InsightDetails insight={insight} />}
-            samplingNotice={
-                insight.filters.sampling_factor && insight.filters.sampling_factor < 1 ? (
-                    <Tooltip title={`Results calculated from ${100 * insight.filters.sampling_factor}% of users`}>
-                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-light)' }} />
-                    </Tooltip>
-                ) : null
-            }
-            moreButtons={
-                <>
-                    {allInteractionsAllowed && (
-                        <>
-                            <LemonButton status="stealth" to={urls.insightView(short_id)} fullWidth>
-                                View
-                            </LemonButton>
-                            {refresh && (
-                                <LemonButton
-                                    status="stealth"
-                                    onClick={() => {
-                                        refresh()
-                                        reportDashboardItemRefreshed(insight)
-                                    }}
-                                    fullWidth
-                                >
-                                    Refresh
-                                </LemonButton>
-                            )}
-                        </>
-                    )}
-                    {editable && updateColor && (
-                        <LemonButtonWithDropdown
-                            status="stealth"
-                            dropdown={{
-                                overlay: Object.values(InsightColor).map((availableColor) => (
-                                    <LemonButton
-                                        key={availableColor}
-                                        active={availableColor === (ribbonColor || InsightColor.White)}
-                                        status="stealth"
-                                        onClick={() => updateColor(availableColor)}
-                                        icon={
-                                            availableColor !== InsightColor.White ? (
-                                                <Splotch color={availableColor as string as SplotchColor} />
-                                            ) : null
-                                        }
-                                        fullWidth
-                                    >
-                                        {availableColor !== InsightColor.White
-                                            ? capitalizeFirstLetter(availableColor)
-                                            : 'No color'}
-                                    </LemonButton>
-                                )),
-                                placement: 'right-start',
-                                fallbackPlacements: ['left-start'],
-                                actionable: true,
-                                closeParentPopoverOnClickInside: true,
-                            }}
-                            fullWidth
-                        >
-                            Set color
-                        </LemonButtonWithDropdown>
-                    )}
-                    {editable && moveToDashboard && otherDashboards.length > 0 && (
-                        <LemonButtonWithDropdown
-                            status="stealth"
-                            dropdown={{
-                                overlay: otherDashboards.map((otherDashboard) => (
-                                    <LemonButton
-                                        key={otherDashboard.id}
-                                        status="stealth"
-                                        onClick={() => {
-                                            moveToDashboard(otherDashboard)
-                                        }}
-                                        fullWidth
-                                    >
-                                        {otherDashboard.name || <i>Untitled</i>}
-                                    </LemonButton>
-                                )),
-                                placement: 'right-start',
-                                fallbackPlacements: ['left-start'],
-                                actionable: true,
-                                closeParentPopoverOnClickInside: true,
-                            }}
-                            fullWidth
-                        >
-                            Move to
-                        </LemonButtonWithDropdown>
-                    )}
-                    <LemonDivider />
-                    {editable && allInteractionsAllowed && (
-                        <LemonButton status="stealth" to={urls.insightEdit(short_id)} fullWidth>
-                            Edit
-                        </LemonButton>
-                    )}
-                    {editable && (
-                        <LemonButton status="stealth" onClick={rename} fullWidth>
-                            Rename
-                        </LemonButton>
-                    )}
-                    <LemonButton
-                        status="stealth"
-                        onClick={duplicate}
-                        fullWidth
-                        data-attr={
-                            dashboardId ? 'duplicate-insight-from-dashboard' : 'duplicate-insight-from-card-list-view'
-                        }
-                    >
-                        Duplicate
-                    </LemonButton>
-                    <LemonDivider />
-                    {exporterResourceParams ? (
-                        <ExportButton
-                            fullWidth
-                            items={[
-                                {
-                                    export_format: ExporterFormat.PNG,
-                                    insight: insight.id,
-                                    dashboard: insightProps.dashboardId,
-                                },
-                                {
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: exporterResourceParams,
-                                },
-                            ]}
-                        />
-                    ) : null}
-                    {moreButtons && (
-                        <>
-                            <LemonDivider />
-                            {moreButtons}
-                        </>
-                    )}
-                    {editable && (
-                        <>
-                            <LemonDivider />
-                            {removeFromDashboard ? (
-                                <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
-                                    Remove from dashboard
-                                </LemonButton>
-                            ) : allInteractionsAllowed ? (
-                                <LemonButton status="danger" onClick={deleteWithUndo} fullWidth>
-                                    Delete insight
-                                </LemonButton>
-                            ) : null}
-                        </>
-                    )}
-                </>
-            }
-        />
-    )
 }
 
 function VizComponentFallback(): JSX.Element {
