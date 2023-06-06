@@ -21,16 +21,19 @@ const DEFAULT_QUERY: QuerySchema = {
     expandable: false,
 }
 
+const HEIGHT = 500
+
 const Component = (props: NodeViewProps): JSX.Element => {
     const [query, setQuery] = useJsonNodeState(props, 'query')
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
 
+    // We don't want to show the insights button for now
     query.showOpenEditorButton = false
 
     return (
-        <NodeWrapper nodeType={NotebookNodeType.Query} title="Query" {...props}>
-            <div style={{ height: 500 }}>
+        <NodeWrapper nodeType={NotebookNodeType.Query} title="Query" heightEstimate={HEIGHT} {...props}>
+            <div style={{ height: HEIGHT }}>
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <Query query={query} setQuery={(t) => setQuery(t as any)} />
                 </BindLogic>

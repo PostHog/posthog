@@ -106,7 +106,7 @@ export function NotebooksTable(): JSX.Element {
                 rowKey="short_id"
                 columns={columns}
                 loading={notebooksLoading}
-                defaultSorting={{ columnKey: 'title', order: 1 }}
+                defaultSorting={{ columnKey: '-created_at', order: 1 }}
                 emptyState={`No notebooks matching your filters!`}
                 nouns={['notebook', 'notebooks']}
             />

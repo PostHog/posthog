@@ -58,6 +58,15 @@ export class HedgehogActor {
 
     setupKeyboardListeners(): () => void {
         const keyDownListener = (e: KeyboardEvent): void => {
+            // Ignore typing on inputs (default behavior); except Esc key
+
+            const isDOMInput =
+                ['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase()) ||
+                (e.target as HTMLElement).isContentEditable
+            if (isDOMInput) {
+                return
+            }
+
             const key = e.key.toLowerCase()
             if ([' ', 'w', 'arrowup'].includes(key)) {
                 this.jump()
