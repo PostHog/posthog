@@ -40,6 +40,7 @@ export enum NodeKind {
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
+    HogQLMetadata = 'HogQLMetadata',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -66,7 +67,14 @@ export enum NodeKind {
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
 
-export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
+export type AnyDataNode =
+    | EventsNode
+    | EventsQuery
+    | ActionsNode
+    | PersonsNode
+    | HogQLQuery
+    | HogQLMetadata
+    | TimeToSeeDataSessionsQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -98,7 +106,12 @@ export interface Node {
 
 // Data nodes
 
-export type AnyResponseType = Record<string, any> | HogQLQueryResponse | EventsNode['response'] | EventsQueryResponse
+export type AnyResponseType =
+    | Record<string, any>
+    | HogQLQueryResponse
+    | HogQLMetadataResponse
+    | EventsNode['response']
+    | EventsQueryResponse
 
 export interface DataNode extends Node {
     /** Cached query response */
@@ -119,6 +132,23 @@ export interface HogQLQuery extends DataNode {
     query: string
     response?: HogQLQueryResponse
 }
+
+export interface HogQLMetadataResponse {
+    inputExpr?: string
+    inputSelect?: string
+    isValid?: boolean
+    error?: string
+    errorStart?: number
+    errorEnd?: number
+}
+
+export interface HogQLMetadata extends DataNode {
+    kind: NodeKind.HogQLMetadata
+    expr?: string
+    select?: string
+    response?: HogQLMetadataResponse
+}
+
 export interface EntityNode extends DataNode {
     name?: string
     custom_name?: string
