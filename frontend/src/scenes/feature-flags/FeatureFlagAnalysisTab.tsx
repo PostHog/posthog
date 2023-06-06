@@ -7,56 +7,54 @@ import { FeatureFlagType } from '~/types'
 import { featureFlagLogic } from './featureFlagLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 
 export function AnalysisTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
     return (
         <div className="NewDashboardModal">
-            {featureFlag.dashboards && featureFlag.dashboards.length > 0 ? (
-                <FeatureFlagDashboardsTableContainer featureFlag={featureFlag} />
-            ) : (
-                featureFlag.id && (
-                    <>
-                        <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id} />
-                        <NewDashboardModal featureFlag={featureFlag} />
-                    </>
-                )
-            )}
+            <BindLogic logic={newDashboardLogic} props={{ featureFlagId: featureFlag.id as number }}>
+                {featureFlag.dashboards && featureFlag.dashboards.length > 0 ? (
+                    <FeatureFlagDashboardsTableContainer />
+                ) : (
+                    featureFlag.id && (
+                        <>
+                            <DashboardTemplateChooser scope="feature_flag" />
+                            <NewDashboardModal />
+                        </>
+                    )
+                )}
+            </BindLogic>
         </div>
     )
 }
 
-function FeatureFlagDashboardsTableContainer({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+function FeatureFlagDashboardsTableContainer(): JSX.Element {
     const { filteredDashboards } = useValues(featureFlagLogic)
-    const _newDashboardLogic = newDashboardLogic({ featureFlagId: featureFlag.id as number })
-    const { showNewDashboardModal } = useActions(_newDashboardLogic)
+    const { showNewDashboardModal } = useActions(newDashboardLogic)
 
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { filters } = useValues(dashboardsLogic)
 
     return (
         <>
-            <BindLogic logic={deleteDashboardLogic} props={{ featureFlagId: featureFlag.id as number }}>
-                <DashboardsTable
-                    extraActions={
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    showNewDashboardModal()
-                                }}
-                            >
-                                New Dashboard
-                            </LemonButton>
-                        </div>
-                    }
-                    hideActions={true}
-                    dashboards={filteredDashboards}
-                    dashboardsLoading={dashboardsLoading}
-                    filters={filters}
-                />
-            </BindLogic>
-            <NewDashboardModal featureFlag={featureFlag} />
+            <DashboardsTable
+                extraActions={
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                showNewDashboardModal()
+                            }}
+                        >
+                            New Dashboard
+                        </LemonButton>
+                    </div>
+                }
+                hideActions={true}
+                dashboards={filteredDashboards}
+                dashboardsLoading={dashboardsLoading}
+                filters={filters}
+            />
+            <NewDashboardModal />
         </>
     )
 }

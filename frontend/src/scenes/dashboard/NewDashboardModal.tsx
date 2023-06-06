@@ -5,7 +5,7 @@ import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/d
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
-import { DashboardTemplateScope, DashboardTemplateType, FeatureFlagType } from '~/types'
+import { DashboardTemplateScope, DashboardTemplateType } from '~/types'
 import { useState } from 'react'
 
 import { pluralize } from 'lib/utils'
@@ -52,20 +52,23 @@ function TemplateItem({
     )
 }
 
-export function DashboardTemplatePreview({ featureFlagId }: { featureFlagId?: number }): JSX.Element {
-    const _newDashboardLogic = newDashboardLogic({ featureFlagId })
-    const { activeDashboardTemplate } = useValues(_newDashboardLogic)
+export function DashboardTemplatePreview(): JSX.Element {
+    const { activeDashboardTemplate, variableSelectModalVisible } = useValues(newDashboardLogic)
     const { variables } = useValues(dashboardTemplateVariablesLogic)
-    const { createDashboardFromTemplate, clearActiveDashboardTemplate } = useActions(_newDashboardLogic)
+    const { createDashboardFromTemplate, clearActiveDashboardTemplate } = useActions(newDashboardLogic)
 
     return (
         <div>
-            <DashboardTemplateVariables featureFlagId={featureFlagId} />
+            <DashboardTemplateVariables />
 
             <div className="flex justify-between my-4">
-                <LemonButton onClick={clearActiveDashboardTemplate} type="secondary">
-                    Back
-                </LemonButton>
+                {variableSelectModalVisible ? (
+                    <div />
+                ) : (
+                    <LemonButton onClick={clearActiveDashboardTemplate} type="secondary">
+                        Back
+                    </LemonButton>
+                )}
                 <LemonButton
                     onClick={() => {
                         activeDashboardTemplate && createDashboardFromTemplate(activeDashboardTemplate, variables)
@@ -81,25 +84,20 @@ export function DashboardTemplatePreview({ featureFlagId }: { featureFlagId?: nu
 
 interface DashboardTemplateChooserProps {
     scope?: DashboardTemplateScope
-    featureFlagId?: number
 }
 
-export function DashboardTemplateChooser({
-    scope = 'global',
-    featureFlagId,
-}: DashboardTemplateChooserProps): JSX.Element {
+export function DashboardTemplateChooser({ scope = 'global' }: DashboardTemplateChooserProps): JSX.Element {
     const templatesLogic = dashboardTemplatesLogic({ scope })
     const { allTemplates } = useValues(templatesLogic)
 
-    const _newDashboardLogic = newDashboardLogic({ featureFlagId })
-    const { isLoading, newDashboardModalVisible } = useValues(_newDashboardLogic)
+    const { isLoading, newDashboardModalVisible } = useValues(newDashboardLogic)
     const {
         setActiveDashboardTemplate,
         createDashboardFromTemplate,
         addDashboard,
         setIsLoading,
-        setNewDashboardModalVisible,
-    } = useActions(_newDashboardLogic)
+        showVariableSelectModal,
+    } = useActions(newDashboardLogic)
 
     return (
         <div>
@@ -141,10 +139,10 @@ export function DashboardTemplateChooser({
                                 createDashboardFromTemplate(template, template.variables || [])
                             } else {
                                 if (!newDashboardModalVisible) {
-                                    setNewDashboardModalVisible()
+                                    showVariableSelectModal(template)
+                                } else {
+                                    setActiveDashboardTemplate(template)
                                 }
-
-                                setActiveDashboardTemplate(template)
                             }
                         }}
                         index={index + 1}
@@ -157,25 +155,14 @@ export function DashboardTemplateChooser({
     )
 }
 
-export function NewDashboardModal({ featureFlag }: { featureFlag?: FeatureFlagType }): JSX.Element {
-    const _newDashboardLogic = featureFlag
-        ? newDashboardLogic({ featureFlagId: featureFlag.id as number })
-        : newDashboardLogic
-    const { hideNewDashboardModal } = useActions(_newDashboardLogic)
-    const { newDashboardModalVisible } = useValues(_newDashboardLogic)
+export function NewDashboardModal(): JSX.Element {
+    const { hideNewDashboardModal } = useActions(newDashboardLogic)
+    const { newDashboardModalVisible, activeDashboardTemplate, isFeatureFlagDashboard } = useValues(newDashboardLogic)
 
-    const { activeDashboardTemplate } = useValues(_newDashboardLogic)
-
-    const _dashboardTemplateChooser = featureFlag ? (
-        <DashboardTemplateChooser scope="feature_flag" featureFlagId={featureFlag.id as number} />
+    const _dashboardTemplateChooser = isFeatureFlagDashboard ? (
+        <DashboardTemplateChooser scope="feature_flag" />
     ) : (
         <DashboardTemplateChooser />
-    )
-
-    const _dashboardTemplatePreview = featureFlag ? (
-        <DashboardTemplatePreview featureFlagId={featureFlag.id as number} />
-    ) : (
-        <DashboardTemplatePreview />
     )
 
     return (
@@ -195,7 +182,7 @@ export function NewDashboardModal({ featureFlag }: { featureFlag?: FeatureFlagTy
             }
         >
             <div className="NewDashboardModal">
-                {activeDashboardTemplate ? _dashboardTemplatePreview : _dashboardTemplateChooser}
+                {activeDashboardTemplate ? <DashboardTemplatePreview /> : _dashboardTemplateChooser}
             </div>
         </LemonModal>
     )

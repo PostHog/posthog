@@ -49,7 +49,7 @@ def create_starter_template(apps, schema_editor):
                 "id": "ENGAGEMENT",
                 "name": "Engagement",
                 "type": "event",
-                "default": {},
+                "default": {"name": "$pageview"},
                 "required": True,
                 "description": "The event you use to define a user using the new feature",
             }

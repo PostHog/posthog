@@ -1,4 +1,4 @@
-import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { DashboardTemplateType, DashboardType, DashboardTemplateVariableType, DashboardTile, JsonType } from '~/types'
@@ -68,7 +68,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         showNewDashboardModal: true,
-        setNewDashboardModalVisible: true,
+        showVariableSelectModal: (template: DashboardTemplateType) => ({ template }),
         hideNewDashboardModal: true,
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
@@ -93,7 +93,14 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             false,
             {
                 showNewDashboardModal: () => true,
-                setNewDashboardModalVisible: () => true,
+                showVariableSelectModal: () => true,
+                hideNewDashboardModal: () => false,
+            },
+        ],
+        variableSelectModalVisible: [
+            false,
+            {
+                showVariableSelectModal: () => true,
                 hideNewDashboardModal: () => false,
             },
         ],
@@ -142,6 +149,9 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             },
         },
     })),
+    selectors(({ props }) => ({
+        isFeatureFlagDashboard: [() => [], () => props.featureFlagId],
+    })),
     listeners(({ actions }) => ({
         addDashboard: ({ form }) => {
             actions.resetNewDashboard()
@@ -179,6 +189,9 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 }
             }
             actions.setIsLoading(false)
+        },
+        showVariableSelectModal: ({ template }) => {
+            actions.setActiveDashboardTemplate(template)
         },
     })),
 ])
