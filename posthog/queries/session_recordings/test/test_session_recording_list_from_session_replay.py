@@ -151,7 +151,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             },
         ]
 
-        self.assertEqual(more_recordings_available, False)
+        assert more_recordings_available is False
 
     @snapshot_clickhouse_queries
     def test_basic_query_active_sessions(
@@ -562,7 +562,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_id_one
-        assert [str(me) for me in session_recordings[0]["matching_events"]] == [the_event]
+        assert session_recordings[0]["matching_events"] == [UUID(the_event)]
 
         filter = SessionRecordingsFilter(
             team=self.team,
@@ -628,9 +628,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
         assert [
-            (s["session_id"], s["duration"], s["active_seconds"], [str(me) for me in s["matching_events"]])
-            for s in session_recordings
-        ] == [(session_id_total_is_61, 61, 59.0, [session_id_total_is_61_event])]
+            (s["session_id"], s["duration"], s["active_seconds"], s["matching_events"]) for s in session_recordings
+        ] == [(session_id_total_is_61, 61, 59.0, [UUID(session_id_total_is_61_event)])]
 
         filter = SessionRecordingsFilter(
             team=self.team,
@@ -644,9 +643,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
         assert [
-            (s["session_id"], s["duration"], s["active_seconds"], [str(me) for me in s["matching_events"]])
-            for s in session_recordings
-        ] == [(session_id_active_is_61, 59, 61.0, [session_id_active_is_61_event])]
+            (s["session_id"], s["duration"], s["active_seconds"], s["matching_events"]) for s in session_recordings
+        ] == [(session_id_active_is_61, 59, 61.0, [UUID(session_id_active_is_61_event)])]
 
     @also_test_with_materialized_columns(["$current_url", "$browser"])
     @snapshot_clickhouse_queries
@@ -689,7 +687,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_id_one
-        assert [str(me) for me in session_recordings[0]["matching_events"]] == [chrome_session_one_event]
+        assert session_recordings[0]["matching_events"] == [UUID(chrome_session_one_event)]
 
         filter = SessionRecordingsFilter(
             team=self.team,
@@ -745,11 +743,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
 
         assert len(session_recordings) == 1
-        self.assertEqual(session_recordings[0]["session_id"], session_id)
-        self.assertEqual(
-            sorted([str(me) for me in session_recordings[0]["matching_events"]]),
-            sorted([newevent_event, pageview_event]),
-        )
+        assert session_recordings[0]["session_id"] == session_id
+        assert sorted(session_recordings[0]["matching_events"]) == sorted([UUID(newevent_event), UUID(pageview_event)])
 
         filter = SessionRecordingsFilter(
             team=self.team,
@@ -762,7 +757,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         )
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
-        self.assertEqual(len(session_recordings), 0)
+        assert session_recordings == []
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$current_url", "$browser"])
@@ -825,7 +820,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_id_one
-        assert [str(me) for me in session_recordings[0]["matching_events"]] == [str(chrome_session_one_event)]
+        assert session_recordings[0]["matching_events"] == [UUID(chrome_session_one_event)]
 
         # Adding properties to an action
         filter = SessionRecordingsFilter(
@@ -866,7 +861,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_id_one
-        assert [str(me) for me in session_recordings[0]["matching_events"]] == [str(chrome_session_one_event)]
+        assert session_recordings[0]["matching_events"] == [UUID(chrome_session_one_event)]
 
     def test_all_sessions_recording_object_keys_with_entity_filter(self):
         user = "test_all_sessions_recording_object_keys_with_entity_filter-user"
@@ -960,7 +955,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         )
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=another_team)
         (session_recordings, _) = session_recording_list_instance.run()
-        self.assertEqual([r["session_id"] for r in session_recordings], [session_id_two])
+        assert [r["session_id"] for r in session_recordings] == [session_id_two]
 
         filter = SessionRecordingsFilter(
             team=another_team,
@@ -968,7 +963,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         )
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=another_team)
         (session_recordings, _) = session_recording_list_instance.run()
-        self.assertEqual([r["session_id"] for r in session_recordings], [session_id_one])
+        assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
     @snapshot_clickhouse_queries
     def test_date_from_filter(self):
@@ -993,7 +988,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         filter = SessionRecordingsFilter(team=self.team, data={"date_from": self.base_time.strftime("%Y-%m-%d")})
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
-        self.assertEqual(len(session_recordings), 0)
+        assert session_recordings == []
 
         filter = SessionRecordingsFilter(
             team=self.team, data={"date_from": (self.base_time - relativedelta(days=2)).strftime("%Y-%m-%d")}
@@ -1001,7 +996,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         assert len(session_recordings) == 1
-        self.assertEqual(session_recordings[0]["session_id"], "two days before base time")
+        assert session_recordings[0]["session_id"] == "two days before base time"
 
     @snapshot_clickhouse_queries
     def test_date_from_filter_cannot_search_before_ttl(self):
@@ -1031,7 +1026,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             assert len(session_recordings) == 1
-            self.assertEqual(session_recordings[0]["session_id"], "storage is not past ttl")
+            assert session_recordings[0]["session_id"] == "storage is not past ttl"
 
             filter = SessionRecordingsFilter(
                 team=self.team, data={"date_from": (self.base_time - relativedelta(days=21)).strftime("%Y-%m-%d")}
@@ -1039,7 +1034,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             assert len(session_recordings) == 1
-            self.assertEqual(session_recordings[0]["session_id"], "storage is not past ttl")
+            assert session_recordings[0]["session_id"] == "storage is not past ttl"
 
             filter = SessionRecordingsFilter(
                 team=self.team, data={"date_from": (self.base_time - relativedelta(days=22)).strftime("%Y-%m-%d")}
@@ -1047,7 +1042,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             assert len(session_recordings) == 1
-            self.assertEqual(session_recordings[0]["session_id"], "storage is not past ttl")
+            assert session_recordings[0]["session_id"] == "storage is not past ttl"
 
     @snapshot_clickhouse_queries
     def test_date_to_filter(self):
@@ -1073,7 +1068,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         )
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
-        self.assertEqual(len(session_recordings), 0)
+        assert session_recordings == []
 
         filter = SessionRecordingsFilter(
             team=self.team, data={"date_to": (self.base_time - relativedelta(days=3)).strftime("%Y-%m-%d")}
@@ -1082,7 +1077,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
 
         assert len(session_recordings) == 1
-        self.assertEqual(session_recordings[0]["session_id"], "three days before base time")
+        assert session_recordings[0]["session_id"] == "three days before base time"
 
     def test_recording_that_spans_time_bounds(self):
         user = "test_recording_that_spans_time_bounds-user"
@@ -1106,8 +1101,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         assert len(session_recordings) == 1
-        self.assertEqual(session_recordings[0]["session_id"], "1")
-        self.assertEqual(session_recordings[0]["duration"], 6 * 60 * 60)
+        assert session_recordings[0]["session_id"] == "1"
+        assert session_recordings[0]["duration"] == 6 * 60 * 60
 
     @snapshot_clickhouse_queries
     def test_person_id_filter(self):
@@ -1132,9 +1127,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
-        self.assertEqual(
-            sorted([r["session_id"] for r in session_recordings]), sorted([session_id_two, session_id_one])
-        )
+        assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
 
     @snapshot_clickhouse_queries
     def test_all_filters_at_once(self):
@@ -1417,7 +1410,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
 
         assert len(session_recordings) == 1
-        self.assertEqual(session_recordings[0]["session_id"], session_id)
+        assert session_recordings[0]["session_id"] == session_id
 
         filter = SessionRecordingsFilter(
             team=self.team,
@@ -1437,7 +1430,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
 
-        self.assertEqual(len(session_recordings), 0)
+        assert session_recordings == []
 
     @also_test_with_materialized_columns(["$current_url", "$browser"])
     @snapshot_clickhouse_queries
