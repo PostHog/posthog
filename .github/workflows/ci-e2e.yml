@@ -20,7 +20,7 @@ jobs:
         name: Determine need to run E2E checks
         # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.changes.outputs.shouldTriggerCypress }}
+            shouldTriggerCypress: ${{ steps.changes.outputs.shouldTriggerCypress }}
         steps:
             # For pull requests it's not necessary to check out the code
             - uses: dorny/paths-filter@v2
