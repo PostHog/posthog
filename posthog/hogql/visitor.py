@@ -4,16 +4,27 @@ from posthog.hogql import ast
 from posthog.hogql.errors import HogQLException
 
 
-def clone_expr(self: ast.Expr, clear_types=False) -> ast.Expr:
+def clone_expr(expr: ast.Expr, clear_types=False, clear_locations=False) -> ast.Expr:
     """Clone an expression node."""
-    return CloningVisitor(clear_types=clear_types).visit(self)
+    return CloningVisitor(clear_types=clear_types, clear_locations=clear_locations).visit(expr)
+
+
+def clear_locations(expr: ast.Expr) -> ast.Expr:
+    return CloningVisitor(clear_locations=True).visit(expr)
 
 
 class Visitor(object):
     def visit(self, node: ast.AST):
         if node is None:
             return node
-        return node.accept(self)
+
+        try:
+            return node.accept(self)
+        except HogQLException as e:
+            if e.start is None or e.end is None:
+                e.start = node.start
+                e.end = node.end
+            raise e
 
 
 class TraversingVisitor(Visitor):
@@ -221,22 +232,27 @@ class TraversingVisitor(Visitor):
 class CloningVisitor(Visitor):
     """Visitor that traverses and clones the AST tree. Clears types."""
 
-    def __init__(self, clear_types: Optional[bool] = True):
+    def __init__(self, clear_types: Optional[bool] = True, clear_locations: Optional[bool] = False):
         self.clear_types = clear_types
+        self.clear_locations = clear_locations
 
     def visit_expr(self, node: ast.Expr):
         raise HogQLException("Can not visit generic Expr node")
 
     def visit_macro(self, node: ast.Macro):
         return ast.Macro(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             name=node.name,
-            expr=clone_expr(node.expr),
+            expr=self.visit(node.expr),
             macro_format=node.macro_format,
         )
 
     def visit_alias(self, node: ast.Alias):
         return ast.Alias(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             alias=node.alias,
             expr=self.visit(node.expr),
@@ -244,6 +260,8 @@ class CloningVisitor(Visitor):
 
     def visit_binary_operation(self, node: ast.BinaryOperation):
         return ast.BinaryOperation(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             left=self.visit(node.left),
             right=self.visit(node.right),
@@ -251,13 +269,25 @@ class CloningVisitor(Visitor):
         )
 
     def visit_and(self, node: ast.And):
-        return ast.And(type=None if self.clear_types else node.type, exprs=[self.visit(expr) for expr in node.exprs])
+        return ast.And(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
+        )
 
     def visit_or(self, node: ast.Or):
-        return ast.Or(type=None if self.clear_types else node.type, exprs=[self.visit(expr) for expr in node.exprs])
+        return ast.Or(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
+        )
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         return ast.CompareOperation(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             left=self.visit(node.left),
             right=self.visit(node.right),
@@ -265,10 +295,17 @@ class CloningVisitor(Visitor):
         )
 
     def visit_not(self, node: ast.Not):
-        return ast.Not(type=None if self.clear_types else node.type, expr=self.visit(node.expr))
+        return ast.Not(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+        )
 
     def visit_order_expr(self, node: ast.OrderExpr):
         return ast.OrderExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             order=node.order,
@@ -276,40 +313,75 @@ class CloningVisitor(Visitor):
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         return ast.TupleAccess(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             tuple=self.visit(node.tuple),
             index=node.index,
         )
 
     def visit_tuple(self, node: ast.Array):
-        return ast.Tuple(type=None if self.clear_types else node.type, exprs=[self.visit(expr) for expr in node.exprs])
+        return ast.Tuple(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
+        )
 
     def visit_lambda(self, node: ast.Lambda):
         return ast.Lambda(
-            type=None if self.clear_types else node.type, args=[arg for arg in node.args], expr=self.visit(node.expr)
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            args=[arg for arg in node.args],
+            expr=self.visit(node.expr),
         )
 
     def visit_array_access(self, node: ast.ArrayAccess):
         return ast.ArrayAccess(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             array=self.visit(node.array),
             property=self.visit(node.property),
         )
 
     def visit_array(self, node: ast.Array):
-        return ast.Array(type=None if self.clear_types else node.type, exprs=[self.visit(expr) for expr in node.exprs])
+        return ast.Array(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
+        )
 
     def visit_constant(self, node: ast.Constant):
-        return ast.Constant(type=None if self.clear_types else node.type, value=node.value)
+        return ast.Constant(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            value=node.value,
+        )
 
     def visit_field(self, node: ast.Field):
-        return ast.Field(type=None if self.clear_types else node.type, chain=node.chain)
+        return ast.Field(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            chain=node.chain,
+        )
 
     def visit_placeholder(self, node: ast.Placeholder):
-        return ast.Placeholder(type=None if self.clear_types else node.type, field=node.field)
+        return ast.Placeholder(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            field=node.field,
+        )
 
     def visit_call(self, node: ast.Call):
         return ast.Call(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             name=node.name,
             args=[self.visit(arg) for arg in node.args],
@@ -318,11 +390,17 @@ class CloningVisitor(Visitor):
 
     def visit_ratio_expr(self, node: ast.RatioExpr):
         return ast.RatioExpr(
-            type=None if self.clear_types else node.type, left=self.visit(node.left), right=self.visit(node.right)
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            left=self.visit(node.left),
+            right=self.visit(node.right),
         )
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         return ast.SampleExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             sample_value=self.visit(node.sample_value),
             offset_value=self.visit(node.offset_value),
@@ -331,6 +409,8 @@ class CloningVisitor(Visitor):
     def visit_join_expr(self, node: ast.JoinExpr):
         # :TRICKY: when adding new fields, also add them to visit_join_expr of resolver.py
         return ast.JoinExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
             next_join=self.visit(node.next_join),
@@ -343,8 +423,12 @@ class CloningVisitor(Visitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         return ast.SelectQuery(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            macros={key: expr for key, expr in node.macros.items()} if node.macros else None,  # to not traverse
+            macros={key: self.visit(expr) for key, expr in node.macros.items()}
+            if node.macros
+            else None,  # to not traverse
             select_from=self.visit(node.select_from),  # keep "select_from" before "select" to resolve tables first
             select=[self.visit(expr) for expr in node.select] if node.select else None,
             where=self.visit(node.where),
@@ -364,12 +448,16 @@ class CloningVisitor(Visitor):
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         return ast.SelectUnionQuery(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             select_queries=[self.visit(expr) for expr in node.select_queries],
         )
 
     def visit_window_expr(self, node: ast.WindowExpr):
         return ast.WindowExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             partition_by=[self.visit(expr) for expr in node.partition_by] if node.partition_by else None,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
@@ -380,6 +468,8 @@ class CloningVisitor(Visitor):
 
     def visit_window_function(self, node: ast.WindowFunction):
         return ast.WindowFunction(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             name=node.name,
             args=[self.visit(expr) for expr in node.args] if node.args else None,
@@ -389,6 +479,8 @@ class CloningVisitor(Visitor):
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         return ast.WindowFrameExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             frame_type=node.frame_type,
             frame_value=node.frame_value,
