@@ -67,10 +67,7 @@ export function toWebhookLink(text: string | null, url: string, webhookType: Web
     if (webhookType === WebhookType.Slack) {
         return [escapeSlack(name), `<${escapeSlack(url)}|${escapeSlack(name)}>`]
     } else {
-        return [
-            webhookEscape(name, webhookType),
-            `[${webhookEscape(name, webhookType)}](${webhookEscape(url, webhookType)})`,
-        ]
+        return [escapeMarkdown(name), `[${escapeMarkdown(name)}](${escapeMarkdown(url)})`]
     }
 }
 
@@ -85,11 +82,14 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
+export function getPersonLink(event: PostIngestionEvent, siteUrl: string): string {
+    return `${siteUrl}/person/${encodeURIComponent(event.distinctId)}`
+}
 export function getPersonDetails(
     event: PostIngestionEvent,
-    team: Team,
     siteUrl: string,
-    webhookType: WebhookType
+    webhookType: WebhookType,
+    team: Team
 ): [string, string] {
     // Sync the logic below with the frontend `asDisplay`
     const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -101,23 +101,25 @@ export function getPersonDetails(
 
     const display: string | undefined = (customIdentifier || event.distinctId)?.trim()
 
-    return toWebhookLink(display, `${siteUrl}/person/${encodeURIComponent(event.distinctId)}`, webhookType)
+    return toWebhookLink(display, getPersonLink(event, siteUrl), webhookType)
 }
 
+export function getActionLink(action: Action, siteUrl: string): string {
+    return `${siteUrl}/action/${action.id}`
+}
 export function getActionDetails(action: Action, siteUrl: string, webhookType: WebhookType): [string, string] {
-    return toWebhookLink(action.name, `${siteUrl}/action/${action.id}`, webhookType)
+    return toWebhookLink(action.name, getActionLink(action, siteUrl), webhookType)
 }
 
+export function getEventLink(event: PostIngestionEvent, siteUrl: string): string {
+    return `${siteUrl}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(event.timestamp)}`
+}
 export function getEventDetails(
     event: PostIngestionEvent,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
-    return toWebhookLink(
-        event.event,
-        `${siteUrl}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(event.timestamp)}`,
-        webhookType
-    )
+    return toWebhookLink(event.event, getEventLink(event, siteUrl), webhookType)
 }
 
 export function getTokens(messageFormat: string): [string[], string] {
@@ -147,7 +149,7 @@ export function getValueOfToken(
         // [user.name] and [user.foo] are DEPRECATED as they had odd mechanics
         // [person] OR [event.properties.bar] should be used instead
         if (tokenParts[1] === 'name') {
-            ;[text, markdown] = getPersonDetails(event, team, siteUrl, webhookType)
+            ;[text, markdown] = getPersonDetails(event, siteUrl, webhookType, team)
         } else {
             const propertyName = `$${tokenParts[1]}`
             const property = event.properties?.[propertyName]
@@ -155,7 +157,9 @@ export function getValueOfToken(
         }
     } else if (tokenParts[0] === 'person') {
         if (tokenParts.length === 1) {
-            ;[text, markdown] = getPersonDetails(event, team, siteUrl, webhookType)
+            ;[text, markdown] = getPersonDetails(event, siteUrl, webhookType, team)
+        } else if (tokenParts[1] === 'link') {
+            markdown = text = webhookEscape(getPersonLink(event, siteUrl), webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
             const property = event.person_properties
                 ? getPropertyValueByPath(event.person_properties, tokenParts.slice(2))
@@ -165,10 +169,14 @@ export function getValueOfToken(
     } else if (tokenParts[0] === 'action') {
         if (tokenParts[1] === 'name') {
             ;[text, markdown] = getActionDetails(action, siteUrl, webhookType)
+        } else if (tokenParts[1] === 'link') {
+            markdown = text = webhookEscape(getActionLink(action, siteUrl), webhookType)
         }
     } else if (tokenParts[0] === 'event') {
         if (tokenParts.length === 1) {
             ;[text, markdown] = getEventDetails(event, siteUrl, webhookType)
+        } else if (tokenParts[1] === 'link') {
+            markdown = text = webhookEscape(getEventLink(event, siteUrl), webhookType)
         } else if (tokenParts[1] === 'uuid') {
             markdown = text = webhookEscape(event.eventUuid, webhookType)
         } else if (tokenParts[1] === 'name') {
