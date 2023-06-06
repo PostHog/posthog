@@ -1,5 +1,6 @@
 from django.conf import settings
 from rest_framework import status
+from posthog.cloud_utils import is_cloud
 
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
@@ -92,9 +93,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 42
-        if settings.MULTI_TENANCY:
-            cls.base_app_num_queries += 2
+        cls.base_app_num_queries = 41
         # Create another team that the user does have access to
         cls.second_team = Team.objects.create(organization=cls.organization, name="Second Life")
 

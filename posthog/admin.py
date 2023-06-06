@@ -234,7 +234,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
         "plugins_access_level",
-        "billing_plan",
         "billing_link_v2",
         "usage_posthog",
         "usage",
@@ -243,7 +242,6 @@ class OrganizationAdmin(admin.ModelAdmin):
     readonly_fields = [
         "created_at",
         "updated_at",
-        "billing_plan",
         "billing_link_v2",
         "usage_posthog",
         "usage",
@@ -266,8 +264,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         return format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
 
     def billing_link_v2(self, organization: Organization) -> str:
-        if not organization.has_billing_v2_setup:
-            return ""
         url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
         return format_html(f'<a href="{url}">Billing V2 →</a>')
 

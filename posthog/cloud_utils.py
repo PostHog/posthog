@@ -35,6 +35,6 @@ def is_cloud():
 
 
 # NOTE: This is purely for testing purposes
-def TEST_clear_cloud_cache():
+def TEST_clear_cloud_cache(value: Optional[bool] = None):
     global is_cloud_cached
-    is_cloud_cached = None
+    is_cloud_cached = value
