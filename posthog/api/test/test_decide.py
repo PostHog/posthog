@@ -1816,16 +1816,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_only_fires_when_enabled(self, *args):
-        # delete all keys in redis
-        r = redis.get_client()
-        for key in r.scan_iter("*"):
-            r.delete(key)
-
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
         )
         self.client.logout()
-        with self.settings(ENABLE_DECIDE_BILLING_ANALYTICS="f"):
+        with self.settings(ENABLE_DECIDE_BILLING_ANALYTICS=False, DECIDE_BILLING_SAMPLING_RATE=1):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, 200)
 
