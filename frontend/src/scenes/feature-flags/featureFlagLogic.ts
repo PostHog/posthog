@@ -16,7 +16,7 @@ import {
     RolloutConditionType,
     FeatureFlagGroupType,
     UserBlastRadiusType,
-    DashboardType,
+    DashboardBasicType,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -799,7 +799,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return dashboards
                 }
 
-                return dashboards.filter((dashboard: DashboardType) => {
+                return dashboards.filter((dashboard: DashboardBasicType) => {
                     return featureFlag.dashboards?.includes(dashboard.id)
                 })
             },

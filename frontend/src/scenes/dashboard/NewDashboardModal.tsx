@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
@@ -156,10 +156,11 @@ export function DashboardTemplateChooser({ scope = 'global' }: DashboardTemplate
 }
 
 export function NewDashboardModal(): JSX.Element {
+    const builtLogic = useMountedLogic(newDashboardLogic)
     const { hideNewDashboardModal } = useActions(newDashboardLogic)
-    const { newDashboardModalVisible, activeDashboardTemplate, isFeatureFlagDashboard } = useValues(newDashboardLogic)
+    const { newDashboardModalVisible, activeDashboardTemplate } = useValues(newDashboardLogic)
 
-    const _dashboardTemplateChooser = isFeatureFlagDashboard ? (
+    const _dashboardTemplateChooser = builtLogic.props.featureFlagId ? (
         <DashboardTemplateChooser scope="feature_flag" />
     ) : (
         <DashboardTemplateChooser />
