@@ -59,8 +59,8 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
         <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
     )
     buttonPropsFinal.onClick = () => setVisible(!visible)
-    buttonPropsFinal.status = 'stealth'
-    buttonPropsFinal.type = 'secondary'
+    buttonPropsFinal.status ||= 'stealth'
+    buttonPropsFinal.type ||= 'secondary'
 
     useEffect(() => {
         if (!buttonPropsFinal.loading) {
