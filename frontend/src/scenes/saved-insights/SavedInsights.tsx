@@ -230,6 +230,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightSQLIcon,
         inMenu: true,
     },
+    [NodeKind.HogQLMetadata]: {
+        name: 'HogQL Metadata',
+        description: 'Metadata for a HogQL query',
+        icon: InsightSQLIcon,
+        inMenu: true,
+    },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema',

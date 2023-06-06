@@ -120,7 +120,7 @@ export function ActionFilterRow({
     readOnly = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
-    const { entityFilterVisible } = useValues(logic)
+    const { entityFilterVisible, mathHogQLVisible } = useValues(logic)
     const {
         updateFilter,
         selectFilter,
@@ -129,6 +129,8 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
         duplicateFilter,
+        showMathHogQL,
+        hideMathHogQL,
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
@@ -371,15 +373,28 @@ export function ActionFilterRow({
                                         MathCategory.HogQLExpression && (
                                         <div className="flex-auto overflow-hidden">
                                             <LemonDropdown
+                                                visible={mathHogQLVisible}
+                                                onVisibilityChange={(visible) => {
+                                                    if (!visible) {
+                                                        mathHogQLVisible && hideMathHogQL()
+                                                    } else {
+                                                        !mathHogQLVisible && showMathHogQL()
+                                                    }
+                                                }}
+                                                closeOnClickInside={false}
+                                                onClickOutside={() => {
+                                                    mathHogQLVisible && hideMathHogQL()
+                                                }}
                                                 overlay={
                                                     // eslint-disable-next-line react/forbid-dom-props
                                                     <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                                                         <HogQLEditor
                                                             disablePersonProperties
                                                             value={mathHogQL}
-                                                            onChange={(currentValue) =>
+                                                            onChange={(currentValue) => {
                                                                 onMathHogQLSelect(index, currentValue)
-                                                            }
+                                                                hideMathHogQL()
+                                                            }}
                                                         />
                                                     </div>
                                                 }
@@ -389,6 +404,7 @@ export function ActionFilterRow({
                                                     status="stealth"
                                                     type="secondary"
                                                     data-attr={`math-hogql-select-${index}`}
+                                                    onClick={showMathHogQL}
                                                 >
                                                     <code>{mathHogQL}</code>
                                                 </LemonButton>
