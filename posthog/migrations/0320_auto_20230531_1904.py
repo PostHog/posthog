@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0318_alter_earlyaccessfeature_stage"),
+        ("posthog", "0319_user_requested_password_reset_at"),
     ]
 
     operations = [
