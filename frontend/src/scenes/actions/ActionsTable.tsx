@@ -148,6 +148,9 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton status="stealth" to={urls.action(action.id)} fullWidth>
                                     Edit
                                 </LemonButton>
+                                <LemonButton status="stealth" to={urls.copyAction(action)} fullWidth>
+                                    Copy
+                                </LemonButton>
                                 <LemonButton
                                     status="stealth"
                                     to={
