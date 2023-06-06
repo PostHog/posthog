@@ -1,9 +1,7 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-
-/** Indicates HogQL usage if team.live_events_columns = [HOGQL_COLUMNS_KEY, ...] */
-export const HOGQL_COLUMNS_KEY = '--v2:hogql'
+import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
 
 export interface ColumnConfiguratorLogicProps {
     key: string

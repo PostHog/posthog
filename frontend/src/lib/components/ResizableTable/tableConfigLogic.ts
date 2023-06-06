@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import type { tableConfigLogicType } from './tableConfigLogicType'
 import { ColumnChoice } from '~/types'
-import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/ColumnConfigurator/columnConfiguratorLogic'
+import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
 
 export interface TableConfigLogicProps {
     startingColumns?: ColumnChoice
