@@ -9,7 +9,8 @@ import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { posthog } from 'posthog-js'
-import { NotebookNodeType } from './types'
+import { NotebookNodeType } from '~/types'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
@@ -47,41 +48,43 @@ export function NodeWrapper({
                 'NotebookNode--selected': selected,
             })}
         >
-            {!ready || !inView ? (
-                <>
-                    <div className="h-4" /> {/* Placeholder for the drag handle */}
-                    <div style={{ height: heightEstimate }}>
-                        <LemonSkeleton className="h-full" />
-                    </div>
-                </>
-            ) : (
-                <>
-                    <div
-                        className={clsx(
-                            'NotebookNode__meta flex items-center justify-between text-xs truncate text-muted-alt',
-                            {
-                                'font-semibold': selected,
-                            }
-                        )}
-                        data-drag-handle
-                    >
-                        <div className="shrink-0">
-                            <IconDragHandle className="cursor-move text-base shrink-0" />
-                            <span>{title}</span>
+            <ErrorBoundary>
+                {!ready || !inView ? (
+                    <>
+                        <div className="h-4" /> {/* Placeholder for the drag handle */}
+                        <div style={{ height: heightEstimate }}>
+                            <LemonSkeleton className="h-full" />
                         </div>
-                        <div className="shrink-0 flex gap-4">
-                            {href && (
-                                <Link to={href}>
-                                    <IconLink /> Link
-                                </Link>
+                    </>
+                ) : (
+                    <>
+                        <div
+                            className={clsx(
+                                'NotebookNode__meta flex items-center justify-between text-xs truncate text-muted-alt',
+                                {
+                                    'font-semibold': selected,
+                                }
                             )}
+                            data-drag-handle
+                        >
+                            <div className="shrink-0">
+                                <IconDragHandle className="cursor-move text-base shrink-0" />
+                                <span>{title}</span>
+                            </div>
+                            <div className="shrink-0 flex gap-4">
+                                {href && (
+                                    <Link to={href}>
+                                        <IconLink /> Link
+                                    </Link>
+                                )}
+                            </div>
                         </div>
-                    </div>
-                    <div className="flex flex-row gap-4 relative z-10">
-                        <div className={clsx('relative mb-2 overflow-y-auto flex-1')}>{children}</div>
-                    </div>
-                </>
-            )}
+                        <div className="flex flex-row gap-4 relative z-0">
+                            <div className={clsx('relative mb-2 overflow-y-auto flex-1')}>{children}</div>
+                        </div>
+                    </>
+                )}
+            </ErrorBoundary>
         </NodeViewWrapper>
     )
 }

@@ -484,6 +484,15 @@ CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     "LinfNormalize": ("LinfNormalize", 1, 1),
     "LpNormalize": ("LpNormalize", 2, 2),
     "cosineDistance": ("cosineDistance", 2, 2),
+    # window functions
+    "rank": ("rank", 0, 0),
+    "dense_rank": ("dense_rank", 0, 0),
+    "row_number": ("row_number", 0, 0),
+    "first_value": ("first_value", 1, 1),
+    "last_value": ("last_value", 1, 1),
+    "nth_value": ("nth_value", 2, 2),
+    "lagInFrame": ("lagInFrame", 1, 1),
+    "leadInFrame": ("leadInFrame", 1, 1),
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS = {

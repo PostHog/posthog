@@ -8,7 +8,7 @@ import { Form } from 'kea-forms'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import { PersonsScene } from 'scenes/persons/Persons'
-import { IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconClose, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { useState } from 'react'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -32,7 +32,7 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote, deleteEarlyAccessFeature } =
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, releaseBeta, deleteEarlyAccessFeature } =
         useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
@@ -61,7 +61,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     }}
                                     loading={isEarlyAccessFeatureSubmitting}
                                 >
-                                    Save
+                                    {isNewEarlyAccessFeature ? 'Save Draft' : 'Save'}
                                 </LemonButton>
                             </>
                         ) : (
@@ -148,8 +148,18 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             info={<>A feature flag will be generated from feature name if not provided</>}
                         >
                             {({ value, onChange }) => (
-                                <div>
+                                <div className="flex">
                                     <FlagSelector value={value} onChange={onChange} />
+                                    {value && (
+                                        <LemonButton
+                                            className="ml-2"
+                                            icon={<IconClose />}
+                                            size="small"
+                                            status="stealth"
+                                            onClick={() => onChange(undefined)}
+                                            aria-label="close"
+                                        />
+                                    )}
                                 </div>
                             )}
                         </Field>
@@ -161,18 +171,27 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <div>
                                 <b>Stage</b>
                                 <div>
-                                    <LemonTag type="highlight" className="mt-2 uppercase">
+                                    <LemonTag
+                                        type={
+                                            earlyAccessFeature.stage === 'beta'
+                                                ? 'warning'
+                                                : earlyAccessFeature.stage === 'general-availability'
+                                                ? 'success'
+                                                : 'default'
+                                        }
+                                        className="mt-2 uppercase"
+                                    >
                                         {earlyAccessFeature.stage}
                                     </LemonTag>
                                 </div>
                             </div>
-                            {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
+                            {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
                                 <LemonButton
-                                    onClick={() => promote()}
-                                    tooltip={'Make feature generally available'}
+                                    onClick={() => releaseBeta()}
+                                    tooltip={'Make beta feature available'}
                                     type="secondary"
                                 >
-                                    Promote
+                                    Release Beta
                                 </LemonButton>
                             )}
                         </div>
@@ -310,7 +329,7 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
                 showExportAction={false}
                 emptyState={
                     <div>
-                        No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
+                        No manual opt-ins. Manually opted-in people will appear here once beta is available. Start by{' '}
                         <a onClick={toggleImplementOptInInstructionsModal}>implementing public opt-in</a>
                     </div>
                 }

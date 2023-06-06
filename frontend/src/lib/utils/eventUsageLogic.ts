@@ -80,6 +80,7 @@ export enum SessionRecordingFilterType {
     EventAndAction = 'event_and_action',
     PersonAndCohort = 'person_and_cohort',
     DateRange = 'date_range',
+    DurationType = 'duration_type',
 }
 
 interface RecordingViewedProps {

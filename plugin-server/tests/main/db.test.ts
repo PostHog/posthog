@@ -1120,7 +1120,8 @@ describe('DB', () => {
                 session_recording_opt_in: true,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
-            })
+                person_display_name_properties: [],
+            } as Team)
         })
 
         it('returns null if the team does not exist', async () => {

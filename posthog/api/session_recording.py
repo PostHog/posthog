@@ -1,7 +1,6 @@
 import json
 from typing import Any, List, Type, cast
 
-import structlog
 from dateutil import parser
 import requests
 from django.db.models import Count, Prefetch
@@ -38,8 +37,6 @@ from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
-
-logger = structlog.get_logger(__name__)
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):
@@ -140,7 +137,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             list_recordings(filter, request, context=self.get_serializer_context(), v2=use_v2_list, v3=use_v3_list)
         )
 
-    # Returns meta data about the recording
+    # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
 
@@ -328,16 +325,20 @@ def list_recordings(
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
 
         # TODO: once person on events is deployed, we can remove the check for hogql properties https://github.com/PostHog/posthog/pull/14458#discussion_r1135780372
-        session_recording_list_instance: Type[SessionRecordingList] = (
-            SessionRecordingListFromReplaySummary
-            if can_use_v3
-            else SessionRecordingListV2
-            if can_use_v2
-            else SessionRecordingList
-        )
-        (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
-            filter=filter, team=team
-        ).run()
+        if can_use_v3:
+            # check separately here to help mypy see that SessionRecordingListFromReplaySummary
+            # is its own thing even though it is still stuck with inheritance until we can collapse
+            # the number of listing mechanisms
+            (ch_session_recordings, more_recordings_available) = SessionRecordingListFromReplaySummary(
+                filter=filter, team=team
+            ).run()
+        else:
+            session_recording_list_instance: Type[SessionRecordingList] = (
+                SessionRecordingListV2 if can_use_v2 else SessionRecordingList
+            )
+            (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
+                filter=filter, team=team
+            ).run()
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
 

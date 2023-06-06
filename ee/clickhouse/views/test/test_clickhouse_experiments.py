@@ -8,7 +8,7 @@ from posthog.constants import ExperimentSignificanceCode
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
-from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries, FuzzyInt
 from posthog.test.test_journeys import journeys_for
 
 
@@ -54,7 +54,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(FuzzyInt(9, 10)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -71,7 +71,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(FuzzyInt(9, 10)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 

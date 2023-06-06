@@ -679,6 +679,8 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
+
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
@@ -687,6 +689,7 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
+    duration_type_filter?: DurationTypeFilter
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -1597,7 +1600,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
-    formula?: any
+    formula?: string
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
@@ -2098,6 +2101,7 @@ export interface CombinedFeatureFlagAndValueType {
 }
 
 export enum EarlyAccessFeatureStage {
+    Draft = 'draft',
     Concept = 'concept',
     Alpha = 'alpha',
     Beta = 'beta',
@@ -2896,6 +2900,7 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
+    is_template?: boolean
     content: JSONContent // TODO: Type this better
     version: number
 }
@@ -2903,6 +2908,16 @@ export type NotebookType = NotebookListItemType & {
 export enum NotebookMode {
     View = 'view',
     Edit = 'edit',
+}
+
+export enum NotebookNodeType {
+    Insight = 'ph-insight',
+    Query = 'ph-query',
+    Recording = 'ph-recording',
+    RecordingPlaylist = 'ph-recording-playlist',
+    FeatureFlag = 'ph-feature-flag',
+    Person = 'ph-person',
+    Link = 'ph-link',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
