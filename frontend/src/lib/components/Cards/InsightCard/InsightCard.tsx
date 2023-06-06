@@ -418,7 +418,7 @@ function VizComponentFallback(): JSX.Element {
     return <LemonBanner type="warning">Unknown insight display type</LemonBanner>
 }
 
-export interface InsightVizProps
+export interface FilterBasedCardContentProps
     extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     tooFewFunnelSteps?: boolean
     invalidFunnelExclusion?: boolean
@@ -439,7 +439,7 @@ export function FilterBasedCardContent({
     tooFewFunnelSteps,
     invalidFunnelExclusion,
     context,
-}: InsightVizProps): JSX.Element {
+}: FilterBasedCardContentProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
 
