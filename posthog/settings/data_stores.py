@@ -1,4 +1,5 @@
 import os
+import json
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -140,6 +141,11 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+try:
+    CLICKHOUSE_PER_TEAM_SETTINGS = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
+except Exception:
+    CLICKHOUSE_PER_TEAM_SETTINGS = {}
+
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:
@@ -147,6 +153,9 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_port = "8443"
 
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
+
+READONLY_CLICKHOUSE_USER = os.getenv("READONLY_CLICKHOUSE_USER", None)
+READONLY_CLICKHOUSE_PASSWORD = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 
 # Kafka configs
 

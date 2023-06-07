@@ -6,7 +6,6 @@ from base64 import b32encode
 from binascii import unhexlify
 from typing import Any, Optional, cast
 
-import posthoganalytics
 import requests
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
@@ -27,6 +26,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
+from posthog.api.decide import hostname_in_allowed_url_list
 
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
@@ -58,7 +58,6 @@ class UserEmailVerificationThrottle(UserRateThrottle):
 
 
 class UserSerializer(serializers.ModelSerializer):
-
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
@@ -176,7 +175,6 @@ class UserSerializer(serializers.ModelSerializer):
         return value
 
     def update(self, instance: "User", validated_data: Any) -> Any:
-
         # Update current_organization and current_team
         current_organization = validated_data.pop("set_current_organization", None)
         current_team = validated_data.pop("set_current_team", None)
@@ -192,26 +190,14 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
-        require_verification_feature = (
-            posthoganalytics.get_feature_flag(
-                "require-email-verification", str(instance.distinct_id), person_properties={"email": instance.email}
-            )
-            == "test"
-        )
-
         if (
             "email" in validated_data
             and validated_data["email"].lower() != instance.email.lower()
             and is_email_available()
         ):
-            if require_verification_feature:
-                instance.pending_email = validated_data.pop("email", None)
-                instance.save()
-                EmailVerifier.create_token_and_send_email_verification(instance)
-            else:
-                send_email_change_emails.delay(
-                    timezone.now().isoformat(), instance.first_name, instance.email, validated_data["email"]
-                )
+            instance.pending_email = validated_data.pop("email", None)
+            instance.save()
+            EmailVerifier.create_token_and_send_email_verification(instance)
 
         # Update password
         current_password = validated_data.pop("current_password", None)
@@ -356,6 +342,8 @@ def redirect_to_site(request):
     if not app_url:
         return HttpResponse(status=404)
 
+    if not team or not hostname_in_allowed_url_list(team.app_urls, urllib.parse.urlparse(app_url).hostname):
+        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
     request.user.temporary_token = secrets.token_urlsafe(32)
     request.user.save()
     params = {

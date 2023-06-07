@@ -2,8 +2,6 @@ import { kea, props, key, path, connect, selectors, reducers, actions } from 'ke
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { FunnelCorrelation, InsightLogicProps } from '~/types'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelLogic } from './funnelLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
 import type { funnelCorrelationDetailsLogicType } from './funnelCorrelationDetailsLogicType'
@@ -13,14 +11,7 @@ export const funnelCorrelationDetailsLogic = kea<funnelCorrelationDetailsLogicTy
     key(keyForInsightLogicProps('insight_funnel')),
     path((key) => ['scenes', 'funnels', 'funnelCorrelationDetailsLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [
-            insightLogic(props),
-            ['isUsingDataExploration'],
-            funnelLogic(props),
-            ['steps as legacySteps'],
-            funnelDataLogic(props),
-            ['steps as dataExplorationSteps'],
-        ],
+        values: [funnelDataLogic(props), ['steps']],
     })),
 
     actions({
@@ -37,13 +28,6 @@ export const funnelCorrelationDetailsLogic = kea<funnelCorrelationDetailsLogicTy
     }),
 
     selectors({
-        steps: [
-            (s) => [s.isUsingDataExploration, s.dataExplorationSteps, s.legacySteps],
-            (isUsingDataExploration, dataExplorationApiParams, legacyApiParams) => {
-                return isUsingDataExploration ? dataExplorationApiParams : legacyApiParams
-            },
-        ],
-
         correlationMatrixAndScore: [
             (s) => [s.funnelCorrelationDetails, s.steps],
             (

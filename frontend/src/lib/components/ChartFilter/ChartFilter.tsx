@@ -28,7 +28,7 @@ export function ChartFilter({ filters }: ChartFilterProps): JSX.Element {
     const isTrends = isTrendsFilter(filters)
     const trendsOnlyDisabledReason = !isTrends ? "This type isn't available for this insight type." : undefined
     const singleSeriesOnlyDisabledReason = !isSingleSeries
-        ? "This type isn't available, because there are multiple trend series."
+        ? "This type isn't available, because there are multiple trend series. Number currently only works with one series."
         : undefined
 
     const options: LemonSelectOptions<ChartDisplayType> = [

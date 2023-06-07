@@ -1,9 +1,20 @@
 import { kea } from 'kea'
 import type { tableConfigLogicType } from './tableConfigLogicType'
 import { ColumnChoice } from '~/types'
+import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
 
 export interface TableConfigLogicProps {
     startingColumns?: ColumnChoice
+}
+
+/** Returns null if saved columns are of the new HogQL type */
+function filterV2Columns(
+    startingColumns: string[] | null | undefined | 'DEFAULT'
+): string[] | null | undefined | 'DEFAULT' {
+    if (Array.isArray(startingColumns) && startingColumns[0] === HOGQL_COLUMNS_KEY) {
+        return null
+    }
+    return startingColumns
 }
 
 export const tableConfigLogic = kea<tableConfigLogicType>({
@@ -16,7 +27,7 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
     },
     reducers: ({ props }) => ({
         selectedColumns: [
-            (props.startingColumns || 'DEFAULT') as ColumnChoice,
+            (filterV2Columns(props.startingColumns) || 'DEFAULT') as ColumnChoice,
             {
                 setSelectedColumns: (_, { columnConfig }) => columnConfig,
             },

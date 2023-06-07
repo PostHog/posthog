@@ -8,7 +8,7 @@
         cursor: grab;
     }
 
-    .DraggableToNotebook__indicator {
+    .DraggableToNotebook__highlighter {
         position: absolute;
         left: 0px;
         right: 0px;
@@ -21,7 +21,7 @@
         animation: notebook-indicator-appear 150ms ease-out;
         z-index: var(--z-modal);
 
-        .DraggableToNotebook__indicator__text {
+        .DraggableToNotebook__highlighter__info {
             position: absolute;
             right: 0px;
             top: 0px;
@@ -33,6 +33,9 @@
             font-weight: 700;
             animation: notebook-indicator-appear-no-overflow 150ms ease-out;
             transition: opacity 150ms ease-out;
+            display: flex;
+            gap: 0.25rem;
+            align-items: center;
         }
 
         .Notebook & {
@@ -40,12 +43,27 @@
         }
     }
 
+    .DraggableToNotebook__highlighter__info__text {
+        display: none;
+    }
+
+    &:hover {
+        .DraggableToNotebook__highlighter__info__text {
+            display: inline;
+        }
+    }
+
     &--no-overflow {
-        .DraggableToNotebook__indicator {
+        .DraggableToNotebook__highlighter {
             outline-offset: -0.125rem;
             border-radius: 0.125rem;
             animation: notebook-indicator-appear-no-overflow 150ms ease-out;
         }
+    }
+
+    &--highlighted {
+        cursor: grab;
+        z-index: var(--z-modal);
     }
 }
 

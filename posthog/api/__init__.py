@@ -3,6 +3,8 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.settings import EE_AVAILABLE
 
+from posthog.batch_exports import http as batch_exports
+
 from . import (
     activity_log,
     annotation,
@@ -125,6 +127,11 @@ app_metrics_router.register(
     ["team_id", "plugin_config_id"],
 )
 
+batch_exports_router = projects_router.register(
+    r"batch_exports", batch_exports.BatchExportViewSet, "batch_exports", ["team_id"]
+)
+
+
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organization_plugins_router = organizations_router.register(
@@ -213,9 +220,15 @@ project_session_recordings_router = projects_router.register(
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
-    from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
+    from ee.clickhouse.views.groups import (
+        ClickhouseGroupsTypesView,
+        ClickhouseGroupsView,
+    )
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-    from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
+    from ee.clickhouse.views.person import (
+        EnterprisePersonViewSet,
+        LegacyEnterprisePersonViewSet,
+    )
 
     projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
     projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])

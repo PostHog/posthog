@@ -3,9 +3,9 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import {
-    QueryInsightEditorFilterGroup,
-    QueryInsightEditorFilter,
-    QueryEditorFilterProps,
+    InsightEditorFilterGroup,
+    InsightEditorFilter,
+    EditorFilterProps,
     ChartDisplayType,
     AvailableFeature,
 } from '~/types'
@@ -22,22 +22,21 @@ import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 import { TrendsFormulaLabel } from './TrendsFormulaLabel'
 import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
-import { PathsEventsTypesDataExploration } from 'scenes/insights/EditorFilters/PathsEventTypes'
-import {
-    PathsTargetEndDataExploration,
-    PathsTargetStartDataExploration,
-} from 'scenes/insights/EditorFilters/PathsTarget'
-import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
-import { PathsWildcardGroupsDataExploration } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
-import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
-import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
-import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
-import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
-import { RetentionSummaryDataExploration } from 'scenes/insights/EditorFilters/RetentionSummary'
+import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
+import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
+import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
+import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
+import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
+import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
+import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
+import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
 import { SamplingFilterDataExploration } from 'scenes/insights/EditorFilters/SamplingFilter'
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import './EditorFilters.scss'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -61,27 +60,27 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
 
-    const editorFilters: QueryInsightEditorFilterGroup[] = [
+    const editorFilters: InsightEditorFilterGroup[] = [
         {
             title: 'General',
             editorFilters: filterFalsy([
                 isRetention && {
                     key: 'retention-summary',
                     label: 'Retention Summary',
-                    component: RetentionSummaryDataExploration,
+                    component: RetentionSummary,
                 },
                 ...(isPaths
                     ? filterFalsy([
                           {
                               key: 'event-types',
                               label: 'Event Types',
-                              component: PathsEventsTypesDataExploration,
+                              component: PathsEventsTypes,
                           },
                           hasPathsAdvanced && {
                               key: 'wildcard-groups',
                               label: 'Wildcard Groups',
                               showOptional: true,
-                              component: PathsWildcardGroupsDataExploration,
+                              component: PathsWildcardGroups,
                               tooltip: (
                                   <>
                                       Use wildcard matching to group events by unique values in path item names. Use an
@@ -94,12 +93,12 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                           {
                               key: 'start-target',
                               label: 'Starts at',
-                              component: PathsTargetStartDataExploration,
+                              component: PathsTargetStart,
                           },
                           hasPathsAdvanced && {
                               key: 'ends-target',
                               label: 'Ends at',
-                              component: PathsTargetEndDataExploration,
+                              component: PathsTargetEnd,
                           },
                       ])
                     : []),
@@ -107,7 +106,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                     ? filterFalsy([
                           {
                               key: 'query-steps',
-                              component: FunnelsQueryStepsDataExploration,
+                              component: FunnelsQuerySteps,
                           },
                       ])
                     : []),
@@ -138,14 +137,14 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                           key: 'toggles',
                           label: 'Lifecycle Toggles',
                           position: 'right',
-                          component: LifecycleToggles as (props: QueryEditorFilterProps) => JSX.Element | null,
+                          component: LifecycleToggles as (props: EditorFilterProps) => JSX.Element | null,
                       }
                     : null,
                 {
                     key: 'properties',
                     label: 'Filters',
                     position: 'right',
-                    component: GlobalAndOrFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
+                    component: GlobalAndOrFilters as (props: EditorFilterProps) => JSX.Element | null,
                 },
             ]),
         },
@@ -189,7 +188,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                                   </ul>
                               </div>
                           ),
-                          component: AttributionDataExploration,
+                          component: Attribution,
                       }
                     : null,
             ]),
@@ -204,7 +203,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                     tooltip: (
                         <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
                     ),
-                    component: PathsExclusionsDataExploration,
+                    component: PathsExclusions,
                 },
             ]),
         },
@@ -214,12 +213,12 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                 isPaths && {
                     key: 'paths-advanced',
                     position: 'left',
-                    component: PathsAdvancedDataExploration,
+                    component: PathsAdvanced,
                 },
                 isFunnels && {
                     key: 'funnels-advanced',
                     position: 'left',
-                    component: FunnelsAdvancedDataExploration,
+                    component: FunnelsAdvanced,
                 },
             ]),
         },
@@ -235,15 +234,15 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
         },
     ]
 
-    let editorFilterGroups: QueryInsightEditorFilterGroup[] = []
+    let editorFilterGroups: InsightEditorFilterGroup[] = []
 
     const leftFilters = editorFilters.reduce(
         (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
-        [] as QueryInsightEditorFilter[]
+        [] as InsightEditorFilter[]
     )
     const rightFilters = editorFilters.reduce(
         (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
-        [] as QueryInsightEditorFilter[]
+        [] as InsightEditorFilter[]
     )
 
     editorFilterGroups = [
@@ -281,6 +280,6 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
     )
 }
 
-function filterFalsy(a: (QueryInsightEditorFilter | false | null | undefined)[]): QueryInsightEditorFilter[] {
-    return a.filter((e) => !!e) as QueryInsightEditorFilter[]
+function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): InsightEditorFilter[] {
+    return a.filter((e) => !!e) as InsightEditorFilter[]
 }

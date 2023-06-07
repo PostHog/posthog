@@ -1,4 +1,6 @@
 from datetime import timezone, datetime, date
+from typing import Optional, Dict
+
 from django.test import override_settings
 from uuid import UUID
 
@@ -7,6 +9,7 @@ from freezegun import freeze_time
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.resolver import ResolverException, resolve_types
@@ -14,11 +17,14 @@ from posthog.test.base import BaseTest
 
 
 class TestResolver(BaseTest):
+    def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+        return clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True)
+
     def setUp(self):
         self.database = create_hogql_database(self.team.pk)
 
     def test_resolve_events_table(self):
-        expr = parse_select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
+        expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
         expr = resolve_types(expr, self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
@@ -55,7 +61,7 @@ class TestResolver(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_will_not_run_twice(self):
-        expr = parse_select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
+        expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
         expr = resolve_types(expr, self.database)
         with self.assertRaises(ResolverException) as context:
             expr = resolve_types(expr, self.database)
@@ -64,7 +70,7 @@ class TestResolver(BaseTest):
         )
 
     def test_resolve_events_table_alias(self):
-        expr = parse_select("SELECT event, e.timestamp FROM events e WHERE e.event = 'test'")
+        expr = self._select("SELECT event, e.timestamp FROM events e WHERE e.event = 'test'")
         expr = resolve_types(expr, database=self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
@@ -103,7 +109,7 @@ class TestResolver(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_resolve_events_table_column_alias(self):
-        expr = parse_select("SELECT event as ee, ee, ee as e, e.timestamp FROM events e WHERE e.event = 'test'")
+        expr = self._select("SELECT event as ee, ee, ee as e, e.timestamp FROM events e WHERE e.event = 'test'")
         expr = resolve_types(expr, database=self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
@@ -160,7 +166,7 @@ class TestResolver(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_resolve_events_table_column_alias_inside_subquery(self):
-        expr = parse_select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")
+        expr = self._select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")
         expr = resolve_types(expr, database=self.database)
         inner_events_table_type = ast.TableType(table=self.database.events)
         inner_event_field_type = ast.FieldAliasType(
@@ -239,7 +245,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_subquery_no_field_access(self):
         # From ClickHouse's GitHub: "Aliases defined outside of subquery are not visible in subqueries (but see below)."
-        expr = parse_select(
+        expr = self._select(
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )
         with self.assertRaises(ResolverException) as e:
@@ -248,7 +254,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_constant_type(self):
         with freeze_time("2020-01-10 00:00:00"):
-            expr = parse_select(
+            expr = self._select(
                 "SELECT 1, 'boo', true, 1.1232, null, {date}, {datetime}, {uuid}, {array}, {array12}, {tuple}",
                 placeholders={
                     "date": ast.Constant(value=date(2020, 1, 10)),
@@ -282,7 +288,7 @@ class TestResolver(BaseTest):
             self.assertEqual(expr, expected)
 
     def test_resolve_boolean_operation_types(self):
-        expr = parse_select("SELECT 1 and 1, 1 or 1, not true")
+        expr = self._select("SELECT 1 and 1, 1 or 1, not true")
         expr = resolve_types(expr, database=self.database)
         expected = ast.SelectQuery(
             select=[
@@ -319,11 +325,11 @@ class TestResolver(BaseTest):
         ]
         for query in queries:
             with self.assertRaises(ResolverException) as e:
-                resolve_types(parse_select(query), self.database)
+                resolve_types(self._select(query), self.database)
             self.assertIn("Unable to resolve field:", str(e.exception))
 
     def test_resolve_lazy_pdi_person_table(self):
-        expr = parse_select("select distinct_id, person.id from person_distinct_ids")
+        expr = self._select("select distinct_id, person.id from person_distinct_ids")
         expr = resolve_types(expr, database=self.database)
         pdi_table_type = ast.TableType(table=self.database.person_distinct_ids)
         expected = ast.SelectQuery(
@@ -372,7 +378,7 @@ class TestResolver(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_table(self):
-        expr = parse_select("select event, pdi.person_id from events")
+        expr = self._select("select event, pdi.person_id from events")
         expr = resolve_types(expr, database=self.database)
         events_table_type = ast.TableType(table=self.database.events)
         expected = ast.SelectQuery(
@@ -419,7 +425,7 @@ class TestResolver(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_table_aliased(self):
-        expr = parse_select("select event, e.pdi.person_id from events e")
+        expr = self._select("select event, e.pdi.person_id from events e")
         expr = resolve_types(expr, database=self.database)
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
@@ -468,7 +474,7 @@ class TestResolver(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_person_table(self):
-        expr = parse_select("select event, pdi.person.id from events")
+        expr = self._select("select event, pdi.person.id from events")
         expr = resolve_types(expr, database=self.database)
         events_table_type = ast.TableType(table=self.database.events)
         expected = ast.SelectQuery(
@@ -521,7 +527,7 @@ class TestResolver(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_person_table_aliased(self):
-        expr = parse_select("select event, e.pdi.person.id from events e")
+        expr = self._select("select event, e.pdi.person.id from events e")
         expr = resolve_types(expr, database=self.database)
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
@@ -576,7 +582,7 @@ class TestResolver(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_resolve_virtual_events_poe(self):
-        expr = parse_select("select event, poe.id from events")
+        expr = self._select("select event, poe.id from events")
         expr = resolve_types(expr, database=self.database)
         events_table_type = ast.TableType(table=self.database.events)
         expected = ast.SelectQuery(
@@ -621,7 +627,7 @@ class TestResolver(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_resolve_union_all(self):
-        node = parse_select("select event, timestamp from events union all select event, timestamp from events")
+        node = self._select("select event, timestamp from events union all select event, timestamp from events")
         node = resolve_types(node, self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
@@ -641,7 +647,7 @@ class TestResolver(BaseTest):
         )
 
     def test_call_type(self):
-        node = parse_select("select max(timestamp) from events")
+        node = self._select("select max(timestamp) from events")
         node = resolve_types(node, self.database)
         expected = [
             ast.Call(
@@ -723,7 +729,7 @@ class TestResolver(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_asterisk_expander_table(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
-        node = parse_select("select * from events")
+        node = self._select("select * from events")
         node = resolve_types(node, self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
@@ -745,7 +751,7 @@ class TestResolver(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_asterisk_expander_table_alias(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
-        node = parse_select("select * from events e")
+        node = self._select("select * from events e")
         node = resolve_types(node, self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
@@ -775,7 +781,7 @@ class TestResolver(BaseTest):
         )
 
     def test_asterisk_expander_subquery(self):
-        node = parse_select("select * from (select 1 as a, 2 as b)")
+        node = self._select("select * from (select 1 as a, 2 as b)")
         node = resolve_types(node, self.database)
         select_subquery_type = ast.SelectQueryType(
             aliases={
@@ -798,7 +804,7 @@ class TestResolver(BaseTest):
         )
 
     def test_asterisk_expander_subquery_alias(self):
-        node = parse_select("select x.* from (select 1 as a, 2 as b) x")
+        node = self._select("select x.* from (select 1 as a, 2 as b) x")
         node = resolve_types(node, self.database)
         select_subquery_type = ast.SelectQueryAliasType(
             alias="x",
@@ -826,7 +832,7 @@ class TestResolver(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_asterisk_expander_from_subquery_table(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
-        node = parse_select("select * from (select * from events)")
+        node = self._select("select * from (select * from events)")
         node = resolve_types(node, self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
@@ -862,7 +868,7 @@ class TestResolver(BaseTest):
         )
 
     def test_asterisk_expander_multiple_table_error(self):
-        node = parse_select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
+        node = self._select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
         with self.assertRaises(ResolverException) as e:
             resolve_types(node, self.database)
         self.assertEqual(
@@ -872,7 +878,7 @@ class TestResolver(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_asterisk_expander_select_union(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
-        node = parse_select("select * from (select * from events union all select * from events)")
+        node = self._select("select * from (select * from events union all select * from events)")
         node = resolve_types(node, self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
@@ -913,5 +919,5 @@ class TestResolver(BaseTest):
         )
 
     def _print_hogql(self, select: str):
-        expr = parse_select(select)
+        expr = self._select(select)
         return print_ast(expr, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
