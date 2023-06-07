@@ -15,6 +15,7 @@ from posthog.session_recordings.session_recording_helpers import (
     compress_replay_events,
     reduce_replay_events_by_window,
 )
+from posthog.test.assert_faster_than import assert_faster_than
 from posthog.utils import cast_timestamp_or_now
 
 logger = structlog.get_logger(__name__)
@@ -54,11 +55,12 @@ def _insert_session_recording_event(
 
 
 def legacy_compress_and_chunk_snapshots(events: List[Any], chunk_size=512 * 1024):
-    replay_events = compress_replay_events(events)
-    replay_events = reduce_replay_events_by_window(replay_events, max_size_bytes=chunk_size)
-    replay_events = chunk_replay_events_by_window(replay_events, max_size_bytes=chunk_size)
+    with assert_faster_than(20):
+        replay_events = compress_replay_events(events)
+        replay_events = reduce_replay_events_by_window(replay_events, max_size_bytes=chunk_size)
+        replay_events = chunk_replay_events_by_window(replay_events, max_size_bytes=chunk_size)
 
-    return replay_events
+        return replay_events
 
 
 def create_session_recording_events(
