@@ -18,10 +18,13 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run E2E checks
+        # Set job outputs to values from filter step
+        outputs:
+            shouldTriggerCypress: ${{ steps.changes.outputs.shouldTriggerCypress }}
         steps:
-            # For pull requests it's not necessary to checkout the code
+            # For pull requests it's not necessary to check out the code
             - uses: dorny/paths-filter@v2
-              id: filter
+              id: changes
               with:
                   filters: |
                       shouldTriggerCypress:
