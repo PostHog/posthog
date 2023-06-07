@@ -752,9 +752,6 @@ export interface PersonListParams {
 
 export interface MatchedRecordingEvent {
     uuid: string
-    session_id: string
-    window_id: string
-    timestamp: string
 }
 
 export interface MatchedRecording {
@@ -2004,6 +2001,7 @@ export interface Survey {
     type: SurveyType
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
+    targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
     conditions: { url: string; selector: string } | null
     appearance: SurveyAppearance
     questions: SurveyQuestion[]
