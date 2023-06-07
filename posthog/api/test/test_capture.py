@@ -35,6 +35,7 @@ from posthog.api.capture import (
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
+from posthog.session_recordings.session_recording_helpers import compress_to_string, decompress
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
     KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
@@ -89,14 +90,14 @@ class TestCapture(BaseTest):
     def _send_session_recording_event(
         self,
         number_of_events=1,
-        event_data="data",
+        event_data={},
         snapshot_source=3,
         snapshot_type=1,
         session_id="abc123",
         window_id="def456",
         distinct_id="ghi789",
         timestamp=1658516991883,
-    ):
+    ) -> dict:
         event = {
             "event": "$snapshot",
             "properties": {
@@ -115,6 +116,8 @@ class TestCapture(BaseTest):
         self.client.post(
             "/s/", data={"data": json.dumps([event for _ in range(number_of_events)]), "api_key": self.team.api_token}
         )
+
+        return event
 
     def test_is_randomly_parititoned(self):
         """Test is_randomly_partitioned under local configuration."""
@@ -1208,8 +1211,8 @@ class TestCapture(BaseTest):
         window_id = "fake-window-id"
         snapshot_source = 8
         snapshot_type = 8
-        event_data = "{'foo': 'bar'}"
-        self._send_session_recording_event(
+        event_data = {"foo": "bar"}
+        sent_event = self._send_session_recording_event(
             timestamp=timestamp,
             snapshot_source=snapshot_source,
             snapshot_type=snapshot_type,
@@ -1224,37 +1227,13 @@ class TestCapture(BaseTest):
         self.assertEqual(key, session_id)
         data_sent_to_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
 
-        # Decompress the data sent to kafka to compare it to the original data
-        decompressed_data = gzip.decompress(
-            base64.b64decode(data_sent_to_kafka["properties"]["$snapshot_data"]["data"])
-        ).decode("utf-16", "surrogatepass")
-        data_sent_to_kafka["properties"]["$snapshot_data"]["data"] = decompressed_data
-
         self.assertEqual(
             data_sent_to_kafka,
             {
                 "event": "$snapshot",
                 "properties": {
                     "$snapshot_data": {
-                        "chunk_id": "fake-uuid",
-                        "chunk_index": 0,
-                        "chunk_count": 1,
-                        "data": json.dumps(
-                            [
-                                {
-                                    "type": snapshot_type,
-                                    "data": {"source": snapshot_source, "data": event_data},
-                                    "timestamp": timestamp,
-                                }
-                            ]
-                        ),
-                        "events_summary": [
-                            {
-                                "type": snapshot_type,
-                                "data": {"source": snapshot_source},
-                                "timestamp": timestamp,
-                            }
-                        ],
+                        "data_items": [compress_to_string(json.dumps(sent_event["properties"]["$snapshot_data"]))],
                         "compression": "gzip-base64",
                         "has_full_snapshot": False,
                         "events_summary": [

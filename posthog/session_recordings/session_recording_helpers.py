@@ -169,7 +169,7 @@ def reduce_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> List
 
         if not current_event:
             current_event = new_event()
-        elif sys.getsizeof(current_event) + sys.getsizeof(additional_snapshot_data) > max_size_bytes:
+        elif byte_size_dict(current_event) + byte_size_dict(additional_snapshot_data) > max_size_bytes:
             # If adding the new data would put us over the max size, yield the current event and start a new one
             yield current_event
             current_event = new_event()
@@ -197,7 +197,8 @@ def chunk_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> Gener
     Eventually this won't be needed as we'll be able to write larger events to Kafka
     """
     for event in events:
-        if sys.getsizeof(event) > max_size_bytes:
+        print("size", byte_size_dict(event))
+        if byte_size_dict(event) > max_size_bytes:
             data_items = event["properties"]["$snapshot_data"]["data_items"]
             events_summary = event["properties"]["$snapshot_data"]["events_summary"]
             has_full_snapshot = event["properties"]["$snapshot_data"]["has_full_snapshot"]
@@ -576,3 +577,7 @@ def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> 
         has_next = False
         paginated_list = list_to_paginate[offset:]
     return PaginatedList(has_next=has_next, paginated_list=paginated_list)
+
+
+def byte_size_dict(d: Dict) -> int:
+    return len(json.dumps(d))

@@ -335,8 +335,10 @@ def get_event(request):
             replay_events = compress_replay_events(replay_events)
 
             # NOTE: Legacy flow -> reducing based on the max_size for Kafka and compressing
-            replay_events = reduce_replay_events_by_window(replay_events, max_size_bytes=512 * 1024)  # 512Kb
-            replay_events = chunk_replay_events_by_window(replay_events, max_size_bytes=512 * 1024)
+            replay_events = reduce_replay_events_by_window(
+                replay_events, max_size_bytes=settings.REPLAY_EVENT_MAX_SIZE
+            )  # 512Kb
+            replay_events = chunk_replay_events_by_window(replay_events, max_size_bytes=settings.REPLAY_EVENT_MAX_SIZE)
 
             # NOTE: New flow -> TODO: Set this up with a separate kafka write
             # new_flow_replay_events = reduce_replay_events_by_window(
