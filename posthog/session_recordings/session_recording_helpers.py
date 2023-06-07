@@ -2,12 +2,12 @@ import base64
 import dataclasses
 import gzip
 import json
+import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-import sys
-from typing import Any, Callable, DefaultDict, Dict, Generator, Iterator, List, Optional
+from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional
 
-from dateutil.parser import parse, ParserError
+from dateutil.parser import ParserError, parse
 from prometheus_client import Histogram
 from prometheus_client.utils import INF
 from sentry_sdk.api import capture_exception, capture_message
@@ -119,7 +119,7 @@ def compress_replay_event(event: Event) -> Event:
     snapshot_data = event["properties"]["$snapshot_data"]
     compressed_data = compress_to_string(json.dumps(snapshot_data))
     has_full_snapshot = snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot
-    events_summary = (get_events_summary_from_snapshot_data([snapshot_data]),)
+    events_summary = get_events_summary_from_snapshot_data([snapshot_data])
 
     event["properties"]["$snapshot_data"] = {
         "data": compressed_data,
@@ -248,8 +248,8 @@ def _process_windowed_events(events: List[Event], fn: Callable[[List[Event], Any
         window_id = event["properties"].get("$window_id")
         snapshots_by_session_and_window_id[(session_id, window_id)].append(event)
 
-    for key, snapshots in snapshots_by_session_and_window_id.items():
-        result.extend(fn(snapshots, key))
+    for _, snapshots in snapshots_by_session_and_window_id.items():
+        result.extend(fn(snapshots))
 
     return result
 
@@ -308,15 +308,25 @@ def decompress_chunked_snapshot_data(
 
     snapshot_data_by_window_id = defaultdict(list)
 
-    # Handle backward compatibility to the days of uncompressed and unchunked snapshots
+    # Handle unchunked snapshots
     if "chunk_id" not in all_recording_events[0]["snapshot_data"]:
         paginated_list = paginate_list(all_recording_events, limit, offset)
         for event in paginated_list.paginated_list:
-            snapshot_data_by_window_id[event["window_id"]].append(
-                get_events_summary_from_snapshot_data([event["snapshot_data"]])[0]
-                if return_only_activity_data
-                else event["snapshot_data"]
-            )
+
+            if event["snapshot_data"].get("data_items"):
+                decompressed_items = [json.loads(decompress(x)) for x in event["snapshot_data"]["data_items"]]
+
+                # New format where the event is a list of raw rrweb events
+                snapshot_data_by_window_id[event["window_id"]].extend(
+                    event["snapshot_data"]["events_summary"] if return_only_activity_data else decompressed_items
+                )
+            else:
+                # Really old format where the event is just a single raw rrweb event
+                snapshot_data_by_window_id[event["window_id"]].append(
+                    get_events_summary_from_snapshot_data([event["snapshot_data"]])[0]
+                    if return_only_activity_data
+                    else event["snapshot_data"]
+                )
         return DecompressedRecordingData(
             has_next=paginated_list.has_next, snapshot_data_by_window_id=snapshot_data_by_window_id
         )

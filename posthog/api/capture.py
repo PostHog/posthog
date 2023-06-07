@@ -20,11 +20,7 @@ from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 
-from posthog.api.utils import (
-    get_data,
-    get_token,
-    safe_clickhouse_string,
-)
+from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.exceptions import generate_exception_response
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
@@ -339,8 +335,8 @@ def get_event(request):
             replay_events = compress_replay_events(replay_events)
 
             # NOTE: Legacy flow -> reducing based on the max_size for Kafka and compressing
-            replay_events = reduce_replay_events_by_window(replay_events, max_size=512 * 1024)  # 512Kb
-            replay_events = chunk_replay_events_by_window(replay_events, max_size=512 * 1024)
+            replay_events = reduce_replay_events_by_window(replay_events, max_size_bytes=512 * 1024)  # 512Kb
+            replay_events = chunk_replay_events_by_window(replay_events, max_size_bytes=512 * 1024)
 
             # NOTE: New flow -> TODO: Set this up with a separate kafka write
             # new_flow_replay_events = reduce_replay_events_by_window(
