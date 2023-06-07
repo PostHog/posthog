@@ -48,17 +48,17 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
 
         if "verified" in validated_data:
             if validated_data["verified"] and not property_definition.verified:
-                # Verify event only if previously unverified
+                # Verify property only if previously unverified
                 validated_data["verified_by"] = self.context["request"].user
                 validated_data["verified_at"] = timezone.now()
                 validated_data["verified"] = True
             elif not validated_data["verified"]:
-                # Unverifying event nullifies verified properties
+                # Unverifying property nullifies verified properties
                 validated_data["verified_by"] = None
                 validated_data["verified_at"] = None
                 validated_data["verified"] = False
             else:
-                # Attempting to re-verify an already verified event, invalid action. Ignore attribute.
+                # Attempting to re-verify an already verified property, invalid action. Ignore attribute.
                 validated_data.pop("verified")
 
         before_state = {
