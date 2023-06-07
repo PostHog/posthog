@@ -34,7 +34,6 @@ from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
     chunk_replay_events_by_window,
     compress_replay_events,
-    preprocess_session_recording_events_for_clickhouse,
     reduce_replay_events_by_window,
     split_replay_events,
 )
@@ -339,11 +338,11 @@ def get_event(request):
             replay_events, other_events = split_replay_events(events)
             replay_events = compress_replay_events(replay_events)
 
-            # Legacy flow -> reducing based on the max_size for Kafka and compressing
-            replay_events = reduce_replay_events_by_window(replay_events)
-            replay_events = chunk_replay_events_by_window(replay_events)
+            # NOTE: Legacy flow -> reducing based on the max_size for Kafka and compressing
+            replay_events = reduce_replay_events_by_window(replay_events, max_size=512 * 1024)  # 512Kb
+            replay_events = chunk_replay_events_by_window(replay_events, max_size=512 * 1024)
 
-            # New flow -> TODO: Set this up with a separate kafka write
+            # NOTE: New flow -> TODO: Set this up with a separate kafka write
             # new_flow_replay_events = reduce_replay_events_by_window(
             #     replay_events, max_size=1024 * 1024 * 8
             # )  # 8MB for the new flow
