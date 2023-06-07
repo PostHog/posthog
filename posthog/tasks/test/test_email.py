@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
+from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import set_instance_setting
@@ -78,8 +79,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_password_reset(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        token = password_reset_token_generator.make_token(self.user)
 
-        send_password_reset(user.id)
+        send_password_reset(user.id, token)
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1

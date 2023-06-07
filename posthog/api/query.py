@@ -20,6 +20,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
@@ -27,7 +28,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import TeamRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode
+from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode, HogQLMetadata
 from posthog.utils import relative_date_parse
 
 
@@ -163,6 +164,10 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
         response = execute_hogql_query(
             query=hogql_query.query, team=team, query_type="HogQLQuery", default_limit=default_limit
         )
+        return _response_to_dict(response)
+    elif query_kind == "HogQLMetadata":
+        metadata_query = HogQLMetadata.parse_obj(query_json)
+        response = get_hogql_metadata(query=metadata_query, team=team)
         return _response_to_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)

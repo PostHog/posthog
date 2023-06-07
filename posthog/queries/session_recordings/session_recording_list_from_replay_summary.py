@@ -1,8 +1,10 @@
 import dataclasses
+import datetime
 from typing import Any, Dict, List, Tuple, Union, Literal
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
 
@@ -22,6 +24,15 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     # because it doesn't return MatchingEvents any person/event selection templating is redundant here
 
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
+
+    def __init__(
+        self,
+        **kwargs,
+    ):
+        super().__init__(
+            **kwargs,
+        )
+        self.ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
 
     _persons_lookup_cte = """
     distinct_ids_for_person as (
@@ -49,9 +60,13 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
        sum(click_count),
        sum(keypress_count),
        sum(mouse_activity_count),
-       sum(active_milliseconds)/1000 as active_seconds
+       sum(active_milliseconds)/1000 as active_seconds,
+       duration-active_seconds as inactive_seconds
     FROM session_replay_events
     PREWHERE team_id = %(team_id)s
+        -- regardless of what other filters are applied
+        -- limit by storage TTL
+        AND min_first_timestamp >= %(clamped_to_storage_ttl)s
          -- we can filter on the pre-aggregated timestamp columns
         -- because any not-the-lowest min value is _more_ greater than the min value
         -- and any not-the-highest max value is _less_ lower than the max value
@@ -147,6 +162,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             "keypress_count",
             "mouse_activity_count",
             "active_seconds",
+            "inactive_seconds",
         ]
 
         return [
@@ -161,7 +177,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         return self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
 
     def duration_clause(
-        self, duration_filter_type: Literal["duration", "active_seconds"]
+        self, duration_filter_type: Literal["duration", "active_seconds", "inactive_seconds"]
     ) -> Tuple[str, Dict[str, Any]]:
         duration_clause = ""
         duration_params = {}
@@ -180,7 +196,13 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         offset = self._filter.offset or 0
-        base_params = {"team_id": self._team_id, "limit": self.limit + 1, "offset": offset}
+
+        base_params = {
+            "team_id": self._team_id,
+            "limit": self.limit + 1,
+            "offset": offset,
+            "clamped_to_storage_ttl": (datetime.datetime.now() - datetime.timedelta(days=self.ttl_days)),
+        }
 
         recording_person_query, recording_person_query_params = self._get_recording_person_query()
 

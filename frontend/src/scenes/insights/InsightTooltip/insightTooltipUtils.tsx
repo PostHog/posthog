@@ -41,11 +41,13 @@ export interface TooltipConfig {
     hideColorCol?: boolean
 }
 
-export interface InsightTooltipProps extends TooltipConfig {
+export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' | 'renderCount'> {
+    renderSeries: Required<TooltipConfig>['renderSeries']
+    renderCount: Required<TooltipConfig>['renderCount']
     date?: string
     hideInspectActorsSection?: boolean
-    seriesData?: SeriesDatum[]
-    forceEntitiesAsColumns?: boolean
+    seriesData: SeriesDatum[]
+    entitiesAsColumnsOverride?: boolean
     groupTypeLabel?: string
     timezone?: string | null
 }

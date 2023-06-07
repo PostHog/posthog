@@ -13,6 +13,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     ChartDisplayType,
     ChartParams,
+    DashboardBasicType,
     DashboardPlacement,
     DashboardTile,
     DashboardType,
@@ -149,7 +150,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     refresh?: () => void
     rename?: () => void
     duplicate?: () => void
-    moveToDashboard?: (dashboard: DashboardType) => void
+    moveToDashboard?: (dashboard: DashboardBasicType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
     placement: DashboardPlacement | 'SavedInsightGrid'
