@@ -171,6 +171,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], True)
 
+    def test_exception_autocapture_opt_in(self, *args):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["autocaptureExceptions"], False)
+
+        self._update_team({"autocapture_exceptions_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["autocaptureExceptions"], True)
+
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
