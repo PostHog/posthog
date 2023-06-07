@@ -32,7 +32,11 @@ from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
+    chunk_replay_events_by_window,
+    compress_replay_events,
     preprocess_session_recording_events_for_clickhouse,
+    reduce_replay_events_by_window,
+    split_replay_events,
 )
 from posthog.utils import cors_response, get_ip_address
 
@@ -332,7 +336,19 @@ def get_event(request):
             capture_exception(e)
 
         try:
-            events = preprocess_session_recording_events_for_clickhouse(events)
+            replay_events, other_events = split_replay_events(events)
+            replay_events = compress_replay_events(replay_events)
+
+            # Legacy flow -> reducing based on the max_size for Kafka and compressing
+            replay_events = reduce_replay_events_by_window(replay_events)
+            replay_events = chunk_replay_events_by_window(replay_events)
+
+            # New flow -> TODO: Set this up with a separate kafka write
+            # new_flow_replay_events = reduce_replay_events_by_window(
+            #     replay_events, max_size=1024 * 1024 * 8
+            # )  # 8MB for the new flow
+
+            events = replay_events + other_events
         except ValueError as e:
             return cors_response(
                 request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
