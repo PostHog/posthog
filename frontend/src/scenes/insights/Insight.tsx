@@ -10,7 +10,7 @@ import { InsightsNav } from './InsightNav/InsightsNav'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
-import { containsHogQLQuery } from '~/queries/utils'
+import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -69,7 +69,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                 {insightMode === ItemMode.Edit && <InsightsNav />}
 
                 <Query
-                    query={{ ...query, full: true }}
+                    query={isInsightVizNode(query) ? { ...query, full: true } : query}
                     setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
                     readOnly={insightMode !== ItemMode.Edit}
                     context={{
