@@ -185,7 +185,6 @@ def test_has_full_snapshot_property(raw_snapshot_events):
     assert compressed[0]["properties"]["$snapshot_data"]["has_full_snapshot"]
 
     raw_snapshot_events[0]["properties"]["$snapshot_data"]["type"] = 0
-    print(raw_snapshot_events)
     compressed = list(mock_capture_flow(raw_snapshot_events))
     assert len(compressed) == 1
     assert not compressed[0]["properties"]["$snapshot_data"]["has_full_snapshot"]
