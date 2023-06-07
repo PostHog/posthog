@@ -76,6 +76,7 @@ import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponen
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import clsx from 'clsx'
+import { AnalysisTab } from './FeatureFlagAnalysisTab'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -521,6 +522,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     {featureFlag.key && id && (
                                         <Tabs.TabPane tab={<div>Usage</div>} key="usage">
                                             <UsageTab id={id} featureFlag={featureFlag} />
+                                        </Tabs.TabPane>
+                                    )}
+                                    {featureFlag.key && id && (
+                                        <Tabs.TabPane tab={<div>Analysis</div>} key="analysis">
+                                            <AnalysisTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
                                     {featureFlag.id && (
