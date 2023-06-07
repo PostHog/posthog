@@ -19,10 +19,10 @@ from posthog.models import (
     OrganizationMembership,
     Person,
     Plugin,
+    PluginAttachment,
     PluginConfig,
     Team,
     User,
-    PluginAttachment,
 )
 
 admin.site.register(Person)
@@ -210,6 +210,7 @@ class OrganizationTeamInline(admin.TabularInline):
         "completed_snippet_onboarding",
         "ingested_event",
         "session_recording_opt_in",
+        "autocapture_opt_out",
         "signup_token",
         "is_demo",
         "access_control",

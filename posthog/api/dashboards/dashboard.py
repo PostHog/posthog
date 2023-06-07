@@ -1,5 +1,6 @@
 import json
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Type, cast
+from rest_framework.serializers import BaseSerializer
 
 import structlog
 from django.db.models import Prefetch, QuerySet
@@ -75,7 +76,43 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         return representation
 
 
-class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class DashboardBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserPermissionsSerializerMixin):
+    created_by = UserBasicSerializer(read_only=True)
+    effective_privilege_level = serializers.SerializerMethodField()
+    effective_restriction_level = serializers.SerializerMethodField()
+    is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
+
+    class Meta:
+        model = Dashboard
+        fields = [
+            "id",
+            "name",
+            "description",
+            "pinned",
+            "created_at",
+            "created_by",
+            "is_shared",
+            "deleted",
+            "creation_mode",
+            "tags",
+            "restriction_level",
+            "effective_restriction_level",
+            "effective_privilege_level",
+        ]
+        read_only_fields = fields
+
+    def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        return self.user_permissions.dashboard(dashboard).effective_restriction_level
+
+    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.PrivilegeLevel.CAN_VIEW
+        return self.user_permissions.dashboard(dashboard).effective_privilege_level
+
+
+class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
@@ -331,16 +368,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return serialized_tiles
 
-    def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
-        if self.context.get("is_shared"):
-            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.user_permissions.dashboard(dashboard).effective_restriction_level
-
-    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
-        if self.context.get("is_shared"):
-            return Dashboard.PrivilegeLevel.CAN_VIEW
-        return self.user_permissions.dashboard(dashboard).effective_privilege_level
-
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
             raise serializers.ValidationError("`use_dashboard` and `use_template` cannot be used together")
@@ -357,13 +384,15 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
 class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Dashboard.objects.order_by("name")
-    serializer_class = DashboardSerializer
     permission_classes = [
         IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
         CanEditDashboard,
     ]
+
+    def get_serializer_class(self) -> Type[BaseSerializer]:
+        return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
     def get_queryset(self) -> QuerySet:
         if (

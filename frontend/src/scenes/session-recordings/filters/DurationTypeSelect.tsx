@@ -9,6 +9,7 @@ interface DurationTypeFilterProps {
 export function DurationTypeSelect({ onChange, value }: DurationTypeFilterProps): JSX.Element {
     return (
         <LemonSelect
+            data-attr="duration-type-selector"
             onChange={(v) => onChange((v || 'all') as DurationTypeFilter)}
             options={[
                 {
@@ -18,6 +19,10 @@ export function DurationTypeSelect({ onChange, value }: DurationTypeFilterProps)
                 {
                     label: 'active duration',
                     value: 'active_seconds',
+                },
+                {
+                    label: 'inactive duration',
+                    value: 'inactive_seconds',
                 },
             ]}
             size="small"

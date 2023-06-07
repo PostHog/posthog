@@ -10,12 +10,12 @@ class TestParser(BaseTest):
         expr = parse_expr("{foo}")
         self.assertEqual(
             expr,
-            ast.Placeholder(field="foo"),
+            ast.Placeholder(field="foo", start=0, end=5),
         )
         expr2 = replace_placeholders(expr, {"foo": ast.Constant(value="bar")})
         self.assertEqual(
             expr2,
-            ast.Constant(value="bar"),
+            ast.Constant(value="bar", start=0, end=5),
         )
 
     def test_replace_placeholders_error(self):
@@ -32,18 +32,22 @@ class TestParser(BaseTest):
         self.assertEqual(
             expr,
             ast.CompareOperation(
+                start=0,
+                end=23,
                 op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Placeholder(field="timestamp"),
+                left=ast.Field(chain=["timestamp"], start=0, end=9),
+                right=ast.Placeholder(field="timestamp", start=12, end=23),
             ),
         )
         expr2 = replace_placeholders(expr, {"timestamp": ast.Constant(value=123)})
         self.assertEqual(
             expr2,
             ast.CompareOperation(
+                start=0,
+                end=23,
                 op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=123),
+                left=ast.Field(chain=["timestamp"], start=0, end=9),
+                right=ast.Constant(value=123, start=12, end=23),
             ),
         )
 

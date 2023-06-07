@@ -63,7 +63,7 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
 
 // Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
-// Sync with api/person.py
+// Sync with .../api/person.py and .../ingestion/hooks.ts
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
     'Email',
@@ -150,6 +150,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_SUMMARY_LISTING: 'session-recording-summary-listing', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
     NEW_EMPTY_STATES: 'new-empty-states', // owner: @raquelmsmith
+    GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // owner: @raquelmsmith
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
