@@ -1,6 +1,10 @@
 from typing import Type
 
+from django.http import JsonResponse
+
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import get_token
+from posthog.exceptions import generate_exception_response
 from posthog.models.feedback.survey import Survey
 from rest_framework.response import Response
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
@@ -8,12 +12,17 @@ from posthog.api.routing import StructuredViewSetMixin
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
+from rest_framework import status
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.team.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from django.utils.text import slugify
+from django.views.decorators.csrf import csrf_exempt
 
 from typing import Any
+
+from posthog.utils import cors_response
 
 
 class SurveySerializer(serializers.ModelSerializer):
@@ -155,3 +164,66 @@ class SurveyViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             related_targeting_flag.delete()
 
         return super().destroy(request, *args, **kwargs)
+
+
+class SurveyAPISerializer(serializers.ModelSerializer):
+    """
+    Serializer for the exposed /api/surveys endpoint, to be used in posthog-js and for headless APIs.
+    """
+
+    linked_flag_key = serializers.CharField(source="linked_flag.key", read_only=True)
+    targeting_flag_key = serializers.CharField(source="targeting_flag.key", read_only=True)
+
+    class Meta:
+        model = Survey
+        fields = [
+            "id",
+            "name",
+            "description",
+            "type",
+            "linked_flag_key",
+            "targeting_flag_key",
+            "questions",
+            "conditions",
+            "appearance",
+            "start_date",
+            "end_date",
+        ]
+        read_only_fields = fields
+
+
+@csrf_exempt
+def surveys(request: Request):
+    token = get_token(None, request)
+
+    if not token:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "surveys",
+                "API key not provided. You can find your project API key in your PostHog project settings.",
+                type="authentication_error",
+                code="missing_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
+
+    team = Team.objects.get_team_from_cache_or_token(token)
+    if team is None:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "surveys",
+                "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                type="authentication_error",
+                code="invalid_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
+
+    surveys = SurveyAPISerializer(
+        Survey.objects.filter(team_id=team.id).exclude(archived=True).select_related("linked_flag", "targeting_flag"),
+        many=True,
+    ).data
+
+    return cors_response(request, JsonResponse({"surveys": surveys}))

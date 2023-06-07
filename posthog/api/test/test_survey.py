@@ -1,10 +1,13 @@
 from unittest.mock import ANY
 
 from rest_framework import status
+from django.core.cache import cache
+from django.test.client import Client
+
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 class TestSurvey(APIBaseTest):
@@ -237,3 +240,104 @@ class TestSurvey(APIBaseTest):
                 }
             ],
         }
+
+
+class TestSurveysAPIList(BaseTest, QueryMatchingTest):
+    def setUp(self):
+        cache.clear()
+        super().setUp()
+        # it is really important to know that this is CSRF exempt
+        self.client = Client(enforce_csrf_checks=True)
+        self.client.force_login(self.user)
+
+    def _get_surveys(
+        self,
+        token=None,
+        origin="http://127.0.0.1:8000",
+        ip="127.0.0.1",
+    ):
+        return self.client.get(
+            "/api/surveys/",
+            data={"token": token or self.team.api_token},
+            HTTP_ORIGIN=origin,
+            REMOTE_ADDR=ip,
+        )
+
+    @snapshot_postgres_queries
+    def test_list_surveys(self):
+        basic_survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+        )
+        linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
+        targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
+
+        survey_with_flags = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            linked_flag=linked_flag,
+            targeting_flag=targeting_flag,
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+        )
+        self.client.logout()
+
+        with self.assertNumQueries(2):
+            response = self._get_surveys()
+            assert response.status_code == status.HTTP_200_OK
+            assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
+            self.assertListEqual(
+                response.json()["surveys"],
+                [
+                    {
+                        "id": str(basic_survey.id),
+                        "name": "Survey 1",
+                        "description": "",
+                        "type": "popover",
+                        "questions": [{"type": "open", "question": "What's a survey?"}],
+                        "conditions": None,
+                        "appearance": None,
+                        "start_date": None,
+                        "end_date": None,
+                    },
+                    {
+                        "id": str(survey_with_flags.id),
+                        "name": "Survey 2",
+                        "description": "",
+                        "type": "popover",
+                        "conditions": None,
+                        "appearance": None,
+                        "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                        "linked_flag_key": "linked-flag",
+                        "targeting_flag_key": "targeting-flag",
+                        "start_date": None,
+                        "end_date": None,
+                    },
+                ],
+            )
+
+    def test_get_surveys_errors_on_invalid_token(self):
+        self.client.logout()
+
+        with self.assertNumQueries(1):
+            response = self._get_surveys(token="invalid_token")
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
+            assert (
+                response.json()["detail"]
+                == "Project API key invalid. You can find your project API key in your PostHog project settings."
+            )
+
+    def test_get_surveys_errors_on_empty_token(self):
+        self.client.logout()
+
+        with self.assertNumQueries(0):
+            response = self.client.get(f"/api/surveys/")
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
+            assert (
+                response.json()["detail"]
+                == "API key not provided. You can find your project API key in your PostHog project settings."
+            )
