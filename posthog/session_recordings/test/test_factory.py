@@ -102,6 +102,7 @@ def create_session_recording_events(
     event_ids = []
 
     for event in legacy_compress_and_chunk_snapshots(mock_events, chunk_size=chunk_size):
+        print(event)
         event_ids.append(
             _insert_session_recording_event(
                 team_id=team_id,

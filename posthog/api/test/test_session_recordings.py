@@ -103,7 +103,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             session_id=session_id,
             window_id=window_id,
             snapshots=snapshots,
-            chunk_size=15,
         )
 
     def test_get_session_recordings(self):
