@@ -123,6 +123,8 @@ services:
         restart: 'no'
         deploy:
             replicas: 0
+        environment:
+            SKIP_ASYNC_MIGRATIONS_SETUP: 0
 
     # Temporal containers
     elasticsearch:
