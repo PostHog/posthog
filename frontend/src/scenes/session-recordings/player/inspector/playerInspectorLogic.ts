@@ -197,7 +197,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         matchingEvents: [
             () => [(_, props) => props.matching],
             (matchingEvents): MatchedRecordingEvent[] => {
-                return matchingEvents?.map((x: any) => x.events).flat() ?? []
+                // matching events were a dictionary in v1 and v2, but we only used the UUID
+                // so in v3 we just return the UUIDs
+                return matchingEvents?.map((x: any) => (typeof x === 'string' ? { uuid: x } : x.events)).flat() ?? []
             },
         ],
 

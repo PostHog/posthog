@@ -752,9 +752,6 @@ export interface PersonListParams {
 
 export interface MatchedRecordingEvent {
     uuid: string
-    session_id: string
-    window_id: string
-    timestamp: string
 }
 
 export interface MatchedRecording {
