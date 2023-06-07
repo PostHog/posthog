@@ -102,7 +102,7 @@ def split_replay_events(events: List[Event]) -> List[Event]:
     replay, other = [], []
 
     for event in events:
-        replay.append(event) if is_unchunked_snapshot(event) else other.append(event)
+        replay.append(event) if is_unprocessed_snapshot_event(event) else other.append(event)
 
     return replay, other
 
@@ -120,14 +120,18 @@ def compress_replay_event(event: Event) -> Event:
     has_full_snapshot = snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot
     events_summary = get_events_summary_from_snapshot_data([snapshot_data])
 
-    event["properties"]["$snapshot_data"] = {
-        "data": compressed_data,
-        "compression": "gzip-base64",
-        "has_full_snapshot": has_full_snapshot,
-        "events_summary": events_summary,
+    return {
+        **event,
+        "properties": {
+            **event["properties"],
+            "$snapshot_data": {
+                "data": compressed_data,
+                "compression": "gzip-base64",
+                "has_full_snapshot": has_full_snapshot,
+                "events_summary": events_summary,
+            },
+        },
     }
-
-    return event
 
 
 def reduce_replay_events_by_window(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
@@ -258,7 +262,7 @@ def chunk_string(string: str, chunk_length: int) -> List[str]:
     return [string[0 + offset : chunk_length + offset] for offset in range(0, len(string), chunk_length)]
 
 
-def is_unchunked_snapshot(event: Dict) -> bool:
+def is_unprocessed_snapshot_event(event: Dict) -> bool:
     try:
         is_snapshot = event["event"] == "$snapshot"
     except KeyError:
@@ -266,7 +270,7 @@ def is_unchunked_snapshot(event: Dict) -> bool:
     except TypeError:
         raise ValueError(f"All events must be dictionaries not '{type(event).__name__}'!")
     try:
-        return is_snapshot and "chunk_id" not in event["properties"]["$snapshot_data"]
+        return is_snapshot and "compression" not in event["properties"]["$snapshot_data"]
     except KeyError:
         capture_exception()
         raise ValueError('$snapshot events must contain property "$snapshot_data"!')
@@ -380,6 +384,9 @@ def decompress_chunked_snapshot_data(
             chunk["snapshot_data"]["data"] for chunk in sorted(chunks, key=lambda c: c["snapshot_data"]["chunk_index"])
         )
         decompressed_data = json.loads(decompress(b64_compressed_data))
+
+        if type(decompressed_data) is dict:
+            decompressed_data = [decompressed_data]
 
         # Decompressed data can be large, and in metadata calculations, we only care if the event is "active"
         # This pares down the data returned, so we're not passing around a massive object
