@@ -122,7 +122,7 @@ export function EventDefinitionsTable(): JSX.Element {
                                 <LemonButton
                                     status="stealth"
                                     to={
-                                        combineUrl(urls.sessionRecordings(), {
+                                        combineUrl(urls.replay(), {
                                             filters: {
                                                 events: [
                                                     {

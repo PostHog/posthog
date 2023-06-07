@@ -3,6 +3,8 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.settings import EE_AVAILABLE
 
+from posthog.batch_exports import http as batch_exports
+
 from . import (
     activity_log,
     annotation,
@@ -19,6 +21,7 @@ from . import (
     instance_status,
     integration,
     kafka_inspector,
+    notebook,
     organization,
     organization_domain,
     organization_invite,
@@ -34,7 +37,6 @@ from . import (
     team,
     uploaded_media,
     user,
-    person_communication,
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
@@ -125,6 +127,11 @@ app_metrics_router.register(
     ["team_id", "plugin_config_id"],
 )
 
+batch_exports_router = projects_router.register(
+    r"batch_exports", batch_exports.BatchExportViewSet, "batch_exports", ["team_id"]
+)
+
+
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organization_plugins_router = organizations_router.register(
@@ -204,7 +211,7 @@ projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
-projects_router.register(
+project_session_recordings_router = projects_router.register(
     r"session_recordings",
     SessionRecordingViewSet,
     "project_session_recordings",
@@ -213,9 +220,15 @@ projects_router.register(
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
-    from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
+    from ee.clickhouse.views.groups import (
+        ClickhouseGroupsTypesView,
+        ClickhouseGroupsView,
+    )
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-    from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
+    from ee.clickhouse.views.person import (
+        EnterprisePersonViewSet,
+        LegacyEnterprisePersonViewSet,
+    )
 
     projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
     projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
@@ -245,9 +258,16 @@ project_insights_router.register(
     ["team_id", "insight_id"],
 )
 
+project_session_recordings_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_recording_sharing",
+    ["team_id", "recording_id"],
+)
+
 projects_router.register(
-    r"person_communications",
-    person_communication.PersonCommunicationViewSet,
-    "project_person_communications",
+    r"notebooks",
+    notebook.NotebookViewSet,
+    "project_notebooks",
     ["team_id"],
 )

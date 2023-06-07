@@ -3,14 +3,40 @@ import { mockActionDefinition } from '~/test/mocks'
 
 export const taxonomicFilterMocksDecorator = mswDecorator({
     get: {
-        '/api/projects/@current/actions': [mockActionDefinition],
+        '/api/projects/:team_id/actions': [mockActionDefinition],
         '/api/projects/:team_id/persons/properties': [
             { id: 1, name: 'location', count: 1 },
             { id: 2, name: 'role', count: 2 },
             { id: 3, name: 'height', count: 3 },
             { id: 4, name: '$browser', count: 4 },
         ],
-        '/api/projects/@current/property_definitions': [
+        '/api/projects/:team_id/property_definitions': [
+            {
+                name: 'file_count',
+                count: 205,
+            },
+            {
+                name: 'industry',
+                count: 205,
+            },
+            {
+                name: 'name',
+                count: 205,
+            },
+            {
+                name: 'plan',
+                count: 205,
+            },
+            {
+                name: 'team_size',
+                count: 205,
+            },
+            {
+                name: 'used_mb',
+                count: 205,
+            },
+        ],
+        '/api/projects/:team_id/event_definitions': [
             {
                 id: 'a',
                 name: 'signed up',
@@ -26,6 +52,7 @@ export const taxonomicFilterMocksDecorator = mswDecorator({
                 volume_30_day: 10,
                 query_usage_30_day: 5,
                 count: 1,
+                verified: true,
             },
             {
                 id: 'c',
@@ -36,7 +63,7 @@ export const taxonomicFilterMocksDecorator = mswDecorator({
                 count: 103,
             },
         ],
-        '/api/projects/1/cohorts/': [
+        '/api/projects/:team_id/cohorts/': [
             {
                 id: 1,
                 name: 'Properties Cohort',

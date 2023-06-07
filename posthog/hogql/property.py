@@ -233,9 +233,21 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.tag_name is not None:
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
-                exprs.append(element_chain_key_filter("href", step.href, PropertyOperator.exact))
+                if step.href_matching == ActionStep.REGEX:
+                    operator = PropertyOperator.regex
+                elif step.href_matching == ActionStep.CONTAINS:
+                    operator = PropertyOperator.icontains
+                else:
+                    operator = PropertyOperator.exact
+                exprs.append(element_chain_key_filter("href", step.href, operator))
             if step.text is not None:
-                exprs.append(element_chain_key_filter("text", step.text, PropertyOperator.exact))
+                if step.text_matching == ActionStep.REGEX:
+                    operator = PropertyOperator.regex
+                elif step.text_matching == ActionStep.CONTAINS:
+                    operator = PropertyOperator.icontains
+                else:
+                    operator = PropertyOperator.exact
+                exprs.append(element_chain_key_filter("text", step.text, operator))
 
         if step.url:
             if step.url_matching == ActionStep.EXACT:

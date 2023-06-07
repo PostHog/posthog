@@ -5,13 +5,14 @@
 
     display: flex;
     width: 100%;
-    height: 100%;
-    min-height: 100vh;
+    height: 100vh;
     background: var(--bg-3000);
+    overflow: hidden;
 
     > main {
         flex: 1;
         min-width: 0;
+        overflow: auto;
     }
 }
 
@@ -59,6 +60,7 @@
     padding: 0 0.375rem;
     border-right-width: 1px;
     background: var(--accent-3000);
+    overflow-y: auto;
 }
 
 // Sidebar
@@ -101,7 +103,7 @@
     }
     h4 {
         font-weight: 600;
-        line-height: 2rem;
+        line-height: 1.75rem;
         font-size: 0.6875rem;
     }
     h5 {
@@ -154,13 +156,15 @@
     align-items: stretch;
     flex-grow: 1;
     overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .Sidebar3000__hint {
+    z-index: 1;
+    flex: 0 0 var(--sidebar-row-height);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: var(--sidebar-row-height);
     padding: 0 var(--sidebar-horizontal-padding);
     background: var(--bg-3000);
     border-top-width: 1px;
@@ -189,6 +193,7 @@
         bottom: 0;
         left: var(--sidebar-slider-padding);
         width: 1px;
+        pointer-events: none;
     }
     &::before {
         transition: 100ms ease transform;
@@ -213,9 +218,9 @@
 }
 
 .Sidebar3000__header {
+    flex: 0 0 var(--sidebar-row-height);
     display: flex;
     align-items: center;
-    height: var(--sidebar-row-height);
     padding: 0 var(--sidebar-horizontal-padding);
 }
 
@@ -223,10 +228,22 @@
 
 .Accordion {
     --accordion-arrow-size: 1rem;
+    --accordion-row-height: 1.75rem;
     --accordion-inset: 1.25rem;
     --accordion-header-background: var(--accent-3000);
+    min-height: var(--accordion-row-height);
+    flex-shrink: 0;
+    flex-basis: 0;
+    display: flex;
+    flex-direction: column;
     [theme='dark'] & {
         --accordion-header-background: var(--bg-3000);
+    }
+    &.Accordion--expanded {
+        flex-grow: 1;
+        &:not(:last-child) {
+            border-bottom-width: 1px;
+        }
     }
 }
 
@@ -236,13 +253,16 @@
         &:hover {
             background: var(--accordion-header-background);
         }
-        .LemonIcon {
-            visibility: hidden;
-        }
+    }
+    &:not([aria-busy='true']) .Accordion__header .LemonIcon {
+        visibility: hidden;
     }
 }
 
 .Accordion__header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     display: flex;
     align-items: center;
     background: var(--accordion-header-background);
@@ -255,7 +275,7 @@
         background: var(--border-3000);
     }
     .LemonIcon {
-        transition: 100ms ease transform;
+        transition: 50ms ease transform;
         font-size: var(--accordion-arrow-size);
         flex-shrink: 0;
         .Accordion--expanded & {
@@ -268,43 +288,39 @@
 }
 
 .Accordion__content {
-    border-bottom-width: 1px;
-}
-
-.Accordion__meta {
-    opacity: 0.5;
-    padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--accordion-inset) + var(--sidebar-horizontal-padding));
-    line-height: var(--accordion-row-height);
-    user-select: none;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .SidebarListItem {
     --sidebar-list-item-status-color: var(--muted);
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
+    --sidebar-list-item-background: var(--sidebar-background);
     position: relative;
     color: var(--muted);
-    border-bottom-width: 1px;
     line-height: 1.125rem;
     height: var(--sidebar-basic-leaf-row-height);
-    cursor: pointer;
     opacity: 0.9; // Make items slightly lower contrast when not hovered
+    background: var(--sidebar-list-item-background);
+    border-bottom-width: 1px;
 
     &:hover,
     &[aria-current='page'] {
         opacity: 1;
-        background: var(--border-3000);
+        --sidebar-list-item-background: var(--border-3000);
     }
     &:hover,
     &:focus-within,
     &[aria-current='page'],
+    &.SidebarListItem--is-renaming,
     &.SidebarListItem--is-menu-open {
-        .SidebarListItem__menu {
-            display: block;
+        .SidebarListItem__actions {
+            display: flex;
         }
         // Accommodate menu button by moving stuff out of the way
         &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link {
-            padding-right: 1.25rem;
+            padding-right: calc(var(--sidebar-horizontal-padding) + 1.25rem);
         }
         &.SidebarListItem--has-menu.SidebarListItem--extended {
             &::after {
@@ -315,7 +331,12 @@
                 right: 1px;
                 bottom: 1px;
                 width: 3.5rem;
-                background: linear-gradient(to left, var(--border-3000) 0%, var(--border-3000) 50%, transparent 100%);
+                background: linear-gradient(
+                    to left,
+                    var(--sidebar-list-item-background) 0%,
+                    var(--sidebar-list-item-background) 50%,
+                    transparent 100%
+                );
             }
         }
     }
@@ -332,6 +353,7 @@
             position: absolute;
             top: 0;
             left: 0;
+            z-index: 1;
         }
     }
     &.SidebarListItem--marker-fold {
@@ -361,7 +383,11 @@
     }
 }
 
-.SidebarListItem__link {
+.SidebarListItem__link,
+.SidebarListItem__rename {
+    --sidebar-list-item-inset: calc(
+        var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) + var(--sidebar-list-item-marker-offset, 0px)
+    );
     position: relative;
     display: flex;
     flex-direction: column;
@@ -369,29 +395,53 @@
     width: 100%;
     height: 100%;
     color: inherit;
-    padding: 0 var(--sidebar-horizontal-padding) 0
-        calc(
-            var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) +
-                var(--sidebar-list-item-marker-offset, 0px)
-        );
-    &:hover {
-        color: inherit;
-    }
     &:focus-visible::after {
         content: '';
         position: absolute;
         top: 0;
         left: 0;
-        bottom: 0;
+        bottom: -1px;
         right: 0;
         border: 1px solid var(--default);
+        pointer-events: none;
     }
 }
 
-.SidebarListItem__menu {
+.SidebarListItem__link {
+    padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
+    &:hover {
+        color: inherit;
+    }
+}
+
+.SidebarListItem__rename {
+    // Pseudo-elements don't work on inputs, so we use a wrapper div
+    background: var(--bg-light);
+    input {
+        outline: none;
+        height: 100%;
+        width: 100%;
+        font-size: 0.75rem;
+        color: var(--default);
+        padding: 0 calc(var(--sidebar-horizontal-padding) + 2.5rem) 0 var(--sidebar-list-item-inset);
+        background: none;
+    }
+    &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: -1px;
+        right: 0;
+        border: 1px solid var(--default);
+        pointer-events: none;
+    }
+}
+
+.SidebarListItem__actions {
     z-index: 1; // Show above .SidebarListItem::after gradient
     position: absolute;
-    right: 0.25rem;
+    right: var(--sidebar-horizontal-padding);
     top: 50%;
     transform: translateY(-50%);
     display: none; // Only show on hover/focus or for current page

@@ -1,3 +1,23 @@
+# name: TestFormula.test_aggregated_one_without_events
+  '
+  SELECT '' as date,
+         arrayMap((A, B) -> B + A, [ifNull(sub_A.total, 0)], [ifNull(sub_B.total, 0)])
+  FROM
+    (SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'session start'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) as sub_A
+  CROSS JOIN
+    (SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session not here'), '^"|"$', ''))) AS total
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'session error'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) as sub_B
+  '
+---
 # name: TestFormula.test_breakdown
   '
   
@@ -165,7 +185,7 @@
 # name: TestFormula.test_breakdown_aggregated.2
   '
   SELECT '' as date,
-         arrayMap((A, B) -> A - B, [sub_A.total], [sub_B.total]) ,
+         arrayMap((A, B) -> A - B, [ifNull(sub_A.total, 0)], [ifNull(sub_B.total, 0)]) ,
          arrayFilter(x -> notEmpty(x), [replaceRegexpAll(sub_A.breakdown_value, '^"|"$', ''), replaceRegexpAll(sub_B.breakdown_value, '^"|"$', '')])[1]
   FROM
     (SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total,

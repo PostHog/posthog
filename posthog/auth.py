@@ -163,12 +163,16 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
 
 class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
-    """For shared dashboard/insight refreshing."""
+    """For limited access from sharing views e.g. insights/dashboards for refreshing."""
 
-    def authenticate(self, request: Request) -> Optional[Tuple[Any, Any]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, Any]]:
         if sharing_access_token := request.GET.get("sharing_access_token"):
             try:
-                SharingConfiguration.objects.get(access_token=sharing_access_token, enabled=True)
+                sharing_configuration = SharingConfiguration.objects.get(
+                    access_token=sharing_access_token, enabled=True
+                )
+                request.sharing_configuration = sharing_configuration  # type: ignore
+
                 return (AnonymousUser(), None)
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")

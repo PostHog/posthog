@@ -1,5 +1,8 @@
 import { LifecycleToggle } from '~/types'
 
+/** --brand-blue in HSL for saturation mixing */
+export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
+
 /* Insight series colors. */
 const dataColorVars = [
     'brand-blue',
@@ -84,4 +87,20 @@ export function getGraphColors(isDarkModeOn: boolean): Record<string, string | n
         tooltipTitle: '#fff',
         tooltipBody: '#fff',
     }
+}
+
+/**
+ * Gradate color saturation based on its intended strength.
+ * This is for visualizations where a data point's color depends on its value.
+ * @param hsl The HSL color to gradate.
+ * @param strength The strength of the data point.
+ * @param floor The minimum saturation. This preserves proportionality of strength, so doesn't just cut it off.
+ */
+export function gradateColor(
+    hsl: [number, number, number],
+    strength: number,
+    floor: number = 0
+): `hsl(${number} ${number}% ${number}%)` {
+    const saturation = floor + (1 - floor) * strength
+    return `hsl(${hsl[0]} ${hsl[1]}% ${100 - (100 - hsl[2]) * saturation}%)`
 }

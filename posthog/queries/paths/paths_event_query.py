@@ -150,29 +150,26 @@ class PathEventQuery(EventQuery):
         if self._filter.local_path_cleaning_filters and len(self._filter.local_path_cleaning_filters) > 0:
             replacements.extend(self._filter.local_path_cleaning_filters)
 
+        # If there are any path cleaning rules, apply them
         if len(replacements) > 0:
+            final_path_item_column = "path_item_cleaned"
             for idx, replacement in enumerate(replacements):
                 alias = replacement["alias"]
                 regex = replacement["regex"]
-                if idx == 0:
-                    name = "path_item" if idx == len(replacements) - 1 else f"path_item_{idx}"
-                    _fields.append(
-                        f"replaceRegexpAll(path_item_ungrouped, %(regex_replacement_{idx})s, %(alias_{idx})s) as {name}"
-                    )
-                elif idx == len(replacements) - 1:
-                    _fields.append(
-                        f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item"
-                    )
-                else:
-                    _fields.append(
-                        f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item_{idx}"
-                    )
+                source_path_item_column = "path_item_ungrouped" if idx == 0 else f"path_item_{idx-1}"
+                result_path_item_column = "path_item_cleaned" if idx == len(replacements) - 1 else f"path_item_{idx}"
+                _fields.append(
+                    f"replaceRegexpAll({source_path_item_column}, %(regex_replacement_{idx})s, %(alias_{idx})s) "
+                    f"AS {result_path_item_column}"
+                )
                 params[f"regex_replacement_{idx}"] = regex
                 params[f"alias_{idx}"] = alias
-
         else:
-            _fields.append("multiMatchAnyIndex(path_item_ungrouped, %(regex_groupings)s) AS group_index")
-            _fields.append("if(group_index > 0, %(groupings)s[group_index], path_item_ungrouped) AS path_item")
+            final_path_item_column = "path_item_ungrouped"
+
+        # Match wildcard groups
+        _fields.append(f"multiMatchAnyIndex({final_path_item_column}, %(regex_groupings)s) AS group_index")
+        _fields.append(f"if(group_index > 0, %(groupings)s[group_index], {final_path_item_column}) AS path_item")
 
         return _fields, params
 

@@ -339,7 +339,11 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             before_update = Insight.objects_including_soft_deleted.prefetch_related(
                 "tagged_items__tag", "dashboards"
             ).get(pk=instance.id)
+
             dashboards_before_change = [describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()]
+            dashboards_before_change = sorted(
+                dashboards_before_change, key=lambda x: -1 if isinstance(x, str) else x["id"]
+            )
         except Insight.DoesNotExist:
             before_update = None
 

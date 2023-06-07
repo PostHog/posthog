@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { LemonButton, LemonSelect, LemonSelectSection, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -10,8 +10,7 @@ import { isFunnelsQuery, isInsightQueryNode } from '~/queries/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
-import { useEffect, useState } from 'react'
-import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
@@ -167,8 +166,19 @@ function AggregationSelectComponent({
                 // set a custom value (because actually _all_ the options are HogQL)
                 value: !value || baseValues.includes(value) ? '' : value,
                 label: <span className="font-mono">{value}</span>,
-                CustomControl: function CustomHogQLOptionWrapped({ onSelect }) {
-                    return <CustomHogQLOption actualValue={value} onSelect={onSelect} />
+                labelInMenu: function CustomHogQLOptionWrapped({ onSelect }) {
+                    return (
+                        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                            <HogQLEditor
+                                onChange={onSelect}
+                                value={value}
+                                disablePersonProperties
+                                placeholder={
+                                    "Enter HogQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
+                                }
+                            />
+                        </div>
+                    )
                 },
             },
         ],
@@ -187,51 +197,5 @@ function AggregationSelectComponent({
             dropdownMatchSelectWidth={false}
             options={optionSections}
         />
-    )
-}
-
-function CustomHogQLOption({
-    onSelect,
-    actualValue,
-}: {
-    onSelect: (value: string) => void
-    actualValue: string | undefined
-}): JSX.Element {
-    const [localValue, setLocalValue] = useState(actualValue || '')
-    useEffect(() => {
-        setLocalValue(actualValue || '')
-    }, [actualValue])
-
-    return (
-        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-            <LemonTextArea
-                data-attr="inline-hogql-editor"
-                value={localValue || ''}
-                onChange={(newValue) => setLocalValue(newValue)}
-                onFocus={(e) => {
-                    e.target.selectionStart = localValue.length // Focus at the end of the input
-                }}
-                onPressCmdEnter={() => onSelect(localValue)}
-                className={`font-mono ${CLICK_OUTSIDE_BLOCK_CLASS}`}
-                minRows={6}
-                maxRows={6}
-                autoFocus
-                placeholder={'Enter HogQL expression. Note: person property access is not enabled.'}
-            />
-            <LemonButton
-                fullWidth
-                type="primary"
-                onClick={() => onSelect(localValue)}
-                disabledReason={!localValue ? 'Please enter a HogQL expression' : undefined}
-                center
-            >
-                Aggregate by HogQL expression
-            </LemonButton>
-            <div className={`text-right ${CLICK_OUTSIDE_BLOCK_CLASS}`}>
-                <a href="https://posthog.com/manual/hogql" target={'_blank'}>
-                    Learn more about HogQL
-                </a>
-            </div>
-        </div>
     )
 }

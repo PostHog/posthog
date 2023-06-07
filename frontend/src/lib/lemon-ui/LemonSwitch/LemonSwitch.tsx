@@ -15,6 +15,7 @@ export interface LemonSwitchProps {
     'data-attr'?: string
     size?: 'small' | 'medium'
     icon?: React.ReactElement | null
+    handleContent?: React.ReactElement | null
 }
 
 /** Counter used for collision-less automatic switch IDs. */
@@ -32,6 +33,7 @@ export function LemonSwitch({
     labelClassName,
     icon,
     'data-attr': dataAttr,
+    handleContent,
 }: LemonSwitchProps): JSX.Element {
     const id = useMemo(() => rawId || `lemon-switch-${switchCounter++}`, [rawId])
     const [isActive, setIsActive] = useState(false)
@@ -68,7 +70,7 @@ export function LemonSwitch({
                 disabled={disabled}
             >
                 <div className="LemonSwitch__slider" />
-                <div className="LemonSwitch__handle" />
+                <div className="LemonSwitch__handle">{handleContent}</div>
             </button>
         </div>
     )

@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { EarlyAccsesFeatureType } from '~/types'
+import { EarlyAccessFeatureType } from '~/types'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
 export const scene: SceneExport = {
@@ -11,11 +11,12 @@ export const scene: SceneExport = {
     logic: earlyAccessFeaturesLogic,
 }
 
-const STAGES_IN_ORDER: Record<EarlyAccsesFeatureType['stage'], number> = {
-    concept: 0,
-    alpha: 1,
-    beta: 2,
-    'general-availability': 3,
+const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
+    draft: 0,
+    concept: 1,
+    alpha: 2,
+    beta: 3,
+    'general-availability': 4,
 }
 
 export function EarlyAccessFeatures(): JSX.Element {
@@ -32,10 +33,23 @@ export function EarlyAccessFeatures(): JSX.Element {
                         </LemonTag>
                     </div>
                 }
-                caption="Release features in a controlled way. Track adoption in stages."
+                caption={
+                    <>
+                        Allow your users to enable or disable features that are in public beta. Check out our{' '}
+                        <Link
+                            data-attr="early-access-management-help"
+                            to="https://posthog.com/docs/feature-flags/early-access-feature-management?utm_medium=in-product&utm_campaign=learn-more"
+                            target="_blank"
+                        >
+                            {' '}
+                            documentation
+                        </Link>{' '}
+                        to learn more.
+                    </>
+                }
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
-                        New release
+                        New public beta
                     </LemonButton>
                 }
                 delimited

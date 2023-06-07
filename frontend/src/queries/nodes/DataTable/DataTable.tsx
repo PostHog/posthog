@@ -142,6 +142,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
                             renderValue={() => <>Edit column</>}
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -164,7 +166,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         <LemonDivider />
                         {canSort ? (
@@ -209,6 +210,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             value={''}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -227,13 +230,14 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -252,7 +256,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         {columnsInQuery.filter((c) => c !== '*').length > 1 ? (
                             <>
@@ -457,6 +460,12 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                       },
                                       rowExpandable: ({ result }) => !!result,
                                       noIndent: true,
+                                      expandedRowClassName: ({ result }) => {
+                                          const record = Array.isArray(result) ? result[0] : result
+                                          return record && record['event'] === '$exception'
+                                              ? 'border border-danger-dark bg-danger-highlight'
+                                              : null
+                                      },
                                   }
                                 : undefined
                         }
@@ -464,6 +473,9 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             clsx('DataTable__row', {
                                 'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                 'DataTable__row--category_row': !!label,
+                                'border border-danger-dark bg-danger-highlight':
+                                    result && result[0] && result[0]['event'] === '$exception',
+                                [`row-type-${result?.[0]?.event}`]: result && result[0] && result[0]['event'],
                             })
                         }
                     />

@@ -31,13 +31,14 @@ env:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    # Allow query snapshot updates to finish, so that we don't need to wait for the whole stack to start all over again
+    cancel-in-progress: false
 
 jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-latest-backend
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
@@ -80,7 +81,7 @@ jobs:
         timeout-minutes: 10
 
         name: Python code quality checks
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-latest-backend
 
         steps:
             - uses: actions/checkout@v3
@@ -132,7 +133,7 @@ jobs:
             - name: Check static typing
               run: |
                   cd current
-                  mypy . --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py
+                  mypy -p posthog --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py
 
             - name: Check if "schema.py" is up to date
               run: |
@@ -141,9 +142,9 @@ jobs:
 
             - name: Check if antlr definitions are up to date
               run: |
-                  # Installing a version of ant compatible with what we use in development from homebrew (4.11)
+                  # Installing a version of ant compatible with what we use in development from homebrew (4.13)
                   # "apt-get install antlr" would install 4.7 which is incompatible with our grammar.
-                  export ANTLR_VERSION=4.11.1
+                  export ANTLR_VERSION=4.13.0
                   # java version doesn't matter
                   sudo apt-get install default-jre
                   mkdir antlr
@@ -166,7 +167,7 @@ jobs:
         timeout-minutes: 5
 
         name: Validate Django migrations
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-latest-backend
 
         steps:
             - uses: actions/checkout@v3
@@ -230,13 +231,13 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-latest-backend
 
         strategy:
             fail-fast: false
             matrix:
                 python-version: ['3.10.10']
-                clickhouse-server-image: ['clickhouse/clickhouse-server:22.8']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.4.2.11']
                 segment: ['FOSS', 'EE']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
@@ -273,6 +274,7 @@ jobs:
               with:
                   add: '["ee", "posthog/clickhouse/test/__snapshots__", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/", "posthog/migrations"]'
                   message: 'Update query snapshots'
+                  pull: --rebase --autostash # Make sure we're up to date with other segments' updates
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
@@ -309,7 +311,7 @@ jobs:
         if: github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true'
 
         name: Django tests – Cloud
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-latest-backend
         steps:
             - name: Fetch posthog-cloud
               run: |
@@ -408,7 +410,7 @@ jobs:
         name: Async migrations tests
         needs: changes
         if: needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-latest-backend
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v3

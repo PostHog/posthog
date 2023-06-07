@@ -1,22 +1,20 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { Person } from 'types'
 
 import { normalizeEvent } from '../../../utils/event'
-import { LazyPersonContainer } from '../lazy-person-container'
-import { updatePersonState } from '../person-state'
+import { PersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner } from './runner'
 
 export async function processPersonsStep(
     runner: EventPipelineRunner,
     pluginEvent: PluginEvent
-): Promise<[PluginEvent, LazyPersonContainer]> {
+): Promise<[PluginEvent, Person]> {
     const event = normalizeEvent(pluginEvent)
 
     const timestamp = parseEventTimestamp(event)
 
-    // TODO: handle runner.poEEmbraceJoinEnabled
-    const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
-    const newPersonContainer: LazyPersonContainer = await updatePersonState(
+    const person = await new PersonState(
         event,
         event.team_id,
         String(event.distinct_id),
@@ -24,9 +22,8 @@ export async function processPersonsStep(
         runner.hub.db,
         runner.hub.statsd,
         runner.hub.personManager,
-        personContainer,
         runner.poEEmbraceJoin
-    )
+    ).update()
 
-    return [event, newPersonContainer]
+    return [event, person]
 }

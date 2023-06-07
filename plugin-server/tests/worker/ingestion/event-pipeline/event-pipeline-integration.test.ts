@@ -4,6 +4,7 @@ import fetch from 'node-fetch'
 
 import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
+import { convertToIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
@@ -20,14 +21,7 @@ describe('Event Pipeline integration test', () => {
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
-        // TODO: update runEventPipeline to return ClickHouseRawEvent with all the person info
-        const person = await hub.db.fetchPerson(result.args[1].teamId, result.args[1].distinctId)
-        const postIngestionEvent = {
-            ...result.args[0],
-            person_id: person?.uuid,
-            person_properties: person?.properties,
-            person_created_at: person?.created_at,
-        }
+        const postIngestionEvent = convertToIngestionEvent(result.args[0])
         return runner.runAsyncHandlersEventPipeline(postIngestionEvent)
     }
 
@@ -191,7 +185,6 @@ describe('Event Pipeline integration test', () => {
                 timestamp,
                 teamId: 2,
                 distinctId: 'abc',
-                ip: null,
                 elementsList: [],
                 person: {
                     created_at: expect.any(String),

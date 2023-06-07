@@ -1,13 +1,15 @@
-import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from '~/types'
 import { urls } from 'scenes/urls'
-import { createUrlRegex } from './utils'
+import { posthogNodePasteRule } from './utils'
+
+const HEIGHT = 500
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const id = props.node.attrs.id
@@ -20,13 +22,12 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeWrapper
             {...props}
-            className={NotebookNodeType.Recording}
+            nodeType={NotebookNodeType.Recording}
             title="Recording"
-            href={urls.sessionRecording(recordingLogicProps.sessionRecordingId)}
-            // TODO: Fix "meta" preview
-            // preview={<PlayerMeta {...recordingLogicProps} />}
+            href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
+            heightEstimate={HEIGHT}
         >
-            <div style={{ height: 500 }}>
+            <div style={{ height: HEIGHT }}>
                 <SessionRecordingPlayer {...recordingLogicProps} />
             </div>
         </NodeWrapper>
@@ -65,8 +66,8 @@ export const NotebookNodeRecording = Node.create({
 
     addPasteRules() {
         return [
-            nodePasteRule({
-                find: createUrlRegex(urls.sessionRecording('') + '(.+)'),
+            posthogNodePasteRule({
+                find: urls.replaySingle('') + '(.+)',
                 type: this.type,
                 getAttributes: (match) => {
                     return { id: match[1] }

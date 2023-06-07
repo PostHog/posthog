@@ -62,7 +62,7 @@ export function RetentionModal(): JSX.Element | null {
             {people && !!people.missing_persons && (
                 <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={people.missing_persons} />
             )}
-            <div className="min-h-20">
+            <div>
                 {peopleLoading ? (
                     <SpinnerOverlay />
                 ) : isEmpty ? (
@@ -134,13 +134,13 @@ export function RetentionModal(): JSX.Element | null {
                                     ))}
                             </tbody>
                         </table>
-                        <div className="m-4 flex justify-center">
-                            {people.next ? (
+                        {people.next ? (
+                            <div className="m-4 flex justify-center">
                                 <LemonButton type="primary" onClick={loadMorePeople} loading={peopleLoadingMore}>
                                     Load more {aggregationTargetLabel.plural}
                                 </LemonButton>
-                            ) : null}
-                        </div>
+                            </div>
+                        ) : null}
                     </>
                 )}
             </div>

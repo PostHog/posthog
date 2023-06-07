@@ -1550,6 +1550,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1604,6 +1605,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1648,6 +1650,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1676,6 +1679,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1704,6 +1708,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1732,6 +1737,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1759,6 +1765,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1787,6 +1794,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1814,6 +1822,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1841,6 +1850,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1868,6 +1878,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1920,6 +1931,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -1987,6 +1999,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2032,6 +2045,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2067,6 +2081,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2103,6 +2118,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2138,6 +2154,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2172,6 +2189,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2205,6 +2223,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "name": "event_name",
                         "custom_name": None,
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": [],
@@ -2235,6 +2254,48 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][4], 1.0)
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 0)
+
+    @snapshot_clickhouse_queries
+    def test_trends_with_hogql_math(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["blabla", "anonymous_id"],
+            properties={"$some_prop": "some_val", "number": 8},
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$session_id": 1},
+            timestamp="2020-01-01 00:06:30",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$session_id": 5},
+            timestamp="2020-01-02 00:06:45",
+        )
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = Trends().run(
+                Filter(
+                    data={
+                        "interval": "week",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "math": "hogql",
+                                "math_hogql": "avg(toInt(properties.$session_id)) + 1000",
+                            }
+                        ],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+        self.assertCountEqual(response[0]["labels"], ["22-Dec-2019", "29-Dec-2019"])
+        self.assertCountEqual(response[0]["data"], [0, 1003])
 
     @snapshot_clickhouse_queries
     def test_trends_with_session_property_total_volume_math(self):
@@ -5329,7 +5390,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "entity_math": "dau",
                 "entity_type": "events",
                 "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
-                'up", "custom_name": null, "math": "dau", "math_property": null, '
+                'up", "custom_name": null, "math": "dau", "math_property": null, "math_hogql": null, '
                 '"math_group_type_index": null, "properties": {}}]',
                 "insight": "TRENDS",
                 "interval": "hour",

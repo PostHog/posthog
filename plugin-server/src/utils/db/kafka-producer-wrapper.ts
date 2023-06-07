@@ -25,7 +25,7 @@ export class KafkaProducerWrapper {
         this.waitForAck = waitForAck
     }
 
-    async queueMessage(kafkaMessage: ProducerRecord) {
+    async queueMessage(kafkaMessage: ProducerRecord, waitForAck?: boolean): Promise<void> {
         try {
             return await Promise.all(
                 kafkaMessage.messages.map((message) =>
@@ -44,10 +44,12 @@ export class KafkaProducerWrapper {
                         // objects with a single key-value pair, and the
                         // undefined values need to be filtered out.
                         headers: convertKafkaJSHeadersToRdKafkaHeaders(message.headers),
-                        waitForAck: this.waitForAck,
+                        waitForAck: waitForAck === undefined ? this.waitForAck : waitForAck,
                     })
                 )
-            )
+            ).then((_) => {
+                return // Swallow the returned offsets, and return a void for easier typing
+            })
         } catch (error) {
             status.error('⚠️', 'kafka_produce_error', { error: error, topic: kafkaMessage.topic })
 
@@ -61,15 +63,23 @@ export class KafkaProducerWrapper {
         }
     }
 
-    async queueMessages(kafkaMessages: ProducerRecord[]): Promise<void> {
-        await Promise.all(kafkaMessages.map((message) => this.queueMessage(message)))
+    async queueMessages(kafkaMessages: ProducerRecord[], waitForAck?: boolean): Promise<void> {
+        await Promise.all(kafkaMessages.map((message) => this.queueMessage(message, waitForAck)))
     }
 
-    async queueSingleJsonMessage(topic: string, key: Message['key'], object: Record<string, any>): Promise<void> {
-        await this.queueMessage({
-            topic,
-            messages: [{ key, value: JSON.stringify(object) }],
-        })
+    async queueSingleJsonMessage(
+        topic: string,
+        key: Message['key'],
+        object: Record<string, any>,
+        waitForAck?: boolean
+    ): Promise<void> {
+        await this.queueMessage(
+            {
+                topic,
+                messages: [{ key, value: JSON.stringify(object) }],
+            },
+            waitForAck
+        )
     }
 
     public async flush() {

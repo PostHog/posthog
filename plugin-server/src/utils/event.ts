@@ -33,7 +33,7 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
         timestamp: clickHouseTimestampToDateTime(rawEvent.timestamp),
         created_at: clickHouseTimestampToDateTime(rawEvent.created_at),
         properties: rawEvent.properties ? JSON.parse(rawEvent.properties) : {},
-        elements_chain: rawEvent.elements_chain ? chainToElements(rawEvent.elements_chain) : null,
+        elements_chain: rawEvent.elements_chain ? chainToElements(rawEvent.elements_chain, rawEvent.team_id) : null,
         person_created_at: rawEvent.person_created_at
             ? clickHouseTimestampToDateTime(rawEvent.person_created_at)
             : null,
@@ -71,7 +71,7 @@ export function convertToIngestionEvent(event: RawClickHouseEvent): PostIngestio
         distinctId: event.distinct_id,
         properties,
         timestamp: clickHouseTimestampToISO(event.timestamp),
-        elementsList: event.elements_chain ? chainToElements(event.elements_chain) : [],
+        elementsList: event.elements_chain ? chainToElements(event.elements_chain, event.team_id) : [],
         person_id: event.person_id,
         person_created_at: event.person_created_at
             ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)

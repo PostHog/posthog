@@ -1,4 +1,4 @@
-import { useContext, useEffect } from 'react'
+import { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
@@ -20,7 +20,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '../../models/groupsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { SharingAccessTokenContext } from 'scenes/insights/insightLogic'
 
 interface DashboardProps {
     id?: string
@@ -38,13 +37,8 @@ export const scene: SceneExport = {
 }
 
 export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
-    const sharingAccessToken = useContext(SharingAccessTokenContext)
-
     return (
-        <BindLogic
-            logic={dashboardLogic}
-            props={{ id: id ? parseInt(id) : undefined, placement, dashboard, sharingAccessToken }}
-        >
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
             <DashboardScene />
         </BindLogic>
     )
@@ -150,6 +144,7 @@ function DashboardScene(): JSX.Element {
                                         ...groupsTaxonomicTypes,
                                         TaxonomicFilterGroupType.Cohorts,
                                         TaxonomicFilterGroupType.Elements,
+                                        TaxonomicFilterGroupType.HogQLExpression,
                                     ]}
                                 />
                             </div>
@@ -157,8 +152,9 @@ function DashboardScene(): JSX.Element {
                         {placement !== DashboardPlacement.Export && (
                             <div className="flex space-x-4 dashoard-items-actions">
                                 <div
-                                    className="left-item"
-                                    style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
+                                    className={`left-item ${
+                                        placement === DashboardPlacement.Public ? 'text-right' : ''
+                                    }`}
                                 >
                                     {[DashboardPlacement.Public].includes(placement) ? (
                                         <LastRefreshText />

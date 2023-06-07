@@ -19,7 +19,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import mutable_receiver
-from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails, PersonOnEventsMode
@@ -245,7 +244,7 @@ class Team(UUIDClassicModel):
                 send_feature_flag_events=False,
             )
 
-        return False
+        return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
 
     @property
     def strict_caching_enabled(self) -> bool:
@@ -309,7 +308,7 @@ def groups_on_events_querying_enabled():
 
     Remove all usages of this when the feature is released to everyone.
     """
-    return actor_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
+    return get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
 
 
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):

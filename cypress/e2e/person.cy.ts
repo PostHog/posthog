@@ -11,7 +11,7 @@ describe('Person Visualization Check', () => {
 
     it('Can access person page', () => {
         cy.get('[data-row-key="email"] > :nth-child(1)').should('contain', 'email')
-        cy.get('[data-row-key="email"] .copy-icon').click()
+        cy.get('[data-row-key="email"] [data-attr=copy-icon]').click()
         cy.get('[role="tab"]').contains('Events').click()
         cy.get('table').contains('Event').should('exist')
     })

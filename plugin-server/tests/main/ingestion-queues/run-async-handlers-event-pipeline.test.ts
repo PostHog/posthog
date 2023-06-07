@@ -67,7 +67,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     })
 
     afterEach(() => {
-        jest.runAllTimers()
+        jest.clearAllTimers()
         jest.useRealTimers()
         jest.clearAllMocks()
     })

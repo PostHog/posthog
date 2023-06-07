@@ -64,6 +64,7 @@ from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
 DEFAULT_PAGE_LIMIT = 100
+# Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
 PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     "email",
     "Email",
@@ -240,7 +241,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
 
         raw_result = insight_sync_execute(
-            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list", team_id=team.pk
         )
 
         actor_ids = [row[0] for row in raw_result]
@@ -294,7 +295,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     ],
                     ignore_conflicts=True,
                 )
-            return response.Response(status=204)
+            return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
@@ -361,8 +362,18 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        if request.data.get("value") is None:
+            return Response(
+                {"attr": "value", "code": "This field is required.", "detail": "required", "type": "validation_error"},
+                status=400,
+            )
+        if request.data.get("key") is None:
+            return Response(
+                {"attr": "key", "code": "This field is required.", "detail": "required", "type": "validation_error"},
+                status=400,
+            )
         self._set_properties({request.data["key"]: request.data["value"]}, request.user)
-        return Response(status=204)
+        return Response(status=202)
 
     @extend_schema(
         parameters=[
@@ -446,8 +457,18 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         This means that only the properties listed will be updated, but other properties won't be removed nor updated.
         If you would like to remove a property use the `delete_property` endpoint.
         """
+        if request.data.get("properties") is None:
+            return Response(
+                {
+                    "attr": "properties",
+                    "code": "This field is required.",
+                    "detail": "required",
+                    "type": "validation_error",
+                },
+                status=400,
+            )
         self._set_properties(request.data["properties"], request.user)
-        return Response(status=204)
+        return Response(status=202)
 
     @extend_schema(exclude=True)
     def create(self, *args, **kwargs):

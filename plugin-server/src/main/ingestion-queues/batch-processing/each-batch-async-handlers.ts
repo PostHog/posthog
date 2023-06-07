@@ -17,6 +17,7 @@ export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: Ing
         func: () => queue.workerMethods.runAsyncHandlersEventPipeline(event),
         statsKey: `kafka_queue.process_async_handlers`,
         timeoutMessage: 'After 30 seconds still running runAsyncHandlersEventPipeline',
+        teamId: event.teamId,
     })
 }
 

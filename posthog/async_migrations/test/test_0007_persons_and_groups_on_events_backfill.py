@@ -60,7 +60,7 @@ def query_events() -> List[Dict]:
         FROM events
         ORDER BY distinct_id
         """,
-        {"format": "%Y-%m-%dT%H:%M:%SZ"},
+        {"format": "%Y-%m-%dT%H:%i:%sZ"},
     )
 
 
@@ -502,7 +502,6 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         MIGRATION_DEFINITION._check_person_data()  # type: ignore
 
     def test_check_person_data_failure(self):
-
         for i in range(100):
             _uuid = UUIDT()
 
@@ -559,7 +558,6 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
             MIGRATION_DEFINITION._check_person_data()  # type: ignore
 
     def test_check_groups_data_success(self):
-
         # don't run the backfill so we can test the postcheck based only on the data we create
         old_fn = MIGRATION_DEFINITION.operations[-4].fn
         MIGRATION_DEFINITION.operations[-4].fn = lambda *args: None

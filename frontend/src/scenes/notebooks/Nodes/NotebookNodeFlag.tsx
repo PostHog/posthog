@@ -1,14 +1,14 @@
-import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from '~/types'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { IconFlag } from 'lib/lemon-ui/icons'
+import { IconFlag, IconRecording } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { createUrlRegex } from './utils'
+import { posthogNodePasteRule } from './utils'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 const Component = (props: NodeViewProps): JSX.Element => {
@@ -18,12 +18,13 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
     return (
         <NodeWrapper
-            className={NotebookNodeType.FeatureFlag}
+            nodeType={NotebookNodeType.FeatureFlag}
             title="FeatureFlag"
             {...props}
             href={urls.featureFlag(id)}
+            heightEstimate={'3rem'}
         >
-            <div className="border rounded bg-light">
+            <div className="border rounded bg-inverse">
                 <div className="flex items-center gap-2 p-4">
                     <IconFlag className="text-lg" />
                     {featureFlagLoading ? (
@@ -46,7 +47,15 @@ const Component = (props: NodeViewProps): JSX.Element => {
                 {props.selected ? (
                     <>
                         <LemonDivider className="my-0" />
-                        <p>More info here!</p>
+                        <div className="p-2">
+                            <p>More info here!</p>
+                        </div>
+                        <LemonDivider className="my-0" />
+                        <div className="p-2 flex justify-end">
+                            <LemonButton type="secondary" size="small" icon={<IconRecording />}>
+                                View Replays
+                            </LemonButton>
+                        </div>
                     </>
                 ) : null}
             </div>
@@ -84,8 +93,8 @@ export const NotebookNodeFlag = Node.create({
 
     addPasteRules() {
         return [
-            nodePasteRule({
-                find: createUrlRegex(urls.featureFlag('') + '(.+)'),
+            posthogNodePasteRule({
+                find: urls.featureFlag('') + '(.+)',
                 type: this.type,
                 getAttributes: (match) => {
                     return { id: match[1] }

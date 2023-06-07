@@ -6,19 +6,19 @@ export type EventHandler = (event: Event) => void
 export function useEventListener(
     eventName: 'keyup' | 'keydown',
     handler: KeyboardEventHandler,
-    element?: Element | Window,
+    element?: Element | Window | null,
     deps?: DependencyList
 ): void
 export function useEventListener(
     eventName: string,
     handler: EventHandler,
-    element?: Element | Window,
+    element?: Element | Window | null,
     deps?: DependencyList
 ): void
 export function useEventListener(
     eventName: string,
     handler: EventHandler | KeyboardEventHandler,
-    element: Element | Window = window,
+    element: Element | Window | null = window,
     deps?: DependencyList
 ): void {
     // Create a ref that stores handler
@@ -35,7 +35,9 @@ export function useEventListener(
             // Make sure element supports addEventListener
             if (!element?.addEventListener) {
                 console.warn(
-                    `Could not start listening to ${eventName} on ${(element as Element)?.localName ?? 'window'}!`
+                    `Could not start listening to ${eventName} on ${
+                        !element ? element : (element as Element)?.localName ?? 'window'
+                    }!`
                 )
                 return
             }

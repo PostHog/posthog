@@ -22,7 +22,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightLogic } from './insightLogic'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { ReactNode } from 'react'
-import { ActionsNode, EventsNode } from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 import { urls } from 'scenes/urls'
 import { examples } from '~/queries/examples'
@@ -77,10 +77,11 @@ export function extractObjectDiffKeys(
         const oldValue = (oldObj as Record<string, any>)[key] || []
         if (!objectsEqual(value, oldValue)) {
             if (key === 'events') {
-                if (valueOrArray.length !== oldValue.length) {
+                const events = valueOrArray as Record<string, any>[]
+                if (events.length !== oldValue.length) {
                     changedKeys['changed_events_length'] = oldValue?.length
                 } else {
-                    valueOrArray.forEach((event: Record<string, any>, idx: number) => {
+                    events.forEach((event, idx) => {
                         changedKeys = {
                             ...changedKeys,
                             ...extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`),
@@ -88,10 +89,11 @@ export function extractObjectDiffKeys(
                     })
                 }
             } else if (key === 'actions') {
-                if (valueOrArray.length !== oldValue.length) {
+                const actions = valueOrArray as Record<string, any>[]
+                if (actions.length !== oldValue.length) {
                     changedKeys['changed_actions_length'] = oldValue.length
                 } else {
-                    valueOrArray.forEach((action: Record<string, any>, idx: number) => {
+                    actions.forEach((action, idx) => {
                         changedKeys = {
                             ...changedKeys,
                             ...extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`),
@@ -239,6 +241,14 @@ export function formatBreakdownLabel(
         return breakdown_value.join('::')
     } else {
         return ''
+    }
+}
+
+export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
+    if (breakdownFilter.breakdown_type === 'cohort') {
+        return 'Cohort'
+    } else {
+        return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
     }
 }
 

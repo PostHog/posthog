@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
@@ -11,6 +12,8 @@ from ee.api.test.base import LicensedTestMixin
 from ee.billing.billing_manager import build_billing_token
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
+from posthog.clickhouse.client import sync_execute
+from posthog.hogql.query import execute_hogql_query
 from posthog.models import Organization, Plugin, Team
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -18,6 +21,7 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.schema import EventsQuery
 from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.tasks.usage_report import send_all_org_usage_reports
 from posthog.test.base import (
@@ -195,6 +199,32 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         team_id=self.org_1_team_2.id,
                     )
 
+            # ensure there is a recording that starts before the period and ends during the period
+            # report is going to be for "yesterday" relative to the test so...
+            start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
+            session_that_will_not_match = "session-that-will-not-match-because-it-starts-before-the-period"
+            create_snapshot(
+                has_full_snapshot=True,
+                distinct_id=distinct_id,
+                session_id=session_that_will_not_match,
+                timestamp=start_of_day - relativedelta(hours=1),
+                team_id=self.org_1_team_2.id,
+            )
+            create_snapshot(
+                has_full_snapshot=False,
+                distinct_id=distinct_id,
+                session_id=session_that_will_not_match,
+                timestamp=start_of_day,
+                team_id=self.org_1_team_2.id,
+            )
+            create_snapshot(
+                has_full_snapshot=False,
+                distinct_id=distinct_id,
+                session_id=session_that_will_not_match,
+                timestamp=start_of_day + relativedelta(hours=1),
+                team_id=self.org_1_team_2.id,
+            )
+
             # Events for org 2 team 3
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_2_team_3)
@@ -259,7 +289,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_count_in_month": 32,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
-                    "recording_count_total": 15,
+                    "recording_count_total": 16,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -267,6 +297,18 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 2,
                     "ff_active_count": 1,
+                    "hogql_app_bytes_read": 0,
+                    "hogql_app_rows_read": 0,
+                    "hogql_app_duration_ms": 0,
+                    "hogql_api_bytes_read": 0,
+                    "hogql_api_rows_read": 0,
+                    "hogql_api_duration_ms": 0,
+                    "event_explorer_app_bytes_read": 0,
+                    "event_explorer_app_rows_read": 0,
+                    "event_explorer_app_duration_ms": 0,
+                    "event_explorer_api_bytes_read": 0,
+                    "event_explorer_api_rows_read": 0,
+                    "event_explorer_api_duration_ms": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -288,6 +330,18 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 2,
                             "ff_active_count": 1,
+                            "hogql_app_bytes_read": 0,
+                            "hogql_app_rows_read": 0,
+                            "hogql_app_duration_ms": 0,
+                            "hogql_api_bytes_read": 0,
+                            "hogql_api_rows_read": 0,
+                            "hogql_api_duration_ms": 0,
+                            "event_explorer_app_bytes_read": 0,
+                            "event_explorer_app_rows_read": 0,
+                            "event_explorer_app_duration_ms": 0,
+                            "event_explorer_api_bytes_read": 0,
+                            "event_explorer_api_rows_read": 0,
+                            "event_explorer_api_duration_ms": 0,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_lifetime": 10,
@@ -295,7 +349,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 5,
-                            "recording_count_total": 15,
+                            "recording_count_total": 16,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -303,6 +357,18 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
+                            "hogql_app_bytes_read": 0,
+                            "hogql_app_rows_read": 0,
+                            "hogql_app_duration_ms": 0,
+                            "hogql_api_bytes_read": 0,
+                            "hogql_api_rows_read": 0,
+                            "hogql_api_duration_ms": 0,
+                            "event_explorer_app_bytes_read": 0,
+                            "event_explorer_app_rows_read": 0,
+                            "event_explorer_app_duration_ms": 0,
+                            "event_explorer_api_bytes_read": 0,
+                            "event_explorer_api_rows_read": 0,
+                            "event_explorer_api_duration_ms": 0,
                         },
                     },
                 },
@@ -339,6 +405,18 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 0,
                     "ff_active_count": 0,
+                    "hogql_app_bytes_read": 0,
+                    "hogql_app_rows_read": 0,
+                    "hogql_app_duration_ms": 0,
+                    "hogql_api_bytes_read": 0,
+                    "hogql_api_rows_read": 0,
+                    "hogql_api_duration_ms": 0,
+                    "event_explorer_app_bytes_read": 0,
+                    "event_explorer_app_rows_read": 0,
+                    "event_explorer_app_duration_ms": 0,
+                    "event_explorer_api_bytes_read": 0,
+                    "event_explorer_api_rows_read": 0,
+                    "event_explorer_api_duration_ms": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -360,6 +438,18 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
+                            "hogql_app_bytes_read": 0,
+                            "hogql_app_rows_read": 0,
+                            "hogql_app_duration_ms": 0,
+                            "hogql_api_bytes_read": 0,
+                            "hogql_api_rows_read": 0,
+                            "hogql_api_duration_ms": 0,
+                            "event_explorer_app_bytes_read": 0,
+                            "event_explorer_app_rows_read": 0,
+                            "event_explorer_app_duration_ms": 0,
+                            "event_explorer_api_bytes_read": 0,
+                            "event_explorer_api_rows_read": 0,
+                            "event_explorer_api_duration_ms": 0,
                         }
                     },
                 },
@@ -378,6 +468,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
             return all_reports
 
+    @freeze_time("2022-01-10T00:01:00Z")
     @patch("os.environ", {"DEPLOYMENT": "tests"})
     @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
@@ -414,6 +505,42 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
         assert mock_posthog.capture.call_count == 2
         mock_posthog.capture.assert_has_calls(calls, any_order=True)
+
+
+class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    def test_usage_report_hogql_queries(self) -> None:
+        for _ in range(0, 100):
+            _create_event(
+                distinct_id="hello",
+                event="$event1",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.team,
+            )
+        flush_persons_and_events()
+        sync_execute("SYSTEM FLUSH LOGS")
+        sync_execute("TRUNCATE TABLE system.query_log")
+
+        from posthog.models.event.events_query import run_events_query
+
+        execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
+        run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
+        assert len(all_reports) == 1
+
+        report = all_reports[0]["teams"][str(self.team.pk)]
+
+        # We selected 200 or 50 rows, but still read 100 rows to return the query
+        assert report["hogql_app_rows_read"] == 100
+        assert report["hogql_app_bytes_read"] > 0
+        assert report["event_explorer_app_rows_read"] == 100
+        assert report["event_explorer_app_bytes_read"] > 0
+
+        # Nothing was read via the API
+        assert report["hogql_api_rows_read"] == 0
+        assert report["event_explorer_api_rows_read"] == 0
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

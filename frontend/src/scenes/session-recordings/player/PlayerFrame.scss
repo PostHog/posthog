@@ -4,12 +4,12 @@
     height: 100%;
     width: 100%;
     overflow: hidden;
-    background-color: var(--bg-depth);
+    background-color: var(--default);
     display: flex;
     justify-content: center;
     align-items: center;
     position: relative;
-    border: 1px solid var(--bg-depth);
+    border: 1px solid var(--default);
 
     .PlayerFrame__content {
         position: absolute;

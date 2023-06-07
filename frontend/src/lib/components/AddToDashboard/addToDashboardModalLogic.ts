@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { DashboardType, InsightModel, InsightType } from '~/types'
+import { DashboardBasicType, DashboardType, InsightModel, InsightType } from '~/types'
 import FuseClass from 'fuse.js'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { router } from 'kea-router'
@@ -30,7 +30,6 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         return insight.short_id
     },
     connect: (props: AddToDashboardModalLogicProps) => ({
-        logic: [dashboardsModel],
         actions: [
             insightLogic({ dashboardItemId: props.insight.short_id, cachedInsight: props.insight }),
             ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
@@ -87,26 +86,27 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         ],
         filteredDashboards: [
             (s) => [s.searchQuery, s.dashboardsFuse, dashboardsModel.selectors.nameSortedDashboards],
-            (searchQuery, dashboardsFuse, nameSortedDashboards): DashboardType[] =>
+            (searchQuery, dashboardsFuse, nameSortedDashboards): DashboardBasicType[] =>
                 searchQuery.length
                     ? dashboardsFuse.search(searchQuery).map((r: FuseClass.FuseResult<DashboardType>) => r.item)
                     : nameSortedDashboards,
         ],
         currentDashboards: [
             (s) => [s.filteredDashboards, (_, props) => props.insight],
-            (filteredDashboards, insight: InsightModel): DashboardType[] =>
-                filteredDashboards.filter((d: DashboardType) =>
-                    insight.dashboard_tiles?.map((dt) => dt.dashboard_id)?.includes(d.id)
-                ),
+            (filteredDashboards, insight: InsightModel): DashboardBasicType[] =>
+                filteredDashboards.filter((d) => insight.dashboard_tiles?.map((dt) => dt.dashboard_id)?.includes(d.id)),
         ],
         availableDashboards: [
             (s) => [s.filteredDashboards, s.currentDashboards],
-            (filteredDashboards, currentDashboards): DashboardType[] =>
-                filteredDashboards.filter((d: DashboardType) => !currentDashboards?.map((cd) => cd.id).includes(d.id)),
+            (filteredDashboards, currentDashboards): DashboardBasicType[] =>
+                filteredDashboards.filter((d) => !currentDashboards?.map((cd) => cd.id).includes(d.id)),
         ],
         orderedDashboards: [
             (s) => [s.currentDashboards, s.availableDashboards],
-            (currentDashboards, availableDashboards): DashboardType[] => [...currentDashboards, ...availableDashboards],
+            (currentDashboards, availableDashboards): DashboardBasicType[] => [
+                ...currentDashboards,
+                ...availableDashboards,
+            ],
         ],
     },
 

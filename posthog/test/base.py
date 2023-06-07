@@ -67,6 +67,29 @@ def _setup_test_data(klass):
         klass.organization_membership = klass.user.organization_memberships.get()
 
 
+class FuzzyInt(int):
+    """
+    Some query count assertions vary depending on the order of tests in the run because values are cached and so their related query doesn't always run.
+
+    For the purposes of testing query counts we don't care about that variation
+    """
+
+    lowest: int
+    highest: int
+
+    def __new__(cls, lowest, highest):
+        obj = super(FuzzyInt, cls).__new__(cls, highest)
+        obj.lowest = lowest
+        obj.highest = highest
+        return obj
+
+    def __eq__(self, other):
+        return self.lowest <= other <= self.highest
+
+    def __repr__(self):
+        return "[%d..%d]" % (self.lowest, self.highest)
+
+
 class ErrorResponsesMixin:
 
     ERROR_INVALID_CREDENTIALS = {
@@ -331,6 +354,7 @@ class QueryMatchingTest:
             query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
             # feature flag conditions use primary keys as columns in queries, so replace those too
             query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
+            query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
             query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)

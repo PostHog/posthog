@@ -7,7 +7,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { router } from 'kea-router'
-import { playerSettingsLogic } from './playerSettingsLogic'
 
 export interface PlayerUpNextProps {
     interrupted?: boolean
@@ -19,13 +18,8 @@ export function PlayerUpNext({ interrupted, clearInterrupted }: PlayerUpNextProp
     const { endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { reportNextRecordingTriggered } = useActions(sessionRecordingPlayerLogic)
     const [animate, setAnimate] = useState(false)
-    const { autoplayEnabled } = useValues(playerSettingsLogic)
 
-    let nextSessionRecording = logicProps.nextSessionRecording
-
-    if (!autoplayEnabled) {
-        nextSessionRecording = undefined
-    }
+    const nextSessionRecording = logicProps.nextSessionRecording
 
     const goToRecording = (automatic: boolean): void => {
         reportNextRecordingTriggered(automatic)

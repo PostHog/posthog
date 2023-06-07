@@ -15,14 +15,14 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
-import { Button, Checkbox, Typography } from 'antd'
+import { Button, Checkbox } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopover/utils'
-import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { TitleWithIcon } from '../TitleWithIcon'
-import { UseFloatingReturn } from '@floating-ui/react'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { hide } from '@floating-ui/react'
 
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
     <TitleWithIcon
@@ -132,18 +132,17 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         return <></>
     }
 
+    const description: string | JSX.Element | undefined | null =
+        (definition && 'description' in definition && definition?.description) ||
+        (definition?.name &&
+            (keyMapping.element[definition.name]?.description || keyMapping.event[definition.name]?.description))
+
     const sharedComponents = (
         <>
-            {hasTaxonomyFeatures &&
-                definition &&
-                'description' in definition &&
-                (hasTaxonomyFeatures && definition.description ? (
-                    <DefinitionPopover.Description description={definition.description} />
-                ) : (
-                    <DefinitionPopover.DescriptionEmpty />
-                ))}
-            {isElement && definition?.name && (
-                <DefinitionPopover.Description description={keyMapping.element[definition.name].description} />
+            {description ? (
+                <DefinitionPopover.Description description={description} />
+            ) : (
+                <DefinitionPopover.DescriptionEmpty />
             )}
             <DefinitionPopover.Example value={group?.getValue?.(definition)?.toString()} />
             {hasTaxonomyFeatures && definition && 'tags' in definition && !!definition.tags?.length && (
@@ -196,7 +195,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.Section>
                     <DefinitionPopover.Card
                         title="Sent as"
-                        value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_definition.name}</span>}
+                        value={<span className="font-mono text-xs">{_definition.name}</span>}
                     />
                 </DefinitionPopover.Section>
             </>
@@ -236,15 +235,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <DefinitionPopover.Card
                         title="Sent as"
                         value={
-                            <>
-                                <Typography.Text
-                                    ellipsis={true}
-                                    title={_definition.name ?? undefined} // because Text can cope with undefined but not null ¯\_(ツ)_/¯
-                                    style={{ fontFamily: 'monaco', fontSize: 12, maxWidth: '20em' }}
-                                >
-                                    {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
-                                </Typography.Text>
-                            </>
+                            <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
+                                {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
+                            </span>
                         }
                     />
                 </DefinitionPopover.Grid>
@@ -419,29 +412,29 @@ function DefinitionEdit(): JSX.Element {
     )
 }
 
-interface BaseDefinitionPopoverContentsProps {
+interface ControlledDefinitionPopoverContentsProps {
+    visible: boolean
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
+    highlightedItemElement: HTMLDivElement | null
 }
 
-interface ControlledDefinitionPopoverContentsProps extends BaseDefinitionPopoverContentsProps {
-    floatingReturn: UseFloatingReturn<HTMLElement>
-}
-
-export function ControlledDefinitionPopoverContents({
+export function ControlledDefinitionPopover({
+    visible,
     item,
     group,
-    floatingReturn,
-}: ControlledDefinitionPopoverContentsProps): JSX.Element {
+    highlightedItemElement,
+}: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     // Supports all types specified in selectedItemHasPopover
     const value = group.getValue?.(item)
 
     if (!value || !item) {
-        return <></>
+        return null
     }
 
-    const { state, singularType, isElement, definition, onMouseLeave } = useValues(definitionPopoverLogic)
+    const { state, singularType, isElement, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
+
     const icon = group.getIcon?.(definition || item)
 
     // Must use `useEffect` here to hydrate popover card with newest item, since lifecycle of `ItemPopover` is controlled
@@ -450,52 +443,12 @@ export function ControlledDefinitionPopoverContents({
         setDefinition(item)
     }, [item])
 
-    const {
-        x,
-        y,
-        floating: setFloatingRef,
-        refs: { floating: floatingRef },
-        strategy,
-        update,
-    } = floatingReturn
-
-    // Force popper to recalculate position when popover state changes. Keep this independent of logic
-    useEffect(() => {
-        update()
-    }, [state])
-
     return (
-        <>
-            <CSSTransition timeout={150} classNames="definition-popover-overlay-" mountOnEnter unmountOnExit>
-                <div
-                    className="definition-popover-overlay click-outside-block hotkey-block"
-                    // zIndex: 1062 ensures definition popover overlay is between infinite list (1061) and definition popover (1063)
-                    // If not in edit mode, bury it.
-                    /* eslint-disable-next-line react/forbid-dom-props */
-                    style={{ zIndex: 'var(--z-definition-popover-overlay)' }}
-                    onClick={() => {
-                        floatingRef.current?.focus()
-                    }}
-                />
-            </CSSTransition>
-            <div
-                className="popper-tooltip click-outside-block hotkey-block Popover Popover__box"
-                tabIndex={-1} // Only programmatically focusable
-                ref={setFloatingRef}
-                /* eslint-disable-next-line react/forbid-dom-props */
-                style={{
-                    position: strategy,
-                    top: y ?? 0,
-                    left: x ?? 0,
-                    transition: 'none',
-                    zIndex: 'var(--z-definition-popover)',
-                }}
-                onMouseLeave={() => {
-                    if (state !== DefinitionPopoverState.Edit) {
-                        onMouseLeave?.()
-                    }
-                }}
-            >
+        <Popover
+            visible={visible}
+            referenceElement={highlightedItemElement}
+            className="click-outside-block hotkey-block"
+            overlay={
                 <DefinitionPopover.Wrapper>
                     <DefinitionPopover.Header
                         title={
@@ -513,7 +466,10 @@ export function ControlledDefinitionPopoverContents({
                     />
                     {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
                 </DefinitionPopover.Wrapper>
-            </div>
-        </>
+            }
+            placement="right"
+            fallbackPlacements={['left']}
+            middleware={[hide()]} // Hide the definition popover when the reference is off-screen
+        />
     )
 }

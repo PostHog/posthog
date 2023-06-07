@@ -280,22 +280,25 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
     )
 
     for id, item_filters in insight_filters:
-        if item_filters is None:
-            logger.info(
-                "calculate_event_property_usage_for_team.insight_has_no_filters",
-                team=team_id,
-                insight_id=id,
-            )
-            continue
+        try:
+            if item_filters is None:
+                logger.info(
+                    "calculate_event_property_usage_for_team.insight_has_no_filters",
+                    team=team_id,
+                    insight_id=id,
+                )
+                continue
 
-        for item_filter_event in item_filters.events:
-            event_usage.append(str(item_filter_event.id))
+            for item_filter_event in item_filters.events:
+                event_usage.append(str(item_filter_event.id))
 
-        for item_filter_action in item_filters.actions:
-            action = item_filter_action.get_action()
-            event_usage.extend(action.get_step_events())
+            for item_filter_action in item_filters.actions:
+                action = item_filter_action.get_action()
+                event_usage.extend(action.get_step_events())
 
-        counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event"))
+            counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event"))
+        except KeyError:  # we've been running into issues with invalid filters (actions without ids)
+            pass
 
     statsd.gauge(
         "calculate_event_property_usage_for_team.counted_events_for_team_insights",

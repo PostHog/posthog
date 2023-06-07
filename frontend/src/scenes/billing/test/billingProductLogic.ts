@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
 import { billingLogic } from '../billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { convertAmountToUsage } from '../billing-utils'
@@ -84,10 +84,18 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLimitAsUsage: [
             (s, p) => [s.billing, p.product, s.isEditingBillingLimit, s.billingLimitInput, s.customLimitUsd],
             (billing, product, isEditingBillingLimit, billingLimitInput, customLimitUsd) => {
+                // cast the product as a product, not an addon, to avoid TS errors. This is fine since we're just getting the tiers.
+                product = product as BillingProductV2Type
+                const productAndAddonTiers: BillingV2TierType[][] = [
+                    product.tiers,
+                    ...product.addons
+                        ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
+                        ?.map((addon: BillingProductV2AddonType) => addon.tiers),
+                ].filter(Boolean) as BillingV2TierType[][]
                 return product.tiers
                     ? isEditingBillingLimit
-                        ? convertAmountToUsage(`${billingLimitInput}`, product.tiers, billing?.discount_percent)
-                        : convertAmountToUsage(customLimitUsd || '', product.tiers, billing?.discount_percent)
+                        ? convertAmountToUsage(`${billingLimitInput}`, productAndAddonTiers, billing?.discount_percent)
+                        : convertAmountToUsage(customLimitUsd || '', productAndAddonTiers, billing?.discount_percent)
                     : 0
             },
         ],

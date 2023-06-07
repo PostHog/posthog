@@ -22,6 +22,7 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
+    override_settings,
 )
 
 
@@ -155,6 +156,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_clickhouse_queries
     def test_filter_person_list(self):
         person1: Person = _create_person(
@@ -232,7 +234,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
@@ -282,7 +284,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
         response = self.client.delete(f"/api/person/{person.uuid}/?delete_events=true")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
@@ -361,7 +363,48 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(response.json()["success"])
 
     @mock.patch("posthog.api.person.capture_internal")
-    def test_update_person_properties(self, mock_capture) -> None:
+    def test_update_multiple_person_properties(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        self.client.patch(f"/api/person/{person.uuid}", {"properties": {"foo": "bar", "bar": "baz"}})
+
+        mock_capture.assert_called_once_with(
+            distinct_id="some_distinct_id",
+            ip=None,
+            site_url=None,
+            token=self.team.api_token,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$set",
+                "properties": {"$set": {"foo": "bar", "bar": "baz"}},
+                "distinct_id": "some_distinct_id",
+                "timestamp": mock.ANY,
+            },
+        )
+
+    def test_update_multiple_person_properties_validation(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        response = self.client.patch(f"/api/person/{person.uuid}", {"foo": "bar", "bar": "baz"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(), self.validation_error_response("required", "This field is required.", "properties")
+        )
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_single_person_property(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -560,7 +603,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_person = self.client.get("/api/person/%s/" % person.uuid).json()
         created_person["properties"]["a"] = "b"
         response = self.client.patch("/api/person/%s/" % person.uuid, created_person)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
         self.client.get("/api/person/%s/" % person.uuid)
 
@@ -607,6 +650,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response.content.splitlines()), 2)
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_pagination_limit(self):
         created_ids = []
 

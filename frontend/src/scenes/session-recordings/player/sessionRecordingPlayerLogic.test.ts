@@ -178,7 +178,7 @@ describe('sessionRecordingPlayerLogic', () => {
             logic = sessionRecordingPlayerLogic({ sessionRecordingId: '3', playerKey: 'test' })
             logic.mount()
             jest.spyOn(api, 'delete')
-            router.actions.push(urls.sessionRecording('3'))
+            router.actions.push(urls.replaySingle('3'))
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
@@ -189,7 +189,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 ])
                 .toFinishAllListeners()
 
-            expect(router.values.location.pathname).toEqual(urls.sessionRecordings())
+            expect(router.values.location.pathname).toEqual(urls.replay())
 
             expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()

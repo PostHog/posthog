@@ -100,6 +100,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
          "posthog_user"."events_column_config"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
@@ -119,7 +120,9 @@
          "posthog_actionstep"."action_id",
          "posthog_actionstep"."tag_name",
          "posthog_actionstep"."text",
+         "posthog_actionstep"."text_matching",
          "posthog_actionstep"."href",
+         "posthog_actionstep"."href_matching",
          "posthog_actionstep"."selector",
          "posthog_actionstep"."url",
          "posthog_actionstep"."url_matching",
@@ -289,6 +292,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
          "posthog_user"."events_column_config"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
@@ -308,7 +312,9 @@
          "posthog_actionstep"."action_id",
          "posthog_actionstep"."tag_name",
          "posthog_actionstep"."text",
+         "posthog_actionstep"."text_matching",
          "posthog_actionstep"."href",
+         "posthog_actionstep"."href_matching",
          "posthog_actionstep"."selector",
          "posthog_actionstep"."url",
          "posthog_actionstep"."url_matching",
@@ -422,6 +428,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
          "posthog_user"."events_column_config"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")

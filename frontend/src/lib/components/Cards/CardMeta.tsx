@@ -100,7 +100,7 @@ export function CardMeta({
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
                                             status="muted"
-                                            size={'small'}
+                                            size="small"
                                         >
                                             {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>

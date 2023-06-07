@@ -4,11 +4,11 @@ import { createPlaylist } from '../playlist/playlistUtils'
 import { useActions, useValues } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
-import { AvailableFeature, SessionRecordingsTabs } from '~/types'
+import { AvailableFeature, ReplayTabs } from '~/types'
 
 export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: SessionRecordingsTabs.Recent })
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
     return (
         <div className="flex items-center justify-center">

@@ -3,25 +3,35 @@ import clsx from 'clsx'
 import './NotebookSideBar.scss'
 import { Notebook } from './Notebook'
 import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { IconFullScreen, IconChevronRight, IconJournal, IconLock, IconLockOpen, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconFullScreen, IconChevronRight } from 'lib/lemon-ui/icons'
 import { CSSTransition } from 'react-transition-group'
-import { useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import React from 'react'
+import { NotebookListMini } from './NotebookListMini'
+import { notebooksListLogic } from './notebooksListLogic'
+import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { notebookLogic } from './notebookLogic'
 
-export function NotebookSideBar(): JSX.Element {
-    const { notebookSideBarShown, fullScreen, notebooks, selectedNotebook } = useValues(notebookSidebarLogic)
-    const { setNotebookSideBarShown, setFullScreen, selectNotebook, createNotebook } = useActions(notebookSidebarLogic)
+export function NotebookSideBar({ children }: { children: React.ReactElement<any> }): JSX.Element {
+    const { notebookSideBarShown, fullScreen, selectedNotebook, desiredWidth } = useValues(notebookSidebarLogic)
+    const { setNotebookSideBarShown, setFullScreen, selectNotebook, onResize, setElementRef } =
+        useActions(notebookSidebarLogic)
+    const { createNotebook } = useActions(notebooksListLogic)
+    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
 
-    const [isEditable, setIsEditable] = useState(true)
-    const [showCode, setShowCode] = useState(false)
+    const ref = useRef<HTMLDivElement>(null)
 
     // NOTE: This doesn't work for some reason, possibly due to the way the editor is rendered
     useKeyboardHotkeys(
         notebookSideBarShown
             ? {
                   escape: {
-                      action: function () {
+                      action: () => {
                           setFullScreen(false)
                       },
                   },
@@ -30,103 +40,82 @@ export function NotebookSideBar(): JSX.Element {
         [notebookSideBarShown]
     )
 
+    const clonedChild = React.cloneElement(children, {
+        style: fullScreen ? { display: 'none', visibility: 'hidden' } : {},
+    })
+
+    useEffect(() => {
+        if (ref.current) {
+            setElementRef(ref)
+        }
+    }, [ref.current])
+
     return (
-        <div
-            className={clsx(
-                'NotebookSidebar',
-                notebookSideBarShown && 'NotebookSidebar--show',
-                fullScreen && 'NotebookSidebar--full-screen'
-            )}
-        >
-            <CSSTransition in={notebookSideBarShown} timeout={200} mountOnEnter unmountOnExit>
-                <div className="NotebookSidebar__floater">
-                    <div className="NotebookSidebar__content">
-                        <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
-                            <span className="flex items-center gap-1 text-primary-alt">
-                                <LemonButtonWithDropdown
-                                    status="primary-alt"
-                                    dropdown={{
-                                        overlay: (
-                                            <>
-                                                {notebooks.map((notebook) => (
-                                                    <LemonButton
-                                                        key={notebook}
-                                                        status="stealth"
-                                                        onClick={() => {
-                                                            selectNotebook(notebook)
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        {notebook || <i>Untitled</i>}
-                                                    </LemonButton>
-                                                ))}
-                                                <LemonButton
-                                                    icon={<IconPlus />}
-                                                    onClick={() => createNotebook('Untitled')}
-                                                >
-                                                    New notebook
-                                                </LemonButton>
-                                            </>
-                                        ),
-                                        placement: 'right-start',
-                                        fallbackPlacements: ['left-start'],
-                                        closeParentPopoverOnClickInside: true,
-                                    }}
-                                    size="small"
-                                    icon={<IconJournal />}
-                                    sideIcon={null}
-                                >
-                                    <span className="font-semibold">{selectedNotebook}</span>
-                                </LemonButtonWithDropdown>
-                            </span>
-                            <span className="flex gap-1 px-1">
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => setIsEditable(!isEditable)}
-                                    status="primary-alt"
-                                    type={!isEditable ? 'primary' : undefined}
-                                    noPadding
-                                >
-                                    <div className="m-1">{!isEditable ? <IconLock /> : <IconLockOpen />}</div>
-                                </LemonButton>
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => setShowCode(!showCode)}
-                                    status="primary-alt"
-                                    type={showCode ? 'primary' : undefined}
-                                    noPadding
-                                >
-                                    <div className="m-1 font-mono">{'{}'}</div>
-                                </LemonButton>
+        <>
+            {clonedChild}
+            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+                <CSSTransition
+                    in={notebookSideBarShown}
+                    timeout={0} // Disabled this for now until we can agree on style / performance
+                    mountOnEnter
+                    unmountOnExit
+                    classNames="NotebookSidebar-"
+                >
+                    <div
+                        ref={ref}
+                        className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={
+                            !fullScreen
+                                ? {
+                                      width: desiredWidth,
+                                  }
+                                : {}
+                        }
+                    >
+                        <Resizer onResize={onResize} />
+                        <div className="NotebookSidebar__content">
+                            <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
+                                <span className="flex items-center gap-1 text-primary-alt">
+                                    <NotebookListMini
+                                        selectedNotebookId={selectedNotebook}
+                                        onSelectNotebook={(notebook) => selectNotebook(notebook.short_id)}
+                                        onNewNotebook={() => createNotebook()}
+                                    />
+                                </span>
+                                <span className="flex items-center gap-1 px-1">
+                                    {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => setFullScreen(!fullScreen)}
-                                    status="primary-alt"
-                                    noPadding
-                                >
-                                    <IconFullScreen className="text-lg m-1" />
-                                </LemonButton>
+                                    <NotebookExpandButton status="primary-alt" size="small" />
 
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => setNotebookSideBarShown(false)}
-                                    status="primary-alt"
-                                    noPadding
-                                >
-                                    <IconChevronRight className="text-lg" />
-                                </LemonButton>
-                            </span>
-                        </header>
-                        <Notebook
-                            key={selectedNotebook}
-                            id={selectedNotebook}
-                            editable={isEditable}
-                            sourceMode={showCode}
-                        />
+                                    <LemonButton
+                                        size="small"
+                                        onClick={() => setFullScreen(!fullScreen)}
+                                        status="primary-alt"
+                                        active={fullScreen}
+                                        icon={<IconFullScreen />}
+                                    />
+
+                                    <LemonButton
+                                        size="small"
+                                        onClick={() => setNotebookSideBarShown(false)}
+                                        status="primary-alt"
+                                        icon={<IconChevronRight />}
+                                    />
+                                </span>
+                            </header>
+
+                            <div className="flex flex-col flex-1 overflow-y-auto px-4 py-2">
+                                <Notebook
+                                    key={selectedNotebook}
+                                    shortId={selectedNotebook}
+                                    editable={!notebook?.is_template}
+                                />
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </CSSTransition>
-        </div>
+                </CSSTransition>
+            </FlaggedFeature>
+        </>
     )
 }

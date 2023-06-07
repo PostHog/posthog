@@ -44,6 +44,22 @@ describe('Trends', () => {
         cy.get('[data-attr=math-property-select]').should('exist')
     })
 
+    it('Select HogQL expressions', () => {
+        cy.get('[data-attr=math-property-selector-0]').should('not.exist')
+
+        cy.get('[data-attr=math-selector-0]').click()
+        cy.get('[data-attr=math-total-0]').should('be.visible')
+
+        cy.get('[data-attr=math-node-hogql-expression-0]').click()
+        cy.get('[data-attr=math-hogql-select-0]').click()
+        cy.get('[data-attr=inline-hogql-editor]').click().clear().type('avg(1042) * 2048')
+        cy.contains('Update HogQL expression').click()
+
+        cy.get('[data-attr=chart-filter]').click()
+        cy.contains('Table').click()
+        cy.contains('2,134,016').should('exist')
+    })
+
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click().type('Pageview')

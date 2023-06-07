@@ -12,7 +12,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        testOptions: { skip: true },
+        mockDate: '2023-05-25',
     },
     decorators: [
         mswDecorator({

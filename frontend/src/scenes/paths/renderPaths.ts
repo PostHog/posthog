@@ -16,8 +16,8 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
         .append('svg')
         .classed('Paths__canvas', true)
         .style('background', 'var(--item-background)')
-        .style('width', width)
-        .style('height', height)
+        .style('width', `${width}px`)
+        .style('height', `${height}px`)
 }
 
 const createSankey = (width: number, height: number): Sankey.SankeyLayout<any, any, any> => {

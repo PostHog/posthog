@@ -1,29 +1,17 @@
-from typing import Dict, List, Optional, Union, cast
-
-from pydantic import BaseModel, Extra
+from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLSettings
+from posthog.hogql.constants import HogQLSettings
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
-from posthog.queries.insight import insight_sync_execute
-
-
-class HogQLQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    clickhouse: Optional[str] = None
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    query: Optional[str] = None
-    results: Optional[List] = None
-    types: Optional[List] = None
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.client import sync_execute
+from posthog.schema import HogQLQueryResponse
 
 
 def execute_hogql_query(
@@ -33,6 +21,7 @@ def execute_hogql_query(
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLSettings] = None,
+    default_limit: Optional[int] = None,
 ) -> HogQLQueryResponse:
     if isinstance(query, ast.SelectQuery):
         select_query = query
@@ -46,7 +35,10 @@ def execute_hogql_query(
         assert_no_placeholders(select_query)
 
     if select_query.limit is None:
-        select_query.limit = ast.Constant(value=DEFAULT_RETURNED_ROWS)
+        # One more "max" of MAX_SELECT_RETURNED_ROWS (100k) in applied in the query printer, overriding this if higher.
+        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
+        select_query.limit = ast.Constant(value=default_limit or DEFAULT_RETURNED_ROWS)
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     hogql_query_context = HogQLContext(
@@ -70,22 +62,30 @@ def execute_hogql_query(
     clickhouse_context = HogQLContext(
         team_id=team.pk, enable_select_queries=True, person_on_events_mode=team.person_on_events_mode
     )
-    clickhouse = print_ast(
+    clickhouse_sql = print_ast(
         select_query, context=clickhouse_context, dialect="clickhouse", settings=settings or HogQLSettings()
     )
 
-    results, types = insight_sync_execute(
-        clickhouse,
+    tag_queries(
+        team_id=team.pk,
+        query_type=query_type,
+        has_joins="JOIN" in clickhouse_sql,
+        has_json_operations="JSONExtract" in clickhouse_sql or "JSONHas" in clickhouse_sql,
+    )
+
+    results, types = sync_execute(
+        clickhouse_sql,
         clickhouse_context.values,
         with_column_types=True,
-        query_type=query_type,
         workload=workload,
+        team_id=team.pk,
+        readonly=True,
     )
 
     return HogQLQueryResponse(
         query=query,
         hogql=hogql,
-        clickhouse=clickhouse,
+        clickhouse=clickhouse_sql,
         results=results,
         columns=print_columns,
         types=types,
