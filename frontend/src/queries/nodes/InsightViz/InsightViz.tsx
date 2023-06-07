@@ -45,6 +45,12 @@ export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.E
         setQuery?.({ ...query, source })
     }
 
+    const showIfFull = !!query.full
+    const disableHeader = query.showHeader ? !query.showHeader : !showIfFull
+    const disableTable = query.showTable ? !query.showTable : !showIfFull
+    const disableCorrelationTable = query.showCorrelationTable ? !query.showCorrelationTable : !showIfFull
+    const disableLastComputation = query.showLastComputation ? !query.showLastComputation : !showIfFull
+
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -60,7 +66,14 @@ export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.E
                     />
 
                     <div className="insights-container" data-attr="insight-view">
-                        <InsightContainer insightMode={insightMode} context={context} />
+                        <InsightContainer
+                            insightMode={insightMode}
+                            context={context}
+                            disableHeader={disableHeader}
+                            disableTable={disableTable}
+                            disableCorrelationTable={disableCorrelationTable}
+                            disableLastComputation={disableLastComputation}
+                        />
                     </div>
                 </div>
             </BindLogic>

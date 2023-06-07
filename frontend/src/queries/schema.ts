@@ -308,7 +308,12 @@ export interface InsightVizNode extends Node {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
 
-    // showViz, showTable, etc.
+    /** Show with most visual options enabled. Used in insight scene. */
+    full?: boolean
+    showHeader?: boolean
+    showTable?: boolean
+    showCorrelationTable?: boolean
+    showLastComputation?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
