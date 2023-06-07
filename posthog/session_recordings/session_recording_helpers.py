@@ -2,7 +2,6 @@ import base64
 import dataclasses
 import gzip
 import json
-import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional
@@ -197,7 +196,6 @@ def chunk_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> Gener
     Eventually this won't be needed as we'll be able to write larger events to Kafka
     """
     for event in events:
-        print("size", byte_size_dict(event))
         if byte_size_dict(event) > max_size_bytes:
             data_items = event["properties"]["$snapshot_data"]["data_items"]
             events_summary = event["properties"]["$snapshot_data"]["events_summary"]
