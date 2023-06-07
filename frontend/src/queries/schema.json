@@ -1200,6 +1200,20 @@
             },
             "type": "object"
         },
+        "InsightNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "InsightNode",
+                    "type": "string"
+                },
+                "shortId": {
+                    "$ref": "#/definitions/InsightShortId"
+                }
+            },
+            "required": ["kind", "shortId"],
+            "type": "object"
+        },
         "InsightQueryNode": {
             "anyOf": [
                 {
@@ -1221,6 +1235,9 @@
                     "$ref": "#/definitions/LifecycleQuery"
                 }
             ]
+        },
+        "InsightShortId": {
+            "type": "string"
         },
         "InsightVizNode": {
             "additionalProperties": false,
@@ -1636,6 +1653,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataTableNode"
+                },
+                {
+                    "$ref": "#/definitions/InsightNode"
                 },
                 {
                     "$ref": "#/definitions/InsightVizNode"

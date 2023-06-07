@@ -20,6 +20,7 @@ import {
     LifecycleToggle,
     HogQLMathType,
     InsightLogicProps,
+    InsightShortId,
 } from '~/types'
 
 /**
@@ -45,6 +46,7 @@ export enum NodeKind {
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
+    InsightNode = 'InsightNode',
     InsightVizNode = 'InsightVizNode',
 
     // New queries, not yet implemented
@@ -83,6 +85,7 @@ export type QuerySchema =
 
     // Interface nodes
     | DataTableNode
+    | InsightNode
     | InsightVizNode
 
     // New queries, not yet implemented
@@ -300,6 +303,13 @@ export interface DataTableNode extends Node {
     allowSorting?: boolean
     /** Show a button to open the current query as a new insight. (default: true) */
     showOpenEditorButton?: boolean
+}
+
+// Insight node
+
+export interface InsightNode extends Node {
+    kind: NodeKind.InsightNode
+    shortId: InsightShortId
 }
 
 // Insight viz node

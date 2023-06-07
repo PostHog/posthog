@@ -571,6 +571,14 @@ class HogQLQuery(BaseModel):
     response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
 
 
+class InsightNode(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("InsightNode", const=True)
+    shortId: str
+
+
 class LifecycleFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -1132,6 +1140,7 @@ class InsightVizNode(BaseModel):
 class Model(BaseModel):
     __root__: Union[
         DataTableNode,
+        InsightNode,
         InsightVizNode,
         TrendsQuery,
         FunnelsQuery,

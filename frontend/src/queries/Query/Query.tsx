@@ -1,7 +1,8 @@
-import { isDataNode, isDataTableNode, isInsightVizNode, isTimeToSeeDataSessionsNode } from '../utils'
+import { isDataNode, isDataTableNode, isInsightNode, isInsightVizNode, isTimeToSeeDataSessionsNode } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
+import { Insight } from '~/queries/nodes/Insight/Insight'
 import { AnyResponseType, Node, QueryContext, QuerySchema } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { useEffect, useState } from 'react'
@@ -60,6 +61,8 @@ export function Query(props: QueryProps): JSX.Element | null {
         )
     } else if (isDataNode(query)) {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
+    } else if (isInsightNode(query)) {
+        component = <Insight query={query} context={queryContext} />
     } else if (isInsightVizNode(query)) {
         component = <InsightViz query={query} setQuery={setQuery} context={queryContext} />
     } else if (isTimeToSeeDataSessionsNode(query)) {
