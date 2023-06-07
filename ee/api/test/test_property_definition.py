@@ -1,4 +1,4 @@
-from typing import cast, Optional
+from typing import cast, Optional, List, Dict
 from freezegun import freeze_time
 import pytest
 from django.db.utils import IntegrityError
@@ -389,3 +389,53 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified"] is False
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
+
+    def test_list_property_definitions(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        properties: List[Dict] = [
+            {"name": "4_when_verified", "query_usage_30_day": 4, "verified": False},
+            {"name": "5_when_verified", "query_usage_30_day": 4, "verified": False},
+            {"name": "1_when_verified", "query_usage_30_day": 4, "verified": True},
+            {"name": "2_when_verified", "query_usage_30_day": 3, "verified": True},
+            {"name": "6_when_verified", "query_usage_30_day": 1, "verified": False},
+            {"name": "3_when_verified", "query_usage_30_day": 1, "verified": True},
+        ]
+
+        for property in properties:
+            EnterprisePropertyDefinition.objects.create(
+                team=self.team, name=property["name"], query_usage_30_day=property["query_usage_30_day"]
+            )
+
+        response = self.client.get("/api/projects/@current/property_definitions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], len(properties))
+
+        assert [(r["name"], r["query_usage_30_day"], r["verified"]) for r in response.json()["results"]] == [
+            ("1_when_verified", 4, False),
+            ("4_when_verified", 4, False),
+            ("5_when_verified", 4, False),
+            ("2_when_verified", 3, False),
+            ("3_when_verified", 1, False),
+            ("6_when_verified", 1, False),
+        ]
+
+        for property in properties:
+            definition = EnterprisePropertyDefinition.objects.filter(name=property["name"], team=self.team).first()
+            if definition is None:
+                raise AssertionError(f"Property definition {property['name']} not found")
+            definition.verified = property["verified"] or False
+            definition.save()
+
+        response = self.client.get("/api/projects/@current/property_definitions/")
+
+        assert [(r["name"], r["query_usage_30_day"], r["verified"]) for r in response.json()["results"]] == [
+            ("1_when_verified", 4, True),
+            ("2_when_verified", 3, True),
+            ("3_when_verified", 1, True),
+            ("4_when_verified", 4, False),
+            ("5_when_verified", 4, False),
+            ("6_when_verified", 1, False),
+        ]
