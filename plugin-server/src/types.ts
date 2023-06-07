@@ -29,7 +29,6 @@ import { AppMetrics } from './worker/ingestion/app-metrics'
 import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
-import { PersonManager } from './worker/ingestion/person-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -230,7 +229,6 @@ export interface Hub extends PluginsServerConfig {
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
-    personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
     // geoip database, setup in workers
