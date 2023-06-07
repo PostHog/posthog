@@ -20,7 +20,7 @@ export function AutocaptureSettings(): JSX.Element {
                 Automagically capture frontend interactions like pageviews, clicks, and more when using our JavaScript
                 or React Native libraries.
             </p>
-            <div className={'flex flex-col space-y-2'}>
+            <div className="space-y-2">
                 <LemonSwitch
                     id="posthog-autocapture-switch"
                     onChange={(checked) => {
