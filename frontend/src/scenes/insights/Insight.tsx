@@ -76,6 +76,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                         showOpenEditorButton: false,
                         showQueryEditor: actuallyShowQueryEditor,
                         showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                        insightProps,
                     }}
                 />
             </div>
