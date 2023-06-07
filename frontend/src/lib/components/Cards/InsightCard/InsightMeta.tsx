@@ -4,7 +4,7 @@ import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType, ExporterFormat, InsightColor } from '~/types'
+import { ExporterFormat, InsightColor } from '~/types'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -79,9 +79,7 @@ export function InsightMeta({
     const { mathDefinitions } = useValues(mathsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
-        (d: DashboardType) => !dashboards?.includes(d.id)
-    )
+    const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
 
     // not all interactions are currently implemented for queries
