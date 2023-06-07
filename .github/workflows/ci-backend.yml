@@ -38,7 +38,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest-backend
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
@@ -81,7 +81,7 @@ jobs:
         timeout-minutes: 10
 
         name: Python code quality checks
-        runs-on: ubuntu-latest-backend
+        runs-on: ubuntu-latest
 
         steps:
             - uses: actions/checkout@v3
@@ -167,7 +167,7 @@ jobs:
         timeout-minutes: 5
 
         name: Validate Django migrations
-        runs-on: ubuntu-latest-backend
+        runs-on: ubuntu-latest
 
         steps:
             - uses: actions/checkout@v3
@@ -231,7 +231,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: ubuntu-latest-backend
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -311,7 +311,7 @@ jobs:
         if: github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true'
 
         name: Django tests – Cloud
-        runs-on: ubuntu-latest-backend
+        runs-on: ubuntu-latest
         steps:
             - name: Fetch posthog-cloud
               run: |
@@ -410,7 +410,7 @@ jobs:
         name: Async migrations tests
         needs: changes
         if: needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest-backend
+        runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v3
