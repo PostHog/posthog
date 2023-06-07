@@ -881,7 +881,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._select("with event as boo select boo from events"),
             ast.SelectQuery(
-                macros={"boo": ast.Macro(name="boo", expr=ast.Field(chain=["event"]), macro_format="column")},
+                ctes={"boo": ast.CTE(name="boo", expr=ast.Field(chain=["event"]), cte_type="column")},
                 select=[ast.Field(chain=["boo"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             ),
@@ -889,7 +889,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._select("with count() as kokku select kokku from events"),
             ast.SelectQuery(
-                macros={"kokku": ast.Macro(name="kokku", expr=ast.Call(name="count", args=[]), macro_format="column")},
+                ctes={"kokku": ast.CTE(name="kokku", expr=ast.Call(name="count", args=[]), cte_type="column")},
                 select=[ast.Field(chain=["kokku"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             ),
@@ -899,14 +899,14 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._select("with customers as (select 'yes' from events) select * from customers"),
             ast.SelectQuery(
-                macros={
-                    "customers": ast.Macro(
+                ctes={
+                    "customers": ast.CTE(
                         name="customers",
                         expr=ast.SelectQuery(
                             select=[ast.Constant(value="yes")],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        macro_format="subquery",
+                        cte_type="subquery",
                     )
                 },
                 select=[ast.Field(chain=["*"])],
@@ -918,29 +918,29 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._select("with happy as (select 'yes' from events), ':(' as sad select sad from happy"),
             ast.SelectQuery(
-                macros={
-                    "happy": ast.Macro(
+                ctes={
+                    "happy": ast.CTE(
                         name="happy",
                         expr=ast.SelectQuery(
                             select=[ast.Constant(value="yes")],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        macro_format="subquery",
+                        cte_type="subquery",
                     ),
-                    "sad": ast.Macro(name="sad", expr=ast.Constant(value=":("), macro_format="column"),
+                    "sad": ast.CTE(name="sad", expr=ast.Constant(value=":("), cte_type="column"),
                 },
                 select=[ast.Field(chain=["sad"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),
             ),
         )
 
-    def test_macros_subquery_recursion(self):
+    def test_ctes_subquery_recursion(self):
         query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
         self.assertEqual(
             self._select(query),
             ast.SelectQuery(
-                macros={
-                    "users": ast.Macro(
+                ctes={
+                    "users": ast.CTE(
                         name="users",
                         expr=ast.SelectQuery(
                             select=[
@@ -949,15 +949,15 @@ class TestParser(BaseTest):
                             ],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        macro_format="subquery",
+                        cte_type="subquery",
                     ),
-                    "final": ast.Macro(
+                    "final": ast.CTE(
                         name="final",
                         expr=ast.SelectQuery(
                             select=[ast.Field(chain=["tt"])],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["users"])),
                         ),
-                        macro_format="subquery",
+                        cte_type="subquery",
                     ),
                 },
                 select=[ast.Field(chain=["*"])],
