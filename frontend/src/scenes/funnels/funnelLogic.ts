@@ -46,7 +46,6 @@ import {
     parseEventAndProperty,
     aggregationLabelForHogQL,
 } from './funnelUtils'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { isFunnelsFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel, Noun } from '~/models/groupsModel'
@@ -74,7 +73,6 @@ export const funnelLogic = kea<funnelLogicType>({
             ['aggregationLabel'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility']],
-        logic: [dashboardsModel],
     }),
 
     actions: () => ({

@@ -49,7 +49,8 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
-        cy.location('pathname').should('eq', '/verify_email')
+        // lazy regex for a guid
+        cy.location('pathname').should('match', /\/verify_email\/[a-zA-Z0-9_.-]*/)
     })
 
     it('Can fill out all the fields on social login', () => {

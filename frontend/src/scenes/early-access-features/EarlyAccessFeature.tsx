@@ -21,6 +21,7 @@ import { InstructionsModal } from './InstructionsModal'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PersonsSearch } from 'scenes/persons/PersonsSearch'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -33,7 +34,7 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote, deleteEarlyAccessFeature } =
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, releaseBeta, deleteEarlyAccessFeature } =
         useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
@@ -62,7 +63,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     }}
                                     loading={isEarlyAccessFeatureSubmitting}
                                 >
-                                    Save
+                                    {isNewEarlyAccessFeature ? 'Save Draft' : 'Save'}
                                 </LemonButton>
                             </>
                         ) : (
@@ -172,18 +173,27 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <div>
                                 <b>Stage</b>
                                 <div>
-                                    <LemonTag type="highlight" className="mt-2 uppercase">
+                                    <LemonTag
+                                        type={
+                                            earlyAccessFeature.stage === 'beta'
+                                                ? 'warning'
+                                                : earlyAccessFeature.stage === 'general-availability'
+                                                ? 'success'
+                                                : 'default'
+                                        }
+                                        className="mt-2 uppercase"
+                                    >
                                         {earlyAccessFeature.stage}
                                     </LemonTag>
                                 </div>
                             </div>
-                            {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
+                            {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
                                 <LemonButton
-                                    onClick={() => promote()}
-                                    tooltip={'Make feature generally available'}
+                                    onClick={() => releaseBeta()}
+                                    tooltip={'Make beta feature available'}
                                     type="secondary"
                                 >
-                                    Promote
+                                    Release Beta
                                 </LemonButton>
                             )}
                         </div>
@@ -304,28 +314,31 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
             <h3 className="text-xl font-semibold">Opted-In Users</h3>
 
             <div className="space-y-2">
-                {persons.results.length > 0 && (
-                    <div className="flex flex-row justify-between">
-                        <PropertyFilters
-                            pageKey="persons-list-page"
-                            propertyFilters={listFilters.properties}
-                            onChange={(properties) => {
-                                setListFilters({ properties })
-                                loadPersons()
-                            }}
-                            endpoint="person"
-                            taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                            showConditionBadge
-                        />
-                        <LemonButton
-                            key="help-button"
-                            onClick={toggleImplementOptInInstructionsModal}
-                            sideIcon={<IconHelpOutline />}
-                        >
-                            Implement public opt-in
-                        </LemonButton>
+                {
+                    <div className="flex-col">
+                        <PersonsSearch />
                     </div>
-                )}
+                }
+                <div className="flex flex-row justify-between">
+                    <PropertyFilters
+                        pageKey="persons-list-page"
+                        propertyFilters={listFilters.properties}
+                        onChange={(properties) => {
+                            setListFilters({ properties })
+                            loadPersons()
+                        }}
+                        endpoint="person"
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                        showConditionBadge
+                    />
+                    <LemonButton
+                        key="help-button"
+                        onClick={toggleImplementOptInInstructionsModal}
+                        sideIcon={<IconHelpOutline />}
+                    >
+                        Implement public opt-in
+                    </LemonButton>
+                </div>
                 <PersonsTable
                     people={persons.results}
                     loading={personsLoading}
