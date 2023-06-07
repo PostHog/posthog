@@ -226,10 +226,12 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     initial_cloud_mode: Optional[bool] = False
 
     def setUp(self):
+
         super().setUp()
 
-        # Sets the cloud mode to stabilise things tests, especially num query counts
         TEST_clear_cloud_cache(self.initial_cloud_mode)
+
+        # Sets the cloud mode to stabilise things tests, especially num query counts
         # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots
         rate_limit.is_rate_limit_enabled.cache_clear()
         rate_limit.get_team_allow_list.cache_clear()
