@@ -1,10 +1,16 @@
 from typing import Any, List
+from django.conf import settings
+from django.urls import include
 
+from django.contrib import admin
+
+from posthog.cloud_utils import is_cloud
 from django.urls.conf import path
 from rest_framework_extensions.routers import NestedRegistryItem
 
 from ee.api import integration, time_to_see_data
 from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.cloud_utils import is_cloud
 
 from .api import (
     authentication,
@@ -88,7 +94,16 @@ def extend_api_router(
     )
 
 
+# The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
+admin_urlpatterns = (
+    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+    if is_cloud() or settings.DEMO or settings.DEBUG
+    else []
+)
+
+
 urlpatterns: List[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
+    *admin_urlpatterns,
 ]
