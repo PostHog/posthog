@@ -53,10 +53,10 @@ def _insert_session_recording_event(
     return str(uuid)
 
 
-def legacy_compress_and_chunk_snapshots(events: List[Any]):
+def legacy_compress_and_chunk_snapshots(events: List[Any], chunk_size=512 * 1024):
     replay_events = compress_replay_events(events)
-    replay_events = reduce_replay_events_by_window(replay_events, max_size=512 * 1024)  # 512Kb
-    replay_events = chunk_replay_events_by_window(replay_events, max_size=512 * 1024)
+    replay_events = reduce_replay_events_by_window(replay_events, max_size_bytes=chunk_size)
+    replay_events = chunk_replay_events_by_window(replay_events, max_size_bytes=chunk_size)
 
     return replay_events
 
