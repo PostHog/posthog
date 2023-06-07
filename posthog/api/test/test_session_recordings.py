@@ -486,50 +486,49 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @freeze_time("2020-09-13T12:26:40.000Z")
     def test_get_metadata_for_chunked_session_recording(self):
-
-        with freeze_time("2020-09-13T12:26:40.000Z"):
-            p = Person.objects.create(
-                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+        p = Person.objects.create(
+            team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+        )
+        chunked_session_id = "chunked_session_id"
+        num_chunks = 60
+        snapshots_per_chunk = 2
+        for index in range(num_chunks):
+            self.create_chunked_snapshots(
+                snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index)
             )
-            chunked_session_id = "chunked_session_id"
-            num_chunks = 60
-            snapshots_per_chunk = 2
-            for index in range(num_chunks):
-                self.create_chunked_snapshots(
-                    snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index)
-                )
-            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
-            response_data = response.json()
-            self.assertEqual(response_data["person"]["id"], p.pk)
-            self.assertEqual(
-                response_data["start_and_end_times_by_window_id"],
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
+        response_data = response.json()
+        self.assertEqual(response_data["person"]["id"], p.pk)
+        self.assertEqual(
+            response_data["start_and_end_times_by_window_id"],
+            {
+                "": {
+                    "is_active": False,
+                    "window_id": "",
+                    "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "end_time": (
+                        now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
+                    ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            },
+        )
+        self.assertEqual(
+            response_data["segments"],
+            [
                 {
-                    "": {
-                        "is_active": False,
-                        "window_id": "",
-                        "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "end_time": (
-                            now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
-                        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    }
-                },
-            )
-            self.assertEqual(
-                response_data["segments"],
-                [
-                    {
-                        "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "end_time": (
-                            now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
-                        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "is_active": False,
-                        "window_id": "",
-                    }
-                ],
-            )
-            self.assertEqual(response_data["viewed"], False)
-            self.assertEqual(response_data["id"], chunked_session_id)
+                    "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "end_time": (
+                        now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
+                    ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "is_active": False,
+                    "window_id": "",
+                }
+            ],
+        )
+        self.assertEqual(response_data["viewed"], False)
+        self.assertEqual(response_data["id"], chunked_session_id)
 
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
