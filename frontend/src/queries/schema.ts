@@ -19,6 +19,7 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     HogQLMathType,
+    InsightLogicProps,
 } from '~/types'
 
 /**
@@ -527,6 +528,7 @@ export interface QueryContext {
     showQueryEditor?: boolean
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
+    insightProps?: InsightLogicProps
     emptyStateHeading?: string
     emptyStateDetail?: string
 }
