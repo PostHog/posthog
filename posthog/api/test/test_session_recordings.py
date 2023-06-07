@@ -148,7 +148,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            num_queries = 9
+            num_queries = 8
 
             self._person_with_snapshots(base_time=base_time, distinct_id="user", session_id="1")
             with self.assertNumQueries(num_queries):
