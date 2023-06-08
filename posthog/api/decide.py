@@ -211,10 +211,10 @@ def get_decide(request: HttpRequest):
             # `test_decide_doesnt_error_out_when_database_is_down`
             # which ensures that decide doesn't error out when the database is down
 
-            if feature_flags and settings.ENABLE_DECIDE_BILLING_ANALYTICS:
+            if feature_flags:
                 # Billing analytics for decide requests with feature flags
 
-                # Sampling to relax the load on redis
+                # Sample no. of decide requests with feature flags
                 if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
                     count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
                     increment_request_count(team.pk, count)
