@@ -681,6 +681,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
 
 export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
 
+export type FilterableLogLevel = 'log' | 'warn' | 'error'
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
@@ -690,7 +691,7 @@ export interface RecordingFilters {
     offset?: number
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationTypeFilter
-    console_logs?: ('log' | 'warn' | 'error')[]
+    console_logs?: FilterableLogLevel[]
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {

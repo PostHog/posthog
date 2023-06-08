@@ -4,7 +4,14 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { EntityTypes, FilterType, LocalRecordingFilters, RecordingDurationFilter, RecordingFilters } from '~/types'
+import {
+    EntityTypes,
+    FilterableLogLevel,
+    FilterType,
+    LocalRecordingFilters,
+    RecordingDurationFilter,
+    RecordingFilters,
+} from '~/types'
 import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -46,9 +53,9 @@ function ConsoleFilters({
     setConsoleFilters,
 }: {
     filters: RecordingFilters
-    setConsoleFilters: (selection: ('log' | 'warn' | 'error')[]) => void
+    setConsoleFilters: (selection: FilterableLogLevel[]) => void
 }): JSX.Element {
-    function updateChoice(checked: boolean, level: 'log' | 'warn' | 'error'): void {
+    function updateChoice(checked: boolean, level: FilterableLogLevel): void {
         const newChoice = filters.console_logs?.filter((c) => c !== level) || []
         if (checked) {
             setConsoleFilters([...newChoice, level])
