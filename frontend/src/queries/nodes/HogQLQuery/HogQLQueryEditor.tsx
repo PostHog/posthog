@@ -2,13 +2,13 @@ import { useActions, useValues } from 'kea'
 import { HogQLQuery } from '~/queries/schema'
 import { useEffect, useRef, useState } from 'react'
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
-import MonacoEditor from '@monaco-editor/react'
+import MonacoEditor, { Monaco } from '@monaco-editor/react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { IDisposable } from 'monaco-editor'
+import { IDisposable, editor as importedEditor } from 'monaco-editor'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -18,7 +18,9 @@ export interface HogQLQueryEditorProps {
 let uniqueNode = 0
 export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const [key] = useState(() => uniqueNode++)
-    const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key }
+    const [monaco, setMonaco] = useState(null as Monaco | null)
+    const [editor, setEditor] = useState(null as importedEditor.IStandaloneCodeEditor | null)
+    const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key, editor, monaco }
     const { queryInput } = useValues(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
     const { setQueryInput, saveQuery } = useActions(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
 
@@ -63,6 +65,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             run: () => saveQuery(),
                                         })
                                     )
+                                    setMonaco(monaco)
+                                    setEditor(editor)
                                 }}
                                 options={{
                                     minimap: {
