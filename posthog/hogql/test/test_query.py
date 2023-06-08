@@ -1017,3 +1017,43 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2) AS final ORDER BY final.col_a ASC LIMIT 100 "
                 f"SETTINGS readonly=1, max_execution_time=60",
             )
+
+    def test_property_access_with_arrays(self):
+        with freeze_time("2020-01-10"):
+            random_uuid = str(UUIDT())
+            _create_person(team=self.team, distinct_ids=[f"P{random_uuid}"], is_identified=True)
+            _create_event(
+                distinct_id=f"P{random_uuid}",
+                event="big event",
+                team=self.team,
+                properties={
+                    "string": random_uuid,
+                    "array_str": [random_uuid],
+                    "array_array_str": [[random_uuid]],
+                    "array_obj": [{"id": random_uuid}],
+                    "array_obj_array": [{"id": [random_uuid]}],
+                    "array_obj_array_obj": [{"id": [{"id": random_uuid}]}],
+                },
+            )
+            flush_persons_and_events()
+
+            query = f"SELECT * FROM events WHERE properties.string = '{random_uuid}'"
+            first_response = execute_hogql_query(query, team=self.team)
+            self.assertEqual(len(first_response.results), 1)
+
+            alternatives = [
+                "properties.array_str.0",
+                "properties.array_str[0]",
+                "properties.array_array_str.0.0",
+                "properties.array_array_str[0][0]",
+                "properties.array_obj.0.id",
+                "properties.array_obj[0].id",
+                "properties.array_obj_array.0.id.0",
+                "properties.array_obj_array[0].id[0]",
+                "properties.array_obj_array_obj[0].id[0].id",
+                "properties.array_obj_array_obj.0.id.0.id",
+            ]
+            for alternative in alternatives:
+                query = f"SELECT * FROM events WHERE {alternative} = '{random_uuid}'"
+                response = execute_hogql_query(query, team=self.team)
+                self.assertEqual(response.results, first_response.results)
