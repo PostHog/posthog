@@ -23,7 +23,10 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     click_count Int64,
     keypress_count Int64,
     mouse_activity_count Int64,
-    active_milliseconds Int64
+    active_milliseconds Int64,
+    console_log_count Int64,
+    console_warn_count Int64,
+    console_error_count Int64
 ) ENGINE = {engine}
 """
 
@@ -47,7 +50,12 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     active_milliseconds SimpleAggregateFunction(sum, Int64)
 ) ENGINE = {engine}
 """
-
+ALTER_SESSION_REPLAY_ADD_CONSOLE_COLUMNS = """
+    ALTER TABLE {table_name} on CLUSTER '{cluster}'
+        ADD COLUMN IF NOT EXISTS console_log_count SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS console_warn_count SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS console_error_count SimpleAggregateFunction(sum, Int64)
+"""
 
 SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE = lambda: AggregatingMergeTree(
     "session_replay_events", replication_scheme=ReplicationScheme.SHARDED
@@ -75,12 +83,22 @@ SETTINGS index_granularity=512
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE(),
 )
+ADD_CONSOLE_COUNTS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_CONSOLE_COLUMNS.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
 
 KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS),
 )
+DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: "DROP TABLE IF EXISTS kafka_session_replay_events ON CLUSTER {cluster}".format(
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+)
+
 
 SESSION_REPLAY_EVENTS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER '{cluster}'
@@ -104,7 +122,10 @@ argMinState(first_url, first_timestamp) as first_url,
 sum(click_count) as click_count,
 sum(keypress_count) as keypress_count,
 sum(mouse_activity_count) as mouse_activity_count,
-sum(active_milliseconds) as active_milliseconds
+sum(active_milliseconds) as active_milliseconds,
+sum(console_log_count) as console_log_count,
+sum(console_warn_count) as console_warn_count,
+sum(console_error_count) as console_error_count
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
@@ -112,7 +133,11 @@ group by session_id, team_id
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
 )
-
+DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL = (
+    lambda: "DROP TABLE IF EXISTS session_replay_events_mv ON CLUSTER {cluster}".format(
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+)
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
@@ -122,12 +147,23 @@ WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_B
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
 )
+ADD_CONSOLE_COUNTS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_CONSOLE_COLUMNS.format(
+    table_name="writable_session_replay_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
+
 
 # This table is responsible for reading from session_replay_events on a cluster setting
 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
     table_name="session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+)
+ADD_CONSOLE_COUNTS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_CONSOLE_COLUMNS.format(
+        table_name="session_replay_events",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
 )
 
 
