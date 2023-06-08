@@ -47,9 +47,17 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     click_count SimpleAggregateFunction(sum, Int64),
     keypress_count SimpleAggregateFunction(sum, Int64),
     mouse_activity_count SimpleAggregateFunction(sum, Int64),
-    active_milliseconds SimpleAggregateFunction(sum, Int64)
+    active_milliseconds SimpleAggregateFunction(sum, Int64),
+    console_log_count SimpleAggregateFunction(sum, Int64),
+    console_warn_count SimpleAggregateFunction(sum, Int64),
+    console_error_count SimpleAggregateFunction(sum, Int64)
 ) ENGINE = {engine}
 """
+# this alter command exists because existing installations
+# need to have the columns added, the SESSION_REPLAY_EVENTS_TABLE_BASE_SQL string
+# already add the columns
+# so, for e.g. test set up has them
+# Which means this is a no-op for new installations
 ALTER_SESSION_REPLAY_ADD_CONSOLE_COLUMNS = """
     ALTER TABLE {table_name} on CLUSTER '{cluster}'
         ADD COLUMN IF NOT EXISTS console_log_count SimpleAggregateFunction(sum, Int64),

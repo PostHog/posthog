@@ -54,7 +54,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
        sum(s.keypress_count),
        sum(s.mouse_activity_count),
        sum(s.active_milliseconds)/1000 as active_seconds,
-       duration-active_seconds as inactive_seconds
+       duration-active_seconds as inactive_seconds,
+       sum(s.console_log_count) as console_log_count,
+       sum(s.console_warn_count) as console_warn_count,
+       sum(s.console_error_count) as console_error_count
        {event_ids_selector}
     FROM session_replay_events s
     {events_join_clause}
@@ -165,6 +168,9 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             "mouse_activity_count",
             "active_seconds",
             "inactive_seconds",
+            "console_log_count",
+            "console_warn_count",
+            "console_error_count",
             "matching_events",
         ]
 

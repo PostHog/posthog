@@ -134,6 +134,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "start_time": self.base_time + relativedelta(seconds=20),
                 "end_time": self.base_time + relativedelta(seconds=2000),
                 "first_url": None,
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "console_error_count": 0,
             },
             {
                 "session_id": session_id_one,
@@ -148,6 +151,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "start_time": self.base_time,
                 "end_time": self.base_time + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "console_error_count": 0,
             },
         ]
 
@@ -320,6 +326,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "start_time": self.base_time + relativedelta(seconds=20),
                 "end_time": self.base_time + relativedelta(seconds=2000),
                 "first_url": None,
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "console_error_count": 0,
             }
         ]
 
@@ -343,6 +352,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "start_time": self.base_time,
                 "end_time": self.base_time + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "console_error_count": 0,
             },
         ]
 
@@ -908,6 +920,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "keypress_count": 0,
                 "mouse_activity_count": 0,
                 "team_id": self.team.id,
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "console_error_count": 0,
             }
         ]
 
