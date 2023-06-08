@@ -324,7 +324,12 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         queryset = super().get_queryset()
 
         if self.action == "list":
-            queryset = queryset.filter(deleted=False).prefetch_related("experiment_set").prefetch_related("features")
+            queryset = (
+                queryset.filter(deleted=False)
+                .prefetch_related("experiment_set")
+                .prefetch_related("features")
+                .prefetch_related("dashboards")
+            )
             survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
                 "targeting_flag_id", flat=True
             )
@@ -359,6 +364,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
             .prefetch_related("experiment_set")
             .prefetch_related("features")
+            .prefetch_related("dashboards")
             .select_related("created_by")
             .order_by("-created_at")
         )
