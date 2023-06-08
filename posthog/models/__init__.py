@@ -45,6 +45,7 @@ from .session_recording_playlist import SessionRecordingPlaylist
 from .session_recording_playlist_item import SessionRecordingPlaylistItem
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
+from .feedback.survey import Survey
 from .tag import Tag
 from .tagged_item import TaggedItem
 from .team import Team
@@ -112,6 +113,7 @@ __all__ = [
     "SessionRecordingPlaylistItem",
     "SharingConfiguration",
     "Subscription",
+    "Survey",
     "Tag",
     "TaggedItem",
     "Team",

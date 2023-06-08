@@ -31,6 +31,7 @@ from posthog.api import (
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
 from posthog.api.prompt import prompt_webhook
+from posthog.api.survey import surveys
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 
@@ -130,6 +131,7 @@ urlpatterns = [
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/prompts/webhook", prompt_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
+    opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
