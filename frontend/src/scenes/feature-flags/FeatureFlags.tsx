@@ -24,7 +24,7 @@ import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
@@ -232,7 +232,7 @@ export function OverViewTab({
     ]
 
     return shouldShowEmptyState && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
-        <ProductEmptyState
+        <ProductIntroduction
             productName="Feature flags"
             thingName="feature flag"
             description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."

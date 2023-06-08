@@ -18,7 +18,7 @@ import { userLogic } from 'scenes/userLogic'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -187,14 +187,14 @@ export function Experiments(): JSX.Element {
                     />
                     {shouldShowEmptyState && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
                         tab === ExperimentsTabs.Archived ? (
-                            <ProductEmptyState
+                            <ProductIntroduction
                                 productName="Experiments"
                                 thingName="archived experiment"
                                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                                 docsURL="https://posthog.com/docs/experiments"
                             />
                         ) : (
-                            <ProductEmptyState
+                            <ProductIntroduction
                                 productName="Experiments"
                                 thingName="experiment"
                                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}

@@ -18,7 +18,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { combineUrl, router } from 'kea-router'
 import { LemonInput } from '@posthog/lemon-ui'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -183,7 +183,7 @@ export function Cohorts(): JSX.Element {
                     />
                 </>
             ) : (
-                <ProductEmptyState
+                <ProductIntroduction
                     productName="Cohorts"
                     thingName="cohort"
                     description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."

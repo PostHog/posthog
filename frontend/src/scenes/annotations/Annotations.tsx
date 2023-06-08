@@ -21,7 +21,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { AnnotationModal } from './AnnotationModal'
 import { shortTimeZone } from 'lib/utils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -177,7 +177,7 @@ export function Annotations(): JSX.Element {
                         )}
                     </>
                 ) : (
-                    <ProductEmptyState
+                    <ProductIntroduction
                         productName="Annotations"
                         thingName="annotation"
                         description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."

@@ -23,7 +23,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from '@posthog/lemon-ui'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { IconCheckmark, IconPlayCircle } from 'lib/lemon-ui/icons'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 
 export const scene: SceneExport = {
     component: ActionsTable,
@@ -254,7 +254,7 @@ export function ActionsTable(): JSX.Element {
                     emptyState="No results. Create a new action?"
                 />
             ) : (
-                <ProductEmptyState
+                <ProductIntroduction
                     productName="Actions"
                     thingName="action"
                     description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."

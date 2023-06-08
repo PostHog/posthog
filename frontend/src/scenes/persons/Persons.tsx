@@ -10,7 +10,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconExport } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
@@ -112,7 +112,7 @@ export function PersonsScene({
             </div>
         </div>
     ) : (
-        <ProductEmptyState
+        <ProductIntroduction
             productName="Persons"
             thingName="person"
             description="PostHog tracks user behaviour, whether or not the user is logged in or anonymous. Once you've sent some data, the associated persons will show up here."

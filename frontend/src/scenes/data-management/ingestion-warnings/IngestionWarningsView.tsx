@@ -8,7 +8,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { WarningEventsGraph } from './WarningEventsGraph'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 
 export const scene: SceneExport = {
     component: IngestionWarningsView,
@@ -185,7 +185,7 @@ export function IngestionWarningsView(): JSX.Element {
                     />
                 </>
             ) : (
-                <ProductEmptyState
+                <ProductIntroduction
                     productName="Ingestion warnings"
                     thingName="ingestion warning"
                     description="Nice! You've had no ingestion warnings in the past 30 days. If we detect any issues with your data, we'll show them here."

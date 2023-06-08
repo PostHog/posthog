@@ -1,14 +1,14 @@
 import { ComponentMeta } from '@storybook/react'
-import { ProductEmptyState } from './ProductEmptyState'
+import { ProductIntroduction } from './ProductIntroduction'
 
 export default {
     title: 'Components/Product Empty State',
-    component: ProductEmptyState,
-} as ComponentMeta<typeof ProductEmptyState>
+    component: ProductIntroduction,
+} as ComponentMeta<typeof ProductIntroduction>
 
-export function ProductEmptyState_(): JSX.Element {
+export function ProductIntroduction_(): JSX.Element {
     return (
-        <ProductEmptyState
+        <ProductIntroduction
             productName="Cohorts"
             thingName="cohort"
             description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
@@ -20,7 +20,7 @@ export function ProductEmptyState_(): JSX.Element {
 
 export function withAction(): JSX.Element {
     return (
-        <ProductEmptyState
+        <ProductIntroduction
             productName="Cohorts"
             thingName="cohort"
             description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
@@ -32,7 +32,7 @@ export function withAction(): JSX.Element {
 
 export function noAction(): JSX.Element {
     return (
-        <ProductEmptyState
+        <ProductIntroduction
             productName="Feature Flags"
             thingName={'history record'}
             description={`History shows any feature flag changes that have been made. After making changes you'll see them logged here.`}

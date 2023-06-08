@@ -1,11 +1,12 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { IconArrowRight, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 
-export const ProductEmptyState = ({
+export const ProductIntroduction = ({
     productName,
     thingName,
     description,
+    isEmpty,
     action,
     actionElementOverride,
     docsURL,
@@ -15,6 +16,7 @@ export const ProductEmptyState = ({
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
+    isEmpty?: boolean
     /** The action to take when the user clicks the CTA */
     action?: () => void
     /** If you want to provide a custom action button instead of using the default one */
@@ -35,12 +37,34 @@ export const ProductEmptyState = ({
                     </div>
                 </div>
                 <div className="flex-shrink max-w-140">
-                    <h2>{actionable ? `Create your first ${thingName}` : `No ${thingName}s yet`}</h2>
+                    <h2>
+                        {!isEmpty
+                            ? `Welcome to ${productName}!`
+                            : actionable
+                            ? `Create your first ${thingName}`
+                            : `No ${thingName}s yet`}
+                    </h2>
                     <p className="ml-0">{description}</p>
+                    {!isEmpty && (
+                        <p className="ml-0">
+                            Your team has already started using {productName}. You can jump in to see what your team has
+                            made, or create a new one yourself.
+                        </p>
+                    )}
                     <div className="flex items-center gap-x-4 mt-6">
-                        {action ? (
+                        {!isEmpty && (
                             <LemonButton
                                 type="primary"
+                                sideIcon={<IconArrowRight />}
+                                onClick={action}
+                                data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
+                            >
+                                Go to {productName}
+                            </LemonButton>
+                        )}
+                        {action ? (
+                            <LemonButton
+                                type={isEmpty ? 'primary' : 'secondary'}
                                 sideIcon={<IconPlus />}
                                 onClick={action}
                                 data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
