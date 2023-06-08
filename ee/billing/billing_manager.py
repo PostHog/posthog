@@ -204,7 +204,7 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-        return res.json()["products"]
+        return res.json().get("products", [])
 
     def update_org_details(self, organization: Organization, billing_status: BillingStatus) -> Organization:
         """
