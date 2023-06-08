@@ -93,14 +93,30 @@ class TestFeatureFlagAnalytics(BaseTest):
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             mock_capture.capture.assert_called_once_with(
-                team_id, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
+                team_id,
+                "decide usage",
+                {
+                    "count": 15,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                },
             )
 
             mock_capture.reset_mock()
             capture_team_decide_usage(mock_capture, other_team_id, other_team_uuid)
             capture_team_decide_usage(mock_capture, other_team_id, other_team_uuid)
             mock_capture.capture.assert_called_once_with(
-                other_team_id, "decide usage", {"count": 10, "team_id": other_team_id, "team_uuid": other_team_uuid}
+                other_team_id,
+                "decide usage",
+                {
+                    "count": 10,
+                    "team_id": other_team_id,
+                    "team_uuid": other_team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                },
             )
 
     @pytest.mark.skip(
@@ -160,10 +176,26 @@ class TestFeatureFlagAnalytics(BaseTest):
                 assert future.exception() is None
 
             mock_capture.capture.assert_any_call(
-                team_id, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
+                team_id,
+                "decide usage",
+                {
+                    "count": 15,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                },
             )
             mock_capture.capture.assert_any_call(
-                other_team_id, "decide usage", {"count": 10, "team_id": other_team_id, "team_uuid": other_team_uuid}
+                other_team_id,
+                "decide usage",
+                {
+                    "count": 10,
+                    "team_id": other_team_id,
+                    "team_uuid": other_team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                },
             )
             assert mock_capture.capture.call_count == 2
 
@@ -214,7 +246,15 @@ class TestFeatureFlagAnalytics(BaseTest):
                 assert future.exception() is None
 
             mock_capture.capture.assert_any_call(
-                team_id, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
+                team_id,
+                "decide usage",
+                {
+                    "count": 15,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                },
             )
             assert mock_capture.capture.call_count == 1
 
