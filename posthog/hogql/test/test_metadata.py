@@ -19,7 +19,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": "select 1",
                 "inputSelect": None,
-                "error": "Syntax error at line 1, column 7: extraneous input '1' expecting <EOF>",
+                "error": "extraneous input '1' expecting <EOF>",
+                "errorStart": 7,
+                "errorEnd": 8,
             },
         )
 
@@ -55,9 +57,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": None,
                 "inputSelect": "timestamp",
-                "error": "Syntax error at line 1, column 0: mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
-                "errorStart": None,
-                "errorEnd": None,
+                "error": "mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
+                "errorStart": 0,
+                "errorEnd": 9,
             },
         )
 
