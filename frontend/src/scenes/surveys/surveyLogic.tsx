@@ -111,7 +111,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const surv = { ...values.survey }
                 const groups = [...values.survey.targeting_flag_filters.groups]
                 if (properties !== undefined) {
-                    groups[index] = { ...groups[index], properties }
+                    groups[index] = { ...groups[index], properties, rollout_percentage: 100 }
                 }
                 return { ...surv, targeting_flag_filters: { groups } }
             },
@@ -122,7 +122,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (values.survey.targeting_flag_filters) {
                     const groups = [
                         ...values.survey?.targeting_flag_filters?.groups,
-                        { properties: [], rollout_percentage: null, variant: null },
+                        { properties: [], rollout_percentage: 0, variant: null },
                     ]
                     return {
                         ...values.survey,
@@ -132,7 +132,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return {
                         ...values.survey,
                         targeting_flag_filters: {
-                            groups: [{ properties: [], rollout_percentage: null, variant: null }],
+                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
                         },
                     }
                 }

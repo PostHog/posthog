@@ -11,7 +11,7 @@ import { Field, PureField } from 'lib/forms/Field'
 import { FilterLogicalOperator, SurveyQuestion, SurveyType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { IconErrorOutline, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { IconCancel, IconErrorOutline, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -83,15 +83,11 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 <Field name="name" label="Name">
                     <LemonInput data-attr="survey-name" />
                 </Field>
-                <Field name="description" label="Description">
+                <Field name="description" label="Description (optional)">
                     <LemonTextArea data-attr="survey-description" />
                 </Field>
-                <Field name="type" label="Type">
-                    <LemonSelect
-                        dropdownMaxContentWidth
-                        data-attr="survey-type"
-                        options={[{ label: 'Popover', value: SurveyType.Popover }]}
-                    />
+                <Field name="type" label="Type" className="w-max">
+                    <LemonSelect data-attr="survey-type" options={[{ label: 'Popover', value: SurveyType.Popover }]} />
                 </Field>
                 <Field
                     name="linked_flag_id"
@@ -99,8 +95,18 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     info={<>Feature you want to connect this survey to.</>}
                 >
                     {({ value, onChange }) => (
-                        <div>
+                        <div className="flex">
                             <FlagSelector value={value} onChange={onChange} />
+                            {value && (
+                                <LemonButton
+                                    className="ml-2"
+                                    icon={<IconCancel />}
+                                    size="small"
+                                    status="stealth"
+                                    onClick={() => onChange(undefined)}
+                                    aria-label="close"
+                                />
+                            )}
                         </div>
                     )}
                 </Field>
@@ -111,7 +117,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         </Field>
                     </Group>
                 ))}
-                <PureField label="Targeting">
+                <PureField label="Targeting (optional)" className="mt-4">
                     <span className="text-muted">
                         Choose when the survey appears based on url, selector, and user properties.
                     </span>
@@ -123,6 +129,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     <LemonInput
                                         value={value?.url}
                                         onChange={(urlVal) => onChange({ ...value, url: urlVal })}
+                                        placeholder="ex: https://app.posthog.com"
                                     />
                                 </PureField>
                                 <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
@@ -130,64 +137,68 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     <LemonInput
                                         value={value?.selector}
                                         onChange={(selectorVal) => onChange({ ...value, selector: selectorVal })}
+                                        placeholder="ex: .className or #id"
                                     />
                                 </PureField>
                             </>
                         )}
                     </Field>
                     <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
-                    {(id === 'new'
-                        ? survey.targeting_flag_filters?.groups || []
-                        : survey.targeting_flag?.filters?.groups || []
-                    ).map((group, index) => (
-                        <>
-                            {index > 0 && <div className="text-primary-alt font-semibold text-xs ml-2">OR</div>}
-                            <div className="border rounded p-4">
-                                <div className="mb-2">
-                                    Matching <b>users</b> against the criteria
+                    <PureField label="User properties">
+                        {(id === 'new'
+                            ? survey.targeting_flag_filters?.groups || []
+                            : survey.targeting_flag?.filters?.groups || []
+                        ).map((group, index) => (
+                            <>
+                                {index > 0 && <div className="text-primary-alt font-semibold text-xs ml-2">OR</div>}
+                                <div className="border rounded p-4">
+                                    <div className="mb-2">
+                                        Matching <b>users</b> against the criteria
+                                    </div>
+                                    <div>
+                                        <PropertyFilters
+                                            orFiltering={true}
+                                            pageKey={`survey-${id}-targeting-${index}`}
+                                            propertyFilters={group.properties}
+                                            logicalRowDivider
+                                            addButton={
+                                                <LemonButton icon={<IconPlusMini />} sideIcon={null} noPadding>
+                                                    Add condition
+                                                </LemonButton>
+                                            }
+                                            onChange={(properties) => updateTargetingFlagFilters(index, properties)}
+                                            taxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.PersonProperties,
+                                                TaxonomicFilterGroupType.Cohorts,
+                                            ]}
+                                            hasRowOperator={false}
+                                            sendAllKeyUpdates
+                                            errorMessages={
+                                                propertySelectErrors?.[index]?.properties?.some(
+                                                    (message) => !!message.value
+                                                )
+                                                    ? propertySelectErrors[index].properties.map((message, index) => {
+                                                          return message.value ? (
+                                                              <div
+                                                                  key={index}
+                                                                  className="text-danger flex items-center gap-1 text-sm"
+                                                              >
+                                                                  <IconErrorOutline className="text-xl" />{' '}
+                                                                  {message.value}
+                                                              </div>
+                                                          ) : (
+                                                              <></>
+                                                          )
+                                                      })
+                                                    : null
+                                            }
+                                        />
+                                    </div>
                                 </div>
-                                <div>
-                                    <PropertyFilters
-                                        orFiltering={true}
-                                        pageKey={`survey-${id}-targeting-${index}`}
-                                        propertyFilters={group.properties}
-                                        logicalRowDivider
-                                        addButton={
-                                            <LemonButton icon={<IconPlusMini />} sideIcon={null} noPadding>
-                                                Add condition
-                                            </LemonButton>
-                                        }
-                                        onChange={(properties) => updateTargetingFlagFilters(index, properties)}
-                                        taxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                        ]}
-                                        hasRowOperator={false}
-                                        sendAllKeyUpdates
-                                        errorMessages={
-                                            propertySelectErrors?.[index]?.properties?.some(
-                                                (message) => !!message.value
-                                            )
-                                                ? propertySelectErrors[index].properties.map((message, index) => {
-                                                      return message.value ? (
-                                                          <div
-                                                              key={index}
-                                                              className="text-danger flex items-center gap-1 text-sm"
-                                                          >
-                                                              <IconErrorOutline className="text-xl" /> {message.value}
-                                                          </div>
-                                                      ) : (
-                                                          <></>
-                                                      )
-                                                  })
-                                                : null
-                                        }
-                                    />
-                                </div>
-                            </div>
-                        </>
-                    ))}
-                    <LemonButton type="secondary" className="mt-0" onClick={addConditionSet} icon={<IconPlus />}>
+                            </>
+                        ))}
+                    </PureField>
+                    <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
                         Add condition set
                     </LemonButton>
                 </PureField>
