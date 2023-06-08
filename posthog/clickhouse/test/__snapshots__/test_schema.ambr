@@ -1336,7 +1336,10 @@
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
-      active_milliseconds SimpleAggregateFunction(sum, Int64)
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '
@@ -1595,7 +1598,10 @@
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
-      active_milliseconds SimpleAggregateFunction(sum, Int64)
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -2209,7 +2215,10 @@
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
-      active_milliseconds SimpleAggregateFunction(sum, Int64)
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
