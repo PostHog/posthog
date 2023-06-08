@@ -127,6 +127,57 @@ test.concurrent(`plugin method tests: creates error on unhandled throw`, async (
     expect(error.message).toEqual('error thrown in plugin')
 })
 
+test.concurrent(`plugin method tests: creates error on unhandled error in event listener`, async () => {
+    const plugin = await createPlugin({
+        organization_id: organizationId,
+        name: 'test plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
+            import { Client } from 'pg'
+
+            export const setupPlugin = async (meta) => {
+                // Create a pgClient that should result in an unhandled error in
+                // an event listener.
+                const pgClient = new Client({
+                    connectionString: 'postgres://localhost:5432/postgres?ssl=off',
+                    ssl: {
+                        rejectUnauthorized: true,
+                    },
+                });
+                pgClient.connect();
+            }
+        `,
+    })
+    const teamId = await createTeam(organizationId)
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} })
+    await reloadPlugins()
+
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    const event = {
+        event: 'custom event',
+        properties: { name: 'haha' },
+    }
+
+    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(teamId)
+        expect(events.length).toBe(1)
+        return events
+    })
+
+    const error = await waitForExpect(async () => {
+        const pluginConfigAgain = await getPluginConfig(teamId, pluginConfig.id)
+        expect(pluginConfigAgain.error).not.toBeNull()
+        return pluginConfigAgain.error
+    })
+
+    expect(error.message).toEqual('error thrown in plugin')
+})
+
 test.concurrent(`plugin method tests: creates error on unhandled rejection`, async () => {
     const plugin = await createPlugin({
         organization_id: organizationId,
