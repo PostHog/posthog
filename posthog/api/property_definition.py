@@ -222,7 +222,7 @@ class QueryContext:
         )
 
     def as_sql(self, order_by_verified: bool):
-        verified_ordering = "verified DESC," if order_by_verified else ""
+        verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
