@@ -33,7 +33,7 @@ class TraversingVisitor(Visitor):
     def visit_expr(self, node: ast.Expr):
         raise HogQLException("Can not visit generic Expr node")
 
-    def visit_macro(self, node: ast.Macro):
+    def visit_cte(self, node: ast.CTE):
         pass
 
     def visit_alias(self, node: ast.Alias):
@@ -239,14 +239,14 @@ class CloningVisitor(Visitor):
     def visit_expr(self, node: ast.Expr):
         raise HogQLException("Can not visit generic Expr node")
 
-    def visit_macro(self, node: ast.Macro):
-        return ast.Macro(
+    def visit_cte(self, node: ast.CTE):
+        return ast.CTE(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             name=node.name,
             expr=self.visit(node.expr),
-            macro_format=node.macro_format,
+            cte_type=node.cte_type,
         )
 
     def visit_alias(self, node: ast.Alias):
@@ -426,9 +426,7 @@ class CloningVisitor(Visitor):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            macros={key: self.visit(expr) for key, expr in node.macros.items()}
-            if node.macros
-            else None,  # to not traverse
+            ctes={key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None,  # to not traverse
             select_from=self.visit(node.select_from),  # keep "select_from" before "select" to resolve tables first
             select=[self.visit(expr) for expr in node.select] if node.select else None,
             where=self.visit(node.where),

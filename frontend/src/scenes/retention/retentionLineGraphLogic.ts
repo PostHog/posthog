@@ -17,7 +17,12 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionLineGraphLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['retentionFilter', 'dateRange'], retentionLogic(props), ['results']],
+        values: [
+            insightVizDataLogic(props),
+            ['querySource', 'dateRange', 'retentionFilter'],
+            retentionLogic(props),
+            ['results'],
+        ],
     }),
 
     selectors: {
@@ -107,6 +112,13 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
                 } else {
                     return 0
                 }
+            },
+        ],
+
+        aggregationGroupTypeIndex: [
+            (s) => [s.querySource],
+            (querySource) => {
+                return querySource?.aggregation_group_type_index ?? 'people'
             },
         ],
     },

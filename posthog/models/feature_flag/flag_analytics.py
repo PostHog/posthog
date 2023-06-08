@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 from posthog.redis import redis, get_client
 import time
 from sentry_sdk import capture_exception
+from django.conf import settings
 
 if TYPE_CHECKING:
     from posthoganalytics import Posthog
@@ -33,19 +34,30 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
             key_name = get_team_request_key(team_id)
             existing_values = client.hgetall(key_name)
             time_buckets = existing_values.keys()
+            min_time = time.time()
+            max_time = 0
             # The latest bucket is still being filled, so we don't want to delete it nor count it.
             # It will be counted in a later iteration, when it's not being filled anymore.
             if time_buckets and len(time_buckets) > 1:
                 # redis returns encoded bytes, so we need to convert them into unix epoch for sorting
                 for time_bucket in sorted(time_buckets, key=lambda bucket: int(bucket))[:-1]:
+                    min_time = min(min_time, int(time_bucket) * CACHE_BUCKET_SIZE)
+                    max_time = max(max_time, int(time_bucket) * CACHE_BUCKET_SIZE)
                     total_request_count += int(existing_values[time_bucket])
                     client.hdel(key_name, time_bucket)
 
-            if total_request_count > 0:
+            if total_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
                 ph_client.capture(
                     team_id,
                     "decide usage",
-                    {"count": total_request_count, "team_id": team_id, "team_uuid": team_uuid},
+                    {
+                        "count": total_request_count,
+                        "team_id": team_id,
+                        "team_uuid": team_uuid,
+                        "min_time": min_time,
+                        "max_time": max_time,
+                        "token": settings.DECIDE_BILLING_ANALYTICS_TOKEN,
+                    },
                 )
 
     except redis.exceptions.LockError:

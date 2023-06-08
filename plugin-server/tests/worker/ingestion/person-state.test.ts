@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { Database, Hub, Person } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
+import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { ageInMonthsLowCardinality, PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
@@ -41,6 +42,7 @@ describe('PersonState.update()', () => {
         jest.spyOn(hub.db, 'updatePersonDeprecated')
 
         jest.useFakeTimers({ advanceTimers: 50 })
+        defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
     })
 
     afterEach(() => {

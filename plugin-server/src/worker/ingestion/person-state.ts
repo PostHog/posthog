@@ -10,6 +10,7 @@ import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
+import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { PersonManager } from './person-manager'
@@ -337,89 +338,53 @@ export class PersonState {
             })
             return undefined
         }
-        return await this.mergeWithoutValidation(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp, 0)
+        return promiseRetry(
+            () => this.mergeDistinctIds(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp),
+            'merge_distinct_ids'
+        )
     }
 
-    private async mergeWithoutValidation(
+    private async mergeDistinctIds(
         otherPersonDistinctId: string,
         mergeIntoDistinctId: string,
         teamId: number,
-        timestamp: DateTime,
-        totalMergeAttempts = 0
+        timestamp: DateTime
     ): Promise<Person> {
         this.updateIsIdentified = true
 
         const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
         const mergeIntoPerson = await this.db.fetchPerson(teamId, mergeIntoDistinctId)
 
-        try {
-            if (otherPerson && !mergeIntoPerson) {
-                await this.db.addDistinctId(otherPerson, mergeIntoDistinctId)
-                return otherPerson
-            } else if (!otherPerson && mergeIntoPerson) {
-                await this.db.addDistinctId(mergeIntoPerson, otherPersonDistinctId)
+        if (otherPerson && !mergeIntoPerson) {
+            await this.db.addDistinctId(otherPerson, mergeIntoDistinctId)
+            return otherPerson
+        } else if (!otherPerson && mergeIntoPerson) {
+            await this.db.addDistinctId(mergeIntoPerson, otherPersonDistinctId)
+            return mergeIntoPerson
+        } else if (otherPerson && mergeIntoPerson) {
+            if (otherPerson.id == mergeIntoPerson.id) {
                 return mergeIntoPerson
-            } else if (otherPerson && mergeIntoPerson) {
-                if (otherPerson.id == mergeIntoPerson.id) {
-                    return mergeIntoPerson
-                }
-                return await this.mergePeople({
-                    mergeInto: mergeIntoPerson,
-                    mergeIntoDistinctId: mergeIntoDistinctId,
-                    otherPerson: otherPerson,
-                    otherPersonDistinctId: otherPersonDistinctId,
-                })
             }
-            //  The last case: (!oldPerson && !newPerson)
-            return await this.createPerson(
-                // TODO: in this case we could skip the properties updates later
-                timestamp,
-                this.eventProperties['$set'] || {},
-                this.eventProperties['$set_once'] || {},
-                teamId,
-                null,
-                true,
-                this.newUuid,
-                this.event.uuid,
-                [mergeIntoDistinctId, otherPersonDistinctId]
-            )
-        } catch (error) {
-            // Retrying merging up to `MAX_FAILED_PERSON_MERGE_ATTEMPTS` times, in case race conditions occur.
-            // E.g. Catch race case when somebody already added this distinct_id between .get and .addDistinctId
-            // E.g. Catch race condition where in between getting and creating, another request already created this person
-            // An example is a distinct ID being aliased in another plugin server instance,
-            // between `moveDistinctId` and `deletePerson` being called here
-            // – in such a case a distinct ID may be assigned to the person in the database
-            // AFTER `otherPersonDistinctIds` was fetched, so this function is not aware of it and doesn't merge it.
-            // That then causes `deletePerson` to fail, because of foreign key constraints –
-            // the dangling distinct ID added elsewhere prevents the person from being deleted!
-            // This is low-probability so likely won't occur on second retry of this block.
-            // In the rare case of the person changing VERY often however, it may happen even a few times,
-            // in which case we'll bail and rethrow the error.
-            status.error('🚨', 'merge_failed', {
-                error,
-                teamId: this.teamId,
-                previousDistinctId: otherPersonDistinctId,
-                distinctId: mergeIntoDistinctId,
+            return await this.mergePeople({
+                mergeInto: mergeIntoPerson,
+                mergeIntoDistinctId: mergeIntoDistinctId,
+                otherPerson: otherPerson,
+                otherPersonDistinctId: otherPersonDistinctId,
             })
-            totalMergeAttempts++
-            if (totalMergeAttempts >= this.maxMergeAttempts) {
-                status.error('🚨', 'merge_failed_final', {
-                    error,
-                    teamId: this.teamId,
-                    previousDistinctId: otherPersonDistinctId,
-                    distinctId: mergeIntoDistinctId,
-                })
-                throw error // Very much not OK, failed repeatedly so rethrowing the error
-            }
-            return await this.mergeWithoutValidation(
-                otherPersonDistinctId,
-                mergeIntoDistinctId,
-                teamId,
-                timestamp,
-                totalMergeAttempts
-            )
         }
+        //  The last case: (!oldPerson && !newPerson)
+        return await this.createPerson(
+            // TODO: in this case we could skip the properties updates later
+            timestamp,
+            this.eventProperties['$set'] || {},
+            this.eventProperties['$set_once'] || {},
+            teamId,
+            null,
+            true,
+            this.newUuid,
+            this.event.uuid,
+            [mergeIntoDistinctId, otherPersonDistinctId]
+        )
     }
 
     public async mergePeople({
