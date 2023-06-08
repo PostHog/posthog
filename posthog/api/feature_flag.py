@@ -61,7 +61,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
-    dashboards = serializers.PrimaryKeyRelatedField(
+    analytics_dashboards = serializers.PrimaryKeyRelatedField(
         many=True,
         required=False,
         queryset=Dashboard.objects.all(),
@@ -95,7 +95,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "can_edit",
             "tags",
             "usage_dashboard",
-            "dashboards",
+            "analytics_dashboards",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -245,11 +245,11 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
         self._update_filters(validated_data)
 
-        dashboards = validated_data.pop("dashboards", None)
+        analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
-        if dashboards is not None:
-            for dashboard in dashboards:
-                FeatureFlagDashboards.objects.create(dashboard=dashboard, feature_flag=instance)
+        if analytics_dashboards is not None:
+            for dashboard in analytics_dashboards:
+                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         instance = super().update(instance, validated_data)
 
@@ -324,7 +324,12 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         queryset = super().get_queryset()
 
         if self.action == "list":
-            queryset = queryset.filter(deleted=False).prefetch_related("experiment_set").prefetch_related("features")
+            queryset = (
+                queryset.filter(deleted=False)
+                .prefetch_related("experiment_set")
+                .prefetch_related("features")
+                .prefetch_related("analytics_dashboards")
+            )
             survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
                 "targeting_flag_id", flat=True
             )
@@ -359,6 +364,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
             .prefetch_related("experiment_set")
             .prefetch_related("features")
+            .prefetch_related("analytics_dashboards")
             .select_related("created_by")
             .order_by("-created_at")
         )

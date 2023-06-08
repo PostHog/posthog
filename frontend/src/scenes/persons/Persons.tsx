@@ -48,8 +48,6 @@ export function PersonsScene({
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading, exporterProps, apiDocsURL } = useValues(personsLogic)
 
-    console.log(persons.results.length, personsLoading, Object.keys(listFilters).length, listFilters)
-
     return persons.results.length > 0 || personsLoading || Object.keys(listFilters).length > 1 || listFilters.search ? (
         <div className="persons-list">
             <div className="space-y-2">

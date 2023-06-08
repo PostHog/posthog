@@ -18,6 +18,7 @@ from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
@@ -100,6 +101,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             return JsonResponse(process_query(self.team, query_json), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
+        except ExposedCHQueryError as e:
+            raise ValidationError(str(e), e.code_name)
 
     def post(self, request, *args, **kwargs):
         request_json = request.data
@@ -110,6 +113,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             return JsonResponse(process_query(self.team, query_json), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
+        except ExposedCHQueryError as e:
+            raise ValidationError(str(e), e.code_name)
 
     def _tag_client_query_id(self, query_id: str | None):
         if query_id is not None:

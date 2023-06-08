@@ -151,6 +151,8 @@ export const FEATURE_FLAGS = {
     SURVEYS: 'surveys', // owner: @liyiy
     NEW_EMPTY_STATES: 'new-empty-states', // owner: @raquelmsmith
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // owner: @raquelmsmith
+    // owner: team monitoring, only to be enabled for PostHog team testing
+    EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
