@@ -1,4 +1,6 @@
+import json
 from unittest.mock import patch
+from urllib.parse import quote
 
 from dateutil.parser import isoparse
 from freezegun import freeze_time
@@ -238,6 +240,45 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "attr": None,
             },
         )
+
+    def test_safe_clickhouse_error_passed_through(self):
+        query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
+
+        # Safe errors are passed through in GET requests
+        response_get = self.client.get(f"/api/projects/{self.team.id}/query/?query={quote(json.dumps(query))}")
+        self.assertEqual(response_get.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response_get.json(),
+            self.validation_error_response(
+                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: "
+                "While processing toTimeZone(timestamp, 'UTC') + 'string'.",
+                "illegal_type_of_argument",
+            ),
+        )
+
+        # Safe errors are passed through in POST requests too
+        response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response_post.json(),
+            self.validation_error_response(
+                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: "
+                "While processing toTimeZone(timestamp, 'UTC') + 'string'.",
+                "illegal_type_of_argument",
+            ),
+        )
+
+    @patch("sqlparse.format", return_value="SELECT 1&&&")  # Erroneously constructed SQL
+    def test_unsafe_clickhouse_error_is_swallowed(self, sqlparse_format_mock):
+        query = {"kind": "EventsQuery", "select": ["timestamp"]}
+
+        # Unsafe errors are swallowed in GET requests (in this case we should not expose malformed SQL)
+        response_get = self.client.get(f"/api/projects/{self.team.id}/query/?query={quote(json.dumps(query))}")
+        self.assertEqual(response_get.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Unsafe errors are swallowed in POST requests too
+        response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response_post.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @also_test_with_materialized_columns(event_properties=["key", "path"])
     @snapshot_clickhouse_queries
