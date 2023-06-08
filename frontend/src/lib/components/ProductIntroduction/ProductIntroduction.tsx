@@ -75,7 +75,7 @@ export const ProductIntroduction = ({
                     <div className="flex items-center gap-x-4 mt-6">
                         {action ? (
                             <LemonButton
-                                type={isEmpty ? 'primary' : 'secondary'}
+                                type="primary"
                                 sideIcon={<IconPlus />}
                                 onClick={() => {
                                     updateHasSeenProductIntroFor(productKey, true)
