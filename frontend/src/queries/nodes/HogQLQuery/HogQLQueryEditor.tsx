@@ -44,7 +44,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
             </div>
             <div
                 data-attr="hogql-query-editor"
-                className={'flex flex-col p-2 bg-border space-y-2 resize-y overflow-auto h-80 w-full'}
+                className={'flex flex-col p-2 bg-border space-y-2 resize-y h-80 w-full'}
             >
                 <div className="flex-1">
                     <AutoSizer disableWidth>
