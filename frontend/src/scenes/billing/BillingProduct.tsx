@@ -27,9 +27,13 @@ import { PlanComparisonModal } from './PlanComparisonModal'
 const getCurrentAndUpgradePlans = (
     product: BillingProductV2Type | BillingProductV2AddonType
 ): { currentPlan: BillingV2PlanType; upgradePlan: BillingV2PlanType; downgradePlan: BillingV2PlanType } => {
+    const { isUnlicensedDebug } = useValues(billingLogic)
     const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
     const currentPlan = product.plans?.[currentPlanIndex]
-    const upgradePlan = product.plans?.[currentPlanIndex + 1]
+    const upgradePlan =
+        // If in debug mode and with no license there will be
+        // no currentPlan. So we want to upgrade to the highest plan.
+        isUnlicensedDebug ? product.plans?.[product.plans.length - 1] : product.plans?.[currentPlanIndex + 1]
     const downgradePlan = product.plans?.[currentPlanIndex - 1]
     return { currentPlan, upgradePlan, downgradePlan }
 }
@@ -150,7 +154,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { billing, redirectPath, isOnboarding } = useValues(billingLogic)
+    const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
     const { customLimitUsd, showTierBreakdown, billingGaugeItems, isPricingModalOpen, isPlanComparisonModalOpen } =
         useValues(billingProductLogic({ product }))
@@ -365,7 +369,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </LemonBanner>
                     ) : null}
                     <div className="flex w-full items-center gap-x-8">
-                        {product.contact_support && !product.subscribed ? (
+                        {product.contact_support && (!product.subscribed || isUnlicensedDebug) ? (
                             <div className="py-8">
                                 {!billing?.has_active_subscription && (
                                     <p className="ml-0">
@@ -387,7 +391,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </p>
                             </div>
                         ) : (
-                            !isOnboarding && (
+                            !isOnboarding &&
+                            !isUnlicensedDebug && (
                                 <>
                                     {product.tiered ? (
                                         <>

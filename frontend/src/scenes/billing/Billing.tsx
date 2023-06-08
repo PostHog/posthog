@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -16,6 +16,7 @@ import { BillingProduct } from './BillingProduct'
 import { IconPlus } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { Field, Form } from 'kea-forms'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -27,7 +28,15 @@ export function BillingPageHeader(): JSX.Element {
 }
 
 export function Billing(): JSX.Element {
-    const { billing, billingLoading, redirectPath, isOnboarding } = useValues(billingLogic)
+    const {
+        billing,
+        billingLoading,
+        redirectPath,
+        isOnboarding,
+        showLicenseDirectInput,
+        isActivateLicenseSubmitting,
+        isUnlicensedDebug,
+    } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
@@ -89,7 +98,9 @@ export function Billing(): JSX.Element {
                 continue
             }
             const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
-            const upgradePlanKey = product.plans?.[currentPlanIndex + 1]?.plan_key
+            const upgradePlanKey = isUnlicensedDebug
+                ? product.plans?.[product.plans?.length - 1].plan_key
+                : product.plans?.[currentPlanIndex + 1]?.plan_key
             if (!upgradePlanKey) {
                 continue
             }
@@ -127,6 +138,25 @@ export function Billing(): JSX.Element {
                         </div>
                     )}
                 </div>
+            )}
+            {showLicenseDirectInput && (
+                <>
+                    <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
+                        <Field name="license" label={'Activate license key'}>
+                            <LemonInput fullWidth autoFocus />
+                        </Field>
+
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            loading={isActivateLicenseSubmitting}
+                            fullWidth
+                            center
+                        >
+                            Activate license key
+                        </LemonButton>
+                    </Form>
+                </>
             )}
             {billing?.free_trial_until ? (
                 <LemonBanner type="success" className="mb-2">
