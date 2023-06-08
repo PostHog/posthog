@@ -1,9 +1,13 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconArrowRight, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { IconClose, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { BuilderHog3, DetectiveHog } from '../hedgehogs'
+import { userLogic } from 'scenes/userLogic'
+import { useActions } from 'kea'
+import { ProductKey } from '~/types'
 
 export const ProductIntroduction = ({
     productName,
+    productKey,
     thingName,
     description,
     isEmpty,
@@ -13,9 +17,11 @@ export const ProductIntroduction = ({
 }: {
     /** The name of the product, e.g. "Cohorts" */
     productName: string
+    productKey: ProductKey
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
+    /** If we should show the empty state */
     isEmpty?: boolean
     /** The action to take when the user clicks the CTA */
     action?: () => void
@@ -23,10 +29,25 @@ export const ProductIntroduction = ({
     actionElementOverride?: JSX.Element
     docsURL?: string
 }): JSX.Element => {
+    const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border w-full p-8 flex justify-center rounded-md mt-2">
-            <div className="flex items-center gap-x-8">
+        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded-md mt-2 mb-4">
+            {!isEmpty && (
+                <div className="flex justify-end -mb-6 -mt-2 -mr-2">
+                    <div>
+                        <LemonButton
+                            icon={<IconClose />}
+                            type="tertiary"
+                            status="stealth"
+                            onClick={() => {
+                                updateHasSeenProductIntroFor(productKey, true)
+                            }}
+                        />
+                    </div>
+                </div>
+            )}
+            <div className="flex items-center gap-x-8 w-full justify-center">
                 <div>
                     <div className="w-40 mx-auto mb-4">
                         {actionable ? (
@@ -52,21 +73,14 @@ export const ProductIntroduction = ({
                         </p>
                     )}
                     <div className="flex items-center gap-x-4 mt-6">
-                        {!isEmpty && (
-                            <LemonButton
-                                type="primary"
-                                sideIcon={<IconArrowRight />}
-                                onClick={action}
-                                data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
-                            >
-                                Go to {productName}
-                            </LemonButton>
-                        )}
                         {action ? (
                             <LemonButton
                                 type={isEmpty ? 'primary' : 'secondary'}
                                 sideIcon={<IconPlus />}
-                                onClick={action}
+                                onClick={() => {
+                                    updateHasSeenProductIntroFor(productKey, true)
+                                    action && action()
+                                }}
                                 data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
                             >
                                 Create {thingName}

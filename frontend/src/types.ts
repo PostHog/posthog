@@ -89,6 +89,14 @@ export type AvailableProductFeature = {
     unit?: string | null
 }
 
+export enum ProductKey {
+    COHORTS = 'cohorts',
+    ACTIONS = 'actions',
+    EXPERIMENTS = 'experiments',
+    FEATURE_FLAGS = 'feature_flags',
+    ANNOTATIONS = 'annotations',
+}
+
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -153,6 +161,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_seen_product_intro_for?: Record<string, boolean>
 }
 
 export interface NotificationSettings {
