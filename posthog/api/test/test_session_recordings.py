@@ -65,7 +65,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             snapshots=[snapshot],
         )
 
-    def create_chunked_snapshots(
+    def create_snapshots(
         self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True, window_id=""
     ):
         snapshots = []
@@ -339,7 +339,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with freeze_time("2020-09-13T12:26:40.000Z"):
             start_time = now()
             for index, s in enumerate(range(num_chunks)):
-                self.create_chunked_snapshots(
+                self.create_snapshots(
                     snapshots_per_chunk,
                     "user",
                     chunked_session_id,
@@ -387,7 +387,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with freeze_time("2020-09-13T12:26:40.000Z"):
             start_time = now()
             for index, s in enumerate(range(num_chunks)):
-                self.create_chunked_snapshots(
+                self.create_snapshots(
                     snapshots_per_chunk,
                     "user",
                     chunked_session_id,
@@ -414,7 +414,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with freeze_time("2020-09-13T12:26:40.000Z"):
             start_time = now()
             for index, s in enumerate(range(num_chunks)):
-                self.create_chunked_snapshots(
+                self.create_snapshots(
                     snapshots_per_chunk,
                     "user",
                     chunked_session_id,
@@ -494,9 +494,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         num_chunks = 60
         snapshots_per_chunk = 2
         for index in range(num_chunks):
-            self.create_chunked_snapshots(
-                snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index)
-            )
+            self.create_snapshots(snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index))
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
         response_data = response.json()
         self.assertEqual(response_data["person"]["id"], p.pk)

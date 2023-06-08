@@ -166,7 +166,7 @@ def create_snapshot(
     )
 
 
-def create_chunked_snapshots(
+def create_snapshots(
     snapshot_count: int,
     distinct_id: str,
     session_id: str,
@@ -175,6 +175,7 @@ def create_chunked_snapshots(
     window_id: str = "",
     has_full_snapshot: bool = True,
     source: int = 0,
+    chunk_size: Optional[int] = 512 * 1024,
 ):
     snapshots = []
     for index in range(snapshot_count):
@@ -211,5 +212,5 @@ def create_chunked_snapshots(
         session_id=session_id,
         window_id=window_id,
         snapshots=snapshots,
-        chunk_size=15,
+        chunk_size=chunk_size,
     )
