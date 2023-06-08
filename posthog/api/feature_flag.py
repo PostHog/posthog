@@ -249,7 +249,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         if analytics_dashboards is not None:
             for dashboard in analytics_dashboards:
-                FeatureFlagDashboards.objects.create(dashboard=dashboard, feature_flag=instance)
+                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         instance = super().update(instance, validated_data)
 
