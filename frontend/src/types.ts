@@ -97,6 +97,7 @@ export enum ProductKey {
     ANNOTATIONS = 'annotations',
     HISTORY = 'history',
     INGESTION_WARNINGS = 'ingestion_warnings',
+    PERSONS = 'persons',
 }
 
 export enum LicensePlan {
