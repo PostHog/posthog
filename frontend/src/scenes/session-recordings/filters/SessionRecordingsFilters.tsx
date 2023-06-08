@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -39,6 +39,51 @@ const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters
             },
         ],
     }
+}
+
+function ConsoleFilters({
+    filters,
+    setConsoleFilters,
+}: {
+    filters: RecordingFilters
+    setConsoleFilters: (selection: ('log' | 'warn' | 'error')[]) => void
+}): JSX.Element {
+    function updateChoice(checked: boolean, level: 'log' | 'warn' | 'error'): void {
+        const newChoice = filters.console_logs?.filter((c) => c !== level) || []
+        if (checked) {
+            setConsoleFilters([...newChoice, level])
+        } else {
+            setConsoleFilters(newChoice)
+        }
+    }
+
+    return (
+        <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt" data-attr={'console-filters'}>
+            <LemonSwitch
+                size="small"
+                bordered={true}
+                checked={!!filters.console_logs?.includes('log')}
+                onChange={(checked) => {
+                    updateChoice(checked, 'log')
+                }}
+                label={'include console.log'}
+            />
+            <LemonSwitch
+                size="small"
+                bordered={true}
+                checked={!!filters.console_logs?.includes('warn')}
+                onChange={(checked) => updateChoice(checked, 'warn')}
+                label={'include console.warn'}
+            />
+            <LemonSwitch
+                size="small"
+                bordered={true}
+                checked={!!filters.console_logs?.includes('error')}
+                onChange={(checked) => updateChoice(checked, 'error')}
+                label={'include console.error'}
+            />
+        </div>
+    )
 }
 
 export function SessionRecordingsFilters({
@@ -155,6 +200,18 @@ export function SessionRecordingsFilters({
                     }}
                 />
             )}
+
+            <LemonLabel info="Show recordings that have captured console log messages">
+                Filter by console logs
+            </LemonLabel>
+            <ConsoleFilters
+                filters={filters}
+                setConsoleFilters={(x) =>
+                    setFilters({
+                        console_logs: x,
+                    })
+                }
+            />
         </div>
     )
 }

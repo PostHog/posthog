@@ -144,9 +144,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch("posthog.api.session_recording.SessionRecordingListFromReplaySummary")
     def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister):
-        self.client.get(
-            f'/api/projects/{self.team.id}/session_recordings?version=3&console_logs_filter=["warn", "error"]'
-        )
+        self.client.get(f'/api/projects/{self.team.id}/session_recordings?version=3&console_logs=["warn", "error"]')
         assert len(mock_summary_lister.call_args_list) == 1
         filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
         assert filter_passed_to_mock.console_logs_filter == ["warn", "error"]
