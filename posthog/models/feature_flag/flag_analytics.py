@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 from posthog.redis import redis, get_client
 import time
 from sentry_sdk import capture_exception
+from django.conf import settings
 
 if TYPE_CHECKING:
     from posthoganalytics import Posthog
@@ -45,7 +46,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                     total_request_count += int(existing_values[time_bucket])
                     client.hdel(key_name, time_bucket)
 
-            if total_request_count > 0:
+            if total_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
                 ph_client.capture(
                     team_id,
                     "decide usage",
@@ -55,6 +56,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                         "team_uuid": team_uuid,
                         "min_time": min_time,
                         "max_time": max_time,
+                        "token": settings.DECIDE_BILLING_ANALYTICS_TOKEN,
                     },
                 )
 
