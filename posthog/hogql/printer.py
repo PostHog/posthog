@@ -485,7 +485,7 @@ class _Printer(Visitor):
             raise HogQLException(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        raise HogQLException(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
+        raise HogQLException(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
 
     def visit_alias(self, node: ast.Alias):
         inside = self.visit(node.expr)

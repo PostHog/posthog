@@ -46,9 +46,7 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def property_to_expr(
-    property: Union[BaseModel, PropertyGroup, Property, dict, list], team: Optional[Team] = None
-) -> ast.Expr:
+def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, list], team: Team) -> ast.Expr:
     if isinstance(property, dict):
         property = Property(**property)
     elif isinstance(property, list):
@@ -167,7 +165,9 @@ def property_to_expr(
             else:
                 exprs = [
                     property_to_expr(
-                        Property(type=property.type, key=property.key, operator=property.operator, value=v), team
+                        Property(type=property.type, key=property.key, operator=property.operator, value=v),
+                        team,
+                        filter=filter,
                     )
                     for v in value
                 ]
@@ -207,10 +207,8 @@ def property_to_expr(
             sql = "person_id in (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
 
         return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort.pk)})
-    # "group",
-    # "recording",
-    # "behavioral",
-    # "session",
+
+    # TODO: Add support for these types "group", "recording", "behavioral", and "session" types
 
     raise NotImplementedException(f"property_to_expr not implemented for filter type {type(property).__name__}")
 
@@ -259,7 +257,7 @@ def action_to_expr(action: Action) -> ast.Expr:
             exprs.append(expr)
 
         if step.properties:
-            exprs.append(property_to_expr(step.properties))
+            exprs.append(property_to_expr(step.properties, action.team))
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])
