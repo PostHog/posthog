@@ -9,6 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { WarningEventsGraph } from './WarningEventsGraph'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { ProductKey } from '~/types'
 
 export const scene: SceneExport = {
     component: IngestionWarningsView,
@@ -188,6 +189,8 @@ export function IngestionWarningsView(): JSX.Element {
                 <ProductIntroduction
                     productName="Ingestion warnings"
                     thingName="ingestion warning"
+                    productKey={ProductKey.INGESTION_WARNINGS}
+                    isEmpty={true}
                     description="Nice! You've had no ingestion warnings in the past 30 days. If we detect any issues with your data, we'll show them here."
                     docsURL="https://posthog.com/docs/data/data-management#ingestion-warnings"
                 />

@@ -95,6 +95,8 @@ export enum ProductKey {
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
+    HISTORY = 'history',
+    INGESTION_WARNINGS = 'ingestion_warnings',
 }
 
 export enum LicensePlan {
