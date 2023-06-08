@@ -278,3 +278,8 @@ class EventDefinitionType(str, Enum):
     EVENT = "event"
     EVENT_POSTHOG = "event_posthog"
     EVENT_CUSTOM = "event_custom"
+
+
+class FlagRequestType(str, Enum):
+    DECIDE = "decide"
+    LOCAL_EVALUATION = "local-evaluation"
