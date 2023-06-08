@@ -42,6 +42,11 @@ class TestFeatureFlag(APIBaseTest):
 
     def setUp(self):
         cache.clear()
+
+        # delete all keys in redis
+        r = redis.get_client()
+        for key in r.scan_iter("*"):
+            r.delete(key)
         return super().setUp()
 
     @classmethod
