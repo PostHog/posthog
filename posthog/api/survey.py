@@ -28,6 +28,7 @@ from posthog.utils import cors_response
 class SurveySerializer(serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_flag_id = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -38,6 +39,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "description",
             "type",
             "linked_flag",
+            "linked_flag_id",
             "targeting_flag",
             "questions",
             "conditions",
@@ -49,6 +51,11 @@ class SurveySerializer(serializers.ModelSerializer):
             "archived",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
+
+    def get_linked_flag_id(self, survey: Survey) -> Any:
+        if survey.linked_flag:
+            return survey.linked_flag.pk
+        return None
 
 
 class SurveySerializerCreateUpdateOnly(SurveySerializer):
