@@ -1,30 +1,24 @@
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
-import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema'
-import { isEventsQuery } from '~/queries/utils'
+import { DataTableNode } from '~/queries/schema'
 import equal from 'fast-deep-equal'
-import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
+import { useValues } from 'kea'
+import { teamLogic } from 'scenes/teamLogic'
+import { getEventsQueriesForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 
 interface SavedQueriesProps {
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
 }
 
-const eventsQueries: Record<string, EventsQuery> = {
-    'Live events (default)': getDefaultEventsSceneQuery().source as EventsQuery,
-    'Event counts': {
-        kind: NodeKind.EventsQuery,
-        select: ['event', 'count()'],
-        after: '-24h',
-        orderBy: ['-count()'],
-    },
-}
-
 export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Element | null {
-    if (!setQuery || !isEventsQuery(query.source)) {
+    const { currentTeam } = useValues(teamLogic)
+
+    if (!setQuery || !currentTeam) {
         return null
     }
 
+    const eventsQueries = getEventsQueriesForTeam(currentTeam)
     let selectedTitle = Object.keys(eventsQueries).find((key) => equal(eventsQueries[key], query.source))
 
     if (!selectedTitle) {

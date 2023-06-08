@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     ActionFilter as ActionFilterType,
@@ -13,7 +13,6 @@ import {
     HogQLMathType,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
@@ -39,6 +38,7 @@ import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { entityFilterLogicType } from '../entityFilterLogicType'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -53,7 +53,7 @@ export enum MathAvailability {
 }
 
 export interface ActionFilterRowProps {
-    logic: typeof entityFilterLogic
+    logic: BuiltLogic<entityFilterLogicType>
     filter: ActionFilter
     index: number
     typeKey: string
@@ -120,7 +120,7 @@ export function ActionFilterRow({
     readOnly = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
-    const { entityFilterVisible, mathHogQLVisible } = useValues(logic)
+    const { entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
         selectFilter,
@@ -129,11 +129,11 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
         duplicateFilter,
-        showMathHogQL,
-        hideMathHogQL,
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+
+    const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -373,18 +373,9 @@ export function ActionFilterRow({
                                         MathCategory.HogQLExpression && (
                                         <div className="flex-auto overflow-hidden">
                                             <LemonDropdown
-                                                visible={mathHogQLVisible}
-                                                onVisibilityChange={(visible) => {
-                                                    if (!visible) {
-                                                        mathHogQLVisible && hideMathHogQL()
-                                                    } else {
-                                                        !mathHogQLVisible && showMathHogQL()
-                                                    }
-                                                }}
+                                                visible={isHogQLDropdownVisible}
                                                 closeOnClickInside={false}
-                                                onClickOutside={() => {
-                                                    mathHogQLVisible && hideMathHogQL()
-                                                }}
+                                                onClickOutside={() => setIsHogQLDropdownVisible(false)}
                                                 overlay={
                                                     // eslint-disable-next-line react/forbid-dom-props
                                                     <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
@@ -393,7 +384,7 @@ export function ActionFilterRow({
                                                             value={mathHogQL}
                                                             onChange={(currentValue) => {
                                                                 onMathHogQLSelect(index, currentValue)
-                                                                hideMathHogQL()
+                                                                setIsHogQLDropdownVisible(false)
                                                             }}
                                                         />
                                                     </div>
@@ -404,7 +395,7 @@ export function ActionFilterRow({
                                                     status="stealth"
                                                     type="secondary"
                                                     data-attr={`math-hogql-select-${index}`}
-                                                    onClick={showMathHogQL}
+                                                    onClick={() => setIsHogQLDropdownVisible(!isHogQLDropdownVisible)}
                                                 >
                                                     <code>{mathHogQL}</code>
                                                 </LemonButton>
