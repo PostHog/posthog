@@ -295,7 +295,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     ],
                     ignore_conflicts=True,
                 )
-            return response.Response(status=204)
+            return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
@@ -373,7 +373,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
         self._set_properties({request.data["key"]: request.data["value"]}, request.user)
-        return Response(status=204)
+        return Response(status=202)
 
     @extend_schema(
         parameters=[
@@ -468,7 +468,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
         self._set_properties(request.data["properties"], request.user)
-        return Response(status=204)
+        return Response(status=202)
 
     @extend_schema(exclude=True)
     def create(self, *args, **kwargs):

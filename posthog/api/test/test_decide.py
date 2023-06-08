@@ -171,6 +171,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], True)
 
+    def test_exception_autocapture_opt_in(self, *args):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["autocaptureExceptions"], False)
+
+        self._update_team({"autocapture_exceptions_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["autocaptureExceptions"], True)
+
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
@@ -1563,6 +1573,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "inject_web_apps": True,
             "recording_domains": ["https://*.example.com"],
             "capture_performance_opt_in": True,
+            "autocapture_exceptions_opt_in": True,
         }
         self._update_team(ALL_TEAM_PARAMS_FOR_DECIDE)
 
@@ -1576,6 +1587,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["siteApps"], [])
         self.assertEqual(response["capturePerformance"], True)
         self.assertEqual(response["featureFlags"], {})
+        self.assertEqual(response["autocaptureExceptions"], True)
 
         # now database is down
         with connection.execute_wrapper(QueryTimeoutWrapper()):
@@ -1588,6 +1600,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(response["autocaptureExceptions"], True)
             self.assertEqual(response["featureFlags"], {})
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):

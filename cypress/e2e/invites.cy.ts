@@ -91,8 +91,7 @@ describe('Invite Signup', () => {
         cy.location('pathname').should('include', 'verify_email')
 
         // Log out, log in as main
-        cy.get('[data-attr=top-menu-toggle]').click()
-        cy.get('[data-attr=top-menu-item-logout]').click()
+        cy.visit('/logout')
         cy.login()
 
         // Go to organization settings

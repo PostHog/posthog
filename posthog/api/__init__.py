@@ -14,6 +14,7 @@ from . import (
     dead_letter_queue,
     early_access_feature,
     event_definition,
+    survey,
     exports,
     feature_flag,
     ingestion_warnings,
@@ -92,6 +93,7 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["team_id"],
 )
+project_surveys_router = projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["team_id"])
 
 projects_router.register(
     r"dashboard_templates",
