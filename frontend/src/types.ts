@@ -2093,7 +2093,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     usage_dashboard?: number
-    dashboards?: number[] | null
+    analytics_dashboards?: number[] | null
 }
 
 export interface FeatureFlagRollbackConditions {

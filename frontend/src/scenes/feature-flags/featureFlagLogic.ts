@@ -539,7 +539,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
             await api.update(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlag.id}`, {
-                dashboards: [result.id],
+                analytics_dashboards: [result.id],
             })
         },
         generateUsageDashboard: async () => {
@@ -800,7 +800,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
 
                 return dashboards.filter((dashboard: DashboardBasicType) => {
-                    return featureFlag.dashboards?.includes(dashboard.id)
+                    return featureFlag.analytics_dashboards?.includes(dashboard.id)
                 })
             },
         ],

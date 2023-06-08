@@ -12,7 +12,7 @@ export function AnalysisTab({ featureFlag }: { id: string; featureFlag: FeatureF
     return (
         <div className="NewDashboardModal">
             <BindLogic logic={newDashboardLogic} props={{ featureFlagId: featureFlag.id as number }}>
-                {featureFlag.dashboards && featureFlag.dashboards.length > 0 ? (
+                {featureFlag.analytics_dashboards && featureFlag.analytics_dashboards.length > 0 ? (
                     <FeatureFlagDashboardsTableContainer />
                 ) : (
                     featureFlag.id && (
