@@ -453,7 +453,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             stage="beta",
             feature_flag=feature_flag,
         )
-        feature2 = EarlyAccessFeature.objects.create(
+        EarlyAccessFeature.objects.create(
             team=self.team,
             name="Sprocket",
             description="A fancy new sprocket.",
@@ -478,15 +478,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "stage": "beta",
                         "documentationUrl": "",
                         "flagKey": "sprocket",
-                    },
-                    {
-                        "id": str(feature2.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "alpha",
-                        "documentationUrl": "",
-                        "flagKey": "sprocket2",
-                    },
+                    }
                 ],
             )
 
