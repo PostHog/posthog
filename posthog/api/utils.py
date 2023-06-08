@@ -1,7 +1,7 @@
 import json
 import re
 from enum import Enum, auto
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union, Tuple
 from uuid import UUID
 
 import structlog
@@ -239,8 +239,7 @@ def create_event_definitions_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
-    order_expr: str = "",
-    order_direction: Literal["ASC", "DESC"] = "DESC",
+    order_expressions: List[Tuple[str, Literal["ASC", "DESC"]]] = [],
 ) -> str:
     if is_enterprise:
         from ee.models import EnterpriseEventDefinition
@@ -266,11 +265,13 @@ def create_event_definitions_sql(
     if event_type == EventDefinitionType.EVENT_POSTHOG:
         conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
 
-    additional_ordering = (
-        f"{order_expr} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}, "
-        if order_expr
-        else ""
-    )
+    additional_ordering = ""
+    for order_expression, order_direction in order_expressions:
+        additional_ordering += (
+            f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}, "
+            if order_expression
+            else ""
+        )
 
     return f"""
             SELECT {",".join(event_definition_fields)}
