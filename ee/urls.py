@@ -1,10 +1,8 @@
 from typing import Any, List
+
 from django.conf import settings
-from django.urls import include
-
 from django.contrib import admin
-
-from posthog.cloud_utils import is_cloud
+from django.urls import include
 from django.urls.conf import path
 from rest_framework_extensions.routers import NestedRegistryItem
 
