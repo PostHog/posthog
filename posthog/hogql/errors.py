@@ -16,16 +16,7 @@ class HogQLException(Exception):
 class SyntaxException(HogQLException):
     """Invalid HogQL syntax."""
 
-    line: int
-    column: int
-
-    def __init__(self, message: str, *, line: int, column: int):
-        super().__init__(message)
-        self.line = line
-        self.column = column
-
-    def __str__(self):
-        return f"Syntax error at line {self.line}, column {self.column}: {super().__str__()}"
+    pass
 
 
 class QueryException(HogQLException):
