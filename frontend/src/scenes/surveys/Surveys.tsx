@@ -12,6 +12,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -25,9 +28,10 @@ export enum SurveysTabs {
 }
 
 export function Surveys(): JSX.Element {
-    const { nonArchivedSurveys, archivedSurveys } = useValues(surveysLogic)
+    const { nonArchivedSurveys, archivedSurveys, surveys, surveysLoading } = useValues(surveysLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const [tab, setSurveyTab] = useState(SurveysTabs.All)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="mt-10">
@@ -39,93 +43,106 @@ export function Surveys(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <LemonTabs
-                activeKey={tab}
-                onChange={(newTab) => setSurveyTab(newTab)}
-                tabs={[
-                    { key: SurveysTabs.All, label: 'All surveys' },
-                    { key: SurveysTabs.Archived, label: 'Archived surveys' },
-                ]}
-            />
-            <LemonTable
-                className="mt-6"
-                columns={[
-                    {
-                        dataIndex: 'name',
-                        title: 'Name',
-                        render: function RenderName(_, survey) {
-                            return (
-                                <>
-                                    <Link to={urls.survey(survey.id)} className="row-name">
-                                        {stringWithWBR(survey.name, 17)}
-                                    </Link>
-                                </>
-                            )
-                        },
-                    },
-                    // add responses count later
-                    // {
-                    //     title: 'Responses',
-                    //     render: function RenderResponses() {
-                    //         // const responsesCount = getResponsesCount(survey)
-                    //         return <div>{0}</div>
-                    //     },
-                    // },
-                    {
-                        dataIndex: 'type',
-                        title: 'Type',
-                    },
-                    createdByColumn<Survey>() as LemonTableColumn<Survey, keyof Survey | undefined>,
-                    createdAtColumn<Survey>() as LemonTableColumn<Survey, keyof Survey | undefined>,
-                    {
-                        title: 'Status',
-                        width: 100,
-                        render: function Render(_, survey: Survey) {
-                            const statusColors = { running: 'success', draft: 'default', complete: 'purple' }
-                            const status = getSurveyStatus(survey)
-                            return (
-                                <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }}>
-                                    {status.toUpperCase()}
-                                </LemonTag>
-                            )
-                        },
-                    },
-                    {
-                        width: 0,
-                        render: function Render(_, survey: Survey) {
-                            return (
-                                <More
-                                    overlay={
+            {!surveysLoading && surveys.length === 0 && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
+                <ProductEmptyState
+                    productName={'Survey'}
+                    thingName={'survey'}
+                    description={'Use surveys to gather user qualitative feedback on new or existing features!'}
+                    action={() => router.actions.push(urls.survey('new'))}
+                />
+            ) : (
+                <>
+                    <LemonTabs
+                        activeKey={tab}
+                        onChange={(newTab) => setSurveyTab(newTab)}
+                        tabs={[
+                            { key: SurveysTabs.All, label: 'All surveys' },
+                            { key: SurveysTabs.Archived, label: 'Archived surveys' },
+                        ]}
+                    />
+                    <LemonTable
+                        className="mt-6"
+                        columns={[
+                            {
+                                dataIndex: 'name',
+                                title: 'Name',
+                                render: function RenderName(_, survey) {
+                                    return (
                                         <>
-                                            <LemonButton
-                                                status="stealth"
-                                                fullWidth
-                                                onClick={() => router.actions.push(urls.survey(survey.id))}
-                                            >
-                                                View
-                                            </LemonButton>
-                                            <LemonDivider />
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() => deleteSurvey(survey.id)}
-                                                fullWidth
-                                            >
-                                                Delete
-                                            </LemonButton>
+                                            <Link to={urls.survey(survey.id)} className="row-name">
+                                                {stringWithWBR(survey.name, 17)}
+                                            </Link>
                                         </>
-                                    }
-                                />
-                            )
-                        },
-                    },
-                ]}
-                dataSource={tab === SurveysTabs.Archived ? archivedSurveys : nonArchivedSurveys}
-                defaultSorting={{
-                    columnKey: 'created_at',
-                    order: -1,
-                }}
-                nouns={['survey', 'surveys']}
-            />
+                                    )
+                                },
+                            },
+                            // TODO: add responses count later
+                            // {
+                            //     title: 'Responses',
+                            //     render: function RenderResponses() {
+                            //         // const responsesCount = getResponsesCount(survey)
+                            //         return <div>{0}</div>
+                            //     },
+                            // },
+                            {
+                                dataIndex: 'type',
+                                title: 'Type',
+                            },
+                            createdByColumn<Survey>() as LemonTableColumn<Survey, keyof Survey | undefined>,
+                            createdAtColumn<Survey>() as LemonTableColumn<Survey, keyof Survey | undefined>,
+                            {
+                                title: 'Status',
+                                width: 100,
+                                render: function Render(_, survey: Survey) {
+                                    const statusColors = { running: 'success', draft: 'default', complete: 'purple' }
+                                    const status = getSurveyStatus(survey)
+                                    return (
+                                        <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }}>
+                                            {status.toUpperCase()}
+                                        </LemonTag>
+                                    )
+                                },
+                            },
+                            {
+                                width: 0,
+                                render: function Render(_, survey: Survey) {
+                                    return (
+                                        <More
+                                            overlay={
+                                                <>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        fullWidth
+                                                        onClick={() => router.actions.push(urls.survey(survey.id))}
+                                                    >
+                                                        View
+                                                    </LemonButton>
+                                                    <LemonDivider />
+                                                    <LemonButton
+                                                        status="danger"
+                                                        onClick={() => deleteSurvey(survey.id)}
+                                                        fullWidth
+                                                    >
+                                                        Delete
+                                                    </LemonButton>
+                                                </>
+                                            }
+                                        />
+                                    )
+                                },
+                            },
+                        ]}
+                        dataSource={tab === SurveysTabs.Archived ? archivedSurveys : nonArchivedSurveys}
+                        defaultSorting={{
+                            columnKey: 'created_at',
+                            order: -1,
+                        }}
+                        nouns={['survey', 'surveys']}
+                        data-attr="surveys-table"
+                        emptyState="No surveys. Create a new survey?"
+                    />
+                </>
+            )}
         </div>
     )
 }
