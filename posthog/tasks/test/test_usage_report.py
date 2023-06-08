@@ -298,8 +298,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 2,
                     "ff_active_count": 1,
-                    "decide_requests_in_month": 0,
-                    "decide_requests_in_period": 0,
+                    "decide_requests_count_in_month": 0,
+                    "decide_requests_count_in_period": 0,
                     "hogql_app_bytes_read": 0,
                     "hogql_app_rows_read": 0,
                     "hogql_app_duration_ms": 0,
@@ -333,8 +333,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 2,
                             "ff_active_count": 1,
-                            "decide_requests_in_month": 0,
-                            "decide_requests_in_period": 0,
+                            "decide_requests_count_in_month": 0,
+                            "decide_requests_count_in_period": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -362,8 +362,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
-                            "decide_requests_in_month": 0,
-                            "decide_requests_in_period": 0,
+                            "decide_requests_count_in_month": 0,
+                            "decide_requests_count_in_period": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -412,8 +412,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 0,
                     "ff_active_count": 0,
-                    "decide_requests_in_month": 0,
-                    "decide_requests_in_period": 0,
+                    "decide_requests_count_in_month": 0,
+                    "decide_requests_count_in_period": 0,
                     "hogql_app_bytes_read": 0,
                     "hogql_app_rows_read": 0,
                     "hogql_app_duration_ms": 0,
@@ -447,8 +447,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
-                            "decide_requests_in_month": 0,
-                            "decide_requests_in_period": 0,
+                            "decide_requests_count_in_month": 0,
+                            "decide_requests_count_in_period": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -640,19 +640,19 @@ class TestFeatureFlagsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         analytics_report = all_reports[2]
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["decide_requests_in_period"] == 11
-        assert org_1_report["decide_requests_in_month"] == 105
-        assert org_1_report["teams"]["3"]["decide_requests_in_period"] == 10
-        assert org_1_report["teams"]["3"]["decide_requests_in_month"] == 100
-        assert org_1_report["teams"]["4"]["decide_requests_in_period"] == 1
-        assert org_1_report["teams"]["4"]["decide_requests_in_month"] == 5
+        assert org_1_report["decide_requests_count_in_period"] == 11
+        assert org_1_report["decide_requests_count_in_month"] == 105
+        assert org_1_report["teams"]["3"]["decide_requests_count_in_period"] == 10
+        assert org_1_report["teams"]["3"]["decide_requests_count_in_month"] == 100
+        assert org_1_report["teams"]["4"]["decide_requests_count_in_period"] == 1
+        assert org_1_report["teams"]["4"]["decide_requests_count_in_month"] == 5
 
         # because of wrong token, Org 2 has no decide counts.
         assert org_2_report["organization_name"] == "Org 2"
-        assert org_2_report["decide_requests_in_period"] == 0
-        assert org_2_report["decide_requests_in_month"] == 0
-        assert org_2_report["teams"]["5"]["decide_requests_in_period"] == 0
-        assert org_2_report["teams"]["5"]["decide_requests_in_month"] == 0
+        assert org_2_report["decide_requests_count_in_period"] == 0
+        assert org_2_report["decide_requests_count_in_month"] == 0
+        assert org_2_report["teams"]["5"]["decide_requests_count_in_period"] == 0
+        assert org_2_report["teams"]["5"]["decide_requests_count_in_month"] == 0
 
         # billing service calls are made only for org1, which has decide requests, and analytics org - which has decide usage events.
         calls = [
