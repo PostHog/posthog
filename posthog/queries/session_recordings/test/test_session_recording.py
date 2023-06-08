@@ -129,15 +129,13 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             snapshots_per_chunk = 2
             limit = 20
             for _ in range(30):
-                snapshot = create_snapshots(
+                create_snapshots(
                     snapshot_count=snapshots_per_chunk,
                     distinct_id="user",
                     session_id=chunked_session_id,
                     timestamp=now(),
                     team_id=self.team.id,
                 )
-
-                print(snapshot)
 
             filter = create_recording_filter(chunked_session_id)
             recording: DecompressedRecordingData = SessionRecordingEvents(
