@@ -690,6 +690,7 @@ export interface RecordingFilters {
     offset?: number
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationTypeFilter
+    console_logs?: ('log' | 'warn' | 'error')[]
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {

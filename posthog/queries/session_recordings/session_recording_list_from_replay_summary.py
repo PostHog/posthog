@@ -81,7 +81,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         -- person cte is matched in a where clause
         WHERE 1=1 {person_cte_match_clause}
     GROUP BY session_id
-        HAVING 1=1 {duration_clause}
+        HAVING 1=1 {duration_clause} {console_log_clause}
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
         """
@@ -111,7 +111,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         -- person cte is matched in a where clause
         WHERE 1=1 {person_cte_match_clause}
         GROUP BY session_id
-        HAVING 1=1 {duration_clause}
+        HAVING 1=1 {duration_clause} {console_log_clause}
         ORDER BY start_time DESC
         LIMIT %(limit)s OFFSET %(offset)s
         """
@@ -224,6 +224,8 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
         person_cte, person_cte_match_clause, person_person_cte_params = self._persons_cte_clause
 
+        console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
+
         if not self._determine_should_join_events():
             return (
                 self._session_recordings_query.format(
@@ -236,6 +238,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                         event_ids_selector="",
                         events_join_clause="",
                     ),
+                    console_log_clause=console_log_clause,
                 ),
                 {
                     **base_params,
@@ -261,6 +264,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                     event_ids_selector=",any(e.event_ids) as matching_events",
                     events_join_clause="JOIN events_session_ids e ON s.session_id = e.session_id",
                 ),
+                console_log_clause=console_log_clause,
             ),
             {
                 **base_params,
@@ -324,3 +328,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     def _get_recording_person_query(self) -> Tuple[str, Dict]:
         # not used in this version of a session_recording_list
         return "", {}
+
+    def _get_console_log_clause(self, console_logs_filter: List[Literal["error", "warn", "log"]]) -> str:
+        filters = [f"console_{log}_count > 0" for log in console_logs_filter]
+        return f"AND ({' OR '.join(filters)})" if filters else ""
