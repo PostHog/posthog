@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0320_survey"),
+        ("posthog", "0321_add_exception_autocapture_optin"),
     ]
 
     operations = [
@@ -26,10 +26,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="featureflag",
-            name="dashboards",
+            name="analytics_dashboards",
             field=models.ManyToManyField(
-                related_name="dashboards",
-                related_query_name="dashboard",
+                related_name="analytics_dashboards",
+                related_query_name="analytics_dashboard",
                 through="posthog.FeatureFlagDashboards",
                 to="posthog.Dashboard",
             ),

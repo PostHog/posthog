@@ -308,6 +308,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    autocapture_exceptions_opt_in: boolean
     session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -2093,7 +2094,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     usage_dashboard?: number
-    dashboards?: number[] | null
+    analytics_dashboards?: number[] | null
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2300,6 +2301,9 @@ export interface PropertyDefinition {
     last_seen_at?: string // TODO: Implement
     example?: string
     is_action?: boolean
+    verified?: boolean
+    verified_at?: string
+    verified_by?: string
 }
 
 export enum PropertyDefinitionState {

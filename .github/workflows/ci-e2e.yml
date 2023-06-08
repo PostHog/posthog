@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
     changes:
-        runs-on: ubuntu-latest-e2e
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run E2E checks
@@ -53,7 +53,7 @@ jobs:
     cypress_prep:
         needs: changes
         name: Cypress preparation
-        runs-on: ubuntu-latest-e2e
+        runs-on: ubuntu-latest
         timeout-minutes: 30
         outputs:
             specs: ${{ steps.set-specs.outputs.specs }}
@@ -78,7 +78,7 @@ jobs:
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
-        runs-on: ubuntu-latest-e2e
+        runs-on: ubuntu-latest
         timeout-minutes: 30
         needs: [cypress_prep, changes]
         permissions:

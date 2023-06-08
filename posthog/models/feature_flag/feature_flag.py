@@ -41,11 +41,11 @@ class FeatureFlag(models.Model):
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     usage_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
-    dashboards: models.ManyToManyField = models.ManyToManyField(
+    analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
         "Dashboard",
         through="FeatureFlagDashboards",
-        related_name="dashboards",
-        related_query_name="dashboard",
+        related_name="analytics_dashboards",
+        related_query_name="analytics_dashboard",
     )
 
     def get_analytics_metadata(self) -> Dict:

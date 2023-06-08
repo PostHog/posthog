@@ -1,6 +1,5 @@
 import { BindLogic, useValues } from 'kea'
 import clsx from 'clsx'
-import equal from 'fast-deep-equal'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -11,31 +10,9 @@ import { InsightQueryNode, InsightVizNode, QueryContext } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
-import { InsightLogicProps, InsightModel, ItemMode } from '~/types'
+import { InsightLogicProps, ItemMode } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
-
-const getCachedResults = (
-    cachedInsight: Partial<InsightModel> | undefined | null,
-    query: InsightQueryNode
-): Partial<InsightModel> | undefined => {
-    if (
-        !cachedInsight ||
-        cachedInsight.result === null ||
-        cachedInsight.result === undefined ||
-        cachedInsight.filters === undefined
-    ) {
-        return undefined
-    }
-
-    // only set the cached result when the filters match the currently set ones
-    const cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
-    if (!equal(cachedQueryNode, query)) {
-        return undefined
-    }
-
-    return cachedInsight
-}
+import { getCachedResults } from './utils'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {

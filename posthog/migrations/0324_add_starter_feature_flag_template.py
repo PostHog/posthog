@@ -61,7 +61,7 @@ def create_starter_template(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0322_alter_dashboardtemplate_scope"),
+        ("posthog", "0323_alter_dashboardtemplate_scope"),
     ]
 
     operations = [migrations.RunPython(create_starter_template, reverse_code=migrations.RunPython.noop)]
