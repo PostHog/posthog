@@ -1,7 +1,7 @@
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightViz } from 'lib/components/Cards/InsightCard/InsightCard'
+import { FilterBasedCardContent } from 'lib/components/Cards/InsightCard/InsightCard'
 import './ExportedInsight.scss'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
@@ -91,7 +91,11 @@ export function ExportedInsight({
                             <QueriesUnsupportedHere />
                         )
                     ) : (
-                        <InsightViz insight={insight as any} style={{ top: 0, left: 0 }} />
+                        <FilterBasedCardContent
+                            insight={insight as any}
+                            insightProps={insightLogicProps}
+                            style={{ top: 0, left: 0 }}
+                        />
                     )}
                     {showLegend ? (
                         <div className="p-4">

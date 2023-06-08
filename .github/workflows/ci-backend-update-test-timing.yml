@@ -15,7 +15,7 @@ env:
 jobs:
     django:
         name: Run Django tests and save test durations
-        runs-on: ubuntu-latest-backend
+        runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v3
 
