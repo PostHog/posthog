@@ -2656,7 +2656,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
 
-        self.assertEquals(len(response_json["dashboards"]), 1)
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
 
     def test_feature_flag_dashboard_patch(self):
         another_feature_flag = FeatureFlag.objects.create(
@@ -2665,7 +2665,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
-            {"dashboards": [dashboard.pk]},
+            {"analytics_dashboards": [dashboard.pk]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2675,7 +2675,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
 
-        self.assertEquals(len(response_json["dashboards"]), 1)
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
 
 
 class QueryTimeoutWrapper:

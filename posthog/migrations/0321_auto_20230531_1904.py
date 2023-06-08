@@ -26,10 +26,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="featureflag",
-            name="dashboards",
+            name="analytics_dashboards",
             field=models.ManyToManyField(
-                related_name="dashboards",
-                related_query_name="dashboard",
+                related_name="analytics_dashboards",
+                related_query_name="analytics_dashboard",
                 through="posthog.FeatureFlagDashboards",
                 to="posthog.Dashboard",
             ),
