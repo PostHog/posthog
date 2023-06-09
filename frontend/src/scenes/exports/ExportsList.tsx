@@ -1,10 +1,8 @@
-import { useCallback } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonSelect } from '../../lib/lemon-ui/LemonSelect'
-import { router } from 'kea-router'
 import { urls } from '../urls'
 import { Link } from '../../lib/lemon-ui/Link'
 import { useCurrentTeamId, useExports } from './api'
+import { LemonButton } from '../../lib/lemon-ui/LemonButton'
 
 export const scene: SceneExport = {
     component: Exports,
@@ -16,10 +14,6 @@ export function Exports(): JSX.Element {
     // useExports hook to fetch the list of exports for that team.
     const { currentTeamId } = useCurrentTeamId()
     const { loading, exports, error } = useExports(currentTeamId)
-
-    const handleCreateExport = useCallback(() => {
-        router.actions.push(urls.createExport('S3'))
-    }, [currentTeamId])
 
     // If exports hasn't been set yet, we display a placeholder and a loading
     // spinner.
@@ -73,7 +67,7 @@ export function Exports(): JSX.Element {
                     ))}
                 </tbody>
             </table>
-            <LemonSelect onChange={handleCreateExport} options={[{ label: 'Export to S3', value: 'S3' }]} />
+            <LemonButton to={urls.createExport()}>Create export</LemonButton>
             {/* If we are loading, we overlay a spinner */}
             {loading && <div>Loading...</div>}
         </>

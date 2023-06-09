@@ -70,7 +70,20 @@ type S3Destination = {
     }
 }
 
-type Destination = S3Destination
+type SnowflakeDestination = {
+    type: 'Snowflake'
+    config: {
+        account: string
+        database: string
+        warehouse: string
+        user: string
+        password: string
+        schema: string
+        table_name: string
+    }
+}
+
+type Destination = S3Destination | SnowflakeDestination
 
 export type BatchExportData = {
     // User provided data for the export. This is the data that the user
