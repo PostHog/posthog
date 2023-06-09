@@ -9,7 +9,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { PathsFilter } from '~/queries/schema'
 
 interface StepOption {
     label: string
@@ -18,10 +17,10 @@ interface StepOption {
 
 export function PathStepPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { step_limit } = (insightFilter || {}) as PathsFilter
+    const { step_limit } = pathsFilter || {}
 
     const { user } = useValues(userLogic)
 

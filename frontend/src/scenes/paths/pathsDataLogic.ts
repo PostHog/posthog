@@ -3,8 +3,6 @@ import { InsightLogicProps, FilterType, PathType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { PathsFilter } from '~/queries/schema'
-
 import type { pathsDataLogicType } from './pathsDataLogicType'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -41,23 +39,23 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
     key(keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY)),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['insightFilter']],
+        values: [insightVizDataLogic(props), ['pathsFilter']],
         actions: [insightVizDataLogic(props), ['updateInsightFilter']],
     })),
 
     selectors({
         taxonomicGroupTypes: [
-            (s) => [s.insightFilter],
-            (insightFilter: PathsFilter | undefined) => {
+            (s) => [s.pathsFilter],
+            (pathsFilter) => {
                 const taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
-                if (insightFilter?.include_event_types) {
-                    if (insightFilter?.include_event_types.includes(PathType.PageView)) {
+                if (pathsFilter?.include_event_types) {
+                    if (pathsFilter?.include_event_types.includes(PathType.PageView)) {
                         taxonomicGroupTypes.push(TaxonomicFilterGroupType.PageviewUrls)
                     }
-                    if (insightFilter?.include_event_types.includes(PathType.Screen)) {
+                    if (pathsFilter?.include_event_types.includes(PathType.Screen)) {
                         taxonomicGroupTypes.push(TaxonomicFilterGroupType.Screens)
                     }
-                    if (insightFilter?.include_event_types.includes(PathType.CustomEvent)) {
+                    if (pathsFilter?.include_event_types.includes(PathType.CustomEvent)) {
                         taxonomicGroupTypes.push(TaxonomicFilterGroupType.CustomEvents)
                     }
                 }

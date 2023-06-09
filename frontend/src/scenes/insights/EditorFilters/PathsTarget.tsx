@@ -8,8 +8,6 @@ import { PathItemSelector } from 'lib/components/PropertyFilters/components/Path
 import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { IconClose, IconFunnelVertical } from 'lib/lemon-ui/icons'
 
-import { PathsFilter } from '~/queries/schema'
-
 export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
     return <PathsTargetDataExploration position="start" {...props} />
 }
@@ -23,10 +21,10 @@ type PathTargetDataExplorationProps = {
 } & EditorFilterProps
 
 function PathsTargetDataExploration({ position, insightProps }: PathTargetDataExplorationProps): JSX.Element {
-    const { insightFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
+    const { pathsFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { funnel_paths, funnel_filter, start_point, end_point, path_groupings } = (insightFilter || {}) as PathsFilter
+    const { funnel_paths, funnel_filter, start_point, end_point, path_groupings } = pathsFilter || {}
 
     const overrideStartInput = funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(funnel_paths)
     const overrideEndInput = funnel_paths && [FunnelPathType.between, FunnelPathType.before].includes(funnel_paths)
