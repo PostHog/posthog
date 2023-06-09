@@ -67,6 +67,7 @@ export const surveyLogic = kea<surveyLogicType>([
         editingSurvey: (editing: boolean) => ({ editing }),
         updateTargetingFlagFilters: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
         addConditionSet: true,
+        removeConditionSet: (index: number) => ({ index }),
         launchSurvey: true,
         stopSurvey: true,
         archiveSurvey: true,
@@ -96,6 +97,14 @@ export const surveyLogic = kea<surveyLogicType>([
                     groups[index] = { ...groups[index], properties, rollout_percentage: 100 }
                 }
                 return { ...surv, targeting_flag_filters: { groups } }
+            },
+            removeConditionSet: ({ index }) => {
+                if (!values.survey) {
+                    return values.survey
+                }
+                const groups = [...(values.survey.targeting_flag_filters?.groups || [])]
+                groups.splice(index, 1)
+                return { ...values.survey, targeting_flag_filters: { ...values.survey.targeting_flag_filters, groups } }
             },
             addConditionSet: () => {
                 if (!values.survey) {

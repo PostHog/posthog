@@ -11,7 +11,7 @@ import { Field, PureField } from 'lib/forms/Field'
 import { FilterLogicalOperator, SurveyQuestion, SurveyType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { IconCancel, IconErrorOutline, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { IconCancel, IconDelete, IconErrorOutline, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -44,7 +44,8 @@ export function Survey({ id }: { id?: string } = {}): JSX.Element {
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, propertySelectErrors } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey, updateTargetingFlagFilters, addConditionSet } = useActions(surveyLogic)
+    const { loadSurvey, editingSurvey, updateTargetingFlagFilters, removeConditionSet, addConditionSet } =
+        useActions(surveyLogic)
 
     return (
         <Form formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
@@ -152,9 +153,19 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             <>
                                 {index > 0 && <div className="text-primary-alt font-semibold text-xs ml-2">OR</div>}
                                 <div className="border rounded p-4">
-                                    <div className="mb-2">
-                                        Matching <b>users</b> against the criteria
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            Matching <b>users</b> against the criteria
+                                        </div>
+                                        <LemonButton
+                                            icon={<IconDelete />}
+                                            status="muted"
+                                            size="small"
+                                            noPadding
+                                            onClick={() => removeConditionSet(index)}
+                                        />
                                     </div>
+                                    <LemonDivider className="my-3" />
                                     <div>
                                         <PropertyFilters
                                             orFiltering={true}
