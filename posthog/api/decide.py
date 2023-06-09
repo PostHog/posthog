@@ -1,12 +1,15 @@
+from random import random
 import re
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
+from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
 
 import structlog
 import posthoganalytics
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
@@ -67,7 +70,8 @@ def get_decide(request: HttpRequest):
         "config": {"enable_collect_everything": True},
         "toolbarParams": {},
         "isAuthenticated": False,
-        "supportedCompression": ["gzip", "gzip-js", "lz64"],
+        # gzip and gzip-js are aliases for the same compression algorithm
+        "supportedCompression": ["gzip", "gzip-js"],
     }
 
     response["featureFlags"] = []
@@ -181,6 +185,7 @@ def get_decide(request: HttpRequest):
 
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
             response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
+            response["autocaptureExceptions"] = True if team.autocapture_exceptions_opt_in else False
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
@@ -205,6 +210,14 @@ def get_decide(request: HttpRequest):
             # NOTE: Whenever you add something to decide response, update this test:
             # `test_decide_doesnt_error_out_when_database_is_down`
             # which ensures that decide doesn't error out when the database is down
+
+            if feature_flags:
+                # Billing analytics for decide requests with feature flags
+
+                # Sample no. of decide requests with feature flags
+                if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+                    count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+                    increment_request_count(team.pk, count)
 
             # Analytics for decide requests with feature flags
             # Only send once flag definitions are loaded

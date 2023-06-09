@@ -92,10 +92,14 @@ class TrendsFormula:
                 params,
                 query_type="trends_formula",
                 filter=filter,
+                team_id=team.pk,
             )
             response = []
             for item in result:
                 additional_values: Dict[str, Any] = {"label": self._label(filter, item)}
+                if filter.breakdown:
+                    additional_values["breakdown_value"] = additional_values["label"]
+
                 if is_aggregate:
                     additional_values["data"] = []
                     additional_values["aggregated_value"] = ensure_value_is_json_serializable(item[1][0])

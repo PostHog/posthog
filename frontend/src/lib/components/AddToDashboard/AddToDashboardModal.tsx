@@ -9,7 +9,7 @@ import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/L
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { DashboardType, InsightModel } from '~/types'
+import { DashboardBasicType, InsightModel } from '~/types'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,7 +24,7 @@ interface SaveToDashboardModalProps {
 }
 
 interface DashboardRelationRowProps {
-    dashboard: DashboardType
+    dashboard: DashboardBasicType
     insight: Partial<InsightModel>
     canEditInsight: boolean
     isHighlighted: boolean
@@ -110,7 +110,7 @@ export function AddToDashboardModal({
                 canEditInsight={canEditInsight}
                 isHighlighted={rowIndex === scrollIndex}
                 isAlreadyOnDashboard={currentDashboards.some(
-                    (currentDashboard: DashboardType) => currentDashboard.id === orderedDashboards[rowIndex].id
+                    (currentDashboard) => currentDashboard.id === orderedDashboards[rowIndex].id
                 )}
                 style={style}
             />

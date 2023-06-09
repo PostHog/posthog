@@ -1,5 +1,6 @@
 import base64
 import json
+import random
 from unittest.mock import patch
 import time
 
@@ -7,6 +8,7 @@ import time
 from django.core.cache import cache
 from django.db import connection
 from django.test.client import Client
+from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
@@ -18,6 +20,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
 from posthog.utils import is_postgres_connected_cached_check
+from posthog import redis
 
 
 @patch("posthog.models.feature_flag.flag_matching.is_postgres_connected_cached_check", return_value=True)
@@ -29,6 +32,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def setUp(self, *args):
         cache.clear()
+
+        # delete all keys in redis
+        r = redis.get_client()
+        for key in r.scan_iter("*"):
+            r.delete(key)
 
         super().setUp()
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
@@ -114,9 +122,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
     def test_user_console_log_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
@@ -141,6 +149,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], True)
 
+    def test_exception_autocapture_opt_in(self, *args):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["autocaptureExceptions"], False)
+
+        self._update_team({"autocapture_exceptions_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["autocaptureExceptions"], True)
+
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
@@ -153,7 +171,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response["sessionRecording"],
             {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
         )
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
         # Make sure the domain matches exactly
         response = self._post_decide(origin="https://random.example.com.evilsite.com").json()
@@ -1533,6 +1551,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "inject_web_apps": True,
             "recording_domains": ["https://*.example.com"],
             "capture_performance_opt_in": True,
+            "autocapture_exceptions_opt_in": True,
         }
         self._update_team(ALL_TEAM_PARAMS_FOR_DECIDE)
 
@@ -1542,10 +1561,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response["sessionRecording"],
             {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True},
         )
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
         self.assertEqual(response["capturePerformance"], True)
         self.assertEqual(response["featureFlags"], {})
+        self.assertEqual(response["autocaptureExceptions"], True)
 
         # now database is down
         with connection.execute_wrapper(QueryTimeoutWrapper()):
@@ -1555,9 +1575,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 response["sessionRecording"],
                 {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True},
             )
-            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)
+            self.assertEqual(response["autocaptureExceptions"], True)
             self.assertEqual(response["featureFlags"], {})
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
@@ -1784,6 +1805,80 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
             self.assertEqual(response.status_code, 429)
 
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_analytics_only_fires_when_enabled(self, *args):
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+        )
+        self.client.logout()
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=0):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+
+            client = redis.get_client()
+            # check that no increments made it to redis
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=1), freeze_time("2022-05-07 12:23:07"):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+
+            client = redis.get_client()
+            # check that single increment made it to redis
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {b"165192618": b"1"})
+
+    # @patch("posthog.api.decide.increment_request_count")
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_analytics_samples_appropriately(self, *args):
+        random.seed(12345)
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+        )
+        self.client.logout()
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=0.5), freeze_time("2022-05-07 12:23:07"):
+            for _ in range(5):
+                # given the seed, 4 out of 5 are sampled
+                response = self._post_decide(api_version=3)
+                self.assertEqual(response.status_code, 200)
+
+            client = redis.get_client()
+            # check that no increments made it to redis
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {b"165192618": b"8"})
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_analytics_samples_appropriately_with_small_sample_rate(self, *args):
+        random.seed(12345)
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+        )
+        self.client.logout()
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=0.02), freeze_time("2022-05-07 12:23:07"):
+            for _ in range(5):
+                # given the seed, 1 out of 5 are sampled
+                response = self._post_decide(api_version=3)
+                self.assertEqual(response.status_code, 200)
+
+            client = redis.get_client()
+            # check that no increments made it to redis
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {b"165192618": b"50"})
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_analytics_samples_dont_break_with_zero_sampling(self, *args):
+        random.seed(12345)
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+        )
+        self.client.logout()
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=0), freeze_time("2022-05-07 12:23:07"):
+            for _ in range(5):
+                # 0 out of 5 are sampled
+                response = self._post_decide(api_version=3)
+                self.assertEqual(response.status_code, 200)
+
+            client = redis.get_client()
+            # check that no increments made it to redis
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
     """
@@ -1869,24 +1964,25 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        # one extra query to select 1 to check db is alive
-        # one extra query to select team because not in cache
-        with self.assertNumQueries(6):
-            response = self._post_decide(api_version=3, distinct_id=12345)
-            self.assertEqual(response.json()["featureFlags"], {"random-flag": True, "filer-by-property": False})
+        with freeze_time("2022-05-07 12:23:07"):
+            # one extra query to select 1 to check db is alive
+            # one extra query to select team because not in cache
+            with self.assertNumQueries(6):
+                response = self._post_decide(api_version=3, distinct_id=12345)
+                self.assertEqual(response.json()["featureFlags"], {"random-flag": True, "filer-by-property": False})
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(
-                api_version=3,
-                distinct_id={
-                    "id": 33040,
-                    "shopify_domain": "xxx.myshopify.com",
-                    "shopify_token": "shpat_xxxx",
-                    "created_at": "2023-04-17T08:55:34.624Z",
-                    "updated_at": "2023-04-21T08:43:34.479",
-                },
-            )
-            self.assertEqual(response.json()["featureFlags"], {"random-flag": True, "filer-by-property": True})
+            with self.assertNumQueries(4):
+                response = self._post_decide(
+                    api_version=3,
+                    distinct_id={
+                        "id": 33040,
+                        "shopify_domain": "xxx.myshopify.com",
+                        "shopify_token": "shpat_xxxx",
+                        "created_at": "2023-04-17T08:55:34.624Z",
+                        "updated_at": "2023-04-21T08:43:34.479",
+                    },
+                )
+                self.assertEqual(response.json()["featureFlags"], {"random-flag": True, "filer-by-property": True})
 
     def test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached(self, *args):
         ALL_TEAM_PARAMS_FOR_DECIDE = {
@@ -1933,7 +2029,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
                 response["sessionRecording"],
                 {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True},
             )
-            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)
             self.assertEqual(response["featureFlags"], {"no-props": True})

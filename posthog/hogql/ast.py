@@ -24,10 +24,14 @@ from posthog.hogql.errors import HogQLException, NotImplementedException
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
 
-camel_case_pattern = re.compile(r"(?<!^)(?=[A-Z])")
+# Given a string like "CorrectHorseBS", match the "H" and "B", so that we can convert this to "correct_horse_bs"
+camel_case_pattern = re.compile(r"(?<!^)(?<![A-Z])(?=[A-Z])")
 
 
 class AST(BaseModel):
+    start: Optional[int] = None
+    end: Optional[int] = None
+
     class Config:
         extra = Extra.forbid
 
@@ -57,11 +61,13 @@ class Expr(AST):
     type: Optional[Type]
 
 
-class Macro(Expr):
+class CTE(Expr):
+    """A common table expression."""
+
     name: str
     expr: Expr
-    # Whether the macro is an inlined column "WITH 1 AS a" or a subquery "WITH a AS (SELECT 1)"
-    macro_format: Literal["column", "subquery"]
+    # Whether the CTE is an inlined column "WITH 1 AS a" or a subquery "WITH a AS (SELECT 1)"
+    cte_type: Literal["column", "subquery"]
 
 
 class FieldAliasType(Type):
@@ -154,7 +160,7 @@ class SelectQueryType(Type):
     columns: Dict[str, Type] = PydanticField(default_factory=dict)
     # all from and join, tables and subqueries with aliases
     tables: Dict[str, TableOrSelectType] = PydanticField(default_factory=dict)
-    macros: Dict[str, Macro] = PydanticField(default_factory=dict)
+    ctes: Dict[str, CTE] = PydanticField(default_factory=dict)
     # all from and join subqueries without aliases
     anonymous_tables: List[Union["SelectQueryType", "SelectUnionQueryType"]] = PydanticField(default_factory=list)
 
@@ -449,13 +455,34 @@ class JoinExpr(Expr):
     sample: Optional["SampleExpr"] = None
 
 
+class WindowFrameExpr(Expr):
+    frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
+    frame_value: Optional[int] = None
+
+
+class WindowExpr(Expr):
+    partition_by: Optional[List[Expr]] = None
+    order_by: Optional[List[OrderExpr]] = None
+    frame_method: Optional[Literal["ROWS", "RANGE"]] = None
+    frame_start: Optional[WindowFrameExpr] = None
+    frame_end: Optional[WindowFrameExpr] = None
+
+
+class WindowFunction(Expr):
+    name: str
+    args: Optional[List[Expr]] = None
+    over_expr: Optional[WindowExpr] = None
+    over_identifier: Optional[str] = None
+
+
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
-    macros: Optional[Dict[str, Macro]] = None
+    ctes: Optional[Dict[str, CTE]] = None
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
+    window_exprs: Optional[Dict[str, WindowExpr]] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None

@@ -1,4 +1,5 @@
 import {
+    ActionType,
     AnyPartialFilterType,
     DashboardType,
     FilterType,
@@ -35,6 +36,10 @@ export const urls = {
 
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     createAction: (): string => `/data-management/actions/new`,
+    copyAction: (action: ActionType | null): string => {
+        const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
+        return `/data-management/actions/new/${queryParams}`
+    },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
@@ -44,6 +49,11 @@ export const urls = {
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     events: (): string => '/events',
+    event: (id: string, timestamp: string): string =>
+        `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
+    exports: (): string => '/exports',
+    createExport: (type: string): string => `/exports/new/${type}`,
+    viewExport: (id: string | number): string => `/exports/${id}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
@@ -75,7 +85,7 @@ export const urls = {
     person: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',
-    groups: (groupTypeIndex: string): string => `/groups/${groupTypeIndex}`,
+    groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,

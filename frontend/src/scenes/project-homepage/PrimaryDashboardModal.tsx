@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { DashboardType } from '~/types'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { IconCottage } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
@@ -48,7 +47,7 @@ export function PrimaryDashboardModal(): JSX.Element {
                     />
                     <LemonDivider />
                     <div className="space-y-2 min-h-100">
-                        {dashboards.map((dashboard: DashboardType) => {
+                        {dashboards.map((dashboard) => {
                             const isPrimary = dashboard.id === primaryDashboardId
                             const rowContents = (
                                 <div className="flex flex-1 items-center justify-between overflow-hidden">

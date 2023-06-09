@@ -18,7 +18,15 @@
         "interval": "day",
         "properties": {
             "type": "AND",
-            "values": []
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        { "key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event" },
+                        { "key": "utm_source", "value": ["google"], "operator": "exact", "type": "event" }
+                    ]
+                }
+            ]
         },
         "filter_test_accounts": false
     },

@@ -2,7 +2,6 @@ import datetime
 import uuid
 from unittest.mock import ANY, patch
 
-from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
 from django.utils import timezone
@@ -13,6 +12,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
+from posthog.api.authentication import password_reset_token_generator
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization_domain import OrganizationDomain
@@ -87,9 +87,8 @@ class TestLoginAPI(APIBaseTest):
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
-    @patch("posthoganalytics.get_feature_flag", return_value="test")
-    def test_email_unverified_user_cant_log_in_if_email_verification_true(
-        self, mock_feature_enabled, mock_send_email_verification, mock_is_email_available
+    def test_email_unverified_user_cant_log_in_if_email_available(
+        self, mock_send_email_verification, mock_is_email_available
     ):
         self.user.is_email_verified = False
         self.user.save()
@@ -102,18 +101,14 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         mock_is_email_available.assert_called_once()
-        mock_feature_enabled.assert_called_once_with(
-            "require-email-verification", str(self.user.distinct_id), person_properties={"email": self.CONFIG_EMAIL}
-        )
 
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
-    @patch("posthoganalytics.get_feature_flag", return_value="test")
-    def test_email_unverified_null_user_can_log_in_if_email_verification_true(
-        self, mock_feature_enabled, mock_send_email_verification, mock_is_email_available
+    def test_email_unverified_null_user_can_log_in_if_email_available(
+        self, mock_send_email_verification, mock_is_email_available
     ):
         """When email verification was added, existing users were set to is_email_verified=null.
         If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
@@ -124,17 +119,12 @@ class TestLoginAPI(APIBaseTest):
         # Test that we are logged in
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Assert we called the feature flag
-        mock_feature_enabled.assert_called_once_with(
-            "require-email-verification", str(self.user.distinct_id), person_properties={"email": self.CONFIG_EMAIL}
-        )
         mock_is_email_available.assert_called_once()
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):
-
         invalid_passwords = ["1234", "abcdefgh", "testpassword1234", "😈😈😈"]
 
         for password in invalid_passwords:
@@ -152,7 +142,6 @@ class TestLoginAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_email(self, mock_capture):
-
         response = self.client.post("/api/login", {"email": "user2@posthog.com", "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
@@ -288,6 +277,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
     # Password reset request
 
+    @freeze_time("2021-10-05T12:00:00")
     @patch("posthoganalytics.capture")
     def test_anonymous_user_can_request_password_reset(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -296,6 +286,11 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
+
+        user: User = User.objects.get(email=self.CONFIG_EMAIL)
+        self.assertEqual(
+            user.requested_password_reset_at, datetime.datetime(2021, 10, 5, 12, 0, 0, tzinfo=timezone.utc)
+        )
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
@@ -311,7 +306,7 @@ class TestPasswordResetAPI(APIBaseTest):
         link_index = html_message.find("https://my.posthog.net/reset")
         reset_link = html_message[link_index : html_message.find('"', link_index)]
         self.assertTrue(
-            default_token_generator.check_token(
+            password_reset_token_generator.check_token(
                 self.user, reset_link.replace("https://my.posthog.net/reset/", "").replace(f"{self.user.uuid}/", "")
             )
         )
@@ -349,7 +344,7 @@ class TestPasswordResetAPI(APIBaseTest):
         link_index = html_message.find("https://my.posthog.net/reset")
         reset_link = html_message[link_index : html_message.find('"', link_index)]
         self.assertTrue(
-            default_token_generator.check_token(
+            password_reset_token_generator.check_token(
                 self.user, reset_link.replace(f"https://my.posthog.net/reset/{self.user.uuid}/", "")
             )
         )
@@ -403,7 +398,7 @@ class TestPasswordResetAPI(APIBaseTest):
     # Token validation
 
     def test_can_validate_token(self):
-        token = default_token_generator.make_token(self.user)
+        token = password_reset_token_generator.make_token(self.user)
         response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
@@ -417,11 +412,11 @@ class TestPasswordResetAPI(APIBaseTest):
         )
 
     def test_invalid_token_returns_error(self):
-        valid_token = default_token_generator.make_token(self.user)
+        valid_token = password_reset_token_generator.make_token(self.user)
 
         with freeze_time(timezone.now() - datetime.timedelta(seconds=86_401)):
             # tokens expire after one day
-            expired_token = default_token_generator.make_token(self.user)
+            expired_token = password_reset_token_generator.make_token(self.user)
 
         for token in [valid_token[:-1], "not_even_trying", self.user.uuid, expired_token]:
             response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
@@ -443,7 +438,9 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_user_can_reset_password(self, mock_capture, mock_identify):
         self.client.logout()  # extra precaution to test login
 
-        token = default_token_generator.make_token(self.user)
+        self.user.requested_password_reset_at = datetime.datetime.now()
+        self.user.save()
+        token = password_reset_token_generator.make_token(self.user)
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "00112233"})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
@@ -457,6 +454,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("00112233"))
         self.assertFalse(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
+        self.assertEqual(self.user.requested_password_reset_at, None)
 
         # old password is gone
         self.client.logout()
@@ -482,7 +480,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(mock_capture.call_count, 2)
 
     def test_cant_set_short_password(self):
-        token = default_token_generator.make_token(self.user)
+        token = password_reset_token_generator.make_token(self.user)
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -522,14 +520,13 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertFalse(self.user.check_password("a12345678"))
 
     def test_cant_reset_password_with_invalid_token(self):
-        valid_token = default_token_generator.make_token(self.user)
+        valid_token = password_reset_token_generator.make_token(self.user)
 
         with freeze_time(timezone.now() - datetime.timedelta(seconds=86_401)):
             # tokens expire after one day
-            expired_token = default_token_generator.make_token(self.user)
+            expired_token = password_reset_token_generator.make_token(self.user)
 
         for token in [valid_token[:-1], "not_even_trying", self.user.uuid, expired_token]:
-
             response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "a12345678"})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
@@ -552,7 +549,7 @@ class TestPasswordResetAPI(APIBaseTest):
             self.assertFalse(self.user.check_password("a12345678"))
 
     def test_cant_reset_password_with_invalid_user_id(self):
-        token = default_token_generator.make_token(self.user)
+        token = password_reset_token_generator.make_token(self.user)
 
         response = self.client.post(f"/api/reset/{uuid.uuid4()}/", {"token": token, "password": "a12345678"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

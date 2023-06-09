@@ -86,9 +86,9 @@ class Entity(PropertyMixin):
 
         self._action: Optional[Action] = None
         self._data = data  # push data to instance object so mixins are handled properly
+
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
-            # It won't be an int if it's an event, but mypy...
-            self.name = str(self.id)
+            self.name = "All events" if self.id is None else str(self.id)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

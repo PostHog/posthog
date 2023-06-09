@@ -69,6 +69,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_opt_in: true,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
+    autocapture_exceptions_opt_in: false,
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
     has_group_types: true,

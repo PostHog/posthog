@@ -4,13 +4,14 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { Tabs } from 'antd'
 import { EventJSON } from 'scenes/events/EventJSON'
-import { EventType } from '../../types'
+import { EventType, PropertyDefinitionType } from '../../types'
 import { Properties } from '@posthog/plugin-scaffold'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import ReactJson from 'react-json-view'
+import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 
 const { TabPane } = Tabs
 
@@ -42,13 +43,14 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
     return (
         <Tabs
             data-attr="event-details"
-            defaultActiveKey="properties"
+            defaultActiveKey={event.event === '$exception' ? 'exception' : 'properties'}
             style={{ float: 'left', width: '100%' }}
             tabBarStyle={{ margin: 0, paddingLeft: 12 }}
         >
             <TabPane tab="Properties" key="properties">
                 <div className="ml-10 mt-2">
                     <PropertiesTable
+                        type={PropertyDefinitionType.Event}
                         properties={{
                             $timestamp: dayjs(event.timestamp).toISOString(),
                             ...displayedEventProperties,
@@ -80,6 +82,14 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             {event.elements && event.elements.length > 0 && (
                 <TabPane tab="Elements" key="elements">
                     <HTMLElementsDisplay elements={event.elements} />
+                </TabPane>
+            )}
+
+            {event.event === '$exception' && (
+                <TabPane tab="Exception" key="exception">
+                    <div className="ml-10 my-2">
+                        <ErrorDisplay event={event} />
+                    </div>
                 </TabPane>
             )}
         </Tabs>

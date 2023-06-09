@@ -1,12 +1,12 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import FuseClass from 'fuse.js'
+import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 import { userLogic } from 'scenes/userLogic'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
-import { DashboardType } from '~/types'
+import { DashboardBasicType } from '~/types'
 
 export enum DashboardsTab {
     Dashboards = 'dashboards',
@@ -28,9 +28,7 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     shared: false,
 }
 
-// Helping kea-typegen navigate the exported default class for Fuse
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface Fuse extends FuseClass<DashboardType> {}
+export type DashboardFuse = Fuse<DashboardBasicType> // This is exported for kea-typegen
 
 export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
@@ -75,7 +73,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             (dashboards, filters, fuse) => {
                 let haystack = dashboards
                 if (filters.search) {
-                    haystack = fuse.search(filters.search).map((result: any) => result.item)
+                    haystack = fuse.search(filters.search).map((result) => result.item)
                 }
 
                 if (filters.pinned) {
@@ -94,8 +92,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
         fuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
-            (dashboards): Fuse => {
-                return new FuseClass<DashboardType>(dashboards, {
+            (dashboards): DashboardFuse => {
+                return new Fuse<DashboardBasicType>(dashboards, {
                     keys: ['key', 'name', 'description', 'tags'],
                     threshold: 0.3,
                 })

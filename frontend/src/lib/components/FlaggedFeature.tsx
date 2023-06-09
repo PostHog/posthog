@@ -11,7 +11,7 @@ export type PostHogFeatureProps = {
 export function FlaggedFeature({ flag, match, children }: PostHogFeatureProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const flagValue = featureFlags[flag]
+    const flagValue = featureFlags[flag] || false
 
     if (match === undefined || flagValue === match) {
         return typeof children === 'function' ? children(flagValue) : children

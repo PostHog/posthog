@@ -102,6 +102,17 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.EXPERIMENTATION),
         ],
+        shouldShowEmptyState: [
+            (s) => [s.experimentsLoading, s.filteredExperiments],
+            (experimentsLoading, filteredExperiments): boolean => {
+                return (
+                    filteredExperiments.length === 0 &&
+                    !experimentsLoading &&
+                    !values.searchTerm &&
+                    !values.searchStatus
+                )
+            },
+        ],
     })),
     events(({ actions }) => ({
         afterMount: () => {

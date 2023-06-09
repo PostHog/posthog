@@ -29,8 +29,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
     const { seekForward, seekBackward } = useActions(sessionRecordingPlayerLogic)
     const { jumpTimeMs } = useValues(sessionRecordingPlayerLogic)
 
-    const keysHeld = useKeyHeld()
-    const altKeyHeld = keysHeld.has('Alt')
+    const altKeyHeld = useKeyHeld('Alt')
     const jumpTimeSeconds = altKeyHeld ? 1 : jumpTimeMs / 1000
     const altKeyName = navigator.platform.includes('Mac') ? '⌥' : 'Alt'
 

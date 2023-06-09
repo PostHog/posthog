@@ -11,6 +11,7 @@ from posthog.hogql.database.models import (
     FieldTraverser,
 )
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, join_with_person_distinct_ids_table
+from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, join_with_person_overrides_table
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -63,6 +64,14 @@ class EventsTable(Table):
         join_table=PersonDistinctIdTable(),
         join_function=join_with_person_distinct_ids_table,
     )
+
+    # Lazy table to fetch the overridden person_id
+    override: LazyJoin = LazyJoin(
+        from_field="person_id",
+        join_table=PersonOverridesTable(),
+        join_function=join_with_person_overrides_table,
+    )
+    override_person_id: BaseModel = FieldTraverser(chain=["override", "override_person_id"])
 
     # Person and group fields on the event itself. Should not be used directly.
     poe: EventsPersonSubTable = EventsPersonSubTable()

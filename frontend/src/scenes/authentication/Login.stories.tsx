@@ -7,6 +7,7 @@ import preflightJson from '../../mocks/fixtures/_preflight.json'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { loginLogic } from './loginLogic'
+import { Login2FA } from './Login2FA'
 
 export default {
     title: 'Scenes-Other/Login',
@@ -114,4 +115,12 @@ export const SSOError = (): JSX.Element => {
         router.actions.push(`${urls.login()}?error_code=improperly_configured_sso`)
     }, [])
     return <Login />
+}
+
+export const SecondFactor = (): JSX.Element => {
+    useEffect(() => {
+        // Change the URL
+        router.actions.push(urls.login2FA())
+    }, [])
+    return <Login2FA />
 }

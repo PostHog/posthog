@@ -4,6 +4,7 @@ import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     HogQLPropertyFilter,
+    PropertyDefinitionType,
     PropertyFilterType,
     PropertyOperator,
     PropertyType,
@@ -14,6 +15,7 @@ import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/Taxon
 import {
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
+    propertyFilterTypeToPropertyDefinitionType,
     propertyFilterTypeToTaxonomicFilterType,
     sanitizePropertyFilter,
     taxonomicFilterTypeToPropertyFilterType,
@@ -104,7 +106,11 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     }
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, hogQLProperty)
                 } else {
-                    const propertyValueType = values.describeProperty(propertyKey)
+                    const apiType =
+                        propertyFilterTypeToPropertyDefinitionType(
+                            taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+                        ) ?? PropertyDefinitionType.Event
+                    const propertyValueType = values.describeProperty(propertyKey, apiType)
                     const property_name_to_default_operator_override = {
                         $active_feature_flags: PropertyOperator.IContains,
                     }

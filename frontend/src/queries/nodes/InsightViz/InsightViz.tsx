@@ -12,6 +12,7 @@ import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
 import { InsightLogicProps, ItemMode } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getCachedResults } from './utils'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {
@@ -26,7 +27,11 @@ type InsightVizProps = {
 
 export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: insightVizDataNodeKey(insightProps) }
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: query.source,
+        key: insightVizDataNodeKey(insightProps),
+        cachedResults: getCachedResults(insightProps.cachedInsight, query.source),
+    }
 
     const { insightMode } = useValues(insightSceneLogic)
 

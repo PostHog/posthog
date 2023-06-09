@@ -12,6 +12,9 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/events/EventDefinitionsTable'),
     [Scene.Events]: () => import('./events/Events'),
+    [Scene.Exports]: () => import('./exports/ExportsList'),
+    [Scene.CreateExport]: () => import('./exports/CreateExport'),
+    [Scene.ViewExport]: () => import('./exports/ViewExport'),
     [Scene.Actions]: () => import('./actions/ActionsTable'),
     [Scene.EventDefinitions]: () => import('./data-management/events/EventDefinitionsTable'),
     [Scene.EventDefinition]: () => import('./data-management/definition/DefinitionView'),
@@ -27,7 +30,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Persons]: () => import('./persons/PersonsScene'),
     [Scene.Groups]: () => import('./groups/Groups'),
     [Scene.Group]: () => import('./groups/Group'),
-    [Scene.Action]: () => import('./actions/Action'), // TODO
+    [Scene.Action]: () => import('./actions/Action'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
