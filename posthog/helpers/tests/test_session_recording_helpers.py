@@ -133,34 +133,6 @@ def test_compression_and_grouping(raw_snapshot_events, mocker: MockerFixture):
     ]
 
 
-# def test_compression_and_chunking(raw_snapshot_events, mocker: MockerFixture):
-#     mocker.patch("posthog.models.utils.UUIDT", return_value="0178495e-8521-0000-8e1c-2652fa57099b")
-#     mocker.patch("time.time", return_value=0)
-
-#     assert list(mock_capture_flow(raw_snapshot_events)) == [
-#         {
-#             "event": "$snapshot",
-#             "properties": {
-#                 "$session_id": "1234",
-#                 "$window_id": "1",
-#                 "$snapshot_data": {
-#                     "chunk_id": "0178495e-8521-0000-8e1c-2652fa57099b",
-#                     "chunk_index": 0,
-#                     "chunk_count": 1,
-#                     "compression": "gzip-base64",
-#                     "data": "H4sIAAAAAAAC//v/L5qhmkGJoYShkqGAIRXIsmJQYDBi0AGSINFMhlygaDGQlQhkFUDlDRlMGUwYzBiMGQyA0AJMQmAtWCemicYUmBjLAAABQ+l7pgAAAA==",
-#                     "has_full_snapshot": True,
-#                     "events_summary": [
-#                         {"timestamp": MILLISECOND_TIMESTAMP, "type": 2, "data": {}},
-#                         {"timestamp": MILLISECOND_TIMESTAMP, "type": 3, "data": {}},
-#                     ],
-#                 },
-#                 "distinct_id": "abc123",
-#             },
-#         }
-#     ]
-
-
 def test_decompression_results_in_same_data(raw_snapshot_events):
     # Check the encoded size so that we can choose a chunk size that will result in multiple chunks
     assert byte_size_dict(compress_replay_events(raw_snapshot_events)[0]) == 371
