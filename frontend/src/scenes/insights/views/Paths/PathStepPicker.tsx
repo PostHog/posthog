@@ -7,27 +7,22 @@ import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, PathsFilterType } from '~/types'
+import { AvailableFeature } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { PathsFilter } from '~/queries/schema'
 
 interface StepOption {
     label: string
     value: number
 }
 
-export function PathStepPickerDataExploration(): JSX.Element {
+export function PathStepPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    return <PathStepPickerComponent setFilter={updateInsightFilter} {...insightFilter} />
-}
+    const { step_limit } = (insightFilter || {}) as PathsFilter
 
-type PathStepPickerComponentProps = {
-    setFilter: (filter: PathsFilterType) => void
-} & PathsFilterType
-
-export function PathStepPickerComponent({ step_limit, setFilter }: PathStepPickerComponentProps): JSX.Element {
     const { user } = useValues(userLogic)
 
     const MIN = 2,
@@ -44,7 +39,7 @@ export function PathStepPickerComponent({ step_limit, setFilter }: PathStepPicke
             data-attr="path-step-filter"
             defaultValue={5}
             value={step_limit || DEFAULT_STEP_LIMIT}
-            onSelect={(count) => setFilter({ step_limit: count })}
+            onSelect={(count) => updateInsightFilter({ step_limit: count })}
             listHeight={440}
             bordered={false}
             dropdownMatchSelectWidth={true}
