@@ -26,12 +26,14 @@ async def get_client():
     """
     # Set up SSL context, roughly based on how `clickhouse_driver` does it.
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
-    ssl_context.verify_mode = ssl.CERT_REQUIRED if settings.CLICKHOUSE_VERIFY else ssl.CERT_NONE
-    if ssl_context.verify_mode is ssl.CERT_REQUIRED:
-        if settings.CLICKHOUSE_CA:
-            ssl_context.load_verify_locations(settings.CLICKHOUSE_CA)
-        elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
-            ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
+    # TODO: figure out why this is not working when we set CERT_REQUIRED.
+    # ssl_context.verify_mode = ssl.CERT_REQUIRED if settings.CLICKHOUSE_VERIFY else ssl.CERT_NONE
+    # if ssl_context.verify_mode is ssl.CERT_REQUIRED:
+    #    if settings.CLICKHOUSE_CA:
+    #        ssl_context.load_verify_locations(settings.CLICKHOUSE_CA)
+    #    elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
+    #        ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
+    ssl_context.verify_mode = ssl.CERT_NONE
     with TCPConnector(ssl_context=ssl_context) as connector:
         async with ClientSession(connector=connector) as session:
             client = ChClient(
