@@ -777,6 +777,7 @@ def build_selector_regex(selector: Selector) -> str:
 
 class HogQLPropertyChecker(TraversingVisitor):
     def __init__(self):
+        super().__init__()
         self.event_properties: List[str] = []
         self.person_properties: List[str] = []
 

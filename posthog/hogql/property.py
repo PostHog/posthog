@@ -28,11 +28,11 @@ class AggregationFinder(TraversingVisitor):
         super().__init__()
         self.has_aggregation = False
 
-    def visit(self, node):
+    def visit(self, node: ast.AST, tag: Optional[str] = None):
         if self.has_aggregation:
             return
         else:
-            super().visit(node)
+            super().visit(node, tag)
 
     def visit_select_query(self, node: ast.SelectQuery):
         # don't care about aggregations in subqueries
