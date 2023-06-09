@@ -70,10 +70,10 @@ class UsageReportCounters:
     # Feature flags
     ff_count: int
     ff_active_count: int
-    decide_requests_in_period: int
-    decide_requests_in_month: int
-    local_evaluation_requests_in_period: int
-    local_evaluation_requests_in_month: int
+    decide_requests_count_in_period: int
+    decide_requests_count_in_month: int
+    local_evaluation_requests_count_in_period: int
+    local_evaluation_requests_count_in_month: int
     # HogQL
     hogql_app_bytes_read: int
     hogql_app_rows_read: int
@@ -495,8 +495,8 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
     return (
         report.event_count_in_period > 0
         or report.recording_count_in_period > 0
-        or report.decide_requests_in_period > 0
-        or report.local_evaluation_requests_in_period > 0
+        or report.decide_requests_count_in_period > 0
+        or report.local_evaluation_requests_count_in_period > 0
     )
 
 
@@ -528,16 +528,16 @@ def send_all_org_usage_reports(
         # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
         teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
         teams_with_recording_count_total=get_teams_with_recording_count_total(),
-        teams_with_decide_requests_in_period=get_teams_with_feature_flag_requests_count_in_period(
+        teams_with_decide_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.DECIDE
         ),
-        teams_with_decide_requests_in_month=get_teams_with_feature_flag_requests_count_in_period(
+        teams_with_decide_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
             period_start.replace(day=1), period_end, FlagRequestType.DECIDE
         ),
-        teams_with_local_evaluation_requests_in_period=get_teams_with_feature_flag_requests_count_in_period(
+        teams_with_local_evaluation_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.LOCAL_EVALUATION
         ),
-        teams_with_local_evaluation_requests_in_month=get_teams_with_feature_flag_requests_count_in_period(
+        teams_with_local_evaluation_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
             period_start.replace(day=1), period_end, FlagRequestType.LOCAL_EVALUATION
         ),
         teams_with_group_types_total=list(
@@ -677,17 +677,17 @@ def send_all_org_usage_reports(
             ),
             recording_count_total=find_count_for_team_in_rows(team.id, all_data["teams_with_recording_count_total"]),
             group_types_total=find_count_for_team_in_rows(team.id, all_data["teams_with_group_types_total"]),
-            decide_requests_in_period=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_decide_requests_in_period"]
+            decide_requests_count_in_period=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_decide_requests_count_in_period"]
             ),
-            decide_requests_in_month=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_decide_requests_in_month"]
+            decide_requests_count_in_month=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_decide_requests_count_in_month"]
             ),
-            local_evaluation_requests_in_period=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_local_evaluation_requests_in_period"]
+            local_evaluation_requests_count_in_period=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_local_evaluation_requests_count_in_period"]
             ),
-            local_evaluation_requests_in_month=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_local_evaluation_requests_in_month"]
+            local_evaluation_requests_count_in_month=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_local_evaluation_requests_count_in_month"]
             ),
             dashboard_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_count"]),
             dashboard_template_count=find_count_for_team_in_rows(
