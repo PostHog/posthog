@@ -1,4 +1,4 @@
-from typing import Dict, Set
+from typing import Dict, Set, List
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -78,11 +78,25 @@ class PropertySwapper(CloningVisitor):
         self.timezone = timezone
         self.event_properties = event_properties
         self.person_properties = person_properties
+        self.stack: List[ast.AST] = []
+
+    def visit(self, node: ast.AST):
+        self.stack.append(node)
+        response = super().visit(node)
+        self.stack.pop()
+        return response
 
     def visit_field(self, node: ast.Field):
+        is_column = isinstance(self.stack[-2], ast.SelectQuery)
         if isinstance(node.type, ast.FieldType):
             if isinstance(node.type.resolve_database_field(), DateTimeDatabaseField):
-                return ast.Call(name="toTimeZone", args=[node, ast.Constant(value=self.timezone)])
+                if is_column:
+                    return ast.Alias(
+                        alias=node.chain[-1],
+                        expr=ast.Call(name="toTimeZone", args=[node, ast.Constant(value=self.timezone)]),
+                    )
+                else:
+                    return ast.Call(name="toTimeZone", args=[node, ast.Constant(value=self.timezone)])
 
         type = node.type
         if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:

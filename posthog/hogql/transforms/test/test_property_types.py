@@ -94,6 +94,16 @@ class TestPropertyTypes(BaseTest):
         )
         self.assertEqual(printed, expected)
 
+    def test_top_level_timestamp(self):
+        self.assertEqual(
+            self._print_select("SELECT timestamp, event FROM (SELECT timestamp, event FROM events)"),
+            f"SELECT timestamp, event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.event FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT 10000",
+        )
+        self.assertEqual(
+            self._print_select("SELECT timestamp, event FROM events GROUP BY timestamp"),
+            f"SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.event FROM events WHERE equals(events.team_id, {self.team.pk})) GROUP BY toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT 10000",
+        )
+
     def _print_select(self, select: str):
         expr = parse_select(select)
         return print_ast(expr, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse")
