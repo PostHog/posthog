@@ -23,7 +23,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     )
     const [monaco, editor] = monacoAndEditor ?? []
     const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key, editor, monaco }
-    const { queryInput } = useValues(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
+    const { queryInput, hasErrors, error } = useValues(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
     const { setQueryInput, saveQuery } = useActions(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
@@ -84,7 +84,13 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     onClick={saveQuery}
                     type="primary"
                     status={'muted-alt'}
-                    disabledReason={!props.setQuery ? 'No permission to update' : undefined}
+                    disabledReason={
+                        !props.setQuery
+                            ? 'No permission to update'
+                            : hasErrors
+                            ? error ?? 'Query has errors'
+                            : undefined
+                    }
                     fullWidth
                     center
                 >

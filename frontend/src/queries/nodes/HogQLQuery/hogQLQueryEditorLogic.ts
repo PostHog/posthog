@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { HogQLMetadata, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
@@ -26,10 +26,22 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     actions({
         saveQuery: true,
         setQueryInput: (queryInput: string) => ({ queryInput }),
+        setModelMarkers: (markers: importedEditor.IMarkerData[]) => ({ markers }),
     }),
     reducers(({ props }) => ({
         queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
+        modelMarkers: [[] as importedEditor.IMarkerData[], { setModelMarkers: (_, { markers }) => markers }],
     })),
+    selectors({
+        hasErrors: [(s) => [s.modelMarkers], (modelMarkers) => !!modelMarkers?.length],
+        error: [
+            (s) => [s.hasErrors, s.modelMarkers],
+            (hasErrors, modelMarkers) =>
+                hasErrors && modelMarkers[0]
+                    ? `Error on line ${modelMarkers[0].startLineNumber}, column ${modelMarkers[0].startColumn}`
+                    : null,
+        ],
+    }),
     listeners(({ actions, props, values }) => ({
         saveQuery: () => {
             const query = values.queryInput
@@ -64,9 +76,15 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                         severity: MarkerSeverity.Error,
                     },
                 ]
-                props.monaco.editor.setModelMarkers(model, 'hogql', markers)
+                actions.setModelMarkers(markers)
             } else {
-                props.monaco.editor.setModelMarkers(model, 'hogql', [])
+                actions.setModelMarkers([])
+            }
+        },
+        setModelMarkers: ({ markers }) => {
+            const model = props.editor?.getModel()
+            if (model) {
+                props.monaco?.editor.setModelMarkers(model, 'hogql', markers)
             }
         },
     })),
