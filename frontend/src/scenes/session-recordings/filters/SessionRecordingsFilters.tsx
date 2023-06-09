@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -65,31 +65,47 @@ function ConsoleFilters({
     }
 
     return (
-        <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt" data-attr={'console-filters'}>
-            <LemonSwitch
-                size="small"
-                bordered={true}
-                checked={!!filters.console_logs?.includes('log')}
-                onChange={(checked) => {
-                    updateChoice(checked, 'log')
-                }}
-                label={'include console.log'}
-            />
-            <LemonSwitch
-                size="small"
-                bordered={true}
-                checked={!!filters.console_logs?.includes('warn')}
-                onChange={(checked) => updateChoice(checked, 'warn')}
-                label={'include console.warn'}
-            />
-            <LemonSwitch
-                size="small"
-                bordered={true}
-                checked={!!filters.console_logs?.includes('error')}
-                onChange={(checked) => updateChoice(checked, 'error')}
-                label={'include console.error'}
-            />
-        </div>
+        <LemonButtonWithDropdown
+            status="stealth"
+            type="secondary"
+            data-attr={'console-filters'}
+            dropdown={{
+                sameWidth: true,
+                closeOnClickInside: false,
+                overlay: [
+                    <>
+                        <LemonCheckbox
+                            size="small"
+                            fullWidth
+                            checked={!!filters.console_logs?.includes('log')}
+                            onChange={(checked) => {
+                                updateChoice(checked, 'log')
+                            }}
+                            label={'console.log'}
+                        />
+                        <LemonCheckbox
+                            size="small"
+                            fullWidth
+                            checked={!!filters.console_logs?.includes('warn')}
+                            onChange={(checked) => updateChoice(checked, 'warn')}
+                            label={'console.warn'}
+                        />
+                        <LemonCheckbox
+                            size="small"
+                            fullWidth
+                            checked={!!filters.console_logs?.includes('error')}
+                            onChange={(checked) => updateChoice(checked, 'error')}
+                            label={'console.error'}
+                        />
+                    </>,
+                ],
+                actionable: true,
+            }}
+        >
+            {filters.console_logs?.map((x) => `console.${x}`).join(', or ') || (
+                <span className={'text-muted'}>Console types to filter for...</span>
+            )}
+        </LemonButtonWithDropdown>
     )
 }
 
