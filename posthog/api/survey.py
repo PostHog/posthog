@@ -26,9 +26,9 @@ from posthog.utils import cors_response
 
 
 class SurveySerializer(serializers.ModelSerializer):
+    linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
-    linked_flag_id = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -52,14 +52,9 @@ class SurveySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
-    def get_linked_flag_id(self, survey: Survey) -> Any:
-        if survey.linked_flag:
-            return survey.linked_flag.pk
-        return None
-
 
 class SurveySerializerCreateUpdateOnly(SurveySerializer):
-    linked_flag_id = serializers.IntegerField(required=False, write_only=True)
+    linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True)
 
@@ -94,7 +89,10 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
-        if Survey.objects.filter(name=data.get("name", None), team_id=self.context["team_id"]).exists():
+        if (
+            self.context["request"].method == "POST"
+            and Survey.objects.filter(name=data.get("name", None), team_id=self.context["team_id"]).exists()
+        ):
             raise serializers.ValidationError("There is already a survey with this name.", code="unique")
 
         return data
