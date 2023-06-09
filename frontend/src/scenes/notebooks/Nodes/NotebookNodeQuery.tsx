@@ -36,7 +36,15 @@ const Component = (props: NodeViewProps): JSX.Element => {
         setEditing(props.selected)
     }, [props.selected])
 
-    const title = query.kind ?? 'Query'
+    const title = useMemo(() => {
+        if (NodeKind.DataTableNode === query.kind) {
+            if (query.source.kind) {
+                return query.source.kind.replace('Node', '')
+            }
+            return 'Data Exploration'
+        }
+        return 'Query'
+    }, [query])
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query }
