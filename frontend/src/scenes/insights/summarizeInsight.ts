@@ -329,7 +329,6 @@ function summariseQuery(query: Node): string {
 }
 
 export interface SummaryContext {
-    isUsingDashboardQueries: boolean
     aggregationLabel: groupsModelType['values']['aggregationLabel']
     cohortsById: cohortsModelType['values']['cohortsById']
     mathDefinitions: mathsLogicType['values']['mathDefinitions']
@@ -343,7 +342,7 @@ export function summarizeInsight(
     const hasFilters = Object.keys(filters || {}).length > 0
     return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
-        : context.isUsingDashboardQueries && !!query && !isInsightVizNode(query)
+        : !!query && !isInsightVizNode(query)
         ? summariseQuery(query)
         : hasFilters
         ? summarizeInsightFilters(filters, context)

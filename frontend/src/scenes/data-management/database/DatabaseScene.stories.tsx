@@ -1,4 +1,4 @@
-import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import { Meta } from '@storybook/react'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
@@ -7,7 +7,6 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 import { DatabaseSchemaQueryResponse } from '~/queries/schema'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const MOCK_DATABASE: DatabaseSchemaQueryResponse = {
     events: [
@@ -104,7 +103,6 @@ export default {
 
 export function Database(): JSX.Element {
     useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
-    useFeatureFlags([FEATURE_FLAGS.HOGQL])
     useEffect(() => {
         router.actions.push(urls.database())
     }, [])

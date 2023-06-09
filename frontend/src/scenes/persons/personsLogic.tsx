@@ -323,16 +323,6 @@ export const personsLogic = kea<personsLogicType>({
         },
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/persons': ({}, searchParams) => {
-            const featureDataExploration = values.featureFlags[FEATURE_FLAGS.HOGQL]
-            if (props.syncWithUrl && !featureDataExploration) {
-                actions.setListFilters(searchParams)
-                if (!values.persons.results.length && !values.personsLoading) {
-                    // Initial load
-                    actions.loadPersons()
-                }
-            }
-        },
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId) {

@@ -53,7 +53,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Live Events',
+        name: 'Event Explorer',
     },
     [Scene.Exports]: {
         projectBased: true,

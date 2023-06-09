@@ -63,7 +63,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightSaving,
         hasDashboardItemId,
         exporterResourceParams,
-        isUsingDashboardQueries,
     } = useValues(logic)
     const { setInsightMetadata, saveAs } = useActions(logic)
 
@@ -126,7 +125,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             aggregationLabel,
                             cohortsById,
                             mathDefinitions,
-                            isUsingDashboardQueries,
                         })}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}

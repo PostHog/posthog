@@ -12,9 +12,7 @@ import { urls } from 'scenes/urls'
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appContextLogic } from './appContextLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -45,7 +43,6 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     connect: () => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
-        values: [featureFlagLogic, ['featureFlags']],
         actions: [router, ['locationChanged']],
     }),
     path: ['scenes', 'sceneLogic'],
@@ -127,14 +124,8 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     selectors: {
         sceneConfig: [
-            (s) => [s.scene, s.featureFlags],
-            (scene: Scene, featureFlags): SceneConfig | null => {
-                if (scene === Scene.Events && featureFlags[FEATURE_FLAGS.HOGQL]) {
-                    return {
-                        ...sceneConfigurations[scene],
-                        name: 'Event Explorer',
-                    }
-                }
+            (s) => [s.scene],
+            (scene: Scene): SceneConfig | null => {
                 return sceneConfigurations[scene] || null
             },
         ],
