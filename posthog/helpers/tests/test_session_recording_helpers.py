@@ -5,7 +5,6 @@ import pytest
 from pytest_mock import MockerFixture
 
 from posthog.session_recordings.session_recording_helpers import (
-    PaginatedList,
     RecordingSegment,
     SessionRecordingEventSummary,
     SnapshotData,
@@ -18,7 +17,6 @@ from posthog.session_recordings.session_recording_helpers import (
     get_active_segments_from_event_list,
     get_events_summary_from_snapshot_data,
     is_active_event,
-    paginate_list,
     reduce_replay_events_by_window,
     split_replay_events,
 )
@@ -200,9 +198,7 @@ def test_decompress_uncompressed_events_returns_unmodified_events(raw_snapshot_e
         raw_snapshot_data.append(event["properties"]["$snapshot_data"])
 
     assert (
-        decompress_chunked_snapshot_data(1, "someid", snapshot_data_tagged_with_window_id)[
-            "snapshot_data_by_window_id"
-        ]["1"]
+        decompress_chunked_snapshot_data(snapshot_data_tagged_with_window_id)["snapshot_data_by_window_id"]["1"]
         == raw_snapshot_data
     )
 
@@ -231,10 +227,7 @@ def test_decompress_ignores_if_not_enough_chunks(raw_snapshot_events):
         )
     )
 
-    assert (
-        decompress_chunked_snapshot_data(2, "someid", snapshot_list)["snapshot_data_by_window_id"][window_id]
-        == raw_snapshot_data
-    )
+    assert decompress_chunked_snapshot_data(snapshot_list)["snapshot_data_by_window_id"][window_id] == raw_snapshot_data
 
 
 def test_decompress_deduplicates_if_duplicate_chunks(raw_snapshot_events):
@@ -256,10 +249,7 @@ def test_decompress_deduplicates_if_duplicate_chunks(raw_snapshot_events):
     for snapshot_data in snapshot_data_list:
         snapshot_list.append(SnapshotDataTaggedWithWindowId(window_id=window_id, snapshot_data=snapshot_data))
 
-    assert (
-        decompress_chunked_snapshot_data(2, "someid", snapshot_list)["snapshot_data_by_window_id"][window_id]
-        == raw_snapshot_data
-    )
+    assert decompress_chunked_snapshot_data(snapshot_list)["snapshot_data_by_window_id"][window_id] == raw_snapshot_data
 
 
 def test_decompress_ignores_if_too_few_chunks_even_after_deduplication(raw_snapshot_events):
@@ -283,7 +273,7 @@ def test_decompress_ignores_if_too_few_chunks_even_after_deduplication(raw_snaps
     for snapshot_data in snapshot_data_list:
         snapshot_list.append(SnapshotDataTaggedWithWindowId(window_id=window_id, snapshot_data=snapshot_data))
 
-    assert decompress_chunked_snapshot_data(2, "someid", snapshot_list)["snapshot_data_by_window_id"][window_id] == []
+    assert decompress_chunked_snapshot_data(snapshot_list)["snapshot_data_by_window_id"][window_id] == []
 
 
 def test_paginate_decompression(chunked_and_compressed_snapshot_events):
@@ -295,44 +285,44 @@ def test_paginate_decompression(chunked_and_compressed_snapshot_events):
     ]
 
     # Get the first chunk
-    paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 1, 0)
+    paginated_events = decompress_chunked_snapshot_data(snapshot_data, 1, 0)
     assert paginated_events["has_next"] is True
     assert cast(SnapshotData, paginated_events["snapshot_data_by_window_id"][None][0])["type"] == 4
     assert len(paginated_events["snapshot_data_by_window_id"][None]) == 2  # 2 events in a chunk
 
     # Get the second chunk
-    paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 1, 1)
+    paginated_events = decompress_chunked_snapshot_data(snapshot_data, 1, 1)
     assert paginated_events["has_next"] is False
     assert cast(SnapshotData, paginated_events["snapshot_data_by_window_id"]["1"][0])["type"] == 3
     assert len(paginated_events["snapshot_data_by_window_id"]["1"]) == 2  # 2 events in a chunk
 
     # Limit exceeds the length
-    paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 10, 0)
+    paginated_events = decompress_chunked_snapshot_data(snapshot_data, 10, 0)
     assert paginated_events["has_next"] is False
     assert len(paginated_events["snapshot_data_by_window_id"]["1"]) == 2
     assert len(paginated_events["snapshot_data_by_window_id"][None]) == 2
 
     # Offset exceeds the length
-    paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 10, 2)
+    paginated_events = decompress_chunked_snapshot_data(snapshot_data, 10, 2)
     assert paginated_events["has_next"] is False
     assert paginated_events["snapshot_data_by_window_id"] == {}
 
     # Non sequential snapshots
     snapshot_data = snapshot_data[-3:] + snapshot_data[0:-3]
-    paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 10, 0)
+    paginated_events = decompress_chunked_snapshot_data(snapshot_data, 10, 0)
     assert paginated_events["has_next"] is False
     assert len(paginated_events["snapshot_data_by_window_id"]["1"]) == 2
     assert len(paginated_events["snapshot_data_by_window_id"][None]) == 2
 
     # No limit or offset provided
-    paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data)
+    paginated_events = decompress_chunked_snapshot_data(snapshot_data)
     assert paginated_events["has_next"] is False
     assert len(paginated_events["snapshot_data_by_window_id"]["1"]) == 2
     assert len(paginated_events["snapshot_data_by_window_id"][None]) == 2
 
 
 def test_decompress_empty_list(chunked_and_compressed_snapshot_events):
-    paginated_events = decompress_chunked_snapshot_data(1, "someid", [])
+    paginated_events = decompress_chunked_snapshot_data([])
     assert paginated_events["has_next"] is False
     assert paginated_events["snapshot_data_by_window_id"] == {}
 
@@ -344,7 +334,7 @@ def test_decompress_data_returning_only_activity_info(chunked_and_compressed_sna
         )
         for event in chunked_and_compressed_snapshot_events
     ]
-    paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, return_only_activity_data=True)
+    paginated_events = decompress_chunked_snapshot_data(snapshot_data, return_only_activity_data=True)
 
     assert paginated_events["snapshot_data_by_window_id"] == {
         None: [
@@ -524,16 +514,6 @@ def test_generate_inactive_segments_for_last_segment():
     ]
 
 
-def test_paginate_list():
-    list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    assert paginate_list(list, 5, 0) == PaginatedList(has_next=True, paginated_list=list[:5])
-    assert paginate_list(list, 20, 0) == PaginatedList(has_next=False, paginated_list=list)
-    assert paginate_list(list, None, 0) == PaginatedList(has_next=False, paginated_list=list)
-    assert paginate_list(list, None, 5) == PaginatedList(has_next=False, paginated_list=list[5:])
-    assert paginate_list(list, 5, 5) == PaginatedList(has_next=False, paginated_list=list[5:10])
-    assert paginate_list(list, 4, 5) == PaginatedList(has_next=True, paginated_list=list[5:9])
-
-
 def test_get_events_summary_from_snapshot_data():
     timestamp = round(datetime.now().timestamp() * 1000)
 
@@ -693,7 +673,7 @@ def compress_decompress_and_extract(events, chunk_size):
     for snapshot_data in snapshot_data_list:
         snapshot_list.append(SnapshotDataTaggedWithWindowId(window_id=window_id, snapshot_data=snapshot_data))
 
-    return decompress_chunked_snapshot_data(2, "someid", snapshot_list)["snapshot_data_by_window_id"][window_id]
+    return decompress_chunked_snapshot_data(snapshot_list)["snapshot_data_by_window_id"][window_id]
 
 
 # def test_get_events_summary_from_snapshot_data():

@@ -328,8 +328,6 @@ def decompress(base64data: str) -> str:
 
 
 def decompress_chunked_snapshot_data(
-    team_id: int,
-    session_recording_id: str,
     all_recording_events: List[SnapshotDataTaggedWithWindowId],
     limit: Optional[int] = None,
     offset: int = 0,
@@ -360,7 +358,7 @@ def decompress_chunked_snapshot_data(
         if "chunk_id" not in event["snapshot_data"]:
             count += 1
 
-            if offset > count:
+            if offset >= count:
                 continue
 
             if event["snapshot_data"].get("data_items"):
@@ -400,7 +398,7 @@ def decompress_chunked_snapshot_data(
                 # Somehow mark this chunk_id as processed...
                 processed_chunk_ids.add(event["snapshot_data"]["chunk_id"])
 
-                if offset > count:
+                if offset >= count:
                     continue
 
                 b64_compressed_data = "".join(
@@ -418,7 +416,7 @@ def decompress_chunked_snapshot_data(
                 else:
                     snapshot_data_by_window_id[event["window_id"]].extend(decompressed_data)
 
-        if count > offset + limit:
+        if limit and count >= offset + limit:
             break
 
     has_next = count < len(all_recording_events)
@@ -591,25 +589,6 @@ def generate_inactive_segments_for_range(
             segment["end_time"] = segment["end_time"] - timedelta(milliseconds=1)
 
     return inactive_segments
-
-
-@dataclasses.dataclass
-class PaginatedList:
-    has_next: bool
-    paginated_list: List
-
-
-def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> PaginatedList:
-    if not limit:
-        has_next = False
-        paginated_list = list_to_paginate[offset:]
-    elif offset + limit < len(list_to_paginate):
-        has_next = True
-        paginated_list = list_to_paginate[offset : offset + limit]
-    else:
-        has_next = False
-        paginated_list = list_to_paginate[offset:]
-    return PaginatedList(has_next=has_next, paginated_list=paginated_list)
 
 
 def byte_size_dict(d: Dict) -> int:
