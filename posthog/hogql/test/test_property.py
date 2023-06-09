@@ -101,6 +101,10 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
             self._parse_expr("not(match(properties.a, '.*'))"),
         )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}),
+            self._parse_expr("true"),
+        )
 
     def test_property_to_expr_boolean(self):
         PropertyDefinition.objects.create(
@@ -195,6 +199,16 @@ class TestProperty(BaseTest):
         )
 
     def test_property_groups(self):
+        self.assertEqual(
+            self._property_to_expr(
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[],
+                )
+            ),
+            self._parse_expr("true"),
+        )
+
         self.assertEqual(
             self._property_to_expr(
                 PropertyGroup(

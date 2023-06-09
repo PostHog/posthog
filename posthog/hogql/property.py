@@ -59,15 +59,18 @@ def property_to_expr(
     elif isinstance(property, Property):
         pass
     elif isinstance(property, PropertyGroup):
+        if property.type != PropertyOperatorType.AND and property.type != PropertyOperatorType.OR:
+            raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
+
+        if len(property.values) == 0:
+            return ast.Constant(value=True)
+        if len(property.values) == 1:
+            return property_to_expr(property.values[0], team)
+
         if property.type == PropertyOperatorType.AND:
-            if len(property.values) == 1:
-                return property_to_expr(property.values[0], team)
             return ast.And(exprs=[property_to_expr(p, team) for p in property.values])
-        if property.type == PropertyOperatorType.OR:
-            if len(property.values) == 1:
-                return property_to_expr(property.values[0], team)
+        else:
             return ast.Or(exprs=[property_to_expr(p, team) for p in property.values])
-        raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
     elif isinstance(property, BaseModel):
         property = Property(**property.dict())
     else:
@@ -81,7 +84,9 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
         if isinstance(value, list):
-            if len(value) == 1:
+            if len(value) == 0:
+                return ast.Constant(value=True)
+            elif len(value) == 1:
                 value = value[0]
             else:
                 exprs = [

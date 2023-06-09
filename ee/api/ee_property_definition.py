@@ -1,5 +1,5 @@
 from rest_framework import serializers
-
+from django.utils import timezone
 from ee.models.property_definition import EnterprisePropertyDefinition
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
@@ -9,6 +9,7 @@ from posthog.models.activity_logging.activity_log import dict_changes_between, l
 
 class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=True)
+    verified_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = EnterprisePropertyDefinition
@@ -23,8 +24,19 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "query_usage_30_day",
             "is_seen_on_filtered_events",
             "property_type",
+            "verified",
+            "verified_at",
+            "verified_by",
         )
-        read_only_fields = ["id", "name", "is_numerical", "query_usage_30_day", "is_seen_on_filtered_events"]
+        read_only_fields = [
+            "id",
+            "name",
+            "is_numerical",
+            "query_usage_30_day",
+            "is_seen_on_filtered_events",
+            "verified_at",
+            "verified_by",
+        ]
 
     def update(self, property_definition: EnterprisePropertyDefinition, validated_data):
         validated_data["updated_by"] = self.context["request"].user
@@ -33,6 +45,21 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
                 validated_data["is_numerical"] = True
             else:
                 validated_data["is_numerical"] = False
+
+        if "verified" in validated_data:
+            if validated_data["verified"] and not property_definition.verified:
+                # Verify property only if previously unverified
+                validated_data["verified_by"] = self.context["request"].user
+                validated_data["verified_at"] = timezone.now()
+                validated_data["verified"] = True
+            elif not validated_data["verified"]:
+                # Unverifying property nullifies verified properties
+                validated_data["verified_by"] = None
+                validated_data["verified_at"] = None
+                validated_data["verified"] = False
+            else:
+                # Attempting to re-verify an already verified property, invalid action. Ignore attribute.
+                validated_data.pop("verified")
 
         before_state = {
             k: property_definition.__dict__[k] for k in validated_data.keys() if k in property_definition.__dict__

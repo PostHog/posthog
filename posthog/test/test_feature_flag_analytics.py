@@ -64,7 +64,9 @@ class TestFeatureFlagAnalytics(BaseTest):
         team_uuid = "team-uuid"
         other_team_uuid = "other-team-uuid"
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+        with freeze_time("2022-05-07 12:23:07") as frozen_datetime, self.settings(
+            DECIDE_BILLING_ANALYTICS_TOKEN="token"
+        ):
             for _ in range(10):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
@@ -93,15 +95,93 @@ class TestFeatureFlagAnalytics(BaseTest):
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             mock_capture.capture.assert_called_once_with(
-                team_id, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
+                team_id,
+                "decide usage",
+                {
+                    "count": 15,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                    "token": "token",
+                },
             )
 
             mock_capture.reset_mock()
             capture_team_decide_usage(mock_capture, other_team_id, other_team_uuid)
             capture_team_decide_usage(mock_capture, other_team_id, other_team_uuid)
             mock_capture.capture.assert_called_once_with(
-                other_team_id, "decide usage", {"count": 10, "team_id": other_team_id, "team_uuid": other_team_uuid}
+                other_team_id,
+                "decide usage",
+                {
+                    "count": 10,
+                    "team_id": other_team_id,
+                    "team_uuid": other_team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                    "token": "token",
+                },
             )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_no_token_loses_capture_team_decide_usage_data(self):
+        mock_capture = MagicMock()
+        team_id = 3
+        other_team_id = 1243
+        team_uuid = "team-uuid"
+        other_team_uuid = "other-team-uuid"
+
+        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+            for _ in range(10):
+                # 10 requests in first bucket
+                increment_request_count(team_id)
+            for _ in range(7):
+                # 7 requests for other team
+                increment_request_count(other_team_id)
+
+            frozen_datetime.tick(datetime.timedelta(seconds=5))
+
+            for _ in range(5):
+                # 5 requests in second bucket
+                increment_request_count(team_id)
+            for _ in range(3):
+                # 3 requests for other team
+                increment_request_count(other_team_id)
+
+            frozen_datetime.tick(datetime.timedelta(seconds=10))
+
+            for _ in range(5):
+                # 5 requests in third bucket
+                increment_request_count(team_id)
+                increment_request_count(other_team_id)
+
+            capture_team_decide_usage(mock_capture, team_id, team_uuid)
+            capture_team_decide_usage(mock_capture, team_id, team_uuid)
+            mock_capture.capture.assert_not_called()
+
+            client = redis.get_client()
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{team_id}"), {b"165192620": b"5"})
+
+            with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"):
+                capture_team_decide_usage(mock_capture, team_id, team_uuid)
+                # no data anymore to capture
+                mock_capture.capture.assert_not_called()
+
+                mock_capture.reset_mock()
+
+                capture_team_decide_usage(mock_capture, other_team_id, other_team_uuid)
+                mock_capture.capture.assert_called_once_with(
+                    other_team_id,
+                    "decide usage",
+                    {
+                        "count": 10,
+                        "team_id": other_team_id,
+                        "team_uuid": other_team_uuid,
+                        "max_time": 1651926190,
+                        "min_time": 1651926180,
+                        "token": "token",
+                    },
+                )
 
     @pytest.mark.skip(
         reason="This works locally, but causes issues in CI because the freeze_time applies to threads as well in unrelated tests, causing timeouts."
@@ -118,7 +198,9 @@ class TestFeatureFlagAnalytics(BaseTest):
         team_uuid = "team-uuid"
         other_team_uuid = "other-team-uuid"
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+        with freeze_time("2022-05-07 12:23:07") as frozen_datetime, self.settings(
+            DECIDE_BILLING_ANALYTICS_TOKEN="token"
+        ):
             for _ in range(10):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
@@ -160,10 +242,28 @@ class TestFeatureFlagAnalytics(BaseTest):
                 assert future.exception() is None
 
             mock_capture.capture.assert_any_call(
-                team_id, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
+                team_id,
+                "decide usage",
+                {
+                    "count": 15,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                    "token": "token",
+                },
             )
             mock_capture.capture.assert_any_call(
-                other_team_id, "decide usage", {"count": 10, "team_id": other_team_id, "team_uuid": other_team_uuid}
+                other_team_id,
+                "decide usage",
+                {
+                    "count": 10,
+                    "team_id": other_team_id,
+                    "team_uuid": other_team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                    "token": "token",
+                },
             )
             assert mock_capture.capture.call_count == 2
 
@@ -182,7 +282,9 @@ class TestFeatureFlagAnalytics(BaseTest):
         other_team_id = 1243
         team_uuid = "team-uuid"
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+        with freeze_time("2022-05-07 12:23:07") as frozen_datetime, self.settings(
+            DECIDE_BILLING_ANALYTICS_TOKEN="token"
+        ):
             for _ in range(10):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
@@ -214,7 +316,16 @@ class TestFeatureFlagAnalytics(BaseTest):
                 assert future.exception() is None
 
             mock_capture.capture.assert_any_call(
-                team_id, "decide usage", {"count": 15, "team_id": team_id, "team_uuid": team_uuid}
+                team_id,
+                "decide usage",
+                {
+                    "count": 15,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                    "token": "token",
+                },
             )
             assert mock_capture.capture.call_count == 1
 

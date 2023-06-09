@@ -44,7 +44,7 @@ concurrency:
 jobs:
     code-quality:
         name: Code quality
-        runs-on: ubuntu-latest-pluginserver
+        runs-on: ubuntu-latest
         defaults:
             run:
                 working-directory: 'plugin-server'
@@ -74,7 +74,7 @@ jobs:
 
     tests:
         name: Tests (${{matrix.shard}})
-        runs-on: ubuntu-latest-pluginserver
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -159,7 +159,7 @@ jobs:
 
     functional-tests:
         name: Functional tests (POE_EMBRACE_JOIN_FOR_TEAMS=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}})
-        runs-on: ubuntu-latest-pluginserver
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -263,7 +263,7 @@ jobs:
         # comparable results, but rather to give a rough idea of how
         # ingestion performance changes over time.
 
-        runs-on: ubuntu-latest-pluginserver
+        runs-on: ubuntu-latest
 
         env:
             DEBUG: 'true'
