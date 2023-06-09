@@ -1,6 +1,6 @@
 from typing import Dict, List, Literal, Optional, cast
 
-from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
+from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
 
 from posthog.hogql import ast
@@ -64,6 +64,21 @@ class HogQLErrorListener(ErrorListener):
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
+    def visit(self, ctx: ParserRuleContext):
+        start = ctx.start.start if ctx.start else None
+        end = ctx.stop.stop + 1 if ctx.stop else None
+        try:
+            node = super().visit(ctx)
+            if isinstance(node, ast.AST):
+                node.start = start
+                node.end = end
+            return node
+        except HogQLException as e:
+            if start is not None and end is not None and e.start is None or e.end is None:
+                e.start = start
+                e.end = end
+            raise e
+
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
 
@@ -88,7 +103,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
-            macros=self.visit(ctx.withClause()) if ctx.withClause() else None,
+            ctes=self.visit(ctx.withClause()) if ctx.withClause() else None,
             select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
             distinct=True if ctx.DISTINCT() else None,
             select_from=self.visit(ctx.fromClause()) if ctx.fromClause() else None,
@@ -619,21 +634,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
-        macros: Dict[str, ast.Macro] = {}
+        ctes: Dict[str, ast.CTE] = {}
         for expr in ctx.withExpr():
-            macro = self.visit(expr)
-            macros[macro.name] = macro
-        return macros
+            cte = self.visit(expr)
+            ctes[cte.name] = cte
+        return ctes
 
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
         subquery = self.visit(ctx.selectUnionStmt())
         name = self.visit(ctx.identifier())
-        return ast.Macro(name=name, expr=subquery, macro_format="subquery")
+        return ast.CTE(name=name, expr=subquery, cte_type="subquery")
 
     def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
         expr = self.visit(ctx.columnExpr())
         name = self.visit(ctx.identifier())
-        return ast.Macro(name=name, expr=expr, macro_format="column")
+        return ast.CTE(name=name, expr=expr, cte_type="column")
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
         if ctx.PLACEHOLDER():

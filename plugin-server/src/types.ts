@@ -111,6 +111,7 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
+    KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
@@ -513,9 +514,10 @@ export interface Team {
     name: string
     anonymize_ips: boolean
     api_token: string
-    slack_incoming_webhook: string
+    slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
     ingested_event: boolean
+    person_display_name_properties: string[] | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

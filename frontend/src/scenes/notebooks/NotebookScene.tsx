@@ -5,12 +5,15 @@ import { Notebook } from './Notebook/Notebook'
 import { NotFound } from 'lib/components/NotFound'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
 import { NotebookMode } from '~/types'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { notebookSidebarLogic } from './Notebook/notebookSidebarLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { IconArrowRight, IconDelete, IconEllipsis, IconExport } from 'lib/lemon-ui/icons'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { notebooksListLogic } from './Notebook/notebooksListLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -28,30 +31,79 @@ export function NotebookScene(): JSX.Element {
     const { notebookId, mode } = useValues(notebookSceneLogic)
     const { setNotebookMode } = useActions(notebookSceneLogic)
     const { notebook, notebookLoading } = useValues(notebookLogic({ shortId: notebookId }))
+    const { exportJSON } = useActions(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setNotebookSideBarShown } = useActions(notebookSidebarLogic)
+    const { selectedNotebook, notebookSideBarShown } = useValues(notebookSidebarLogic)
 
     if (!notebook && !notebookLoading) {
         return <NotFound object="notebook" />
     }
 
+    if (notebookSideBarShown && selectedNotebook === notebookId) {
+        return (
+            <div className="flex flex-col justify-center items-center h-full text-muted-alt mx-10">
+                <h2 className="text-muted-alt">
+                    This Notebook is open in the sidebar <IconArrowRight />
+                </h2>
+
+                <p>
+                    You can navigate around PostHog and <b>drag and drop</b> thing into it. Or you can close the sidebar
+                    and it will be full screen here instead.
+                </p>
+
+                <LemonButton type="secondary" onClick={() => setNotebookSideBarShown(false)}>
+                    Open it here instead
+                </LemonButton>
+            </div>
+        )
+    }
+
+    const editEnabled = !notebook?.is_template
+
     return (
-        <div className="NotebookScene mt-4">
-            <div className="flex items-center justify-between">
+        <div className="NotebookScene">
+            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-white z-10">
                 <div className="flex gap-2 items-center">
+                    {notebook?.is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                 </div>
 
                 <div className="flex gap-2 items-center">
+                    <LemonMenu
+                        items={[
+                            {
+                                items: [
+                                    {
+                                        label: 'Export JSON',
+                                        icon: <IconExport />,
+                                        onClick: () => {
+                                            exportJSON()
+                                        },
+                                    },
+                                    editEnabled && {
+                                        label: 'Delete',
+                                        icon: <IconDelete />,
+                                        status: 'danger',
+
+                                        onClick: () => {
+                                            notebooksListLogic.actions.deleteNotebook(notebookId, notebook?.title)
+                                            router.actions.push(urls.notebooks())
+                                        },
+                                    },
+                                ],
+                            },
+                        ]}
+                        actionable
+                    >
+                        <LemonButton aria-label="more" icon={<IconEllipsis />} status="stealth" size="small" />
+                    </LemonMenu>
                     <NotebookSyncInfo shortId={notebookId} />
-
                     <NotebookExpandButton type="secondary" />
-
                     <LemonButton
                         type="secondary"
                         onClick={() => {
                             selectNotebook(notebookId)
                             setNotebookSideBarShown(true)
-                            router.actions.push(urls.notebooks())
                         }}
                         tooltip={
                             <>
@@ -64,7 +116,7 @@ export function NotebookScene(): JSX.Element {
                         Pin to side
                     </LemonButton>
 
-                    {mode === NotebookMode.Edit ? (
+                    {!editEnabled ? null : mode === NotebookMode.Edit ? (
                         <>
                             <LemonButton type="primary" onClick={() => setNotebookMode(NotebookMode.View)}>
                                 Done
@@ -80,9 +132,7 @@ export function NotebookScene(): JSX.Element {
                 </div>
             </div>
 
-            <LemonDivider className="mt-2 mb-6" />
-
-            <Notebook key={notebookId} shortId={notebookId} editable={mode === NotebookMode.Edit} />
+            <Notebook key={notebookId} shortId={notebookId} editable={editEnabled && mode === NotebookMode.Edit} />
         </div>
     )
 }

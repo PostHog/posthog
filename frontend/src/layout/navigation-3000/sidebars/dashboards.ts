@@ -6,7 +6,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { SidebarCategory, ExtendedListItem } from '../types'
 import type { dashboardsSidebarLogicType } from './dashboardsType'
 import Fuse from 'fuse.js'
-import { DashboardType } from '~/types'
+import { DashboardBasicType, DashboardType } from '~/types'
 import { subscriptions } from 'kea-subscriptions'
 import { DashboardMode } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -137,7 +137,7 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
         ],
         relevantDashboards: [
             (s) => [s.pinSortedDashboards, navigation3000Logic.selectors.searchTerm],
-            (pinSortedDashboards, searchTerm): [DashboardType, SearchMatch[] | null][] => {
+            (pinSortedDashboards, searchTerm): [DashboardBasicType, SearchMatch[] | null][] => {
                 if (searchTerm) {
                     return fuse.search(searchTerm).map((result) => [result.item, result.matches as SearchMatch[]])
                 }

@@ -91,6 +91,9 @@
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
+                    "$ref": "#/definitions/HogQLMetadata"
+                },
+                {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 }
             ]
@@ -1087,6 +1090,51 @@
             "const": "hogql",
             "type": "string"
         },
+        "HogQLMetadata": {
+            "additionalProperties": false,
+            "properties": {
+                "expr": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "HogQLMetadata",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLMetadataResponse",
+                    "description": "Cached query response"
+                },
+                "select": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "HogQLMetadataResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "errorEnd": {
+                    "type": "number"
+                },
+                "errorStart": {
+                    "type": "number"
+                },
+                "inputExpr": {
+                    "type": "string"
+                },
+                "inputSelect": {
+                    "type": "string"
+                },
+                "isValid": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "HogQLPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -1177,9 +1225,25 @@
         "InsightVizNode": {
             "additionalProperties": false,
             "properties": {
+                "full": {
+                    "description": "Show with most visual options enabled. Used in insight scene.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "InsightVizNode",
                     "type": "string"
+                },
+                "showCorrelationTable": {
+                    "type": "boolean"
+                },
+                "showHeader": {
+                    "type": "boolean"
+                },
+                "showLastComputation": {
+                    "type": "boolean"
+                },
+                "showTable": {
+                    "type": "boolean"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"

@@ -48,7 +48,7 @@ def destination(team):
         config={
             "bucket_name": "bucket",
             "region": "us-east-1",
-            "key_template": "events.csv",
+            "prefix": "posthog-events/",
             "batch_window_size": 3600,
             "aws_access_key_id": "key_id",
             "aws_secret_access_key": "secret",

@@ -1167,8 +1167,11 @@ const api = {
         async list(): Promise<PaginatedResponse<NotebookType>> {
             return await new ApiRequest().notebooks().get()
         },
-        async create(data?: Pick<NotebookType, 'content'>): Promise<NotebookType> {
+        async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
+        },
+        async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).delete()
         },
     },
 
@@ -1190,9 +1193,6 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
-        },
-        async promote(featureId: EarlyAccessFeatureType['id']): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
-            return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
         },
     },
 

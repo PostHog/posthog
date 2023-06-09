@@ -55,6 +55,18 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Live Events',
     },
+    [Scene.Exports]: {
+        projectBased: true,
+        name: 'Exports',
+    },
+    [Scene.CreateExport]: {
+        projectBased: true,
+        name: 'Create Export',
+    },
+    [Scene.ViewExport]: {
+        projectBased: true,
+        name: 'View Export',
+    },
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data Management',
@@ -337,6 +349,7 @@ export const routes: Record<string, Scene> = {
     [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
     [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
+    [urls.copyAction(null)]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
     [urls.ingestionWarnings()]: Scene.IngestionWarnings,
     [urls.insightNew()]: Scene.Insight,
@@ -349,6 +362,9 @@ export const routes: Record<string, Scene> = {
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
+    [urls.exports()]: Scene.Exports,
+    [urls.createExport(':type')]: Scene.CreateExport,
+    [urls.viewExport(':id')]: Scene.ViewExport,
     [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,

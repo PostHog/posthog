@@ -57,6 +57,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -229,6 +230,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightSQLIcon,
         inMenu: true,
     },
+    [NodeKind.HogQLMetadata]: {
+        name: 'HogQL Metadata',
+        description: 'Metadata for a HogQL query',
+        icon: InsightSQLIcon,
+        inMenu: true,
+    },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema',
@@ -365,7 +372,7 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <>
+                    <DraggableToNotebook href={urls.insightView(insight.short_id)}>
                         <span className="row-name">
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
@@ -396,7 +403,7 @@ export function SavedInsights(): JSX.Element {
                         {hasDashboardCollaboration && insight.description && (
                             <span className="row-description">{insight.description}</span>
                         )}
-                    </>
+                    </DraggableToNotebook>
                 )
             },
         },

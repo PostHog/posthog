@@ -13,14 +13,10 @@ from temporalio.client import (
     Client,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleIntervalSpec,
     ScheduleSpec,
     ScheduleState,
 )
-
-
-class S3BatchExportWorkflow:
-    def run(self, inputs):
-        raise NotImplementedError
 
 
 @dataclass
@@ -42,29 +38,44 @@ class S3BatchExportInputs:
 
     bucket_name: str
     region: str
-    key_template: str
+    prefix: str
     batch_window_size: int
     team_id: int
     batch_export_id: str
-    table_name: str = "events"
-    file_format: str = "CSVWithNames"
-    partition_key: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     data_interval_end: str | None = None
 
 
+@dataclass
+class SnowflakeBatchExportInputs:
+    """Inputs for Snowflake export workflow."""
+
+    batch_export_id: str
+    team_id: int
+    user: str
+    password: str
+    account: str
+    database: str
+    warehouse: str
+    schema: str
+    table_name: str = "events"
+    data_interval_end: str | None = None
+
+
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
+    "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
 }
 
 
 @async_to_sync
-async def create_schedule(temporal, id: str, schedule: Schedule):
+async def create_schedule(temporal, id: str, schedule: Schedule, trigger_immediately: bool = False):
     """Create a Temporal Schedule."""
     return await temporal.create_schedule(
         id=id,
         schedule=schedule,
+        trigger_immediately=trigger_immediately,
     )
 
 
@@ -199,6 +210,8 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
 
     temporal = sync_connect()
 
+    time_delta_from_interval = dt.timedelta(hours=1) if interval == "hour" else dt.timedelta(days=1)
+
     create_schedule(
         temporal,
         id=str(batch_export.id),
@@ -217,9 +230,12 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
                 id=str(batch_export.id),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             ),
-            spec=ScheduleSpec(),
+            spec=ScheduleSpec(
+                intervals=[ScheduleIntervalSpec(every=time_delta_from_interval)],
+            ),
             state=state,
         ),
+        trigger_immediately=True,
     )
 
     return batch_export

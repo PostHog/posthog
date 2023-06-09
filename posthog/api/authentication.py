@@ -1,3 +1,4 @@
+import datetime
 import time
 from typing import Any, Dict, Optional, cast
 from uuid import uuid4
@@ -6,7 +7,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.tokens import default_token_generator
+from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -256,7 +257,10 @@ class PasswordResetSerializer(serializers.Serializer):
             user = None
 
         if user:
-            send_password_reset(user.id)
+            user.requested_password_reset_at = datetime.datetime.now()
+            user.save()
+            token = password_reset_token_generator.make_token(user)
+            send_password_reset(user.id, token)
 
         return True
 
@@ -277,11 +281,10 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
                 {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
             )
 
-        if not default_token_generator.check_token(user, validated_data["token"]):
+        if not password_reset_token_generator.check_token(user, validated_data["token"]):
             raise serializers.ValidationError(
                 {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
             )
-
         password = validated_data["password"]
         try:
             validate_password(password, user)
@@ -289,6 +292,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             raise serializers.ValidationError({"password": e.messages})
 
         user.set_password(password)
+        user.requested_password_reset_at = None
         user.save()
 
         login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
@@ -326,7 +330,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
         except User.DoesNotExist:
             user = None
 
-        if not user or not default_token_generator.check_token(user, token):
+        if not user or not password_reset_token_generator.check_token(user, token):
             raise serializers.ValidationError(
                 {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
             )
@@ -337,3 +341,14 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
         response = super().retrieve(request, *args, **kwargs)
         response.status_code = self.SUCCESS_STATUS_CODE
         return response
+
+
+class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
+    def _make_hash_value(self, user, timestamp):
+        # Due to type differences between the user model and the token generator, we need to
+        # re-fetch the user from the database to get the correct type.
+        usable_user: User = User.objects.get(pk=user.pk)
+        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}"
+
+
+password_reset_token_generator = PasswordResetTokenGenerator()
