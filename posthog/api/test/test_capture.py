@@ -8,6 +8,7 @@ import zlib
 from collections import Counter
 from datetime import datetime, timedelta
 from datetime import timezone as tz
+from math import floor
 from typing import Any, Dict, List, Union, cast
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
@@ -1332,8 +1333,12 @@ class TestCapture(BaseTest):
     def test_quota_limits_ignored_if_disabled(self, kafka_produce) -> None:
         from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
 
-        replace_limited_team_tokens(QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000})
-        replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS, {str(self.team.api_token): floor(timezone.now().timestamp()) + 10000}
+        )
+        replace_limited_team_tokens(
+            QuotaResource.EVENTS, {str(self.team.api_token): floor(timezone.now().timestamp()) + 10000}
+        )
         self._send_session_recording_event()
         self.assertEqual(kafka_produce.call_count, 1)
 
@@ -1362,19 +1367,23 @@ class TestCapture(BaseTest):
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 3)
 
-            replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
+            replace_limited_team_tokens(
+                QuotaResource.EVENTS, {str(self.team.api_token): floor(timezone.now().timestamp()) + 10000}
+            )
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 1)  # Only the recording event
 
             replace_limited_team_tokens(
-                QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000}
+                QuotaResource.RECORDINGS, {str(self.team.api_token): floor(timezone.now().timestamp()) + 10000}
             )
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 0)  # No events
 
             replace_limited_team_tokens(
-                QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() - 10000}
+                QuotaResource.RECORDINGS, {str(self.team.api_token): floor(timezone.now().timestamp()) - 10000}
             )
-            replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() - 10000})
+            replace_limited_team_tokens(
+                QuotaResource.EVENTS, {str(self.team.api_token): floor(timezone.now().timestamp()) - 10000}
+            )
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 3)  # All events as limit-until timestamp is in the past

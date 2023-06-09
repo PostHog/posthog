@@ -25,12 +25,11 @@ def execute_hogql_query(
 ) -> HogQLQueryResponse:
     if isinstance(query, ast.SelectQuery):
         select_query = query
-        query = None
     else:
-        select_query = parse_select(str(query))
+        select_query = parse_select(str(query))  # type: ignore
 
     if placeholders:
-        select_query = replace_placeholders(select_query, placeholders)
+        select_query = replace_placeholders(select_query, placeholders)  # type: ignore
     else:
         assert_no_placeholders(select_query)
 

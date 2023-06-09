@@ -160,9 +160,9 @@ class Organization(UUIDModel):
             return (License.ENTERPRISE_PLAN, "demo")
         # If on Cloud, grab the organization's price
         if hasattr(self, "billing"):
-            if self.billing is None:  # type: ignore
+            if self.billing is None:
                 return (None, None)
-            return (self.billing.get_plan_key(), "cloud")  # type: ignore
+            return (self.billing.get_plan_key(), "cloud")
         # Otherwise, try to find a valid license on this instance
         if License is not None:
             license = License.objects.first_valid()
@@ -201,7 +201,7 @@ class Organization(UUIDModel):
 
     @property
     def has_billing_v2_setup(self):
-        if hasattr(self, "billing") and self.billing.stripe_subscription_id:  # type: ignore
+        if hasattr(self, "billing") and self.billing.stripe_subscription_id:
             return False
 
         return self.usage is not None

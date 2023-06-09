@@ -14,8 +14,8 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions
 
-
-class RolePermissions(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class RolePermissions(BasePermission):  # type: ignore
     """
     Requires organization admin level to change object, allows everyone read
     """

@@ -10,4 +10,4 @@ class Migration(migrations.Migration):
         ("posthog", "0147_fix_stickiness_dashboard_items"),
     ]
 
-    operations = []  # type: ignore
+    operations = []

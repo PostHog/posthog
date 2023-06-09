@@ -663,7 +663,6 @@ class TestParser(BaseTest):
             LEFT JOIN persons p
             ON p.id = pdi.person_id
             """,
-            self.team,
         )
         self.assertEqual(
             node,

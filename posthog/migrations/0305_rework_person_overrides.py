@@ -7,4 +7,4 @@ class Migration(migrations.Migration):
         ("posthog", "0304_store_dashboard_template_in_db"),
     ]
 
-    operations = []  # type: ignore
+    operations = []

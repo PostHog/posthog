@@ -54,9 +54,9 @@ class TestResolver(BaseTest):
         )
 
         # asserting individually to help debug if something is off
-        self.assertEqual(expr.select, expected.select)
-        self.assertEqual(expr.select_from, expected.select_from)
-        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.select, expected.select)  # type: ignore
+        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
+        self.assertEqual(expr.where, expected.where)  # type: ignore
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -102,9 +102,9 @@ class TestResolver(BaseTest):
         )
 
         # asserting individually to help debug if something is off
-        self.assertEqual(expr.select, expected.select)
-        self.assertEqual(expr.select_from, expected.select_from)
-        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.select, expected.select)  # type: ignore
+        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
+        self.assertEqual(expr.where, expected.where)  # type: ignore
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -159,9 +159,9 @@ class TestResolver(BaseTest):
             type=select_query_type,
         )
         # asserting individually to help debug if something is off
-        self.assertEqual(expr.select, expected.select)
-        self.assertEqual(expr.select_from, expected.select_from)
-        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.select, expected.select)  # type: ignore
+        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
+        self.assertEqual(expr.where, expected.where)  # type: ignore
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -237,9 +237,9 @@ class TestResolver(BaseTest):
             ),
         )
         # asserting individually to help debug if something is off
-        self.assertEqual(expr.select, expected.select)
-        self.assertEqual(expr.select_from, expected.select_from)
-        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.select, expected.select)  # type: ignore
+        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
+        self.assertEqual(expr.where, expected.where)  # type: ignore
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -371,9 +371,9 @@ class TestResolver(BaseTest):
                 tables={"person_distinct_ids": pdi_table_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)
-        self.assertEqual(expr.select_from, expected.select_from)
-        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.select, expected.select)  # type: ignore
+        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
+        self.assertEqual(expr.where, expected.where)  # type: ignore
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -418,9 +418,9 @@ class TestResolver(BaseTest):
                 tables={"events": events_table_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)
-        self.assertEqual(expr.select_from, expected.select_from)
-        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.select, expected.select)  # type: ignore
+        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
+        self.assertEqual(expr.where, expected.where)  # type: ignore
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -467,9 +467,9 @@ class TestResolver(BaseTest):
                 tables={"e": events_table_alias_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)
-        self.assertEqual(expr.select_from, expected.select_from)
-        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.select, expected.select)  # type: ignore
+        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
+        self.assertEqual(expr.where, expected.where)  # type: ignore
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -492,7 +492,7 @@ class TestResolver(BaseTest):
                                 table_type=events_table_type, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.join_table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,  # type: ignore
                         ),
                     ),
                 ),
@@ -513,16 +513,16 @@ class TestResolver(BaseTest):
                                 table_type=events_table_type, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.join_table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,  # type: ignore
                         ),
                     ),
                 },
                 tables={"events": events_table_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)
-        self.assertEqual(expr.select_from, expected.select_from)
-        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.select, expected.select)  # type: ignore
+        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
+        self.assertEqual(expr.where, expected.where)  # type: ignore
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -546,7 +546,7 @@ class TestResolver(BaseTest):
                                 table_type=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.join_table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,  # type: ignore
                         ),
                     ),
                 ),
@@ -568,16 +568,16 @@ class TestResolver(BaseTest):
                                 table_type=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.join_table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,  # type: ignore
                         ),
                     ),
                 },
                 tables={"e": events_table_alias_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)
-        self.assertEqual(expr.select_from, expected.select_from)
-        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.select, expected.select)  # type: ignore
+        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
+        self.assertEqual(expr.where, expected.where)  # type: ignore
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -620,9 +620,9 @@ class TestResolver(BaseTest):
                 tables={"events": events_table_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)
-        self.assertEqual(expr.select_from, expected.select_from)
-        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.select, expected.select)  # type: ignore
+        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
+        self.assertEqual(expr.where, expected.where)  # type: ignore
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -632,14 +632,14 @@ class TestResolver(BaseTest):
 
         events_table_type = ast.TableType(table=self.database.events)
         self.assertEqual(
-            node.select_queries[0].select,
+            node.select_queries[0].select,  # type: ignore
             [
                 ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_type)),
                 ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=events_table_type)),
             ],
         )
         self.assertEqual(
-            node.select_queries[1].select,
+            node.select_queries[1].select,  # type: ignore
             [
                 ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_type)),
                 ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=events_table_type)),
@@ -662,7 +662,7 @@ class TestResolver(BaseTest):
                 ],
             ),
         ]
-        self.assertEqual(node.select, expected)
+        self.assertEqual(node.select, expected)  # type: ignore
 
     def test_ctes_loop(self):
         with self.assertRaises(ResolverException) as e:
@@ -734,7 +734,7 @@ class TestResolver(BaseTest):
 
         events_table_type = ast.TableType(table=self.database.events)
         self.assertEqual(
-            node.select,
+            node.select,  # type: ignore
             [
                 ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=events_table_type)),
                 ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_type)),
@@ -757,7 +757,7 @@ class TestResolver(BaseTest):
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
         self.assertEqual(
-            node.select,
+            node.select,  # type: ignore
             [
                 ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=events_table_alias_type)),
                 ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_alias_type)),
@@ -796,7 +796,7 @@ class TestResolver(BaseTest):
             anonymous_tables=[],
         )
         self.assertEqual(
-            node.select,
+            node.select,  # type: ignore
             [
                 ast.Field(chain=["a"], type=ast.FieldType(name="a", table_type=select_subquery_type)),
                 ast.Field(chain=["b"], type=ast.FieldType(name="b", table_type=select_subquery_type)),
@@ -822,7 +822,7 @@ class TestResolver(BaseTest):
             ),
         )
         self.assertEqual(
-            node.select,
+            node.select,  # type: ignore
             [
                 ast.Field(chain=["a"], type=ast.FieldType(name="a", table_type=select_subquery_type)),
                 ast.Field(chain=["b"], type=ast.FieldType(name="b", table_type=select_subquery_type)),
@@ -852,7 +852,7 @@ class TestResolver(BaseTest):
         )
 
         self.assertEqual(
-            node.select,
+            node.select,  # type: ignore
             [
                 ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=inner_select_type)),
                 ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=inner_select_type)),
@@ -903,7 +903,7 @@ class TestResolver(BaseTest):
         )
 
         self.assertEqual(
-            node.select,
+            node.select,  # type: ignore
             [
                 ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=inner_select_type)),
                 ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=inner_select_type)),

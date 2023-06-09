@@ -1,3 +1,5 @@
+from typing import Dict, Any
+
 from django.test.client import Client as HttpClient
 import pytest
 
@@ -55,7 +57,7 @@ def test_can_put_config(client: HttpClient):
         )
 
     # If we try to update without all fields, it should fail with a 400 error
-    new_batch_export_data = {
+    new_batch_export_data: Dict[str, Any] = {
         "name": "my-production-s3-bucket-destination",
         "interval": "hour",
     }

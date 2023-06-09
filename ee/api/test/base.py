@@ -32,10 +32,10 @@ class LicensedTestMixin:
                 plan=cls.CONFIG_LICENSE_PLAN,
                 valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=pytz.UTC),
             )
-            if hasattr(cls, "organization") and cls.organization:  # type: ignore
-                cls.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES  # type: ignore
-                cls.organization.update_available_features()  # type: ignore
-                cls.organization.save()  # type: ignore
+            if hasattr(cls, "organization") and cls.organization:
+                cls.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
+                cls.organization.update_available_features()
+                cls.organization.save()
 
 
 class APILicensedTest(LicensedTestMixin, APIBaseTest):

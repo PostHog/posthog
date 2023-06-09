@@ -35,7 +35,9 @@ from posthog.user_permissions import UserPermissionsSerializerMixin
 logger = structlog.get_logger(__name__)
 
 
-class CanEditDashboard(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class CanEditDashboard(BasePermission):  # type: ignore
+
     message = "You don't have edit permissions for this dashboard."
 
     def has_object_permission(self, request: Request, view, dashboard) -> bool:

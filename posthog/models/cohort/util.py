@@ -41,7 +41,7 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 logger = structlog.get_logger(__name__)
 
 
-def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext | None) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
         return format_static_cohort_query(cohort, index, prepend="")
 
@@ -162,7 +162,7 @@ def is_precalculated_query(cohort: Cohort) -> bool:
 def format_filter_query(
     cohort: Cohort,
     index: int,
-    hogql_context: HogQLContext,
+    hogql_context: HogQLContext | None,
     id_column: str = "distinct_id",
     custom_match_field="person_id",
 ) -> Tuple[str, Dict[str, Any]]:
@@ -177,7 +177,7 @@ def format_filter_query(
 
 
 def format_cohort_subquery(
-    cohort: Cohort, index: int, hogql_context: HogQLContext, custom_match_field="person_id"
+    cohort: Cohort, index: int, hogql_context: HogQLContext | None, custom_match_field="person_id"
 ) -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     if is_precalculated:

@@ -114,7 +114,15 @@ def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedR
     )
 
     try:
-        content = object_storage.read(recording.object_storage_path)
+        content = object_storage.read(str(recording.object_storage_path))
+        if content is None:
+            logger.info(
+                "Persisting recording load: skipping as recording is not found",
+                recording_id=recording.session_id,
+                path=recording.object_storage_path,
+            )
+            return None
+
         decompressed = json.loads(decompress(content))
         logger.info(
             "Persisting recording load: loaded!", recording_id=recording.session_id, path=recording.object_storage_path

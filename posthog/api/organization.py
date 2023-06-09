@@ -23,8 +23,8 @@ from posthog.permissions import (
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
-
-class PremiumMultiorganizationPermissions(permissions.BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class PremiumMultiorganizationPermissions(permissions.BasePermission):  # type: ignore
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple organizations."
@@ -45,7 +45,8 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         return True
 
 
-class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):  # type: ignore
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True

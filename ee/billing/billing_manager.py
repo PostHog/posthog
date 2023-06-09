@@ -245,7 +245,7 @@ class BillingManager:
 
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
-            organization.available_product_features = data["available_product_features"]
+            organization.available_product_features = available_product_features
             org_modified = True
 
         if org_modified:

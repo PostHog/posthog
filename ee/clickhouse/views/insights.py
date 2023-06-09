@@ -15,8 +15,8 @@ from posthog.models import Insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import Filter
 
-
-class CanEditInsight(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class CanEditInsight(BasePermission):  # type: ignore
     message = "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
 
     def has_object_permission(self, request: Request, view, insight: Insight) -> bool:

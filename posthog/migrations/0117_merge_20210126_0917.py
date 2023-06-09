@@ -10,4 +10,4 @@ class Migration(migrations.Migration):
         ("posthog", "0116_session_recording_retention_period"),
     ]
 
-    operations = []  # type: ignore
+    operations = []

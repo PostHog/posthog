@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Generator
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -32,7 +32,7 @@ regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%2
 @override_settings(SITE_URL="http://testserver")
 class TestCSVExporter(APIBaseTest):
     @pytest.fixture(autouse=True)
-    def patched_request(self):
+    def patched_request(self) -> Generator[Mock, None, None]:
         with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
             mock_response = Mock()
             mock_response.status_code = 200
@@ -99,7 +99,7 @@ class TestCSVExporter(APIBaseTest):
         asset.save()
         return asset
 
-    def teardown_method(self, method):
+    def teardown_method(self, _method: Any) -> None:
         s3 = resource(
             "s3",
             endpoint_url=OBJECT_STORAGE_ENDPOINT,
@@ -123,7 +123,7 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is None
 
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt) -> None:
+    def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt: Mock) -> None:
         exported_asset = self._create_asset()
         mocked_uuidt.return_value = "a-guid"
 
@@ -135,7 +135,7 @@ class TestCSVExporter(APIBaseTest):
                 == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
-            content = object_storage.read(exported_asset.content_location)
+            content = object_storage.read(str(exported_asset.content_location))
             assert (
                 content
                 == "id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
@@ -146,7 +146,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
     def test_csv_exporter_writes_to_asset_when_object_storage_write_fails(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write: Mock, mocked_uuidt: Mock
     ) -> None:
         exported_asset = self._create_asset()
         mocked_uuidt.return_value = "a-guid"
@@ -165,7 +165,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
     def test_csv_exporter_does_not_filter_columns_on_empty_param(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write: Mock, mocked_uuidt: Mock
     ) -> None:
         exported_asset = self._create_asset({"columns": []})
         mocked_uuidt.return_value = "a-guid"
@@ -183,7 +183,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
-    def test_csv_exporter_does_filter_columns(self, mocked_object_storage_write, mocked_uuidt) -> None:
+    def test_csv_exporter_does_filter_columns(self, mocked_object_storage_write: Mock, mocked_uuidt: Mock) -> None:
         # NB these columns are not in the "natural" order
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event"]})
         mocked_uuidt.return_value = "a-guid"
@@ -202,7 +202,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
     def test_csv_exporter_does_filter_columns_and_can_handle_unexpected_columns(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write: Mock, mocked_uuidt: Mock
     ) -> None:
         # NB these columns are not in the "natural" order
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
@@ -221,7 +221,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.tasks.exports.csv_exporter.logger")
     @patch("posthog.tasks.exports.csv_exporter.statsd")
-    def test_failing_export_api_is_reported(self, mock_statsd, mock_logger) -> None:
+    def test_failing_export_api_is_reported(self, _mock_statsd: Mock, _mock_logger: Mock) -> None:
         with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
             exported_asset = self._create_asset()
             mock_response = MagicMock()
@@ -249,7 +249,7 @@ class TestCSVExporter(APIBaseTest):
             assert expected_bits == actual_bits
 
     @patch("posthog.tasks.exports.csv_exporter.make_api_call")
-    def test_raises_expected_error_when_json_is_none(self, patched_api_call) -> None:
+    def test_raises_expected_error_when_json_is_none(self, patched_api_call: Mock) -> None:
         mock_response = Mock()
         mock_response.json.return_value = None
         mock_response.status_code = 200
@@ -261,7 +261,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_hogql_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_hogql_query(self, mocked_uuidt: Mock) -> None:
         random_uuid = str(UUIDT())
         for i in range(15):
             _create_event(
@@ -294,7 +294,7 @@ class TestCSVExporter(APIBaseTest):
                 == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
-            content = object_storage.read(exported_asset.content_location)
+            content = object_storage.read(str(exported_asset.content_location))
             assert (
                 content
                 == "event\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n"
@@ -304,7 +304,10 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_events_query(
+        self,
+        mocked_uuidt: Mock,
+    ) -> None:
         random_uuid = str(UUIDT())
         for i in range(15):
             _create_event(
@@ -328,7 +331,7 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_csv(exported_asset)
-            content = object_storage.read(exported_asset.content_location)
+            content = object_storage.read(str(exported_asset.content_location))
             lines = (content or "").split("\r\n")
             self.assertEqual(len(lines), 12)
             self.assertEqual(

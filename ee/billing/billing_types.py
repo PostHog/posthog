@@ -51,6 +51,7 @@ class CustomerInfo(TypedDict):
     has_active_subscription: bool
     billing_period: BillingPeriod
     available_features: List[AvailableFeature]
+    available_product_features: List
     current_total_amount_usd: Optional[str]
     current_total_amount_usd_after_discount: Optional[str]
     products: Optional[List[CustomerProduct]]

@@ -1,4 +1,5 @@
-from unittest.mock import mock_open, patch
+from typing import Any
+from unittest.mock import mock_open, patch, Mock
 
 from boto3 import resource
 from botocore.client import Config
@@ -25,14 +26,14 @@ TEST_PREFIX = "Test-Exports"
 class TestImageExporter(APIBaseTest):
     exported_asset: ExportedAsset
 
-    def setup_method(self, method):
+    def setup_method(self, _method: Any) -> None:
         insight = Insight.objects.create(team=self.team)
         asset = ExportedAsset.objects.create(
             team=self.team, export_format=ExportedAsset.ExportFormat.PNG, insight=insight
         )
         self.exported_asset = asset
 
-    def teardown_method(self, method):
+    def teardown_method(self, _method: Any) -> None:
         s3 = resource(
             "s3",
             endpoint_url=OBJECT_STORAGE_ENDPOINT,
@@ -44,7 +45,7 @@ class TestImageExporter(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_PREFIX).delete()
 
-    def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args) -> None:
+    def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(self.exported_asset)
 
@@ -52,7 +53,9 @@ class TestImageExporter(APIBaseTest):
             assert self.exported_asset.content_location is None
 
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_image_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt, *args) -> None:
+    def test_image_exporter_writes_to_object_storage_when_object_storage_is_enabled(
+        self, mocked_uuidt: Mock, *args: Any
+    ) -> None:
         mocked_uuidt.return_value = "a-guid"
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             image_exporter.export_image(self.exported_asset)
@@ -70,7 +73,7 @@ class TestImageExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
     def test_image_exporter_writes_to_object_storage_when_object_storage_write_fails(
-        self, mocked_object_storage_write, mocked_uuidt, *args
+        self, mocked_object_storage_write: Mock, mocked_uuidt: Mock, *args: Any
     ) -> None:
         mocked_uuidt.return_value = "a-guid"
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")

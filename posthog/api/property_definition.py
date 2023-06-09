@@ -378,7 +378,11 @@ class PropertyDefinitionViewSet(
         queryset = PropertyDefinition.objects
 
         property_definition_fields = ", ".join(
-            [f'posthog_propertydefinition."{f.column}"' for f in PropertyDefinition._meta.get_fields() if hasattr(f, "column")]  # type: ignore
+            [
+                f'posthog_propertydefinition."{f.column}"'
+                for f in PropertyDefinition._meta.get_fields()
+                if hasattr(f, "column")
+            ]
         )
 
         use_enterprise_taxonomy = self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)  # type: ignore
@@ -392,7 +396,7 @@ class PropertyDefinitionViewSet(
                     [
                         f'{f.cached_col.alias}."{f.column}"'  # type: ignore
                         for f in EnterprisePropertyDefinition._meta.get_fields()
-                        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
+                        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
                     ]
                 )
 

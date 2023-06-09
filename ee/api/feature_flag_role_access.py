@@ -10,8 +10,8 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 
-
-class FeatureFlagRoleAccessPermissions(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class FeatureFlagRoleAccessPermissions(BasePermission):  # type: ignore
     message = "You can't edit roles for this feature flag."
 
     def has_permission(self, request, view):

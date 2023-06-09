@@ -28,8 +28,8 @@ from posthog.permissions import (
 from posthog.tasks.demo_create_data import create_data_for_demo_team
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
-
-class PremiumMultiprojectPermissions(permissions.BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class PremiumMultiprojectPermissions(permissions.BasePermission):  # type: ignore
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."

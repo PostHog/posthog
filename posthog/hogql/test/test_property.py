@@ -23,13 +23,15 @@ not_call = lambda x: ast.Call(name="not", args=[x])
 
 
 class TestProperty(BaseTest):
-    def _property_to_expr(self, property: Union[PropertyGroup, Property, dict, list], team: Optional[Team] = None):
+    def _property_to_expr(
+        self, property: Union[HogQLPropertyFilter, PropertyGroup, Property, dict, list], team: Optional[Team] = None
+    ):
         return clear_locations(property_to_expr(property, team=team))
 
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
 
-    def _parse_expr(self, expr: str, placeholders: Dict[str, Any] = None):
+    def _parse_expr(self, expr: str, placeholders: Dict[str, Any] | None = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_has_aggregation(self):

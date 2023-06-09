@@ -760,7 +760,7 @@ class ClickhouseFunnelBase(ABC):
 
             breakdown = self._filter.breakdown
             if isinstance(breakdown, list):
-                expressions = [translate_hogql(exp, self._filter.hogql_context) for exp in breakdown]
+                expressions = [translate_hogql(str(exp), self._filter.hogql_context) for exp in breakdown]
                 expression = f"array({','.join(expressions)})"
             else:
                 expression = translate_hogql(cast(str, breakdown), self._filter.hogql_context)

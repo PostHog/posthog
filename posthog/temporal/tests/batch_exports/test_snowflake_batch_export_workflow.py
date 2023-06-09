@@ -1,7 +1,7 @@
 from collections import deque
 import json
 import re
-from typing import TypedDict
+from typing import TypedDict, Dict
 from uuid import uuid4
 
 import gzip
@@ -179,11 +179,12 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
 
     organization = await acreate_organization("test")
     team = await acreate_team(organization=organization)
+    assert isinstance(batch_export_data["destination"], Dict)
     batch_export = await acreate_batch_export(
         team_id=team.pk,
-        name=batch_export_data["name"],
+        name=str(batch_export_data["name"]),
         destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
+        interval=str(batch_export_data["interval"]),
     )
 
     # Create enough events to ensure we span more than 5MB, the smallest

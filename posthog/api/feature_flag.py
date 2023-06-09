@@ -39,7 +39,8 @@ class FeatureFlagThrottle(BurstRateThrottle):
     scope = "feature_flag_evaluations"
 
 
-class CanEditFeatureFlag(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class CanEditFeatureFlag(BasePermission):  # type: ignore
     message = "You don't have edit permissions for this feature flag."
 
     def has_object_permission(self, request: Request, view, feature_flag) -> bool:

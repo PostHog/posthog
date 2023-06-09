@@ -136,6 +136,7 @@ def backfill_export(batch_export_id: str, start_at: dt.datetime | None = None, e
             BatchExportSchedule's created_at.
     """
     batch_export = BatchExport.objects.get(id=batch_export_id)
+    # TODO data_interval_start and data_interval_end should be optional or handle start_at and end_at being None here
     backfill_run = BatchExportRun.objects.create(
         batch_export=batch_export,
         data_interval_start=start_at,

@@ -23,11 +23,11 @@ class TestCSVExporterURLSanitization(APIBaseTest):
     ]
 
     @parameterized.expand(error_test_cases)
-    def test_sanitise_url_error_cases_as_paths(self, _name, site_url, provided_url_or_path) -> None:
+    def test_sanitise_url_error_cases_as_paths(self, _name: str, site_url: str, provided_url_or_path: str) -> None:
         with self.settings(SITE_URL=site_url), self.assertRaises(PotentialSecurityProblemException):
             absolute_uri(None or provided_url_or_path)
 
     @parameterized.expand(error_test_cases)
-    def test_sanitise_url_error_cases_as_next_url(self, _name, site_url, provided_url_or_path) -> None:
+    def test_sanitise_url_error_cases_as_next_url(self, _name: str, site_url: str, provided_url_or_path: str) -> None:
         with self.settings(SITE_URL=site_url), self.assertRaises(PotentialSecurityProblemException):
             absolute_uri(provided_url_or_path or None)

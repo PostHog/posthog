@@ -70,9 +70,10 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             )
 
             filter = create_recording_filter("1")
-            recording: DecompressedRecordingData = SessionRecordingEvents(
+            recording: DecompressedRecordingData | None = SessionRecordingEvents(
                 team=self.team, session_recording_id="1"
             ).get_snapshots(filter.limit, filter.offset)
+            assert recording is not None
 
             self.assertEqual(
                 recording["snapshot_data_by_window_id"],
@@ -107,9 +108,10 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             )
 
             filter = create_recording_filter("1")
-            recording: DecompressedRecordingData = SessionRecordingEvents(
+            recording: DecompressedRecordingData | None = SessionRecordingEvents(
                 team=self.team, session_recording_id="1"
             ).get_snapshots(filter.limit, filter.offset)
+            assert recording is not None
 
             self.assertEqual(
                 recording["snapshot_data_by_window_id"],
@@ -118,9 +120,10 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_snapshots_with_no_such_session(self):
         filter = create_recording_filter("xxx")
-        recording: DecompressedRecordingData = SessionRecordingEvents(
+        recording: DecompressedRecordingData | None = SessionRecordingEvents(
             team=self.team, session_recording_id="xxx"
         ).get_snapshots(filter.limit, filter.offset)
+        assert recording is not None
         assert not recording
 
     def test_get_chunked_snapshots(self):
@@ -138,9 +141,10 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 )
 
             filter = create_recording_filter(chunked_session_id)
-            recording: DecompressedRecordingData = SessionRecordingEvents(
+            recording: DecompressedRecordingData | None = SessionRecordingEvents(
                 team=self.team, session_recording_id=chunked_session_id
             ).get_snapshots(chunk_limit, filter.offset)
+            assert recording is not None
             self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), chunk_limit * snapshots_per_chunk)
             self.assertTrue(recording["has_next"])
 
@@ -160,9 +164,10 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 )
 
             filter = create_recording_filter(chunked_session_id, chunk_limit, chunk_offset)
-            recording: DecompressedRecordingData = SessionRecordingEvents(
+            recording: DecompressedRecordingData | None = SessionRecordingEvents(
                 team=self.team, session_recording_id=chunked_session_id
             ).get_snapshots(chunk_limit, filter.offset)
+            assert recording is not None
 
             self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), chunk_limit * snapshots_per_chunk)
             self.assertEqual(recording["snapshot_data_by_window_id"][""][0]["timestamp"], 1_600_000_300_000)
@@ -431,9 +436,10 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             filter = create_recording_filter(
                 "1",
             )
-            recording: DecompressedRecordingData = SessionRecordingEvents(
+            recording: DecompressedRecordingData | None = SessionRecordingEvents(
                 team=self.team, session_recording_id="1", recording_start_time=now()
             ).get_snapshots(filter.limit, filter.offset)
+            assert recording is not None
 
             self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), 1)
 

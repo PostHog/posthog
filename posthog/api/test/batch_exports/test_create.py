@@ -62,6 +62,7 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient):
 
     # We should not get the aws_access_key_id or aws_secret_access_key back, so
     # remove that from the data we expect.
+    assert isinstance(batch_export_data["destination"], dict)
     batch_export_data["destination"]["config"].pop("aws_access_key_id")
     batch_export_data["destination"]["config"].pop("aws_secret_access_key")
     assert data["destination"] == batch_export_data["destination"]

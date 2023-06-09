@@ -48,7 +48,8 @@ def get_organization_from_view(view) -> Organization:
     raise ValueError("View not compatible with organization-based permissions!")
 
 
-class CanCreateOrg(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class CanCreateOrg(BasePermission):  # type: ignore
     """Whether new organizations can be created in this instances."""
 
     message = "New organizations cannot be created in this instance. Contact your administrator if you think this is a mistake."
@@ -57,7 +58,8 @@ class CanCreateOrg(BasePermission):
         return get_can_create_org(request.user)
 
 
-class SingleTenancyOrAdmin(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class SingleTenancyOrAdmin(BasePermission):  # type: ignore
     """
     Allows access to only staff users on cloud.
     """
@@ -68,7 +70,8 @@ class SingleTenancyOrAdmin(BasePermission):
         return not is_cloud() or request.user.is_staff
 
 
-class ProjectMembershipNecessaryPermissions(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class ProjectMembershipNecessaryPermissions(BasePermission):  # type: ignore
     """Require organization and project membership to access endpoint."""
 
     message = "You don't belong to any organization that has a project."
@@ -78,7 +81,8 @@ class ProjectMembershipNecessaryPermissions(BasePermission):
         return request.user.is_authenticated and request.user.team is not None
 
 
-class OrganizationMembershipNecessaryPermissions(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class OrganizationMembershipNecessaryPermissions(BasePermission):  # type: ignore
     """Require organization membership to access endpoint."""
 
     message = "You don't belong to any organization."
@@ -88,7 +92,8 @@ class OrganizationMembershipNecessaryPermissions(BasePermission):
         return request.user.is_authenticated and request.user.organization is not None
 
 
-class OrganizationMemberPermissions(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class OrganizationMemberPermissions(BasePermission):  # type: ignore
     """
     Require relevant organization membership to access object.
     Returns a generic permission denied response.
@@ -109,7 +114,8 @@ class OrganizationMemberPermissions(BasePermission):
         return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
 
-class OrganizationAdminWritePermissions(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class OrganizationAdminWritePermissions(BasePermission):  # type: ignore
     """
     Require organization admin or owner level to change object, allowing everyone read.
     Must always be used **after** `OrganizationMemberPermissions` (which is always required).
@@ -149,7 +155,8 @@ class OrganizationAdminWritePermissions(BasePermission):
         )
 
 
-class TeamMemberAccessPermission(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class TeamMemberAccessPermission(BasePermission):  # type: ignore
     """Require effective project membership for any access at all."""
 
     message = "You don't have access to the project."
@@ -163,7 +170,8 @@ class TeamMemberAccessPermission(BasePermission):
         return requesting_level is not None
 
 
-class TeamMemberLightManagementPermission(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class TeamMemberLightManagementPermission(BasePermission):  # type: ignore
     """
     Require effective project membership for read AND update access,
     and at least admin effective project access level for delete.
@@ -189,7 +197,8 @@ class TeamMemberLightManagementPermission(BasePermission):
         return requesting_level >= minimum_level
 
 
-class TeamMemberStrictManagementPermission(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class TeamMemberStrictManagementPermission(BasePermission):  # type: ignore
     """
     Require effective project membership for read access,
     and at least admin effective project access level for delete AND update.
@@ -209,11 +218,13 @@ class TeamMemberStrictManagementPermission(BasePermission):
         return requesting_level >= minimum_level
 
 
-class IsStaffUser(IsAdminUser):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class IsStaffUser(IsAdminUser):  # type: ignore
     message = "You are not a staff user, contact your instance admin."
 
 
-class PremiumFeaturePermission(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class PremiumFeaturePermission(BasePermission):  # type: ignore
     """
     Requires the user to have proper permission for the feature.
     `premium_feature` must be defined as a view attribute.
@@ -234,7 +245,8 @@ class PremiumFeaturePermission(BasePermission):
         return True
 
 
-class SharingTokenPermission(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class SharingTokenPermission(BasePermission):  # type: ignore
     """
     Validates an authenticated SharingToken against the current request.
     """

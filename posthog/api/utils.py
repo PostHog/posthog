@@ -249,9 +249,9 @@ def create_event_definitions_sql(
         ee_model = EventDefinition  # type: ignore
 
     event_definition_fields = {
-        f'"{f.column}"'  # type: ignore
+        f'"{f.column}"'
         for f in ee_model._meta.get_fields()
-        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
+        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
     }
 
     enterprise_join = (

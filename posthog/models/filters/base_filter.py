@@ -27,7 +27,7 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
             self.team = kwargs["team"]
 
         if "team" in kwargs and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
-            simplified_filter = self.simplify(kwargs["team"])  # type: ignore
+            simplified_filter = self.simplify(kwargs["team"])
             self._data = simplified_filter._data
 
     def to_dict(self) -> Dict[str, Any]:
@@ -47,7 +47,10 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
 
     def shallow_clone(self, overrides: Dict[str, Any]):
         "Clone the filter's data while sharing the HogQL context"
-        return type(self)(data={**self._data, **overrides}, **{**self.kwargs, "hogql_context": self.hogql_context})
+        # TRICKY: We assume the request is not necessary for the clone, this makes mypy happy
+        return type(self)(
+            data={**self._data, **overrides}, request=None, **{**self.kwargs, "hogql_context": self.hogql_context}
+        )
 
     def query_tags(self) -> Dict[str, Any]:
         ret = {}

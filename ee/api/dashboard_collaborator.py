@@ -12,8 +12,8 @@ from posthog.models import Dashboard, User
 from posthog.permissions import TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
-
-class CanEditDashboardCollaborator(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class CanEditDashboardCollaborator(BasePermission):  # type: ignore
     message = "You don't have edit permissions for this dashboard."
 
     def has_permission(self, request: Request, view) -> bool:

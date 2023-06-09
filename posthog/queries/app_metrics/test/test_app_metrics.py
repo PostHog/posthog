@@ -546,7 +546,8 @@ class TestAppMetricsErrorDetailsQuery(ClickhouseTestMixin, BaseTest):
         filter = make_filter(
             serializer_klass=AppMetricsErrorsRequestSerializer, category="processEvent", error_type="SomeError"
         )
-        results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
+        # make_filter test factory advertises wrong type, but the test works
+        results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()  # type: ignore
 
         self.assertEqual(
             results,
@@ -608,7 +609,8 @@ class TestAppMetricsErrorDetailsQuery(ClickhouseTestMixin, BaseTest):
             error_type="SomeError",
             job_id="1234",
         )
-        results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
+        # make_filter test factory advertises wrong type, but the test works
+        results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()  # type: ignore
 
         self.assertEqual(
             results,
@@ -681,7 +683,8 @@ class TestAppMetricsErrorDetailsQuery(ClickhouseTestMixin, BaseTest):
         filter = make_filter(
             serializer_klass=AppMetricsErrorsRequestSerializer, category="processEvent", error_type="SomeError"
         )
-        results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
+        # make_filter test factory advertises wrong type, but the test works
+        results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()  # type: ignore
 
         self.assertEqual(
             results,

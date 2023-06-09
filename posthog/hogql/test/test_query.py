@@ -112,7 +112,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT DISTINCT person_id, distinct_id FROM person_distinct_ids LIMIT 100",
             )
-            self.assertTrue(len(response.results) > 0)
+            self.assertTrue(response.results and len(response.results) > 0)
 
     def test_query_joins_simple(self):
         with freeze_time("2020-01-10"):
@@ -137,9 +137,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT event, timestamp, pdi.distinct_id, p.id, p.properties.sneaky_mail FROM events AS e LEFT JOIN person_distinct_ids AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN persons AS p ON equals(p.id, pdi.person_id) LIMIT 100",
             )
-            self.assertEqual(response.results[0][0], "random event")
-            self.assertEqual(response.results[0][2], "bla")
-            self.assertEqual(response.results[0][4], "tim@posthog.com")
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "random event")
+            self.assertEqual(results[0][2], "bla")
+            self.assertEqual(results[0][4], "tim@posthog.com")
 
     def test_query_joins_pdi(self):
         with freeze_time("2020-01-10"):
@@ -172,7 +174,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM raw_person_distinct_ids GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 100",
             )
-            self.assertTrue(len(response.results) > 0)
+            self.assertTrue(response.results and len(response.results) > 0)
 
     def test_query_joins_events_pdi(self):
         with freeze_time("2020-01-10"):
@@ -190,9 +192,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events LIMIT 10",
             )
-            self.assertEqual(response.results[0][0], "random event")
-            self.assertEqual(response.results[0][2], "bla")
-            self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "random event")
+            self.assertEqual(results[0][2], "bla")
+            self.assertEqual(results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
 
     def test_query_joins_events_e_pdi(self):
         with freeze_time("2020-01-10"):
@@ -210,9 +214,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.clickhouse,
                 f"SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_0)s), e__pdi.distinct_id, e__pdi.person_id FROM events AS e INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) WHERE equals(e.team_id, {self.team.pk}) LIMIT 10 SETTINGS readonly=1, max_execution_time=60",
             )
-            self.assertEqual(response.results[0][0], "random event")
-            self.assertEqual(response.results[0][2], "bla")
-            self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "random event")
+            self.assertEqual(results[0][2], "bla")
+            self.assertEqual(results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
 
     def test_query_joins_pdi_persons(self):
         with freeze_time("2020-01-10"):
@@ -234,8 +240,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"person.version), 0)) AS pdi__person ON equals(pdi.person_id, pdi__person.id) WHERE "
                 f"equals(pdi.team_id, {self.team.pk}) LIMIT 10 SETTINGS readonly=1, max_execution_time=60",
             )
-            self.assertEqual(response.results[0][0], "bla")
-            self.assertEqual(response.results[0][1], datetime.datetime(2020, 1, 10, 0, 0, tzinfo=timezone.utc))
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "bla")
+            self.assertEqual(results[0][1], datetime.datetime(2020, 1, 10, 0, 0, tzinfo=timezone.utc))
 
     def test_query_joins_pdi_person_properties(self):
         with freeze_time("2020-01-10"):
@@ -257,8 +265,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"HAVING equals(argMax(person.is_deleted, person.version), 0)) AS pdi__person ON "
                 f"equals(pdi.person_id, pdi__person.id) WHERE equals(pdi.team_id, {self.team.pk}) LIMIT 10 SETTINGS readonly=1, max_execution_time=60",
             )
-            self.assertEqual(response.results[0][0], "bla")
-            self.assertEqual(response.results[0][1], "tim@posthog.com")
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "bla")
+            self.assertEqual(results[0][1], "tim@posthog.com")
 
     def test_query_joins_events_pdi_person(self):
         with freeze_time("2020-01-10"):
@@ -284,9 +294,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT event, timestamp, pdi.distinct_id, pdi.person.id FROM events LIMIT 10",
             )
-            self.assertEqual(response.results[0][0], "random event")
-            self.assertEqual(response.results[0][2], "bla")
-            self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "random event")
+            self.assertEqual(results[0][2], "bla")
+            self.assertEqual(results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_query_joins_events_pdi_person_properties(self):
@@ -313,9 +325,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT event, timestamp, pdi.distinct_id, pdi.person.properties.sneaky_mail FROM events LIMIT 10",
             )
-            self.assertEqual(response.results[0][0], "random event")
-            self.assertEqual(response.results[0][2], "bla")
-            self.assertEqual(response.results[0][3], "tim@posthog.com")
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "random event")
+            self.assertEqual(results[0][2], "bla")
+            self.assertEqual(results[0][3], "tim@posthog.com")
 
     def test_query_joins_events_pdi_e_person_properties(self):
         with freeze_time("2020-01-10"):
@@ -342,9 +356,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT event, e.timestamp, pdi.distinct_id, e.pdi.person.properties.sneaky_mail FROM events AS e LIMIT 10",
             )
-            self.assertEqual(response.results[0][0], "random event")
-            self.assertEqual(response.results[0][2], "bla")
-            self.assertEqual(response.results[0][3], "tim@posthog.com")
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "random event")
+            self.assertEqual(results[0][2], "bla")
+            self.assertEqual(results[0][3], "tim@posthog.com")
 
     def test_query_joins_events_person_properties(self):
         with freeze_time("2020-01-10"):
@@ -370,8 +386,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT event, e.timestamp, e.pdi.person.properties.sneaky_mail FROM events AS e LIMIT 10",
             )
-            self.assertEqual(response.results[0][0], "random event")
-            self.assertEqual(response.results[0][2], "tim@posthog.com")
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "random event")
+            self.assertEqual(results[0][2], "tim@posthog.com")
 
     def test_query_joins_events_person_properties_in_aggregration(self):
         with freeze_time("2020-01-10"):
@@ -396,7 +414,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT s.pdi.person.properties.sneaky_mail, count() FROM events AS s GROUP BY s.pdi.person.properties.sneaky_mail LIMIT 10",
             )
-            self.assertEqual(response.results[0][0], "tim@posthog.com")
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "tim@posthog.com")
 
     def test_select_person_on_events(self):
         with freeze_time("2020-01-10"):
@@ -416,7 +436,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT poe.properties.sneaky_mail, count() FROM events AS s GROUP BY poe.properties.sneaky_mail LIMIT 10",
             )
-            self.assertEqual(response.results[0][0], "tim@posthog.com")
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "tim@posthog.com")
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_query_select_person_with_joins_without_poe(self):
@@ -444,9 +466,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT event, timestamp, person.id, person.properties.sneaky_mail FROM events LIMIT 10",
             )
-            self.assertEqual(response.results[0][0], "random event")
-            self.assertEqual(response.results[0][2], UUID("00000000-0000-4000-8000-000000000000"))
-            self.assertEqual(response.results[0][3], "tim@posthog.com")
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "random event")
+            self.assertEqual(results[0][2], UUID("00000000-0000-4000-8000-000000000000"))
+            self.assertEqual(results[0][3], "tim@posthog.com")
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True)
     def test_query_select_person_with_poe_without_joins(self):
@@ -465,9 +489,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT event, timestamp, person.id, person.properties.sneaky_mail FROM events LIMIT 10",
             )
-            self.assertEqual(response.results[0][0], "random event")
-            self.assertEqual(response.results[0][2], UUID("00000000-0000-4000-8000-000000000000"))
-            self.assertEqual(response.results[0][3], "tim@posthog.com")
+            results = response.results
+            assert results is not None
+            self.assertEqual(results[0][0], "random event")
+            self.assertEqual(results[0][2], UUID("00000000-0000-4000-8000-000000000000"))
+            self.assertEqual(results[0][3], "tim@posthog.com")
 
     def test_prop_cohort_basic(self):
         with freeze_time("2020-01-10"):

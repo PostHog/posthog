@@ -29,7 +29,8 @@ def translate_hogql(
         node = parse_expr(query, no_placeholders=True)
         select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
         if events_table_alias is not None:
-            select_query.select_from.alias = events_table_alias
+            # mypy thinks select_query could be None here, but it can't
+            select_query.select_from.alias = events_table_alias  # type: ignore
         prepared_select_query: ast.SelectQuery = cast(
             ast.SelectQuery,
             prepare_ast_for_printing(select_query, context=context, dialect=dialect, stack=[select_query]),

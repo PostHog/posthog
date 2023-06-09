@@ -142,25 +142,27 @@ def run_events_query(
     )
 
     query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.ONLINE, query_type="EventsQuery")
-
+    query_result_results = query_result.results or []
     # Convert star field from tuple to dict in each result
     if "*" in select_input_raw:
         star_idx = select_input_raw.index("*")
-        for index, result in enumerate(query_result.results):
-            query_result.results[index] = list(result)
+        for index, result in enumerate(query_result_results):
+            query_result_results[index] = list(result)
             select = result[star_idx]
             new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
-            new_result["properties"] = json.loads(new_result["properties"])
+            new_result["properties"] = json.loads(new_result["properties"])  # type: ignore
             if new_result["elements_chain"]:
-                new_result["elements"] = ElementSerializer(
-                    chain_to_elements(new_result["elements_chain"]), many=True
+                new_result["elements"] = ElementSerializer(  # type: ignore
+                    # mypy thinks this is of type Expr but chain_to_elements expects a str
+                    chain_to_elements(new_result["elements_chain"]),  # type: ignore
+                    many=True,
                 ).data
-            query_result.results[index][star_idx] = new_result
+            query_result_results[index][star_idx] = new_result
 
-    if len(person_indices) > 0 and len(query_result.results) > 0:
+    if len(person_indices) > 0 and len(query_result_results) > 0:
         # Make a query into postgres to fetch person
         person_idx = person_indices[0]
-        distinct_ids = list(set(event[person_idx] for event in query_result.results))
+        distinct_ids = list(set(event[person_idx] for event in query_result_results))
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
         persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         distinct_to_person: Dict[str, Person] = {}
@@ -171,26 +173,26 @@ def run_events_query(
 
         # Loop over all columns in case there is more than one "person" column
         for column_index in person_indices:
-            for index, result in enumerate(query_result.results):
+            for index, result in enumerate(query_result_results):
                 distinct_id: str = result[column_index]
-                query_result.results[index] = list(result)
+                query_result_results[index] = list(result)
                 if distinct_to_person.get(distinct_id):
                     person = distinct_to_person[distinct_id]
-                    query_result.results[index][column_index] = {
+                    query_result_results[index][column_index] = {
                         "uuid": person.uuid,
                         "created_at": person.created_at,
                         "properties": person.properties or {},
                         "distinct_id": distinct_id,
                     }
                 else:
-                    query_result.results[index][column_index] = {
+                    query_result_results[index][column_index] = {
                         "distinct_id": distinct_id,
                     }
 
-    received_extra_row = len(query_result.results) == limit  # limit was +=1'd above
+    received_extra_row = len(query_result_results) == limit  # limit was +=1'd above
     return EventsQueryResponse(
-        results=query_result.results[: limit - 1] if received_extra_row else query_result.results,
+        results=(query_result_results)[: limit - 1] if received_extra_row else query_result_results,
         columns=select_input_raw,
-        types=[type for _, type in query_result.types],
+        types=[type for _, type in query_result.types or []],
         hasMore=received_extra_row,
     )

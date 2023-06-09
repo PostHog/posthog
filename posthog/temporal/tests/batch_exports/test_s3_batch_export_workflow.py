@@ -1,6 +1,6 @@
 import json
 from random import randint
-from typing import TypedDict
+from typing import TypedDict, Dict
 from uuid import uuid4
 import boto3
 
@@ -243,11 +243,12 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient):
 
     organization = await acreate_organization("test")
     team = await acreate_team(organization=organization)
+    assert isinstance(batch_export_data["destination"], Dict)
     batch_export = await acreate_batch_export(
         team_id=team.pk,
-        name=batch_export_data["name"],
+        name=str(batch_export_data["name"]),
         destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
+        interval=str(batch_export_data["interval"]),
     )
 
     events: list[EventValues] = [

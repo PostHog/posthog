@@ -342,7 +342,7 @@ def parse_prop_clauses(
             filter_query, filter_params = get_session_property_filter_statement(prop, idx, prepend)
             final.append(f"{property_operator} {filter_query}")
             params.update(filter_params)
-        elif prop.type == "hogql":
+        elif prop.type == "hogql" and hogql_context:
             from posthog.hogql.hogql import translate_hogql
 
             filter_query = translate_hogql(prop.key, hogql_context)

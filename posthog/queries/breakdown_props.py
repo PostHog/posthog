@@ -263,7 +263,7 @@ def _to_value_expression(
         from posthog.hogql.hogql import translate_hogql
 
         if isinstance(breakdown, list):
-            expressions = [translate_hogql(exp, hogql_context) for exp in breakdown]
+            expressions = [translate_hogql(str(exp), hogql_context) for exp in breakdown]
             value_expression = f"array({','.join(expressions)})"
         else:
             value_expression = translate_hogql(cast(str, breakdown), hogql_context)

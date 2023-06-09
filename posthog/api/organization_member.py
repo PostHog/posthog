@@ -16,8 +16,8 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
-
-class OrganizationMemberObjectPermissions(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class OrganizationMemberObjectPermissions(BasePermission):  # type: ignore
     """Require organization admin level to change object, allowing everyone read AND delete."""
 
     message = "Your cannot edit other organization members."
