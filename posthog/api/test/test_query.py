@@ -63,7 +63,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         ["test_val2", "sign out", "2", "sign out test_val2"],
                         ["test_val3", "sign out", "2", "sign out test_val3"],
                     ],
-                    "types": ["Nullable(String)", "String", "String", "Nullable(String)"],
+                    "types": ["Nullable(String)", "String", "String", "String"],
                 },
             )
 

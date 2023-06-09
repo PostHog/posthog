@@ -101,7 +101,7 @@ export const Exports: Story = () => {
 
 export const CreateExport: Story = () => {
     useEffect(() => {
-        router.actions.push(urls.createExport('S3'))
+        router.actions.push(urls.createExport())
     })
     return <App />
 }

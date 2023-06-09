@@ -448,33 +448,61 @@ class _Printer(Visitor):
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
             clickhouse_name, min_args, max_args = CLICKHOUSE_FUNCTIONS[node.name]
-            args = [self.visit(arg) for arg in node.args]
 
-            if min_args is not None and len(args) < min_args:
+            if min_args is not None and len(node.args) < min_args:
                 if min_args == max_args:
-                    raise HogQLException(f"Function '{node.name}' expects {min_args} arguments. Passed {len(args)}.")
+                    raise HogQLException(
+                        f"Function '{node.name}' expects {min_args} arguments. Passed {len(node.args)}."
+                    )
                 raise HogQLException(
-                    f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(args)}."
+                    f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(node.args)}."
                 )
 
-            if max_args is not None and len(args) > max_args:
+            if max_args is not None and len(node.args) > max_args:
                 if min_args == max_args:
-                    raise HogQLException(f"Function '{node.name}' expects {max_args} arguments. Passed {len(args)}.")
+                    raise HogQLException(
+                        f"Function '{node.name}' expects {max_args} arguments. Passed {len(node.args)}."
+                    )
                 raise HogQLException(
-                    f"Function '{node.name}' expects at most least {max_args} arguments. Passed {len(args)}."
+                    f"Function '{node.name}' expects at most least {max_args} arguments. Passed {len(node.args)}."
                 )
 
             if self.dialect == "clickhouse":
-                if (clickhouse_name == "now64" and len(args) == 0) or (
-                    clickhouse_name == "parseDateTime64BestEffortOrNull" and len(args) == 1
+                if node.name == "concat":
+                    args: List[str] = []
+                    for arg in node.args:
+                        if isinstance(arg, ast.Constant):
+                            if arg.value is None:
+                                args.append("''")
+                            elif isinstance(arg.value, str):
+                                args.append(self.visit(arg))
+                            else:
+                                args.append(f"toString({self.visit(arg)})")
+                        elif isinstance(arg, ast.Call) and arg.name == "toString":
+                            if len(arg.args) == 1 and isinstance(arg.args[0], ast.Constant):
+                                if arg.args[0].value is None:
+                                    args.append("''")
+                                else:
+                                    args.append(self.visit(arg))
+                            else:
+                                args.append(f"ifNull({self.visit(arg)}, '')")
+                        else:
+                            args.append(f"ifNull(toString({self.visit(arg)}), '')")
+                else:
+                    args = [self.visit(arg) for arg in node.args]
+
+                if (clickhouse_name == "now64" and len(node.args) == 0) or (
+                    clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
                 ):
                     # must add precision if adding timezone in the next step
                     args.append("6")
+
                 if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
+
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
-                return f"{node.name}({', '.join(args)})"
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         else:
             all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
             close_matches = get_close_matches(node.name, all_function_names, 1)

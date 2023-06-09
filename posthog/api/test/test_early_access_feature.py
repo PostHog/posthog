@@ -453,7 +453,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             stage="beta",
             feature_flag=feature_flag,
         )
-        feature2 = EarlyAccessFeature.objects.create(
+        EarlyAccessFeature.objects.create(
             team=self.team,
             name="Sprocket",
             description="A fancy new sprocket.",
@@ -478,15 +478,74 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "stage": "beta",
                         "documentationUrl": "",
                         "flagKey": "sprocket",
-                    },
+                    }
+                ],
+            )
+
+    def test_early_access_features_beta_only(self):
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "example@posthog.com"})
+
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name=f"Feature Flag for Feature Sprocket",
+            key="sprocket",
+            rollout_percentage=0,
+            created_by=self.user,
+        )
+        feature_flag2 = FeatureFlag.objects.create(
+            team=self.team,
+            name=f"Feature Flag for Feature Sprocket",
+            key="sprocket2",
+            rollout_percentage=10,
+            created_by=self.user,
+        )
+        feature_flag3 = FeatureFlag.objects.create(
+            team=self.team,
+            name=f"Feature Flag for Feature Sprocket",
+            key="sprocket3",
+            rollout_percentage=10,
+            created_by=self.user,
+        )
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket",
+            description="A fancy new sprocket.",
+            stage="beta",
+            feature_flag=feature_flag,
+        )
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket",
+            description="A fancy new sprocket.",
+            stage="alpha",
+            feature_flag=feature_flag2,
+        )
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket",
+            description="A fancy new sprocket.",
+            stage="draft",
+            feature_flag=feature_flag3,
+        )
+
+        self.client.logout()
+
+        with self.assertNumQueries(2):
+            response = self._get_features()
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get("access-control-allow-origin"), "http://127.0.0.1:8000")
+
+            self.assertListEqual(
+                response.json()["earlyAccessFeatures"],
+                [
                     {
-                        "id": str(feature2.id),
+                        "id": str(feature.id),
                         "name": "Sprocket",
                         "description": "A fancy new sprocket.",
-                        "stage": "alpha",
+                        "stage": "beta",
                         "documentationUrl": "",
-                        "flagKey": "sprocket2",
-                    },
+                        "flagKey": "sprocket",
+                    }
                 ],
             )
 
