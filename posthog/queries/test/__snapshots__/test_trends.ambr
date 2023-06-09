@@ -1376,6 +1376,25 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
+           GROUP BY id
+           HAVING max(is_deleted) = 0
+           AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
         LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
@@ -1387,9 +1406,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-          AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-               AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
-          AND notEmpty(e.person_id)
+          AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
