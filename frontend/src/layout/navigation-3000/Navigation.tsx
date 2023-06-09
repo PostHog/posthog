@@ -21,7 +21,7 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="Navigation3000">
             <Navbar />
-            {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} />}
+            {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             <NotebookSideBar>
                 <main>
                     <Breadcrumbs />

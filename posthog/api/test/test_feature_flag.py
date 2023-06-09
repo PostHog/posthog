@@ -16,7 +16,12 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
-from posthog.models.feature_flag import get_all_feature_flags, get_feature_flags_for_team_in_cache
+from posthog.models.feature_flag import (
+    get_all_feature_flags,
+    get_feature_flags_for_team_in_cache,
+    FeatureFlagDashboards,
+)
+from posthog.models.dashboard import Dashboard
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
@@ -159,7 +164,6 @@ class TestFeatureFlag(APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag(self, mock_capture):
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
@@ -209,7 +213,6 @@ class TestFeatureFlag(APIBaseTest):
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_minimal_feature_flag(self, mock_capture):
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/", {"key": "omega-feature"}, format="json"
         )
@@ -239,7 +242,6 @@ class TestFeatureFlag(APIBaseTest):
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_multivariate_feature_flag(self, mock_capture):
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -927,7 +929,7 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -938,7 +940,7 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -949,7 +951,7 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -960,7 +962,7 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1798,7 +1800,6 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_creating_feature_flag_with_behavioral_cohort(self):
-
         cohort_valid_for_ff = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}]}],
@@ -1877,7 +1878,6 @@ class TestFeatureFlag(APIBaseTest):
         )
 
     def test_creating_feature_flag_with_nested_behavioral_cohort(self):
-
         cohort_not_valid_for_ff = Cohort.objects.create(
             team=self.team,
             filters={
@@ -2203,7 +2203,6 @@ class TestFeatureFlag(APIBaseTest):
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_user_blast_radius(self):
-
         for i in range(10):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
 
@@ -2223,7 +2222,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
 
     def test_user_blast_radius_with_zero_users(self):
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
@@ -2240,7 +2238,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 0, "total_users": 0}, response_json)
 
     def test_user_blast_radius_with_zero_selected_users(self):
-
         for i in range(5):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
 
@@ -2260,7 +2257,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 0, "total_users": 5}, response_json)
 
     def test_user_blast_radius_with_all_selected_users(self):
-
         for i in range(5):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
 
@@ -2276,7 +2272,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_single_cohort(self):
-
         for i in range(10):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
 
@@ -2335,7 +2330,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_precalculated_cohorts(self):
-
         for i in range(10):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
 
@@ -2401,7 +2395,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_static_cohorts(self):
-
         for i in range(10):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
 
@@ -2639,6 +2632,61 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             response_json,
         )
 
+    def test_feature_flag_dashboard(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        FeatureFlagDashboards.objects.create(feature_flag=another_feature_flag, dashboard_id=dashboard.pk)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+
+    def test_feature_flag_dashboard_patch(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+
+    def test_feature_flag_dashboard_already_exists(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+
 
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):
@@ -2718,7 +2766,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-
             with self.assertNumQueries(1):
                 all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
@@ -3067,7 +3114,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
             "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
         ):
-
             with self.assertNumQueries(2):
                 all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 

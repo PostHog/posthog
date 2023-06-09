@@ -13,6 +13,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.dashboards.dashboard import Dashboard
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import FeatureFlag
@@ -22,6 +23,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
     FeatureFlagMatcher,
+    FeatureFlagDashboards,
     can_user_edit_feature_flag,
     get_all_feature_flags,
     get_user_blast_radius,
@@ -59,6 +61,11 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
+    analytics_dashboards = serializers.PrimaryKeyRelatedField(
+        many=True,
+        required=False,
+        queryset=Dashboard.objects.all(),
+    )
 
     name = serializers.CharField(
         required=False,
@@ -88,6 +95,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "can_edit",
             "tags",
             "usage_dashboard",
+            "analytics_dashboards",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -195,7 +203,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
-
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
@@ -226,7 +233,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
-
         if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
             raise exceptions.ValidationError(
                 "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
@@ -236,6 +242,13 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         if validated_key:
             FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
         self._update_filters(validated_data)
+
+        analytics_dashboards = validated_data.pop("analytics_dashboards", None)
+
+        if analytics_dashboards is not None:
+            for dashboard in analytics_dashboards:
+                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
+
         instance = super().update(instance, validated_data)
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
@@ -309,7 +322,12 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         queryset = super().get_queryset()
 
         if self.action == "list":
-            queryset = queryset.filter(deleted=False).prefetch_related("experiment_set").prefetch_related("features")
+            queryset = (
+                queryset.filter(deleted=False)
+                .prefetch_related("experiment_set")
+                .prefetch_related("features")
+                .prefetch_related("analytics_dashboards")
+            )
             survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
                 "targeting_flag_id", flat=True
             )
@@ -344,6 +362,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
             .prefetch_related("experiment_set")
             .prefetch_related("features")
+            .prefetch_related("analytics_dashboards")
             .select_related("created_by")
             .order_by("-created_at")
         )
@@ -368,7 +387,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
     @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):
-
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(team=self.team, deleted=False)
         cohorts = {}
 
@@ -411,7 +429,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
-
         distinct_id = request.query_params.get("distinct_id", None)
         groups = json.loads(request.query_params.get("groups", "{}"))
 
@@ -445,7 +462,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: request.Request, **kwargs):
-
         if "condition" not in request.data:
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
 

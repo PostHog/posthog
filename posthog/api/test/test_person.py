@@ -109,7 +109,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_filter_person_email(self):
-
         _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
@@ -131,7 +130,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_filter_person_prop(self):
-
         _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
@@ -199,7 +197,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 0)
 
     def test_cant_see_another_organization_pii_with_filters(self):
-
         # Completely different organization
         another_org: Organization = Organization.objects.create()
         another_team: Team = Team.objects.create(organization=another_org)
@@ -671,12 +668,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
-        response = self.client.get(response["next"]).json()
-        returned_ids += [x["distinct_ids"][0] for x in response["results"]]
-        self.assertEqual(len(response["results"]), 10)
+        response_next = self.client.get(response["next"]).json()
+        returned_ids += [x["distinct_ids"][0] for x in response_next["results"]]
+        self.assertEqual(len(response_next["results"]), 10)
 
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
+
+        with self.assertNumQueries(9):
+            response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
+        self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
     def test_retrieve_person(self):
         person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
