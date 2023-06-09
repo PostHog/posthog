@@ -470,8 +470,13 @@ class _Printer(Visitor):
                 ):
                     # must add precision if adding timezone in the next step
                     args.append("6")
+
                 if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
+
+                if node.name == "concat":
+                    args = [f"ifNull(toString({arg}), '')" for arg in args]
+
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
                 return f"{node.name}({', '.join(args)})"

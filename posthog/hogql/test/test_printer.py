@@ -610,3 +610,15 @@ class TestPrinter(BaseTest):
             ),
             f"SELECT events.distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT 10000",
         )
+
+    def test_nullish_concat(self):
+        self.assertEqual(
+            self._expr("concat(null, 'a', 3)"),
+            f"concat(ifNull(toString(NULL), ''), ifNull(toString(%(hogql_val_0)s), ''), ifNull(toString(3), ''))",
+        )
+
+    def test_concat_pipes(self):
+        self.assertEqual(
+            self._expr("'a' || 'b' || 3"),
+            f"concat(ifNull(toString(%(hogql_val_0)s), ''), ifNull(toString(%(hogql_val_1)s), ''), ifNull(toString(3), ''))",
+        )

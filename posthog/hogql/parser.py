@@ -441,17 +441,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.BinaryOperation(left=left, right=right, op=op)
 
     def visitColumnExprPrecedence2(self, ctx: HogQLParser.ColumnExprPrecedence2Context):
-        if ctx.PLUS():
-            op = ast.BinaryOperationOp.Add
-        elif ctx.DASH():
-            op = ast.BinaryOperationOp.Sub
-        elif ctx.CONCAT():
-            raise NotImplementedException(f"Yet unsupported text concat operation: {ctx.operator.text}")
-        else:
-            raise NotImplementedException(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
         left = self.visit(ctx.left)
         right = self.visit(ctx.right)
-        return ast.BinaryOperation(left=left, right=right, op=op)
+
+        if ctx.PLUS():
+            return ast.BinaryOperation(left=left, right=right, op=ast.BinaryOperationOp.Add)
+        elif ctx.DASH():
+            return ast.BinaryOperation(left=left, right=right, op=ast.BinaryOperationOp.Sub)
+        elif ctx.CONCAT():
+            args = []
+            if isinstance(left, ast.Call) and left.name == "concat":
+                args.extend(left.args)
+            else:
+                args.append(left)
+
+            if isinstance(right, ast.Call) and right.name == "concat":
+                args.extend(right.args)
+            else:
+                args.append(right)
+
+            return ast.Call(name="concat", args=args)
+        else:
+            raise NotImplementedException(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
         if ctx.EQ_SINGLE() or ctx.EQ_DOUBLE():
