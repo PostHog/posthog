@@ -1,7 +1,10 @@
 import os
+import structlog
 
 from posthog.settings.utils import get_from_env, get_list
 from posthog.utils import str_to_bool
+
+logger = structlog.get_logger(__name__)
 
 INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_IDS", ""))
 
@@ -31,3 +34,9 @@ REPLAY_EVENT_MAX_SIZE = get_from_env("REPLAY_EVENT_MAX_SIZE", type_cast=int, def
 REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO = get_from_env(
     "REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO", type_cast=float, default=0.01
 )
+
+if REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO > 1 or REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO < 0:
+    logger.critical(
+        "Environment variable REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO is not between 0 and 1. Setting to 0 to be safe."
+    )
+    REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO = 0
