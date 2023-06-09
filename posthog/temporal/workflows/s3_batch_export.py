@@ -4,11 +4,9 @@ from dataclasses import dataclass
 from string import Template
 import tempfile
 from typing import TYPE_CHECKING, List
-from aiochclient import ChClient
 
 from django.conf import settings
 import boto3
-from aiohttp import ClientSession
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import S3BatchExportInputs
@@ -20,6 +18,7 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
+from posthog.temporal.workflows.clickhouse import get_client
 
 if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import CompletedPartTypeDef
@@ -76,15 +75,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     """
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
-    async with ClientSession() as s:
-        client = ChClient(
-            s,
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-        )
-
+    async with get_client() as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
