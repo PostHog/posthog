@@ -36,19 +36,14 @@ SELECT_QUERY_TEMPLATE = Template(
     """
 )
 
-TABLE_PARTITION_KEYS = {
-    "events": {
-        "hour": "toStartOfHour(timestamp)",
-        "day": "toStartOfDay(timestamp)",
-        "week": "toStartOfWeek(timestamp)",
-        "month": "toStartOfMonth(timestamp)",
-    }
-}
-
 
 @dataclass
 class S3InsertInputs:
-    """Inputs for ClickHouse INSERT INTO S3 function."""
+    """Inputs for S3 exports."""
+
+    # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
+    # to keep track of where credentials are being stored and increases the
+    # attach surface for credential leaks.
 
     bucket_name: str
     region: str
@@ -58,19 +53,6 @@ class S3InsertInputs:
     data_interval_end: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
-
-
-def prepare_template_vars(inputs: S3InsertInputs):
-    end_at = dt.datetime.fromisoformat(inputs.data_interval_end)
-    return {
-        "datetime": inputs.data_interval_end,
-        "year": end_at.year,
-        "month": end_at.month,
-        "day": end_at.day,
-        "hour": end_at.hour,
-        "minute": end_at.minute,
-        "second": end_at.second,
-    }
 
 
 @activity.defn

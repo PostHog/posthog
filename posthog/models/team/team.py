@@ -130,6 +130,7 @@ class Team(UUIDClassicModel):
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     autocapture_opt_out: models.BooleanField = models.BooleanField(null=True, blank=True)
+    autocapture_exceptions_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
