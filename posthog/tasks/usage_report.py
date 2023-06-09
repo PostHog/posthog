@@ -37,7 +37,7 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import INSTANCE_TAG, CLICKHOUSE_CLUSTER
-from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day
+from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day, get_instance_region
 from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
@@ -69,6 +69,8 @@ class UsageReportCounters:
     # Feature flags
     ff_count: int
     ff_active_count: int
+    decide_requests_count_in_period: int
+    decide_requests_count_in_month: int
     # HogQL
     hogql_app_bytes_read: int
     hogql_app_rows_read: int
@@ -430,12 +432,31 @@ def get_teams_with_hogql_metric(
     return result
 
 
+def get_teams_with_decide_requests_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+    # depending on the region, events are stored in different teams
+    team_to_query = 1 if get_instance_region() == "EU" else 2
+    validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
+
+    result = sync_execute(
+        """
+        SELECT distinct_id as team, sum(JSONExtractInt(properties, 'count')) as sum
+        FROM events
+        WHERE team_id = %(team_to_query)s AND event='decide usage' AND timestamp between %(begin)s AND %(end)s
+        AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
+        GROUP BY team
+    """,
+        {"begin": begin, "end": end, "team_to_query": team_to_query, "validity_token": validity_token},
+    )
+
+    return result
+
+
 def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
     for row in rows:
         if "team_id" in row:
             if row["team_id"] == team_id:
                 return row["total"]
-        elif row[0] == team_id:
+        elif str(row[0]) == str(team_id):
             return row[1]
     return 0
 
@@ -458,7 +479,11 @@ def capture_report(
 
 # extend this with future usage based products
 def has_non_zero_usage(report: FullUsageReport) -> bool:
-    return report.event_count_in_period > 0 or report.recording_count_in_period > 0
+    return (
+        report.event_count_in_period > 0
+        or report.recording_count_in_period > 0
+        or report.decide_requests_count_in_period > 0
+    )
 
 
 @app.task(ignore_result=True, retries=3)
@@ -489,6 +514,12 @@ def send_all_org_usage_reports(
         # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
         teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
         teams_with_recording_count_total=get_teams_with_recording_count_total(),
+        teams_with_decide_requests_count_in_period=get_teams_with_decide_requests_count_in_period(
+            period_start, period_end
+        ),
+        teams_with_decide_requests_count_in_month=get_teams_with_decide_requests_count_in_period(
+            period_start.replace(day=1), period_end
+        ),
         teams_with_group_types_total=list(
             GroupTypeMapping.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
@@ -626,6 +657,12 @@ def send_all_org_usage_reports(
             ),
             recording_count_total=find_count_for_team_in_rows(team.id, all_data["teams_with_recording_count_total"]),
             group_types_total=find_count_for_team_in_rows(team.id, all_data["teams_with_group_types_total"]),
+            decide_requests_count_in_period=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_decide_requests_count_in_period"]
+            ),
+            decide_requests_count_in_month=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_decide_requests_count_in_month"]
+            ),
             dashboard_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_count"]),
             dashboard_template_count=find_count_for_team_in_rows(
                 team.id, all_data["teams_with_dashboard_template_count"]

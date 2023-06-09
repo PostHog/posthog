@@ -363,7 +363,7 @@ export const routes: Record<string, Scene> = {
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.exports()]: Scene.Exports,
-    [urls.createExport(':type')]: Scene.CreateExport,
+    [urls.createExport()]: Scene.CreateExport,
     [urls.viewExport(':id')]: Scene.ViewExport,
     [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
