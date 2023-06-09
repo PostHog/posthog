@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Union, cast
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import quote
-
+from django.test import override_settings
 import lzstring
 import pytest
 import structlog
@@ -1276,6 +1276,30 @@ class TestCapture(BaseTest):
         self._send_session_recording_event(event_data=data)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
         self.assertGreater(topic_counter[KAFKA_SESSION_RECORDING_EVENTS], 1)
+
+    @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
+    @patch("posthog.kafka_client.client.KafkaProducer")
+    @override_settings(SESSION_RECORDING_KAFKA_HOSTS=["kafka://another-server:9092"])
+    def test_can_redirect_session_recordings_to_alternative_kafka(
+        self, default_kafka_producer_mock: MagicMock, session_recording_producer_mock: MagicMock
+    ) -> None:
+        data = [random.choice(string.ascii_letters) for _ in range(100)]
+        self._send_session_recording_event(event_data=data)
+
+        default_kafka_producer_mock.assert_not_called()
+        session_recording_producer_mock.assert_called()
+
+    @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
+    @patch("posthog.kafka_client.client.KafkaProducer")
+    def test_uses_default_producer_for_session_recordings_when_alternative_is_not_configured(
+        self, default_kafka_producer_mock: MagicMock, session_recording_producer_mock: MagicMock
+    ) -> None:
+        with self.settings(SESSION_RECORDING_KAFKA_HOSTS=None):
+            data = [random.choice(string.ascii_letters) for _ in range(100)]
+            self._send_session_recording_event(event_data=data)
+
+            default_kafka_producer_mock.assert_called()
+            session_recording_producer_mock.assert_not_called()
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_can_override_attributes_important_in_replicator_exports(self, kafka_produce):
