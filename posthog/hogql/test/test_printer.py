@@ -613,12 +613,12 @@ class TestPrinter(BaseTest):
 
     def test_nullish_concat(self):
         self.assertEqual(
-            self._expr("concat(null, 'a', 3)"),
-            f"concat(ifNull(toString(NULL), ''), ifNull(toString(%(hogql_val_0)s), ''), ifNull(toString(3), ''))",
+            self._expr("concat(null, 'a', 3, toString(4), toString(NULL))"),
+            f"concat('', %(hogql_val_0)s, toString(3), toString(4), '')",
         )
 
     def test_concat_pipes(self):
         self.assertEqual(
-            self._expr("'a' || 'b' || 3"),
-            f"concat(ifNull(toString(%(hogql_val_0)s), ''), ifNull(toString(%(hogql_val_1)s), ''), ifNull(toString(3), ''))",
+            self._expr("'a' || 'b' || 3 || timestamp"),
+            f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
         )
