@@ -4,14 +4,13 @@ from dataclasses import dataclass
 from string import Template
 import tempfile
 import uuid
-from aiochclient import ChClient
 
 from django.conf import settings
 import snowflake.connector
-from aiohttp import ClientSession
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import SnowflakeBatchExportInputs
+from posthog.redis import get_client
 
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
@@ -71,15 +70,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
     """
     activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
-    async with ClientSession() as s:
-        client = ChClient(
-            s,
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-        )
-
+    async with get_client() as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
