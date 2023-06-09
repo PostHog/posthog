@@ -7,9 +7,31 @@ import ssl
 
 @asynccontextmanager
 async def get_client():
-    ssl_context = ssl.create_default_context(capath=settings.CLICKHOUSE_CA)
-    ssl_context.check_hostname = True if settings.CLICKHOUSE_VERIFY else False
+    """
+    Returns a ClickHouse client based on the aiochclient library. This is an
+    async context manager.
+
+    Usage:
+
+        async with get_client() as client:
+            await client.execute("SELECT 1")
+
+    Note that this is not a connection pool, so you should not use this for
+    queries that are run frequently.
+
+    Note that we setup the SSL context here, allowing for custom CA certs to be
+    used. I couldn't see a simply way to do this with `aiochclient` so we
+    explicitly use `aiohttp` to create the client session with an ssl_context
+    and pass that to `aiochclient`.
+    """
+    # Set up SSL context, roughly based on how `clickhouse_driver` does it.
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
     ssl_context.verify_mode = ssl.CERT_REQUIRED if settings.CLICKHOUSE_VERIFY else ssl.CERT_NONE
+    if ssl_context.verify_mode is ssl.CERT_REQUIRED:
+        if settings.CLICKHOUSE_CA:
+            ssl_context.load_verify_locations(settings.CLICKHOUSE_CA)
+        elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
+            ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
     with TCPConnector(ssl_context=ssl_context) as connector:
         async with ClientSession(connector=connector) as session:
             client = ChClient(
