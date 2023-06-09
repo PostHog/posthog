@@ -165,9 +165,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             else:
                 exprs = [
                     property_to_expr(
-                        Property(type=property.type, key=property.key, operator=property.operator, value=v),
-                        team,
-                        filter=filter,
+                        Property(type=property.type, key=property.key, operator=property.operator, value=v), team
                     )
                     for v in value
                 ]

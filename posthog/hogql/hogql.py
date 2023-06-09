@@ -1,7 +1,6 @@
 from typing import Dict, Literal, cast, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.constants import ConstantSupportedData
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import HogQLException, NotImplementedException, SyntaxException
@@ -17,7 +16,7 @@ def translate_hogql(
     dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     *,
     events_table_alias: Optional[str] = None,
-    variables: Optional[Dict[str, ConstantSupportedData]] = None,
+    placeholders: Optional[Dict[str, ast.Expr]] = None,
 ) -> str:
     """Translate a HogQL expression into a ClickHouse expression."""
     if query == "":
@@ -29,12 +28,7 @@ def translate_hogql(
             if context.team_id is None:
                 raise ValueError("Cannot translate HogQL for a filter with no team specified")
             context.database = create_hogql_database(context.team_id)
-        node = parse_expr(
-            query,
-            placeholders=({key: ast.Constant(value=value) for key, value in variables.items()})
-            if variables is not None
-            else None,
-        )
+        node = parse_expr(query, placeholders=placeholders)
         select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
         if events_table_alias is not None:
             select_query.select_from.alias = events_table_alias
