@@ -130,6 +130,11 @@ jobs:
                   cd current
                   black --exclude posthog/hogql/grammar --check .
 
+            - name: Check imports sorting
+              run: |
+                  cd current
+                  isort --check-only ee posthog
+
             - name: Check static typing
               run: |
                   cd current
