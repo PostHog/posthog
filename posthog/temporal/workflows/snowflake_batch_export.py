@@ -10,7 +10,6 @@ import snowflake.connector
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import SnowflakeBatchExportInputs
-from posthog.redis import get_client
 
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
@@ -19,6 +18,7 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
+from posthog.temporal.workflows.clickhouse import get_client
 
 
 SELECT_QUERY_TEMPLATE = Template(
