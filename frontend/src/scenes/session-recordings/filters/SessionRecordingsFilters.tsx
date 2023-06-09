@@ -81,28 +81,28 @@ function ConsoleFilters({
                             onChange={(checked) => {
                                 updateChoice(checked, 'log')
                             }}
-                            label={'console.log'}
+                            label={'log'}
                         />
                         <LemonCheckbox
                             size="small"
                             fullWidth
                             checked={!!filters.console_logs?.includes('warn')}
                             onChange={(checked) => updateChoice(checked, 'warn')}
-                            label={'console.warn'}
+                            label={'warn'}
                         />
                         <LemonCheckbox
                             size="small"
                             fullWidth
                             checked={!!filters.console_logs?.includes('error')}
                             onChange={(checked) => updateChoice(checked, 'error')}
-                            label={'console.error'}
+                            label={'error'}
                         />
                     </>,
                 ],
                 actionable: true,
             }}
         >
-            {filters.console_logs?.map((x) => `console.${x}`).join(', or ') || (
+            {filters.console_logs?.map((x) => `console.${x}`).join(' or ') || (
                 <span className={'text-muted'}>Console types to filter for...</span>
             )}
         </LemonButtonWithDropdown>
