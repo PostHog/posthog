@@ -356,7 +356,7 @@ def get_event(request):
         try:
             replay_events, other_events = split_replay_events(events)
             original_replay_events_count = len(replay_events)
-            method = "new" if random() < settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO else "old"
+            method = "new" if random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO else "old"
 
             if original_replay_events_count > 0:
                 if method == "new":
