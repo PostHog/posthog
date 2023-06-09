@@ -18,8 +18,10 @@ export interface HogQLQueryEditorProps {
 let uniqueNode = 0
 export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const [key] = useState(() => uniqueNode++)
-    const [monaco, setMonaco] = useState(null as Monaco | null)
-    const [editor, setEditor] = useState(null as importedEditor.IStandaloneCodeEditor | null)
+    const [monacoAndEditor, setMonacoAndEditor] = useState(
+        null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
+    )
+    const [monaco, editor] = monacoAndEditor ?? []
     const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key, editor, monaco }
     const { queryInput } = useValues(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
     const { setQueryInput, saveQuery } = useActions(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
@@ -65,8 +67,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             run: () => saveQuery(),
                                         })
                                     )
-                                    setMonaco(monaco)
-                                    setEditor(editor)
+                                    setMonacoAndEditor([monaco, editor])
                                 }}
                                 options={{
                                     minimap: {
