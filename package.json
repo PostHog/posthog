@@ -283,7 +283,8 @@
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "black",
-            "ruff"
+            "ruff",
+            "isort"
         ],
         "*.png": [
             "optipng -clobber -o4 -strip all"
