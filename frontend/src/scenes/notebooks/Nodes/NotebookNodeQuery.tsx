@@ -22,8 +22,6 @@ const DEFAULT_QUERY: QuerySchema = {
     expandable: false,
 }
 
-const HEIGHT = 500
-
 const Component = (props: NodeViewProps): JSX.Element => {
     const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
     const logic = insightLogic({ dashboardItemId: 'new' })
@@ -56,6 +54,8 @@ const Component = (props: NodeViewProps): JSX.Element => {
         }
         return modifiedQuery
     }, [query, editing])
+
+    const HEIGHT = editing ? 800 : 500
 
     return (
         <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={HEIGHT} {...props}>
