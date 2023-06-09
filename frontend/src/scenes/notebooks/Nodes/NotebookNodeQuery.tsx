@@ -55,7 +55,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
         return modifiedQuery
     }, [query, editing])
 
-    const HEIGHT = editing ? 800 : 500
+    const HEIGHT = editing ? 600 : 500
 
     return (
         <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={HEIGHT} {...props}>
