@@ -749,6 +749,7 @@ export interface PersonListParams {
     search?: string
     cohort?: number
     distinct_id?: string
+    include_total?: boolean // PostHog 3000-only
 }
 
 export interface MatchedRecordingEvent {

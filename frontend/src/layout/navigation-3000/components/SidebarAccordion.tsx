@@ -1,18 +1,24 @@
-import clsx from 'clsx'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { Accordion } from '../types'
+import { SidebarCategory } from '../types'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SidebarList } from './SidebarList'
 
-interface SidebarAccordionProps {
-    title: Accordion['title']
-    items: Accordion['items']
-    loadMore: Accordion['loadMore']
-    loading: Accordion['loading']
-    collapsed: boolean
-    toggle: () => void
+interface SidebarAccordionPropsBase {
+    title: SidebarCategory['title']
+    items: SidebarCategory['items']
+    remote: SidebarCategory['remote']
+    loading: SidebarCategory['loading']
     activeItemKey: string | number | null
 }
+interface SidebarAccordionPropsStatic extends SidebarAccordionPropsBase {
+    collapsed?: never
+    toggle?: never
+}
+interface SidebarAccordionPropsExpandable extends SidebarAccordionPropsBase {
+    collapsed: boolean
+    toggle: () => void
+}
+export type SidebarAccordionProps = SidebarAccordionPropsStatic | SidebarAccordionPropsExpandable
 
 export function SidebarAccordion({
     title,
@@ -20,36 +26,30 @@ export function SidebarAccordion({
     activeItemKey,
     collapsed,
     toggle,
-    loadMore,
+    remote,
     loading = false,
 }: SidebarAccordionProps): JSX.Element {
     const isEmpty = items.length === 0
     const isEmptyDefinitively = !loading && isEmpty
-    const isExpanded = !collapsed && !isEmpty
+    const isExpanded = !toggle || (!collapsed && !isEmpty)
 
     return (
-        <section
-            className={clsx('Accordion', isExpanded && 'Accordion--expanded')}
-            aria-busy={loading}
-            aria-disabled={isEmpty}
-        >
-            <div className="Accordion__header" onClick={isExpanded || items.length > 0 ? () => toggle() : undefined}>
-                {!loading ? <IconChevronRight /> : <Spinner />}
-                <h4>
-                    {title}
-                    {isEmptyDefinitively && (
-                        <>
-                            {' '}
-                            <i>(empty)</i>
-                        </>
-                    )}
-                </h4>
-            </div>
-            {isExpanded && (
-                <div className="Accordion__content">
-                    <SidebarList items={items} activeItemKey={activeItemKey} loadMore={loadMore} />
+        <section className="Accordion" aria-busy={loading} aria-disabled={isEmpty} aria-expanded={toggle && isExpanded}>
+            {toggle ? (
+                <div className="Accordion__header" onClick={isExpanded || items.length > 0 ? toggle : undefined}>
+                    {loading ? <Spinner /> : <IconChevronRight />}
+                    <h4>
+                        {title}
+                        {isEmptyDefinitively && (
+                            <>
+                                {' '}
+                                <i>(empty)</i>
+                            </>
+                        )}
+                    </h4>
                 </div>
-            )}
+            ) : null}
+            {isExpanded && <SidebarList items={items} activeItemKey={activeItemKey} remote={remote} />}
         </section>
     )
 }

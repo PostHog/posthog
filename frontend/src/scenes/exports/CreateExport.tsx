@@ -1,25 +1,55 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { SceneExport } from '../sceneTypes'
 import { PureField } from '../../lib/forms/Field'
 import { LemonInput } from '../../lib/lemon-ui/LemonInput/LemonInput'
-import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton } from '../../lib/lemon-ui/LemonButton'
 import { useCreateExport, useCurrentTeamId } from './api'
 import { LemonSelect } from '../../lib/lemon-ui/LemonSelect'
 import { urls } from '../urls'
 
+// TODO: rewrite this to not use explicit refs for the form fields. Possibly use
+// kea-forms instead.
+
+// TODO: this file could end up getting pretty large. We should split when it
+// before too much.
+
+// TODO: if we want to enable e.g. adding a new export destination type without
+// having to change this codebase we might want to consider defining either some
+// configuration description of the export types, or having the config component
+// be injected somehow from elsewhere. We're early days so I don't think we need
+// to worry about this right now.
+
 export const scene: SceneExport = {
     component: CreateExport,
 }
 
 export function CreateExport(): JSX.Element {
-    // Get the export type from the URL. We use the useValues hook to get the
-    // current URL, and then use the useParams hook to get the export type from
-    // the URL.
+    // At the top level we offer a select to choose the export type, and then
+    // render the appropriate component for that export type.
+    const [exportType, setExportType] = useState<'S3' | 'Snowflake'>('S3')
+
+    return (
+        <div>
+            <h1>Create Export</h1>
+            <PureField label="Type">
+                <LemonSelect
+                    options={[
+                        { value: 'S3', label: 'S3' },
+                        { value: 'Snowflake', label: 'Snowflake' },
+                    ]}
+                    value={exportType}
+                    onChange={(value) => setExportType(value as any)}
+                />
+            </PureField>
+            {exportType === 'S3' && <CreateS3Export />}
+            {exportType === 'Snowflake' && <CreateSnowflakeExport />}
+        </div>
+    )
+}
+
+export function CreateS3Export(): JSX.Element {
     const { currentTeamId } = useCurrentTeamId()
-    const { currentLocation } = useValues(router)
-    const exportType = currentLocation.pathname.split('/').pop()
 
     const nameRef = useRef<HTMLInputElement>(null)
     const bucketRef = useRef<HTMLInputElement>(null)
@@ -72,7 +102,6 @@ export function CreateExport(): JSX.Element {
 
     return (
         <div>
-            <h1>Create Export: {exportType}</h1>
             <PureField label="Name">
                 <LemonInput placeholder="My export" ref={nameRef} />
             </PureField>
@@ -120,7 +149,7 @@ export function CreateExport(): JSX.Element {
             </PureField>
 
             <PureField label="AWS Secret Access Key">
-                <LemonInput placeholder="my-secret-access-key" ref={secretAccessKeyRef} />
+                <LemonInput placeholder="my-secret-access-key" type="password" ref={secretAccessKeyRef} />
             </PureField>
 
             <PureField label="Frequency">
@@ -130,6 +159,121 @@ export function CreateExport(): JSX.Element {
                         { value: 'day', label: 'Daily' },
                     ]}
                 />
+            </PureField>
+
+            <LemonButton onClick={handleCreateExport}>Create Export</LemonButton>
+
+            {loading && <div>Saving...</div>}
+            {error && <div>Error: {error?.toString()}</div>}
+        </div>
+    )
+}
+
+export function CreateSnowflakeExport(): JSX.Element {
+    const { currentTeamId } = useCurrentTeamId()
+
+    // Matches up with the backend config schema:
+    //
+    //   user: str
+    //   password: str
+    //   account: str
+    //   database: str
+    //   warehouse: str
+    //   schema: str
+    //   table_name: str = "events"
+    //
+
+    const nameRef = useRef<HTMLInputElement>(null)
+    const userRef = useRef<HTMLInputElement>(null)
+    const passwordRef = useRef<HTMLInputElement>(null)
+    const accountRef = useRef<HTMLInputElement>(null)
+    const databaseRef = useRef<HTMLInputElement>(null)
+    const warehouseRef = useRef<HTMLInputElement>(null)
+    const schemaRef = useRef<HTMLInputElement>(null)
+    const tableNameRef = useRef<HTMLInputElement>(null)
+
+    const { createExport, loading, error } = useCreateExport()
+
+    const handleCreateExport = useCallback(() => {
+        if (
+            !nameRef.current ||
+            !userRef.current ||
+            !passwordRef.current ||
+            !accountRef.current ||
+            !databaseRef.current ||
+            !warehouseRef.current ||
+            !schemaRef.current ||
+            !tableNameRef.current
+        ) {
+            console.warn('Missing ref')
+        }
+
+        // Get the values from the form fields.
+        const name = nameRef.current?.value ?? ''
+        const user = userRef.current?.value ?? ''
+        const password = passwordRef.current?.value ?? ''
+        const account = accountRef.current?.value ?? ''
+        const database = databaseRef.current?.value ?? ''
+        const warehouse = warehouseRef.current?.value ?? ''
+        const schema = schemaRef.current?.value ?? ''
+        const tableName = tableNameRef.current?.value ?? ''
+
+        const exportData = {
+            name,
+            destination: {
+                type: 'Snowflake',
+                config: {
+                    user,
+                    password,
+                    account,
+                    database,
+                    warehouse,
+                    schema,
+                    table_name: tableName,
+                },
+            },
+            interval: 'hour', // TODO: pull this from the form
+        } as const
+
+        // Create the export.
+        createExport(currentTeamId, exportData).then(() => {
+            // Navigate back to the exports list.
+            router.actions.push(urls.exports())
+        })
+    }, [])
+
+    return (
+        <div>
+            <PureField label="Name">
+                <LemonInput placeholder="My export" ref={nameRef} />
+            </PureField>
+
+            <PureField label="User">
+                <LemonInput placeholder="my-user" ref={userRef} />
+            </PureField>
+
+            <PureField label="Password">
+                <LemonInput placeholder="my-password" type="password" ref={passwordRef} />
+            </PureField>
+
+            <PureField label="Account">
+                <LemonInput placeholder="my-account" ref={accountRef} />
+            </PureField>
+
+            <PureField label="Database">
+                <LemonInput placeholder="my-database" ref={databaseRef} />
+            </PureField>
+
+            <PureField label="Warehouse">
+                <LemonInput placeholder="my-warehouse" ref={warehouseRef} />
+            </PureField>
+
+            <PureField label="Schema">
+                <LemonInput placeholder="my-schema" ref={schemaRef} />
+            </PureField>
+
+            <PureField label="Table name">
+                <LemonInput placeholder="events" ref={tableNameRef} />
             </PureField>
 
             <LemonButton onClick={handleCreateExport}>Create Export</LemonButton>

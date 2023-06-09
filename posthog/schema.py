@@ -1120,7 +1120,12 @@ class InsightVizNode(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in insight scene.")
     kind: str = Field("InsightVizNode", const=True)
+    showCorrelationTable: Optional[bool] = None
+    showHeader: Optional[bool] = None
+    showLastComputation: Optional[bool] = None
+    showTable: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 
 

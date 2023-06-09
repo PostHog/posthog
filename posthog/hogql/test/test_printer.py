@@ -263,14 +263,12 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("person", "Can't select a table when a column is expected: person")
 
     def test_expr_syntax_errors(self):
-        self._assert_expr_error("(", "Syntax error at line 1, column 1: no viable alternative at input '('")
-        self._assert_expr_error("())", "Syntax error at line 1, column 1: no viable alternative at input '()'")
-        self._assert_expr_error(
-            "select query from events", "Syntax error at line 1, column 13: mismatched input 'from' expecting <EOF>"
-        )
+        self._assert_expr_error("(", "no viable alternative at input '('")
+        self._assert_expr_error("())", "no viable alternative at input '()'")
+        self._assert_expr_error("select query from events", "mismatched input 'from' expecting <EOF>")
         self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
-        self._assert_expr_error("1;2", "Syntax error at line 1, column 1: mismatched input ';' expecting <EOF>")
-        self._assert_expr_error("b.a(bla)", "Syntax error at line 1, column 3: mismatched input '(' expecting '.'")
+        self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
+        self._assert_expr_error("b.a(bla)", "mismatched input '(' expecting '.'")
 
     def test_logic(self):
         self.assertEqual(
@@ -609,4 +607,16 @@ class TestPrinter(BaseTest):
                 "SELECT distinct_id, min(timestamp) over win1 as timestamp FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
             ),
             f"SELECT events.distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT 10000",
+        )
+
+    def test_nullish_concat(self):
+        self.assertEqual(
+            self._expr("concat(null, 'a', 3, toString(4), toString(NULL))"),
+            f"concat('', %(hogql_val_0)s, toString(3), toString(4), '')",
+        )
+
+    def test_concat_pipes(self):
+        self.assertEqual(
+            self._expr("'a' || 'b' || 3 || timestamp"),
+            f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
         )
