@@ -351,11 +351,17 @@ def decompress_chunked_snapshot_data(
         return DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={})
 
     snapshot_data_by_window_id = defaultdict(list)
+    chunks_collector: DefaultDict[str, List[SnapshotDataTaggedWithWindowId]] = defaultdict(list)
+    processed_chunk_ids = set()
+    count = 0
 
-    # Handle unchunked snapshots
-    if "chunk_id" not in all_recording_events[0]["snapshot_data"]:
-        paginated_list = paginate_list(all_recording_events, limit, offset)
-        for event in paginated_list.paginated_list:
+    for event in all_recording_events:
+        # Handle unchunked snapshots
+        if "chunk_id" not in event["snapshot_data"]:
+            count += 1
+
+            if offset > count:
+                continue
 
             if event["snapshot_data"].get("data_items"):
                 decompressed_items = [json.loads(decompress(x)) for x in event["snapshot_data"]["data_items"]]
@@ -371,71 +377,52 @@ def decompress_chunked_snapshot_data(
                     if return_only_activity_data
                     else event["snapshot_data"]
                 )
-        return DecompressedRecordingData(
-            has_next=paginated_list.has_next, snapshot_data_by_window_id=snapshot_data_by_window_id
-        )
+        else:
+            # Handle chunked snapshots
+            if event["snapshot_data"]["chunk_id"] in processed_chunk_ids:
+                continue
 
-    # Split decompressed recording events into their chunks
-    chunks_collector: DefaultDict[str, List[SnapshotDataTaggedWithWindowId]] = defaultdict(list)
-    for event in all_recording_events:
-        chunks_collector[event["snapshot_data"]["chunk_id"]].append(event)
+            chunks = chunks_collector[event["snapshot_data"]["chunk_id"]]
+            chunks.append(event)
 
-    # Paginate the list of chunks
-    paginated_chunk_list = paginate_list(list(chunks_collector.values()), limit, offset)
-
-    has_next = paginated_chunk_list.has_next
-    chunk_list: List[List[SnapshotDataTaggedWithWindowId]] = paginated_chunk_list.paginated_list
-
-    # Decompress the chunks and split the resulting events by window_id
-    for chunks in chunk_list:
-        was_originally_over_complete = False
-        if len(chunks) > chunks[0]["snapshot_data"]["chunk_count"]:
-            was_originally_over_complete = True
             deduplicated_chunks = {}
             for chunk in chunks:
                 # reduce the chunks into deduplicated chunks by chunk_id taking only the first seen for each chunk_id
                 if chunk["snapshot_data"]["chunk_index"] not in deduplicated_chunks:
                     deduplicated_chunks[chunk["snapshot_data"]["chunk_index"]] = chunk
 
-            chunks = list(deduplicated_chunks.values())
+            chunks = chunks_collector[event["snapshot_data"]["chunk_id"]] = list(deduplicated_chunks.values())
 
-        # even after deduplication, we don't know we have the right number of chunks
-        if len(chunks) != chunks[0]["snapshot_data"]["chunk_count"]:
-            capture_message(
-                "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} expected chunks".format(
-                    team_id,
-                    session_recording_id,
-                    chunks[0]["snapshot_data"]["chunk_id"],
-                    len(chunks),
-                    chunks[0]["snapshot_data"]["chunk_count"],
-                ),
-                tags={
-                    "team_id": team_id,
-                },
-                extras={
-                    "session_recording_id": session_recording_id,
-                    "expected_chunk_count": chunks[0]["snapshot_data"]["chunk_count"],
-                    "received_chunk_count": len(chunks),
-                    "was_originally_over_complete": was_originally_over_complete,
-                },
-            )
-            continue
+            if len(chunks) == event["snapshot_data"]["chunk_count"]:
+                count += 1
+                chunks_collector[event["snapshot_data"]["chunk_id"]] = None
 
-        b64_compressed_data = "".join(
-            chunk["snapshot_data"]["data"] for chunk in sorted(chunks, key=lambda c: c["snapshot_data"]["chunk_index"])
-        )
-        decompressed_data = json.loads(decompress(b64_compressed_data))
+                # Somehow mark this chunk_id as processed...
+                processed_chunk_ids.add(event["snapshot_data"]["chunk_id"])
 
-        if type(decompressed_data) is dict:
-            decompressed_data = [decompressed_data]
+                if offset > count:
+                    continue
 
-        # Decompressed data can be large, and in metadata calculations, we only care if the event is "active"
-        # This pares down the data returned, so we're not passing around a massive object
-        if return_only_activity_data:
-            events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
-            snapshot_data_by_window_id[chunks[0]["window_id"]].extend(events_with_only_activity_data)
-        else:
-            snapshot_data_by_window_id[chunks[0]["window_id"]].extend(decompressed_data)
+                b64_compressed_data = "".join(
+                    chunk["snapshot_data"]["data"]
+                    for chunk in sorted(chunks, key=lambda c: c["snapshot_data"]["chunk_index"])
+                )
+                decompressed_data = json.loads(decompress(b64_compressed_data))
+
+                if type(decompressed_data) is dict:
+                    decompressed_data = [decompressed_data]
+
+                if return_only_activity_data:
+                    events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
+                    snapshot_data_by_window_id[event["window_id"]].extend(events_with_only_activity_data)
+                else:
+                    snapshot_data_by_window_id[event["window_id"]].extend(decompressed_data)
+
+        if count > offset + limit:
+            break
+
+    has_next = count < len(all_recording_events)
+
     return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
 
 
