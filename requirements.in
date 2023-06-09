@@ -65,6 +65,7 @@ selenium==4.1.5
 sentry-sdk==1.14.0
 semantic_version==2.8.5
 slack_sdk==3.17.1
+snowflake-connector-python==3.0.4
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
 statshog==1.0.6

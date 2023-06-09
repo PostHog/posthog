@@ -310,8 +310,6 @@ function InsightCardInternal(
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
 
-    const exportedAndCached = placement == DashboardPlacement.Export && !!insight.result
-    const sharedAndCached = placement == DashboardPlacement.Public && !!insight.result
     const canMakeQueryAPICalls =
         placement === 'SavedInsightGrid' ||
         [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
@@ -356,7 +354,7 @@ function InsightCardInternal(
                                 : undefined
                         }
                     >
-                        {exportedAndCached || sharedAndCached ? (
+                        {!!insight.result ? (
                             <Query query={insight.query} cachedResults={insight.result} readOnly />
                         ) : isUsingDashboardQueries && canMakeQueryAPICalls ? (
                             <Query query={insight.query} readOnly />
