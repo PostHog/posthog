@@ -50,6 +50,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
+            self.maxDiff = None
             query = EventsQuery(select=["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"])
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
@@ -63,7 +64,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         ["test_val2", "sign out", "2", "sign out test_val2"],
                         ["test_val3", "sign out", "2", "sign out test_val3"],
                     ],
-                    "types": ["Nullable(String)", "String", "String", "Nullable(String)"],
+                    "types": ["Nullable(String)", "String", "String", "String"],
                 },
             )
 
