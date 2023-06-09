@@ -408,6 +408,27 @@ class TestCapture(BaseTest):
         validate_response(openapi_spec, response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_drops_performance_events(self, kafka_produce):
+        self.client.post(
+            "/batch/",
+            data={
+                "data": json.dumps(
+                    [
+                        {
+                            "event": "$performance_event",
+                            "properties": {"distinct_id": "eeee", "token": self.team.api_token},
+                        },
+                        {"event": "boop", "properties": {"distinct_id": "aaaa", "token": self.team.api_token}},
+                    ]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        self.assertEqual(kafka_produce.call_count, 1)
+        assert "boop" in kafka_produce.call_args_list[0][1]["data"]["data"]
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_emojis_in_text(self, kafka_produce):
         self.team.api_token = "xp9qT2VLY76JJg"
         self.team.save()
@@ -1163,39 +1184,6 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
         self.assertEqual(key, session_id)
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_performance_events_go_to_session_recording_events_topic(self, kafka_produce):
-        # `$performance_events` are not normal analytics events but rather
-        # displayed along side session recordings. They are sent to the
-        # `KAFKA_SESSION_RECORDING_EVENTS` topic to isolate them from causing
-        # any issues with normal analytics events.
-        session_id = "abc123"
-        window_id = "def456"
-        distinct_id = "ghi789"
-
-        event = {
-            "event": "$performance_event",
-            "properties": {
-                "$session_id": session_id,
-                "$window_id": window_id,
-                "distinct_id": distinct_id,
-            },
-            "offset": 1993,
-        }
-
-        response = self.client.post(
-            "/e/",
-            data={"batch": [event], "api_key": self.team.api_token},
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-
-        kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
-        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
-        key = kafka_produce.call_args_list[0][1]["key"]
-        self.assertEqual(key, None)
 
     @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
