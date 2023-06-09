@@ -2,16 +2,19 @@ import { actions, kea, key, listeners, path, props, propsChanged, reducers, sele
 import { HogQLMetadata, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
-import { editor as importedEditor, MarkerSeverity } from 'monaco-editor'
+import { editor, MarkerSeverity } from 'monaco-editor'
 import { query } from '~/queries/query'
 import { Monaco } from '@monaco-editor/react'
+
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface ModelMarker extends editor.IMarkerData {}
 
 export interface HogQLQueryEditorLogicProps {
     key: number
     query: HogQLQuery
     setQuery?: (query: HogQLQuery) => void
     monaco?: Monaco | null
-    editor?: importedEditor.IStandaloneCodeEditor | null
+    editor?: editor.IStandaloneCodeEditor | null
 }
 
 export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
@@ -26,11 +29,11 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     actions({
         saveQuery: true,
         setQueryInput: (queryInput: string) => ({ queryInput }),
-        setModelMarkers: (markers: importedEditor.IMarkerData[]) => ({ markers }),
+        setModelMarkers: (markers: ModelMarker[]) => ({ markers }),
     }),
     reducers(({ props }) => ({
         queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
-        modelMarkers: [[] as importedEditor.IMarkerData[], { setModelMarkers: (_, { markers }) => markers }],
+        modelMarkers: [[] as ModelMarker[], { setModelMarkers: (_, { markers }) => markers }],
     })),
     selectors({
         hasErrors: [(s) => [s.modelMarkers], (modelMarkers) => !!modelMarkers?.length],
@@ -66,7 +69,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             if (!response?.isValid) {
                 const start = model.getPositionAt(response?.errorStart ?? 0)
                 const end = model.getPositionAt(response?.errorEnd ?? queryInput.length)
-                const markers: importedEditor.IMarkerData[] = [
+                const markers: ModelMarker[] = [
                     {
                         startLineNumber: start.lineNumber,
                         startColumn: start.column,
