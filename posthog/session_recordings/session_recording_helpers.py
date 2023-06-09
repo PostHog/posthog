@@ -1,5 +1,4 @@
 import base64
-import dataclasses
 import gzip
 import json
 from collections import defaultdict
