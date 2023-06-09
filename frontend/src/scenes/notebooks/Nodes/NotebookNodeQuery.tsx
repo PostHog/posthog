@@ -55,11 +55,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
         return modifiedQuery
     }, [query, editing])
 
-    const HEIGHT = editing ? 600 : 500
+    const HEIGHT = 500
 
     return (
         <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={HEIGHT} {...props}>
-            <div style={{ height: HEIGHT }}>
+            <div className="flex" style={{ maxHeight: HEIGHT }}>
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
                 </BindLogic>
