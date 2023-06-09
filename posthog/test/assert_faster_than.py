@@ -1,5 +1,5 @@
-from contextlib import contextmanager
 import time
+from contextlib import contextmanager
 
 
 @contextmanager

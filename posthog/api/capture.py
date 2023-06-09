@@ -1,9 +1,9 @@
 import hashlib
 import json
-from random import random
 import re
 import time
 from datetime import datetime
+from random import random
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import structlog
@@ -14,7 +14,8 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureRecordMetadata
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
+from prometheus_client.utils import INF
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
@@ -78,6 +79,26 @@ TOKEN_SHAPE_INVALID_COUNTER = Counter(
     "Events dropped due to an invalid token shape, per reason.",
     labelnames=["reason"],
 )
+
+REPLAY_INGESTION_COUNTER = Counter(
+    "capture_replay_ingestion_total",
+    "Events processed for replay ingestion.",
+    labelnames=["method"],
+)
+
+REPLAY_INGESTION_BATCH_COMPRESSION_RATIO_COUNTER = Counter(
+    "capture_replay_ingestion_batch_compression_ratio",
+    "Indicates how well we turned X batch events into Y kafka events.",
+    labelnames=["method"],
+)
+
+REPLAY_INGESTION_BATCH_COMPRESSION_RATIO_HISTOGRAM = Histogram(
+    "session_recordings_chunks_length",
+    "We chunk session recordings to fit them into kafka, how often do we chunk and by how much?",
+    buckets=(0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.1, 2, 5, 10, INF),
+    labelnames=["method"],
+)
+
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
@@ -333,26 +354,36 @@ def get_event(request):
             capture_exception(e)
 
         try:
-            if random() < settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO:
-                replay_events, other_events = split_replay_events(events)
-                replay_events = compress_replay_events(replay_events)
+            replay_events, other_events = split_replay_events(events)
+            original_replay_events_count = len(replay_events)
+            method = "new" if random() < settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO else "old"
 
-                # NOTE: Legacy flow -> reducing based on the max_size for Kafka and compressing
-                replay_events = reduce_replay_events_by_window(
-                    replay_events, max_size_bytes=settings.REPLAY_EVENT_MAX_SIZE
-                )  # 512Kb
-                replay_events = chunk_replay_events_by_window(
-                    replay_events, max_size_bytes=settings.REPLAY_EVENT_MAX_SIZE
+            if original_replay_events_count > 0:
+                if method == "new":
+                    replay_events = compress_replay_events(replay_events)
+
+                    # NOTE: Legacy flow -> reducing based on the max_size for Kafka and compressing
+                    replay_events = reduce_replay_events_by_window(
+                        replay_events, max_size_bytes=settings.REPLAY_EVENT_MAX_SIZE
+                    )  # 512Kb
+                    replay_events = chunk_replay_events_by_window(
+                        replay_events, max_size_bytes=settings.REPLAY_EVENT_MAX_SIZE
+                    )
+
+                    # NOTE: New flow -> TODO: Set this up with a separate kafka write
+                    # new_flow_replay_events = reduce_replay_events_by_window(
+                    #     replay_events, max_size=1024 * 1024 * 8
+                    # )  # 8MB for the new flow
+
+                else:
+                    replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
+
+                REPLAY_INGESTION_COUNTER.labels(method=method).inc()
+                REPLAY_INGESTION_BATCH_COMPRESSION_RATIO_HISTOGRAM.labels(method=method).observe(
+                    len(replay_events) / original_replay_events_count
                 )
 
-                # NOTE: New flow -> TODO: Set this up with a separate kafka write
-                # new_flow_replay_events = reduce_replay_events_by_window(
-                #     replay_events, max_size=1024 * 1024 * 8
-                # )  # 8MB for the new flow
-
-                events = replay_events + other_events
-            else:
-                events = legacy_preprocess_session_recording_events_for_clickhouse(events)
+            events = replay_events + other_events
 
         except ValueError as e:
             return cors_response(
