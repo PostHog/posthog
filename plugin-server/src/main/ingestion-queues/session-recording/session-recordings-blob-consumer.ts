@@ -174,11 +174,6 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        if (this.enabledTeams && !this.enabledTeams.includes(team.id)) {
-            // NOTE: due to the high volume of hits here we don't log this
-            return
-        }
-
         if (!team.session_recording_opt_in) {
             eventDroppedCounter
                 .labels({
@@ -190,6 +185,16 @@ export class SessionRecordingBlobIngester {
         }
 
         const $snapshot_data = event.properties?.$snapshot_data
+
+        if ('$chunk_index' in $snapshot_data) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'chunked_data',
+                })
+                .inc()
+            return
+        }
 
         const recordingMessage: IncomingRecordingMessage = {
             metadata: {
@@ -205,10 +210,7 @@ export class SessionRecordingBlobIngester {
             window_id: event.properties?.$window_id,
 
             // Properties data
-            chunk_id: $snapshot_data.chunk_id,
-            chunk_index: $snapshot_data.chunk_index,
-            chunk_count: $snapshot_data.chunk_count,
-            data: $snapshot_data.data,
+            data_items: $snapshot_data.data_items,
             compression: $snapshot_data.compression,
             has_full_snapshot: $snapshot_data.has_full_snapshot,
             events_summary: $snapshot_data.events_summary,

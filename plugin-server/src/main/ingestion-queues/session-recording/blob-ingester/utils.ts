@@ -39,8 +39,12 @@ export function decompressFromString(input: string, doubleDecode = false): strin
 }
 
 export const convertToPersistedMessage = (message: IncomingRecordingMessage): PersistedRecordingMessage => {
+    const decompressedMessageData = JSON.parse(decompressFromString(message.data))
+    const dataItems = decompressedMessageData.properties.$snapshot_data.data_items.map((item: string) =>
+        JSON.parse(decompressFromString(item))
+    )
     return {
         window_id: message.window_id,
-        data: decompressFromString(message.data),
+        data: JSON.stringify(dataItems),
     }
 }

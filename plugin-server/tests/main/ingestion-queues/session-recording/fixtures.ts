@@ -1,10 +1,29 @@
-import { randomUUID } from 'node:crypto'
-
 import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
 import { compressToString } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import jsonFullSnapshot from './data/snapshot-full.json'
 
-export function createIncomingRecordingMessage(data: Partial<IncomingRecordingMessage> = {}): IncomingRecordingMessage {
+export function createIncomingRecordingMessage(
+    partialIncomingMessage: Partial<IncomingRecordingMessage> = {},
+    payload: Record<string, any> | null = null
+): IncomingRecordingMessage {
+    // the data on the kafka message is a compressed string.
+    // it is a compressed $snapshot PostHog event
+    // that has properties, and they have $snapshot_data
+    // that will have data_items, which are the actual snapshots each individually compressed
+
+    const { data: rrwebData, ...snapshotDataObject } = jsonFullSnapshot.properties.$snapshot_data
+    const snapshotEvent = compressToString(
+        JSON.stringify({
+            ...jsonFullSnapshot,
+            properties: {
+                ...jsonFullSnapshot.properties,
+                $snapshot_data: {
+                    ...snapshotDataObject,
+                    data_items: [compressToString(JSON.stringify(payload || rrwebData))],
+                },
+            },
+        })
+    )
     return {
         team_id: 1,
         distinct_id: 'distinct_id',
@@ -12,10 +31,7 @@ export function createIncomingRecordingMessage(data: Partial<IncomingRecordingMe
         window_id: 'window_id_1',
 
         // Properties data
-        chunk_id: 'chunk_id_1',
-        chunk_index: 0,
-        chunk_count: 1,
-        data: compressToString(JSON.stringify(jsonFullSnapshot)),
+        data: snapshotEvent,
         compression: 'gzip-base64',
         has_full_snapshot: true,
         events_summary: [
@@ -25,36 +41,13 @@ export function createIncomingRecordingMessage(data: Partial<IncomingRecordingMe
                 data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
             },
         ],
-        ...data,
+        ...partialIncomingMessage,
         metadata: {
             topic: 'session_recording_events',
             partition: 1,
             offset: 1,
             timestamp: 1,
-            ...data.metadata,
+            ...partialIncomingMessage.metadata,
         },
     }
-}
-
-export function createChunkedIncomingRecordingMessage(
-    chunks: number,
-    data: Partial<IncomingRecordingMessage> = {}
-): IncomingRecordingMessage[] {
-    const chunkId = randomUUID()
-    const coreMessage = createIncomingRecordingMessage(data)
-    const chunkLength = coreMessage.data.length / chunks
-    const messages: IncomingRecordingMessage[] = []
-
-    // Iterate over chunks count and clone the core message with the data split into chunks
-    for (let i = 0; i < chunks; i++) {
-        messages.push({
-            ...coreMessage,
-            chunk_id: chunkId,
-            chunk_index: i,
-            chunk_count: chunks,
-            data: coreMessage.data.slice(i * chunkLength, (i + 1) * chunkLength),
-        })
-    }
-
-    return messages
 }
