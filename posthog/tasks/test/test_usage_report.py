@@ -31,6 +31,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 from posthog.utils import get_machine_id
 
@@ -297,6 +298,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 2,
                     "ff_active_count": 1,
+                    "decide_requests_count_in_month": 0,
+                    "decide_requests_count_in_period": 0,
                     "hogql_app_bytes_read": 0,
                     "hogql_app_rows_read": 0,
                     "hogql_app_duration_ms": 0,
@@ -330,6 +333,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 2,
                             "ff_active_count": 1,
+                            "decide_requests_count_in_month": 0,
+                            "decide_requests_count_in_period": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -357,6 +362,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
+                            "decide_requests_count_in_month": 0,
+                            "decide_requests_count_in_period": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -405,6 +412,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 0,
                     "ff_active_count": 0,
+                    "decide_requests_count_in_month": 0,
+                    "decide_requests_count_in_period": 0,
                     "hogql_app_bytes_read": 0,
                     "hogql_app_rows_read": 0,
                     "hogql_app_duration_ms": 0,
@@ -438,6 +447,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
+                            "decide_requests_count_in_month": 0,
+                            "decide_requests_count_in_period": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -541,6 +552,127 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         # Nothing was read via the API
         assert report["hogql_api_rows_read"] == 0
         assert report["event_explorer_api_rows_read"] == 0
+
+
+@freeze_time("2022-01-10T00:01:00Z")
+class TestFeatureFlagsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.analytics_org = Organization.objects.create(name="PostHog")
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_2 = Organization.objects.create(name="Org 2")
+
+        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
+
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+
+    @snapshot_clickhouse_queries
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_usage_report_decide_requests(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+
+        self._setup_teams()
+        for i in range(10):
+            _create_event(
+                distinct_id="3",
+                event="decide usage",
+                properties={"count": 10, "token": "correct"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(5):
+            _create_event(
+                distinct_id="4",
+                event="decide usage",
+                properties={"count": 1, "token": "correct"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+            _create_event(
+                distinct_id="4",
+                event="decide usage",
+                properties={"count": 100, "token": "wrong"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(7):
+            _create_event(
+                distinct_id="5",
+                event="decide usage",
+                properties={"count": 100},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        # some out of range events
+        _create_event(
+            distinct_id="3",
+            event="decide usage",
+            properties={"count": 20000, "token": "correct"},
+            timestamp=now() - relativedelta(days=20),
+            team=self.analytics_team,
+        )
+        flush_persons_and_events()
+
+        with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
+            all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
+
+        assert len(all_reports) == 4
+
+        all_reports = sorted(all_reports, key=lambda x: x["organization_name"])
+
+        assert [all_reports["organization_name"] for all_reports in all_reports] == [
+            "Org 1",
+            "Org 2",
+            "PostHog",
+            "Test",
+        ]
+
+        org_1_report = all_reports[0]
+        org_2_report = all_reports[1]
+        analytics_report = all_reports[2]
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["decide_requests_count_in_period"] == 11
+        assert org_1_report["decide_requests_count_in_month"] == 105
+        assert org_1_report["teams"]["3"]["decide_requests_count_in_period"] == 10
+        assert org_1_report["teams"]["3"]["decide_requests_count_in_month"] == 100
+        assert org_1_report["teams"]["4"]["decide_requests_count_in_period"] == 1
+        assert org_1_report["teams"]["4"]["decide_requests_count_in_month"] == 5
+
+        # because of wrong token, Org 2 has no decide counts.
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["decide_requests_count_in_period"] == 0
+        assert org_2_report["decide_requests_count_in_month"] == 0
+        assert org_2_report["teams"]["5"]["decide_requests_count_in_period"] == 0
+        assert org_2_report["teams"]["5"]["decide_requests_count_in_month"] == 0
+
+        # billing service calls are made only for org1, which has decide requests, and analytics org - which has decide usage events.
+        calls = [
+            call(
+                org_1_report["organization_id"],
+                ANY,
+            ),
+            call(
+                analytics_report["organization_id"],
+                ANY,
+            ),
+        ]
+        assert billing_task_mock.delay.call_count == 2
+        billing_task_mock.delay.assert_has_calls(
+            calls,
+            any_order=True,
+        )
+
+        # capture usage report calls are made for all orgs
+        assert posthog_capture_mock.return_value.capture.call_count == 4
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
