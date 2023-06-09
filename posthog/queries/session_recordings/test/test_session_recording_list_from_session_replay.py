@@ -1592,7 +1592,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         filter = SessionRecordingsFilter(
             team=self.team,
-            data={"console_logs_filter": ["log"]},
+            data={"console_logs": ["log"]},
         )
 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
@@ -1607,7 +1607,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         filter = SessionRecordingsFilter(
             team=self.team,
-            data={"console_logs_filter": ["warn"]},
+            data={"console_logs": ["warn"]},
         )
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
@@ -1640,7 +1640,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         filter = SessionRecordingsFilter(
             team=self.team,
-            data={"console_logs_filter": ["warn"]},
+            data={"console_logs": ["warn"]},
         )
 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
@@ -1655,7 +1655,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         filter = SessionRecordingsFilter(
             team=self.team,
-            data={"console_logs_filter": ["log"]},
+            data={"console_logs": ["log"]},
         )
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
@@ -1688,7 +1688,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         filter = SessionRecordingsFilter(
             team=self.team,
-            data={"console_logs_filter": ["error"]},
+            data={"console_logs": ["error"]},
         )
 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
@@ -1703,7 +1703,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         filter = SessionRecordingsFilter(
             team=self.team,
-            data={"console_logs_filter": ["log"]},
+            data={"console_logs": ["log"]},
         )
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
@@ -1754,28 +1754,32 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         filter = SessionRecordingsFilter(
             team=self.team,
-            data={"console_logs_filter": ["warn", "error"]},
+            data={"console_logs": ["warn", "error"]},
         )
 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
 
-        assert sorted([sr["session_id"] for sr in session_recordings], key=lambda x: x[0],) == [
-            with_warns_session_id,
-            with_two_session_id,
-            with_errors_session_id,
-        ]
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                with_errors_session_id,
+                with_two_session_id,
+                with_warns_session_id,
+            ]
+        )
 
         filter = SessionRecordingsFilter(
             team=self.team,
-            data={"console_logs_filter": ["log"]},
+            data={"console_logs": ["log"]},
         )
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
-        assert sorted(
-            [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
-        ) == [with_logs_session_id, with_two_session_id]
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                with_two_session_id,
+                with_logs_session_id,
+            ]
+        )
