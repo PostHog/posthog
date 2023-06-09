@@ -56,25 +56,6 @@ export interface SurveyLogicProps {
     id: string | 'new'
 }
 
-const DEFAULT_DATATABLE_QUERY: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    full: true,
-    source: {
-        kind: NodeKind.EventsQuery,
-        select: ['*', 'event', 'timestamp', 'person'],
-        orderBy: ['timestamp DESC'],
-        after: '-30d',
-        limit: 100,
-        event: 'insight viewed',
-    },
-    propertiesViaUrl: true,
-    showExport: true,
-    showReload: true,
-    showColumnConfigurator: true,
-    showEventFilter: true,
-    showPropertyFilter: true,
-}
-
 export const surveyLogic = kea<surveyLogicType>([
     path(['scenes', 'surveys', 'surveyLogic']),
     props({} as SurveyLogicProps),
@@ -89,6 +70,7 @@ export const surveyLogic = kea<surveyLogicType>([
         launchSurvey: true,
         stopSurvey: true,
         archiveSurvey: true,
+        setDataTableQuery: (query: DataTableNode) => ({ query }),
     }),
     loaders(({ props, values }) => ({
         survey: {
@@ -140,6 +122,28 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     listeners(({ actions }) => ({
+        loadSurveySuccess: ({ survey }) => {
+            if (survey.start_date) {
+                const surveyDataQuery = {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: ['*', 'event', 'timestamp', 'person'],
+                        orderBy: ['timestamp DESC'],
+                        after: '-30d',
+                        limit: 100,
+                        event: `${survey.name} survey sent`,
+                    },
+                    propertiesViaUrl: true,
+                    showExport: true,
+                    showReload: true,
+                    showColumnConfigurator: true,
+                    showEventFilter: true,
+                    showPropertyFilter: true,
+                }
+                actions.setDataTableQuery(surveyDataQuery)
+            }
+        },
         createSurveySuccess: async ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
@@ -169,7 +173,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 editingSurvey: (_, { editing }) => editing,
             },
         ],
-        dataTableQuery: [DEFAULT_DATATABLE_QUERY as DataTableNode],
+        dataTableQuery: [
+            null as DataTableNode | null,
+            {
+                setDataTableQuery: (_, { query }) => query,
+            },
+        ],
     }),
     selectors({
         isSurveyRunning: [
