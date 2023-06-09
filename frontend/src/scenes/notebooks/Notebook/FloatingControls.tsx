@@ -27,13 +27,38 @@ export function FloatingControls(): JSX.Element | null {
     return editor ? (
         <FloatingMenu
             editor={editor}
-            tippyOptions={{ duration: 100 }}
+            tippyOptions={{ duration: 100, placement: 'left' }}
             className="NotebookFloatingButton"
             shouldShow={shouldShow}
         >
             <LemonMenu
                 items={[
                     {
+                        title: (
+                            <div className="flex items-center gap-1 border-b pb-1">
+                                <LemonButton
+                                    status="primary-alt"
+                                    size="small"
+                                    onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                                >
+                                    H1
+                                </LemonButton>
+                                <LemonButton
+                                    status="primary-alt"
+                                    size="small"
+                                    onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                                >
+                                    H2
+                                </LemonButton>
+                                <LemonButton
+                                    status="primary-alt"
+                                    size="small"
+                                    onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+                                >
+                                    H3
+                                </LemonButton>
+                            </div>
+                        ),
                         items: [
                             {
                                 icon: <IconRecording />,
@@ -73,15 +98,8 @@ export function FloatingControls(): JSX.Element | null {
                     },
                 ]}
                 tooltipPlacement={'right'}
-                // sameWidth={dropdownMatchSelectWidth}
                 placement={'right-start'}
                 actionable
-                // className={menu?.className}
-                // maxContentWidth={dropdownMaxContentWidth}
-                // activeItemIndex={items
-                //     .flatMap((i) => (isLemonMenuSection(i) ? i.items.filter(Boolean) : i))
-                //     .findIndex((i) => (i as LemonMenuItem).active)}
-                // closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
             >
                 <LemonButton size="small" icon={<IconPlus />} />
             </LemonMenu>

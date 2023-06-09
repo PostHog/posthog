@@ -60,7 +60,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
         <NodeWrapper
             {...props}
             nodeType={NotebookNodeType.RecordingPlaylist}
-            title="Playlist"
+            title="Session Replays"
             href={urls.replay(undefined, filters)}
             heightEstimate={HEIGHT}
         >
