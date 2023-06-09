@@ -9,18 +9,18 @@ import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton
 import { IconClose, IconFunnelVertical } from 'lib/lemon-ui/icons'
 
 export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
-    return <PathsTargetDataExploration position="start" {...props} />
+    return <PathsTarget position="start" {...props} />
 }
 
 export function PathsTargetEnd(props: EditorFilterProps): JSX.Element {
-    return <PathsTargetDataExploration position="end" {...props} />
+    return <PathsTarget position="end" {...props} />
 }
 
 type PathTargetDataExplorationProps = {
     position: 'start' | 'end'
 } & EditorFilterProps
 
-function PathsTargetDataExploration({ position, insightProps }: PathTargetDataExplorationProps): JSX.Element {
+function PathsTarget({ position, insightProps }: PathTargetDataExplorationProps): JSX.Element {
     const { pathsFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
