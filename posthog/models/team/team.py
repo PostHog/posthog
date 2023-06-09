@@ -206,7 +206,7 @@ class Team(UUIDClassicModel):
     def person_on_events_querying_enabled(self) -> bool:
         return self.person_on_events_mode != PersonOnEventsMode.DISABLED
 
-    @property
+    @cached_property
     def _person_on_events_querying_enabled(self) -> bool:
         if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
             return settings.PERSON_ON_EVENTS_OVERRIDE
