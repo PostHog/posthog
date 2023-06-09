@@ -1212,15 +1212,16 @@ class TestCapture(BaseTest):
         snapshot_source = 8
         snapshot_type = 8
         event_data = {"foo": "bar"}
-        sent_event = self._send_session_recording_event(
-            timestamp=timestamp,
-            snapshot_source=snapshot_source,
-            snapshot_type=snapshot_type,
-            session_id=session_id,
-            distinct_id=distinct_id,
-            window_id=window_id,
-            event_data=event_data,
-        )
+        with self.settings(REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1):
+            sent_event = self._send_session_recording_event(
+                timestamp=timestamp,
+                snapshot_source=snapshot_source,
+                snapshot_type=snapshot_type,
+                session_id=session_id,
+                distinct_id=distinct_id,
+                window_id=window_id,
+                event_data=event_data,
+            )
         self.assertEqual(kafka_produce.call_count, 1)
         self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
