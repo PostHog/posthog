@@ -264,7 +264,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
 
         ph_project_token_cookie = response.cookies["ph_current_project_token"]
         self.assertEqual(ph_project_token_cookie.key, "ph_current_project_token")
-        self.assertEqual(ph_project_token_cookie.value, self.user.team.api_token)
+        self.assertEqual(ph_project_token_cookie.value, self.team.api_token)
         self.assertEqual(ph_project_token_cookie["path"], "/")
         self.assertEqual(ph_project_token_cookie["samesite"], "Strict")
         self.assertEqual(ph_project_token_cookie["httponly"], "")
@@ -275,7 +275,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
 
         ph_project_name_cookie = response.cookies["ph_current_project_name"]
         self.assertEqual(ph_project_name_cookie.key, "ph_current_project_name")
-        self.assertEqual(ph_project_name_cookie.value, self.user.team.name)
+        self.assertEqual(ph_project_name_cookie.value, self.team.name)
         self.assertEqual(ph_project_name_cookie["path"], "/")
         self.assertEqual(ph_project_name_cookie["samesite"], "Strict")
         self.assertEqual(ph_project_name_cookie["httponly"], "")
@@ -348,11 +348,11 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(response.cookies["ph_current_project_token"].key, "ph_current_project_token")
-        self.assertEqual(response.cookies["ph_current_project_token"].value, self.user.team.api_token)
+        self.assertEqual(response.cookies["ph_current_project_token"].value, self.team.api_token)
         self.assertEqual(response.cookies["ph_current_project_token"]["max-age"], 31536000)
 
         self.assertEqual(response.cookies["ph_current_project_name"].key, "ph_current_project_name")
-        self.assertEqual(response.cookies["ph_current_project_name"].value, self.user.team.name)
+        self.assertEqual(response.cookies["ph_current_project_name"].value, self.team.name)
         self.assertEqual(response.cookies["ph_current_project_name"]["max-age"], 31536000)
 
         response = self.client.get("/logout")
