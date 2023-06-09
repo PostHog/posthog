@@ -3,11 +3,11 @@ import api from 'lib/api'
 import { deleteWithUndo, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import type { actionEditLogicType } from './actionEditLogicType'
-import { ActionType } from '~/types'
+import { ActionStepType, ActionType } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { Link } from 'lib/lemon-ui/Link'
@@ -139,4 +139,34 @@ export const actionEditLogic = kea<actionEditLogicType>([
             actions.setAction({ name: '', steps: [{ isNew: uuid() }] }, { merge: false })
         }
     }),
+
+    urlToAction(({ actions }) => ({
+        [urls.createAction()]: (_, searchParams) => {
+            try {
+                if (searchParams.copy) {
+                    const {
+                        id: _id,
+                        created_at: _created_at,
+                        created_by: _created_by,
+                        last_calculated_at: _last_calculated_at,
+                        ...actionToCopy
+                    } = searchParams.copy
+
+                    actions.setAction(
+                        {
+                            ...actionToCopy,
+                            steps: actionToCopy.steps.map((s: ActionStepType) => {
+                                const { id: _id, ...step } = s
+                                return { ...step, isNew: uuid() }
+                            }),
+                            name: `${actionToCopy.name} (copy)`,
+                        },
+                        { merge: false }
+                    )
+                }
+            } catch (e) {
+                throw new Error('Could not parse action to copy from URL')
+            }
+        },
+    })),
 ])

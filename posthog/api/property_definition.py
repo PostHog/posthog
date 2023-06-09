@@ -221,7 +221,8 @@ class QueryContext:
             },
         )
 
-    def as_sql(self):
+    def as_sql(self, order_by_verified: bool):
+        verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
@@ -232,7 +233,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
+            ORDER BY {verified_ordering} is_seen_on_filtered_events DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -381,6 +382,7 @@ class PropertyDefinitionViewSet(
         )
 
         use_enterprise_taxonomy = self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)  # type: ignore
+        order_by_verified = False
         if use_enterprise_taxonomy:
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
@@ -399,6 +401,7 @@ class PropertyDefinitionViewSet(
                         "tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
                     )
                 )
+                order_by_verified = True
             except ImportError:
                 use_enterprise_taxonomy = False
 
@@ -442,7 +445,7 @@ class PropertyDefinitionViewSet(
 
         self.paginator.set_count(full_count)  # type: ignore
 
-        return queryset.raw(query_context.as_sql(), params=query_context.params)
+        return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class

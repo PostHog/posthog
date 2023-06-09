@@ -117,7 +117,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
     connect: {
         actions: [personalAPIKeysLogic, ['createKey'], router, ['push']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
-        logic: [preflightLogic, dashboardsModel],
+        logic: [preflightLogic],
     },
     actions: {
         hidePalette: true,
