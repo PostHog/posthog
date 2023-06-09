@@ -52,6 +52,10 @@ const NEW_SURVEY: NewSurvey = {
     archived: false,
 }
 
+export const getSurveyEventName = (surveyName: string): string => {
+    return `${surveyName} survey sent`
+}
+
 export interface SurveyLogicProps {
     id: string | 'new'
 }
@@ -133,7 +137,7 @@ export const surveyLogic = kea<surveyLogicType>([
     listeners(({ actions }) => ({
         loadSurveySuccess: ({ survey }) => {
             if (survey.start_date) {
-                const surveyDataQuery = {
+                const surveyDataQuery: DataTableNode = {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
@@ -141,7 +145,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         orderBy: ['timestamp DESC'],
                         after: '-30d',
                         limit: 100,
-                        event: `${survey.name} survey sent`,
+                        event: getSurveyEventName(survey.name),
                     },
                     propertiesViaUrl: true,
                     showExport: true,
