@@ -99,15 +99,13 @@ class _Printer(Visitor):
         stack: Optional[List[ast.AST]] = None,
         settings: Optional[HogQLSettings] = None,
     ):
+        super().__init__(stack)
         self.context = context
         self.dialect = dialect
-        self.stack: List[ast.AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
 
     def visit(self, node: ast.AST):
-        self.stack.append(node)
         response = super().visit(node)
-        self.stack.pop()
 
         if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectUnionQuery):

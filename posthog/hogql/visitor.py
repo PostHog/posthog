@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 
 from posthog.hogql import ast
 from posthog.hogql.errors import HogQLException
@@ -14,12 +14,19 @@ def clear_locations(expr: ast.Expr) -> ast.Expr:
 
 
 class Visitor(object):
+    def __init__(self, stack: Optional[List[ast.AST]] = None):
+        super().__init__()
+        self.stack: List[ast.AST] = stack or []
+
     def visit(self, node: ast.AST):
         if node is None:
             return node
 
         try:
-            return node.accept(self)
+            self.stack.append(node)
+            response = node.accept(self)
+            self.stack.pop()
+            return response
         except HogQLException as e:
             if e.start is None or e.end is None:
                 e.start = node.start
@@ -233,6 +240,7 @@ class CloningVisitor(Visitor):
     """Visitor that traverses and clones the AST tree. Clears types."""
 
     def __init__(self, clear_types: Optional[bool] = True, clear_locations: Optional[bool] = False):
+        super().__init__()
         self.clear_types = clear_types
         self.clear_locations = clear_locations
 

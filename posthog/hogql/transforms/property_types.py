@@ -1,4 +1,4 @@
-from typing import Dict, Set, List
+from typing import Dict, Set
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -78,13 +78,6 @@ class PropertySwapper(CloningVisitor):
         self.timezone = timezone
         self.event_properties = event_properties
         self.person_properties = person_properties
-        self.stack: List[ast.AST] = []
-
-    def visit(self, node: ast.AST):
-        self.stack.append(node)
-        response = super().visit(node)
-        self.stack.pop()
-        return response
 
     def visit_field(self, node: ast.Field):
         is_column = isinstance(self.stack[-2], ast.SelectQuery)
