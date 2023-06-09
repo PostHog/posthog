@@ -54,14 +54,14 @@ class Resolver(CloningVisitor):
         self.database = database
         self.cte_counter = 0
 
-    def visit(self, node: ast.Expr) -> ast.Expr:
+    def visit(self, node: ast.Expr, tag: Optional[str] = None) -> ast.Expr:
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolverException(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
             )
         if self.cte_counter > 50:
             raise ResolverException("Too many CTE expansions (50+). Probably a CTE loop.")
-        return super().visit(node)
+        return super().visit(node, tag)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         node = super().visit_select_union_query(node)
@@ -94,11 +94,11 @@ class Resolver(CloningVisitor):
         )
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
-        new_node.select_from = self.visit(node.select_from)
+        new_node.select_from = self.visit(node.select_from, "select.select_from")
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         for expr in node.select or []:
-            new_expr = self.visit(expr)
+            new_expr = self.visit(expr, "select.select")
 
             # if it's an asterisk, carry on in a subroutine
             if isinstance(new_expr.type, ast.AsteriskType):
@@ -117,21 +117,23 @@ class Resolver(CloningVisitor):
             new_node.select.append(new_expr)
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
-        new_node.where = self.visit(node.where)
-        new_node.prewhere = self.visit(node.prewhere)
-        new_node.having = self.visit(node.having)
+        new_node.where = self.visit(node.where, "select.where")
+        new_node.prewhere = self.visit(node.prewhere, "select.prewhere")
+        new_node.having = self.visit(node.having, "select.having")
         if node.group_by:
-            new_node.group_by = [self.visit(expr) for expr in node.group_by]
+            new_node.group_by = [self.visit(expr, "select.group_by") for expr in node.group_by]
         if node.order_by:
-            new_node.order_by = [self.visit(expr) for expr in node.order_by]
+            new_node.order_by = [self.visit(expr, "select.order_by") for expr in node.order_by]
         if node.limit_by:
-            new_node.limit_by = [self.visit(expr) for expr in node.limit_by]
-        new_node.limit = self.visit(node.limit)
+            new_node.limit_by = [self.visit(expr, "select.limit_by") for expr in node.limit_by]
+        new_node.limit = self.visit(node.limit, "select.limit")
         new_node.limit_with_ties = node.limit_with_ties
-        new_node.offset = self.visit(node.offset)
+        new_node.offset = self.visit(node.offset, "select.offset")
         new_node.distinct = node.distinct
         new_node.window_exprs = (
-            {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
+            {name: self.visit(expr, "select.window_expr") for name, expr in node.window_exprs.items()}
+            if node.window_exprs
+            else None
         )
 
         self.scopes.pop()

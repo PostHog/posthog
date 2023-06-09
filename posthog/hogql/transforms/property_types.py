@@ -80,7 +80,12 @@ class PropertySwapper(CloningVisitor):
         self.person_properties = person_properties
 
     def visit_field(self, node: ast.Field):
-        is_column = isinstance(self.stack[-2], ast.SelectQuery)
+        is_column = (
+            len(self.stack) > 1
+            and len(self.tag_stack) > 0
+            and isinstance(self.stack[-2], ast.SelectQuery)
+            and self.tag_stack[-1] == "select.select"
+        )
         if isinstance(node.type, ast.FieldType):
             if isinstance(node.type.resolve_database_field(), DateTimeDatabaseField):
                 if is_column:

@@ -101,7 +101,7 @@ class TestPropertyTypes(BaseTest):
         )
         self.assertEqual(
             self._print_select("SELECT timestamp, event FROM events GROUP BY timestamp"),
-            f"SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.event FROM events WHERE equals(events.team_id, {self.team.pk})) GROUP BY toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT 10000",
+            f"SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY toTimeZone(events.timestamp, %(hogql_val_1)s) LIMIT 10000",
         )
 
     def _print_select(self, select: str):

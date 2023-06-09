@@ -17,15 +17,18 @@ class Visitor(object):
     def __init__(self, stack: Optional[List[ast.AST]] = None):
         super().__init__()
         self.stack: List[ast.AST] = stack or []
+        self.tag_stack: List[str | None] = []
 
-    def visit(self, node: ast.AST):
+    def visit(self, node: ast.AST, tag: Optional[str] = None):
         if node is None:
             return node
 
         try:
+            self.tag_stack.append(tag)
             self.stack.append(node)
             response = node.accept(self)
             self.stack.pop()
+            self.tag_stack.pop()
             return response
         except HogQLException as e:
             if e.start is None or e.end is None:
@@ -113,22 +116,22 @@ class TraversingVisitor(Visitor):
         self.visit(node.next_join)
 
     def visit_select_query(self, node: ast.SelectQuery):
-        self.visit(node.select_from)
+        self.visit(node.select_from, "select.select_from")
         for expr in node.select or []:
-            self.visit(expr)
-        self.visit(node.where)
-        self.visit(node.prewhere)
-        self.visit(node.having)
+            self.visit(expr, "select.select")
+        self.visit(node.where, "select.where")
+        self.visit(node.prewhere, "select.prewhere")
+        self.visit(node.having, "select.having")
         for expr in node.group_by or []:
-            self.visit(expr)
+            self.visit(expr, "select.group_by")
         for expr in node.order_by or []:
-            self.visit(expr)
+            self.visit(expr, "select.order_By")
         for expr in node.limit_by or []:
-            self.visit(expr)
-        self.visit(node.limit),
-        self.visit(node.offset),
+            self.visit(expr, "select.limit_by")
+        self.visit(node.limit, "select.limit"),
+        self.visit(node.offset, "select.offset"),
         for expr in (node.window_exprs or {}).values():
-            self.visit(expr)
+            self.visit(expr, "select.window_expr")
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         for expr in node.select_queries:
@@ -434,20 +437,24 @@ class CloningVisitor(Visitor):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            ctes={key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None,  # to not traverse
-            select_from=self.visit(node.select_from),  # keep "select_from" before "select" to resolve tables first
-            select=[self.visit(expr) for expr in node.select] if node.select else None,
-            where=self.visit(node.where),
-            prewhere=self.visit(node.prewhere),
-            having=self.visit(node.having),
-            group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
-            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
-            limit_by=[self.visit(expr) for expr in node.limit_by] if node.limit_by else None,
-            limit=self.visit(node.limit),
+            ctes={key: self.visit(expr, "select.ctes") for key, expr in node.ctes.items()}
+            if node.ctes
+            else None,  # to not traverse
+            select_from=self.visit(
+                node.select_from, "select.select_from"
+            ),  # keep "select_from" before "select" to resolve tables first
+            select=[self.visit(expr, "select.select") for expr in node.select] if node.select else None,
+            where=self.visit(node.where, "select.where"),
+            prewhere=self.visit(node.prewhere, "select.prewhere"),
+            having=self.visit(node.having, "select.having"),
+            group_by=[self.visit(expr, "select.group_by") for expr in node.group_by] if node.group_by else None,
+            order_by=[self.visit(expr, "select.order_by") for expr in node.order_by] if node.order_by else None,
+            limit_by=[self.visit(expr, "select.limit_by") for expr in node.limit_by] if node.limit_by else None,
+            limit=self.visit(node.limit, "select.limit"),
             limit_with_ties=node.limit_with_ties,
-            offset=self.visit(node.offset),
+            offset=self.visit(node.offset, "select.offset"),
             distinct=node.distinct,
-            window_exprs={name: self.visit(expr) for name, expr in node.window_exprs.items()}
+            window_exprs={name: self.visit(expr, "select.window_expr") for name, expr in node.window_exprs.items()}
             if node.window_exprs
             else None,
         )
