@@ -29,10 +29,10 @@ from posthog.models.person_overrides.sql import (
 )
 from posthog.models.session_recording_event.sql import *
 from posthog.models.session_replay_event.sql import (
-    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
-    SESSION_REPLAY_EVENTS_TABLE_SQL,
+    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 
 CREATE_MERGETREE_TABLE_QUERIES = (

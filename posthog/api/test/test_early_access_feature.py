@@ -1,11 +1,11 @@
 from unittest.mock import ANY
 
-from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
+from rest_framework import status
 
-from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.models import FeatureFlag, Person
+from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 

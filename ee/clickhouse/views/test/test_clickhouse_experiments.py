@@ -8,7 +8,7 @@ from posthog.constants import ExperimentSignificanceCode
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
-from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries, FuzzyInt
+from posthog.test.base import ClickhouseTestMixin, FuzzyInt, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
 

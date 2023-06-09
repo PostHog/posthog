@@ -1,12 +1,9 @@
-from rest_framework import viewsets
+from rest_framework import request, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.models.activity_logging.activity_log import load_all_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.activity_logging.activity_log import (
-    load_all_activity,
-)
-from rest_framework import request
 
 
 class DataManagementViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):

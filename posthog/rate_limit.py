@@ -4,16 +4,16 @@ from functools import lru_cache
 from typing import List, Optional
 
 from prometheus_client import Counter
-from rest_framework.throttling import SimpleRateThrottle, BaseThrottle
 from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
+from token_bucket import Limiter, MemoryStorage
+
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings.utils import get_list
-from token_bucket import Limiter, MemoryStorage
-
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
@@ -58,6 +58,7 @@ def is_decide_rate_limit_enabled() -> bool:
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
     """
     from django.conf import settings
+
     from posthog.utils import str_to_bool
 
     return str_to_bool(settings.DECIDE_RATE_LIMIT_ENABLED)

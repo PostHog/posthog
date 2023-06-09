@@ -1,6 +1,8 @@
 from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.client import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLSettings
 from posthog.hogql.hogql import HogQLContext
@@ -9,8 +11,6 @@ from posthog.hogql.placeholders import assert_no_placeholders, replace_placehold
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.client import sync_execute
 from posthog.schema import HogQLQueryResponse
 
 

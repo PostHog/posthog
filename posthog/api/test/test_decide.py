@@ -1,9 +1,8 @@
 import base64
 import json
 import random
-from unittest.mock import patch
 import time
-
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import connection
@@ -11,6 +10,7 @@ from django.test.client import Client
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog import redis
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
 from posthog.models.cohort.cohort import Cohort
@@ -20,7 +20,6 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
 from posthog.utils import is_postgres_connected_cached_check
-from posthog import redis
 
 
 @patch("posthog.models.feature_flag.flag_matching.is_postgres_connected_cached_check", return_value=True)

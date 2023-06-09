@@ -8,12 +8,11 @@ import structlog
 from django.conf import settings
 from prometheus_client import Counter, Summary
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.wait import WebDriverWait
 from sentry_sdk import capture_exception, configure_scope, push_scope
-
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.utils import ChromeType
 

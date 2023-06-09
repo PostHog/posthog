@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Dict
 
 from clickhouse_driver.errors import ServerException

@@ -6,13 +6,13 @@ from typing import (
     Any,
     Dict,
     List,
+    Literal,
     Optional,
     Sequence,
     Tuple,
     TypedDict,
     Union,
     cast,
-    Literal,
 )
 
 import dateutil
@@ -36,8 +36,8 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import INSTANCE_TAG, CLICKHOUSE_CLUSTER
-from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day, get_instance_region
+from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
+from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_machine_id, get_previous_day
 from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)

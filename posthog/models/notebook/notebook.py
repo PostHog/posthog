@@ -1,7 +1,6 @@
+from django.db import models
 from django.db.models import JSONField
 from django.utils import timezone
-
-from django.db import models
 
 from posthog.models.utils import UUIDModel
 from posthog.utils import generate_short_id

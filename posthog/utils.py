@@ -28,7 +28,6 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
-from django.db import DEFAULT_DB_ALIAS, connections
 
 import lzstring
 import posthoganalytics
@@ -39,6 +38,7 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
+from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -54,7 +54,8 @@ from posthog.redis import get_client
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-    from posthog.models import User, Team
+
+    from posthog.models import Team, User
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -369,9 +370,9 @@ def render_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.api.shared import TeamPublicSerializer
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 

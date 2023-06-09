@@ -12,7 +12,8 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import PrometheusAfterMiddleware, PrometheusBeforeMiddleware, Metrics
+from django_prometheus.middleware import Metrics, PrometheusAfterMiddleware, PrometheusBeforeMiddleware
+from rest_framework import status
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
@@ -26,8 +27,6 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
 from posthog.utils import cors_response
-from rest_framework import status
-
 
 from .auth import PersonalAPIKeyAuthentication
 

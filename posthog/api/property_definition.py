@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Type, cast
 
 from django.db import connection
 from django.db.models import Prefetch
-from rest_framework import mixins, permissions, serializers, viewsets, status, request, response
+from rest_framework import mixins, permissions, request, response, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 
@@ -16,7 +16,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition, TaggedItem, User
-from posthog.models.activity_logging.activity_log import log_activity, Detail
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 

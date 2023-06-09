@@ -1,15 +1,13 @@
-from random import random
 import re
+from random import random
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
-from posthog.models.feature_flag.flag_analytics import increment_request_count
-from posthog.models.filters.mixins.utils import process_bool
 
-import structlog
 import posthoganalytics
+import structlog
+from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.conf import settings
 from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
@@ -20,6 +18,8 @@ from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.feature_flag.flag_analytics import increment_request_count
+from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request

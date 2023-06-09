@@ -1,7 +1,6 @@
 import json
 from unittest.mock import ANY, MagicMock, patch
 
-
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from rest_framework import status

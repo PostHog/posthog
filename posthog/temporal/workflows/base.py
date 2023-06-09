@@ -3,9 +3,10 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from posthog.batch_exports.service import update_batch_export_run_status, create_batch_export_run
-from temporalio import activity
 from asgiref.sync import sync_to_async
+from temporalio import activity
+
+from posthog.batch_exports.service import create_batch_export_run, update_batch_export_run_status
 
 
 class PostHogWorkflow(ABC):

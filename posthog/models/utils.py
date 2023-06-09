@@ -5,11 +5,20 @@ from collections import defaultdict, namedtuple
 from contextlib import contextmanager
 from random import Random, choice
 from time import time
-from typing import Any, Callable, Dict, Iterator, Optional, Set, Type, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    Optional,
+    Set,
+    Type,
+    TypeVar,
+)
 
 from django.db import IntegrityError, connection, models, transaction
-from django.db.backends.utils import CursorWrapper
 from django.db.backends.ddl_references import Statement
+from django.db.backends.utils import CursorWrapper
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 

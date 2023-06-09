@@ -1,6 +1,6 @@
 import dataclasses
 import datetime
-from typing import Any, Dict, List, Tuple, Union, Literal
+from typing import Any, Dict, List, Literal, Tuple, Union
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.mixins.utils import cached_property

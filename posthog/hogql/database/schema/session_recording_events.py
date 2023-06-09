@@ -1,12 +1,12 @@
 from posthog.hogql.database.models import (
-    Table,
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    IntegerDatabaseField,
-    StringJSONDatabaseField,
     BooleanDatabaseField,
-    LazyJoin,
+    DateTimeDatabaseField,
     FieldTraverser,
+    IntegerDatabaseField,
+    LazyJoin,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
 )
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, join_with_person_distinct_ids_table
 

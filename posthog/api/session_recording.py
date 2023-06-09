@@ -1,10 +1,10 @@
 import json
 from typing import Any, List, Type, cast
 
-from dateutil import parser
 import requests
+from dateutil import parser
 from django.db.models import Count, Prefetch
-from django.http import JsonResponse, HttpResponse
+from django.http import HttpResponse, JsonResponse
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action

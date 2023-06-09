@@ -1,8 +1,8 @@
 from datetime import timedelta
 from os.path import abspath, dirname, join
 from typing import Dict, Generator, List, Tuple
-import pytz
 
+import pytz
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 

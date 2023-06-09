@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import cast, Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional, cast
 
 import dateutil.parser
 from django.utils import timezone
@@ -8,14 +8,14 @@ from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
-from posthog.api.test.test_event_definition import capture_event, EventData
+from posthog.api.test.test_event_definition import EventData, capture_event
+from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import Tag, ActivityLog, Team, User
+from posthog.models import ActivityLog, Tag, Team, User
 from posthog.models.event_definition import EventDefinition
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
-from posthog.api.test.test_organization import create_organization
 
 
 @freeze_time("2020-01-02")

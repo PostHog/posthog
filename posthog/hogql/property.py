@@ -9,7 +9,7 @@ from posthog.hogql.constants import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
-from posthog.models import Action, ActionStep, Cohort, Property, Team, PropertyDefinition
+from posthog.models import Action, ActionStep, Cohort, Property, PropertyDefinition, Team
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import build_selector_regex

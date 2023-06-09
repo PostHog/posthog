@@ -6,12 +6,11 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Optional
 
-from posthog import celery
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
-from posthog import redis
+from posthog import celery, redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
 from posthog.clickhouse.client.execute import _prepare_query
 from posthog.errors import wrap_query_error

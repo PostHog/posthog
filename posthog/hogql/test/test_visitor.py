@@ -1,7 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import CloningVisitor, Visitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
 from posthog.test.base import BaseTest
 
 

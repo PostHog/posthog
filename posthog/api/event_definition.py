@@ -1,7 +1,7 @@
 from typing import Any, Literal, Tuple, Type, cast
 
 from django.db.models import Manager, Prefetch
-from rest_framework import mixins, permissions, serializers, viewsets, request, status, response
+from rest_framework import mixins, permissions, request, response, serializers, status, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer

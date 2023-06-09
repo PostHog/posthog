@@ -753,10 +753,11 @@ def calculate_billing_daily_usage():
 
 @app.task(ignore_result=True)
 def calculate_decide_usage() -> None:
-    from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
-    from posthog.models import Team
     from django.db.models import Q
     from posthoganalytics import Posthog
+
+    from posthog.models import Team
+    from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
 
     # send EU data to EU, US data to US
     api_key = None

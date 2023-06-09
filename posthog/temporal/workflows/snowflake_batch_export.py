@@ -1,16 +1,16 @@
 import datetime as dt
 import json
-from dataclasses import dataclass
-from string import Template
 import tempfile
 import uuid
+from dataclasses import dataclass
+from string import Template
 
-from django.conf import settings
 import snowflake.connector
+from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.batch_exports.service import SnowflakeBatchExportInputs
 
+from posthog.batch_exports.service import SnowflakeBatchExportInputs
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -19,7 +19,6 @@ from posthog.temporal.workflows.base import (
     update_export_run_status,
 )
 from posthog.temporal.workflows.clickhouse import get_client
-
 
 SELECT_QUERY_TEMPLATE = Template(
     """

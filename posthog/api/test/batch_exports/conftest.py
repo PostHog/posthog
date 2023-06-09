@@ -1,21 +1,18 @@
 import asyncio
-from contextlib import contextmanager
 import datetime as dt
 import logging
 import threading
 import time
-from asgiref.sync import async_to_sync
+from contextlib import contextmanager
+
 import pytest
-
-from temporalio.service import RPCError
+from asgiref.sync import async_to_sync
+from django.conf import settings
 from temporalio.client import Client as TemporalClient
-
+from temporalio.service import RPCError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from django.conf import settings
 from posthog.batch_exports.models import BatchExport
-
-
 from posthog.temporal.client import sync_connect
 from posthog.temporal.workflows import ACTIVITIES, WORKFLOWS
 

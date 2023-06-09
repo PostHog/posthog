@@ -1,13 +1,13 @@
 from datetime import datetime
 from unittest import skip
-from uuid import uuid4, UUID
+from uuid import UUID, uuid4
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun.api import freeze_time
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Person, Cohort
+from posthog.models import Cohort, Person
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -22,8 +22,8 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     also_test_with_materialized_columns,
-    snapshot_clickhouse_queries,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
 

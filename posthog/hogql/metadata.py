@@ -4,7 +4,7 @@ from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.models import Team
-from posthog.schema import HogQLMetadataResponse, HogQLMetadata
+from posthog.schema import HogQLMetadata, HogQLMetadataResponse
 
 
 def get_hogql_metadata(

@@ -44,9 +44,9 @@ from posthog.models.session_recording_event.sql import (
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.models.session_replay_event.sql import (
-    SESSION_REPLAY_EVENTS_TABLE_SQL,
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.settings.utils import get_from_env, str_to_bool
 

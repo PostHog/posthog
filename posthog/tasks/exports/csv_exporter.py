@@ -7,8 +7,8 @@ import structlog
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
-from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.api.query import process_query
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri

@@ -3,13 +3,7 @@ import datetime as dt
 import pytest
 from asgiref.sync import sync_to_async
 
-from posthog.models import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportRun,
-    Organization,
-    Team,
-)
+from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, Organization, Team
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,

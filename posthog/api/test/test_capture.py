@@ -27,18 +27,11 @@ from rest_framework import status
 from token_bucket import Limiter, MemoryStorage
 
 from posthog.api import capture
-from posthog.api.capture import (
-    LIKELY_ANONYMOUS_IDS,
-    get_distinct_id,
-    is_randomly_partitioned,
-)
+from posthog.api.capture import LIKELY_ANONYMOUS_IDS, get_distinct_id, is_randomly_partitioned
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
-from posthog.settings import (
-    DATA_UPLOAD_MAX_MEMORY_SIZE,
-    KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
-)
+from posthog.settings import DATA_UPLOAD_MAX_MEMORY_SIZE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.test.base import BaseTest
 
 

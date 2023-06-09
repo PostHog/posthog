@@ -236,7 +236,7 @@ class Cohort(models.Model):
         """
 
         batchsize = 1000
-        from posthog.models.cohort.util import insert_static_cohort, get_static_cohort_size
+        from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         if TEST:
             from posthog.test.base import flush_persons_and_events

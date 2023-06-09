@@ -7,17 +7,17 @@ from pydantic import Field as PydanticField
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DatabaseField,
+    DateTimeDatabaseField,
     FieldTraverser,
+    IntegerDatabaseField,
     LazyJoin,
+    LazyTable,
+    StringDatabaseField,
     StringJSONDatabaseField,
     Table,
     VirtualTable,
-    LazyTable,
-    IntegerDatabaseField,
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    BooleanDatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 

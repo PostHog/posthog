@@ -26,8 +26,8 @@ from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
-from posthog.api.decide import hostname_in_allowed_url_list
 
+from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer

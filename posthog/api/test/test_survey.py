@@ -1,12 +1,11 @@
 from unittest.mock import ANY
 
-from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
+from rest_framework import status
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
-
 from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 

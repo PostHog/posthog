@@ -1,5 +1,5 @@
 import json
-from typing import List, Optional, Literal
+from typing import List, Literal, Optional
 
 from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS
 from posthog.models.filters.mixins.common import BaseParamMixin

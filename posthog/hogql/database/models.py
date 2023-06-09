@@ -1,4 +1,5 @@
 from typing import Any, Callable, Dict, List, Optional
+
 from pydantic import BaseModel, Extra
 
 from posthog.hogql.errors import HogQLException, NotImplementedException

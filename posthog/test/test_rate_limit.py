@@ -5,11 +5,10 @@ from unittest.mock import ANY, call, patch
 from urllib.parse import quote
 
 from django.core.cache import cache
+from django.test.client import Client
 from django.utils.timezone import now
 from freezegun.api import freeze_time
 from rest_framework import status
-from django.test.client import Client
-
 
 from posthog import models, rate_limit
 from posthog.api.test.test_team import create_team

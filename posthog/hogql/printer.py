@@ -4,18 +4,17 @@ from datetime import datetime
 from difflib import get_close_matches
 from typing import List, Literal, Optional, Union, cast
 
-
 from posthog.hogql import ast
 from posthog.hogql.constants import (
+    ADD_TIMEZONE_TO_FUNCTIONS,
     CLICKHOUSE_FUNCTIONS,
     HOGQL_AGGREGATIONS,
     MAX_SELECT_RETURNED_ROWS,
     HogQLSettings,
-    ADD_TIMEZONE_TO_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table
 from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.models import Table
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,

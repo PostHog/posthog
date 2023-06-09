@@ -1,3 +1,4 @@
+from ..batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from .action import Action
 from .action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
@@ -5,11 +6,6 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from ..batch_exports.models import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportRun,
-)
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
@@ -24,6 +20,7 @@ from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
+from .feedback.survey import Survey
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
@@ -45,7 +42,6 @@ from .session_recording_playlist import SessionRecordingPlaylist
 from .session_recording_playlist_item import SessionRecordingPlaylistItem
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
-from .feedback.survey import Survey
 from .tag import Tag
 from .tagged_item import TaggedItem
 from .team import Team

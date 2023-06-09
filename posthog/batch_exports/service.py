@@ -1,14 +1,8 @@
 import datetime as dt
-from asgiref.sync import sync_to_async
+from dataclasses import asdict, dataclass
 from uuid import UUID
 
-from dataclasses import dataclass, asdict
-from posthog import settings
-from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
-from posthog.temporal.client import sync_connect
-from asgiref.sync import async_to_sync
-
-
+from asgiref.sync import async_to_sync, sync_to_async
 from temporalio.client import (
     Client,
     Schedule,
@@ -17,6 +11,10 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleState,
 )
+
+from posthog import settings
+from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
+from posthog.temporal.client import sync_connect
 
 
 @dataclass

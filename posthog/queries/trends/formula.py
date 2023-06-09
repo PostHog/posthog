@@ -1,6 +1,6 @@
 import math
-from itertools import accumulate
 import re
+from itertools import accumulate
 from string import ascii_uppercase
 from typing import Any, Dict, List
 

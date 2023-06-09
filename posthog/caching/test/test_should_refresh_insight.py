@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta
 from time import sleep
 from unittest.mock import patch
-from django.http import HttpRequest
 
 import pytz
+from django.http import HttpRequest
 from freezegun import freeze_time
 from rest_framework.request import Request
+
 from posthog.caching.calculate_results import CLICKHOUSE_MAX_EXECUTION_TIME
 from posthog.caching.insight_caching_state import InsightCachingState
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, should_refresh_insight

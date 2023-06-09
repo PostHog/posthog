@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, OrderedDict
+from typing import Dict, List, Optional, OrderedDict, Tuple
 
 import pytz
 from django.utils import timezone

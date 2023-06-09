@@ -1,18 +1,19 @@
 import hashlib
+import time
 from dataclasses import dataclass
 from enum import Enum
-import time
-import structlog
 from typing import Dict, List, Optional, Tuple, Union
 
-from prometheus_client import Counter
+import structlog
 from django.db import DatabaseError, IntegrityError, OperationalError
+from django.db.models import Q
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
-from django.db.models import Q
 from django.db.models.query import QuerySet
+from prometheus_client import Counter
 from sentry_sdk.api import capture_exception
 
+from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
@@ -20,7 +21,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
-from posthog.models.cohort import Cohort
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q
 from posthog.utils import is_postgres_connected_cached_check

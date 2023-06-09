@@ -1,4 +1,4 @@
-from typing import List, Union, cast, Optional, Dict, Any
+from typing import Any, Dict, List, Optional, Union, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast

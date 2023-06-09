@@ -19,8 +19,8 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
-    snapshot_clickhouse_queries,
     override_settings,
+    snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
 

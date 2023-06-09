@@ -6,13 +6,6 @@ from rest_framework.exceptions import NotAuthenticated, ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportRun,
-    Team,
-    User,
-)
 from posthog.batch_exports.service import (
     backfill_export,
     create_batch_export,
@@ -20,10 +13,8 @@ from posthog.batch_exports.service import (
     pause_batch_export,
     unpause_batch_export,
 )
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
+from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, Team, User
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.temporal.client import sync_connect
 
 

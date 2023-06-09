@@ -23,16 +23,17 @@ from posthog.models import (
     Filter,
     Insight,
     InsightViewed,
-    Person,
-    Team,
-    User,
-    SharingConfiguration,
     OrganizationMembership,
+    Person,
+    SharingConfiguration,
+    Team,
     Text,
+    User,
 )
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    FuzzyInt,
     QueryMatchingTest,
     _create_event,
     _create_person,
@@ -40,7 +41,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
-    FuzzyInt,
 )
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for

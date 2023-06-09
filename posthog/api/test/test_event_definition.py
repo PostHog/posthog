@@ -12,7 +12,7 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import Action, EventDefinition, Organization, Team, ActivityLog
+from posthog.models import Action, ActivityLog, EventDefinition, Organization, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 

@@ -1,8 +1,10 @@
-from typing import TYPE_CHECKING
-from posthog.redis import redis, get_client
 import time
-from sentry_sdk import capture_exception
+from typing import TYPE_CHECKING
+
 from django.conf import settings
+from sentry_sdk import capture_exception
+
+from posthog.redis import get_client, redis
 
 if TYPE_CHECKING:
     from posthoganalytics import Posthog

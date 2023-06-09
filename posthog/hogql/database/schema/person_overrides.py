@@ -1,13 +1,7 @@
 from typing import Any, Dict, List
 
 from posthog.hogql.database.argmax import argmax_select
-from posthog.hogql.database.models import (
-    Table,
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    IntegerDatabaseField,
-)
-
+from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField, Table
 from posthog.hogql.errors import HogQLException
 
 

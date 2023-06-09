@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 import jwt
 from django.apps import apps
+from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from rest_framework import authentication
@@ -17,7 +18,6 @@ from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
-from django.contrib.auth.models import AnonymousUser
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):

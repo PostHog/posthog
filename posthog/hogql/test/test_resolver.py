@@ -1,18 +1,17 @@
-from datetime import timezone, datetime, date
-from typing import Optional, Dict
-
-from django.test import override_settings
+from datetime import date, datetime, timezone
+from typing import Dict, Optional
 from uuid import UUID
 
+from django.test import override_settings
 from freezegun import freeze_time
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.resolver import ResolverException, resolve_types
+from posthog.hogql.visitor import clone_expr
 from posthog.test.base import BaseTest
 
 

@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
-from unittest.mock import patch, ANY
+from unittest.mock import ANY, patch
 from urllib.parse import parse_qsl, urlparse
 
 import pytz

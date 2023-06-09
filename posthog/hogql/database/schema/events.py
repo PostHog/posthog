@@ -1,14 +1,14 @@
 from pydantic import BaseModel
 
 from posthog.hogql.database.models import (
-    VirtualTable,
-    StringDatabaseField,
     DateTimeDatabaseField,
-    StringJSONDatabaseField,
-    IntegerDatabaseField,
-    Table,
-    LazyJoin,
     FieldTraverser,
+    IntegerDatabaseField,
+    LazyJoin,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
+    VirtualTable,
 )
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, join_with_person_distinct_ids_table
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, join_with_person_overrides_table

@@ -1,6 +1,5 @@
-from typing import cast, Optional, Dict
-
 import math
+from typing import Dict, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.errors import HogQLException

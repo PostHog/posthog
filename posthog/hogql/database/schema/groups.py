@@ -2,10 +2,10 @@ from typing import Dict, List
 
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
-    LazyTable,
-    IntegerDatabaseField,
-    StringDatabaseField,
     DateTimeDatabaseField,
+    IntegerDatabaseField,
+    LazyTable,
+    StringDatabaseField,
     StringJSONDatabaseField,
     Table,
 )

@@ -1,8 +1,9 @@
+import ssl
+from contextlib import asynccontextmanager
+
 from aiochclient import ChClient
 from aiohttp import ClientSession, TCPConnector
 from django.conf import settings
-from contextlib import asynccontextmanager
-import ssl
 
 
 @asynccontextmanager

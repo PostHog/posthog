@@ -1,16 +1,16 @@
 import datetime as dt
 import json
+import tempfile
 from dataclasses import dataclass
 from string import Template
-import tempfile
 from typing import TYPE_CHECKING, List
 
-from django.conf import settings
 import boto3
+from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.batch_exports.service import S3BatchExportInputs
 
+from posthog.batch_exports.service import S3BatchExportInputs
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,

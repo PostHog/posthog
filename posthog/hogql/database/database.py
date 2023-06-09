@@ -1,25 +1,26 @@
 from typing import Any, Dict, List, Optional
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from pydantic import BaseModel, Extra
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from posthog.hogql.database.models import (
-    FieldTraverser,
-    StringDatabaseField,
-    DatabaseField,
-    IntegerDatabaseField,
-    DateTimeDatabaseField,
     BooleanDatabaseField,
-    StringJSONDatabaseField,
+    DatabaseField,
+    DateTimeDatabaseField,
+    FieldTraverser,
+    IntegerDatabaseField,
     LazyJoin,
-    VirtualTable,
+    StringDatabaseField,
+    StringJSONDatabaseField,
     Table,
+    VirtualTable,
 )
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, RawPersonDistinctIdTable
-from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, RawPersonOverridesTable
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.session_recording_events import SessionRecordingEvents
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException

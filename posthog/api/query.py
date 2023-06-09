@@ -29,7 +29,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import TeamRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode, HogQLMetadata
+from posthog.schema import EventsQuery, HogQLMetadata, HogQLQuery, RecentPerformancePageViewNode
 from posthog.utils import relative_date_parse
 
 

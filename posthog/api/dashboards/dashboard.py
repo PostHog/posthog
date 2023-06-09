@@ -1,6 +1,5 @@
 import json
 from typing import Any, Dict, List, Optional, Type, cast
-from rest_framework.serializers import BaseSerializer
 
 import structlog
 from django.db.models import Prefetch, QuerySet
@@ -12,6 +11,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser

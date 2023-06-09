@@ -1,9 +1,10 @@
+import uuid
 from datetime import timedelta
 from typing import Tuple
 from unittest.mock import MagicMock
 from uuid import UUID
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 
@@ -26,11 +27,9 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
-    snapshot_clickhouse_queries,
     create_person_id_override_by_distinct_id,
+    snapshot_clickhouse_queries,
 )
-import uuid
-from django.test import override_settings
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 

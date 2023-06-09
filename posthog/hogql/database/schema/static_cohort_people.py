@@ -1,4 +1,4 @@
-from posthog.hogql.database.models import Table, StringDatabaseField, IntegerDatabaseField, LazyJoin
+from posthog.hogql.database.models import IntegerDatabaseField, LazyJoin, StringDatabaseField, Table
 from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
 
 

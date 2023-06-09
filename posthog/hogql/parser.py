@@ -1,11 +1,11 @@
 from typing import Dict, List, Literal, Optional, cast
 
-from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
+from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
 
 from posthog.hogql import ast
 from posthog.hogql.constants import RESERVED_KEYWORDS
-from posthog.hogql.errors import NotImplementedException, HogQLException, SyntaxException
+from posthog.hogql.errors import HogQLException, NotImplementedException, SyntaxException
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal

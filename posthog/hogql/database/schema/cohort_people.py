@@ -1,6 +1,6 @@
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
-from posthog.hogql.database.models import StringDatabaseField, IntegerDatabaseField, Table, LazyJoin, LazyTable
+from posthog.hogql.database.models import IntegerDatabaseField, LazyJoin, LazyTable, StringDatabaseField, Table
 from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
 
 

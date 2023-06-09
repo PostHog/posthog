@@ -3,8 +3,8 @@ from typing import Dict, Optional
 
 import pytz
 from rest_framework.exceptions import ValidationError
-from ee.clickhouse.queries.experiments.trend_experiment_result import uses_count_per_user_aggregation
 
+from ee.clickhouse.queries.experiments.trend_experiment_result import uses_count_per_user_aggregation
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_CUMULATIVE
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter

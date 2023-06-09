@@ -1,10 +1,10 @@
-import re
-from datetime import datetime, date
-from typing import Optional, Any, Literal, List, Tuple
-from uuid import UUID
-from zoneinfo import ZoneInfo
-
 import math
+import re
+from datetime import date, datetime
+from typing import Any, List, Literal, Optional, Tuple
+from uuid import UUID
+
+from zoneinfo import ZoneInfo
 
 from posthog.hogql.errors import HogQLException
 from posthog.models.utils import UUIDT

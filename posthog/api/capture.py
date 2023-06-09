@@ -20,20 +20,14 @@ from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 
-from posthog.api.utils import (
-    get_data,
-    get_token,
-    safe_clickhouse_string,
-)
+from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.exceptions import generate_exception_response
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.session_recording_helpers import (
-    preprocess_session_recording_events_for_clickhouse,
-)
+from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)

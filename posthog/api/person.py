@@ -33,7 +33,7 @@ from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_e
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
-from posthog.models import Cohort, Filter, Person, User, Team
+from posthog.models import Cohort, Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType

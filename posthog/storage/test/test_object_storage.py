@@ -10,7 +10,7 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
-from posthog.storage.object_storage import health_check, read, write, get_presigned_url, list_objects
+from posthog.storage.object_storage import get_presigned_url, health_check, list_objects, read, write
 from posthog.test.base import APIBaseTest
 
 TEST_BUCKET = "test_storage_bucket"

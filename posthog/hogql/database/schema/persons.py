@@ -2,13 +2,13 @@ from typing import Dict, List
 
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
-    Table,
-    StringDatabaseField,
+    BooleanDatabaseField,
     DateTimeDatabaseField,
     IntegerDatabaseField,
-    StringJSONDatabaseField,
-    BooleanDatabaseField,
     LazyTable,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
 )
 from posthog.hogql.errors import HogQLException
 

@@ -1,6 +1,6 @@
 from collections import Counter
-from typing import Counter as TCounter, Literal, Optional
-from typing import Dict, List, Tuple
+from typing import Counter as TCounter
+from typing import Dict, List, Literal, Optional, Tuple
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.hogql.hogql import HogQLContext

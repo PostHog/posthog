@@ -1,5 +1,6 @@
 # Generated from HogQLParser.g4 by ANTLR 4.13.0
 from antlr4 import *
+
 if "." in __name__:
     from .HogQLParser import HogQLParser
 else:

@@ -1,5 +1,5 @@
 # HogQL -> ClickHouse allowed transformations
-from typing import Optional, Dict, Tuple, Literal
+from typing import Dict, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Extra
 

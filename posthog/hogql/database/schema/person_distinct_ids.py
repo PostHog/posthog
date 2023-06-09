@@ -2,12 +2,12 @@ from typing import Dict, List
 
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
-    Table,
-    IntegerDatabaseField,
-    StringDatabaseField,
     BooleanDatabaseField,
+    IntegerDatabaseField,
     LazyJoin,
     LazyTable,
+    StringDatabaseField,
+    Table,
 )
 from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
 from posthog.hogql.errors import HogQLException

@@ -11,8 +11,8 @@ from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult, asser
 from posthog.test.base import (
     APIBaseTest,
     also_test_with_materialized_columns,
-    snapshot_clickhouse_queries,
     also_test_with_person_on_events_v2,
+    snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
 

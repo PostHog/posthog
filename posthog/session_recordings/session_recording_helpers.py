@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, DefaultDict, Dict, Generator, List, Optional
 
-from dateutil.parser import parse, ParserError
+from dateutil.parser import ParserError, parse
 from prometheus_client import Histogram
 from prometheus_client.utils import INF
 from sentry_sdk.api import capture_exception, capture_message

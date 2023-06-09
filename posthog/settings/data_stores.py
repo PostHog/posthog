@@ -1,12 +1,12 @@
-import os
 import json
+import os
 from urllib.parse import urlparse
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
 from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
-from posthog.settings.utils import get_from_env, str_to_bool, get_list
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)

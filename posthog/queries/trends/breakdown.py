@@ -11,11 +11,11 @@ from posthog.constants import (
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
     TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
     TRENDS_CUMULATIVE,
     UNIQUE_USERS,
     WEEKLY_ACTIVE,
     PropertyOperatorType,
-    TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
@@ -36,6 +36,7 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.event_query import EventQuery
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import TIME_IN_SECONDS, QueryDateRange
 from posthog.queries.session_query import SessionQuery
@@ -67,7 +68,6 @@ from posthog.queries.trends.util import (
 )
 from posthog.queries.util import get_person_properties_mode
 from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
-from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 
 
 class TrendsBreakdown:

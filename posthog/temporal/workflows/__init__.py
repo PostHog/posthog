@@ -5,7 +5,6 @@ from posthog.temporal.workflows.noop import *
 from posthog.temporal.workflows.s3_batch_export import *
 from posthog.temporal.workflows.squash_person_overrides import *
 
-
 WORKFLOWS = [NoOpWorkflow, SquashPersonOverridesWorkflow, S3BatchExportWorkflow]
 
 ACTIVITIES: Sequence[Callable] = [

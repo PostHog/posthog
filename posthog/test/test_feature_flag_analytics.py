@@ -1,12 +1,13 @@
+import concurrent.futures
+import datetime
 from unittest.mock import MagicMock, patch
 
-from freezegun import freeze_time, configure, config  # type: ignore
 import pytest
-from posthog.models.feature_flag.flag_analytics import increment_request_count, capture_team_decide_usage
-from posthog.test.base import BaseTest
+from freezegun import config, configure, freeze_time  # type: ignore
+
 from posthog import redis
-import datetime
-import concurrent.futures
+from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage, increment_request_count
+from posthog.test.base import BaseTest
 
 
 class TestFeatureFlagAnalytics(BaseTest):

@@ -1,26 +1,22 @@
-from typing import Type
+from typing import Any, Type
 
 from django.http import JsonResponse
+from django.utils.text import slugify
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework import serializers, status, viewsets
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
+
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
 from posthog.models.early_access_feature import EarlyAccessFeature
-from rest_framework import serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.request import Request
-from rest_framework import status
-
-
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from django.utils.text import slugify
-from django.views.decorators.csrf import csrf_exempt
-
 from posthog.utils import cors_response
-from typing import Any
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):

@@ -1,7 +1,7 @@
 import json
 import re
 from enum import Enum, auto
-from typing import List, Literal, Optional, Union, Tuple
+from typing import List, Literal, Optional, Tuple, Union
 from uuid import UUID
 
 import structlog

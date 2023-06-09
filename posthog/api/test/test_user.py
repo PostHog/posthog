@@ -1,8 +1,8 @@
 import datetime
-from typing import cast
-from urllib.parse import quote
 import uuid
+from typing import cast
 from unittest.mock import ANY, Mock, patch
+from urllib.parse import quote
 
 import pytest
 from django.contrib.auth.tokens import default_token_generator

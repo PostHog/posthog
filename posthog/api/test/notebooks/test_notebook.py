@@ -1,11 +1,11 @@
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 from unittest import mock
 
 from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team, Organization
+from posthog.models import Organization, Team
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest

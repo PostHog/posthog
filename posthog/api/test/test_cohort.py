@@ -6,7 +6,6 @@ from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from django.utils import timezone
-from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -14,13 +13,14 @@ from posthog.api.test.test_exports import TestExportMixin
 from posthog.models import FeatureFlag, Person
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
+from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    QueryMatchingTest,
     _create_event,
     _create_person,
     flush_persons_and_events,
-    QueryMatchingTest,
 )
 
 

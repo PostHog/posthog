@@ -1,14 +1,13 @@
 from datetime import date, datetime
-from typing import List, Optional, Any, cast
+from typing import Any, List, Optional, cast
 from uuid import UUID
 
 from posthog.hogql import ast
-from posthog.hogql.ast import FieldTraverserType, ConstantType
+from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
-
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 

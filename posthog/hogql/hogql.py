@@ -1,4 +1,4 @@
-from typing import Literal, cast, Optional
+from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext

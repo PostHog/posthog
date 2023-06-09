@@ -2,7 +2,7 @@ from typing import Dict, Optional
 
 from freezegun.api import freeze_time
 
-from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE, TRENDS_BOLD_NUMBER
+from posthog.constants import TRENDS_BOLD_NUMBER, TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import create_group

@@ -6,7 +6,7 @@ from django.utils.timezone import now
 from rest_framework import status
 
 from posthog.models import Annotation, Organization, Team, User
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context, FuzzyInt
+from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries_context
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):

@@ -1,5 +1,5 @@
-from django.test.client import Client as HttpClient
 import pytest
+from django.test.client import Client as HttpClient
 
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
@@ -9,7 +9,6 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-
 
 pytestmark = [
     pytest.mark.django_db,
