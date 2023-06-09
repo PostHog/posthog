@@ -248,11 +248,14 @@ export const personsLogic = kea<personsLogicType>({
                 loadPersons: async ({ url }) => {
                     let result: CountedPaginatedResponse<PersonType> & { offset: number }
                     if (!url) {
-                        const newFilters = { ...values.listFilters }
+                        const newFilters: PersonListParams = { ...values.listFilters }
                         newFilters.properties = [
                             ...(values.listFilters.properties || []),
                             ...values.hiddenListProperties,
                         ]
+                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                            newFilters.include_total = true // The total count is slow, but needed for infinite loading
+                        }
                         if (props.cohort) {
                             result = {
                                 ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
