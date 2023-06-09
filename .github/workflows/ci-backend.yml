@@ -142,6 +142,7 @@ jobs:
                   # "apt-get install antlr" would install 4.7 which is incompatible with our grammar.
                   export ANTLR_VERSION=4.13.0
                   # java version doesn't matter
+                  sudo apt-get update
                   sudo apt-get install default-jre
                   mkdir antlr
                   cd antlr
