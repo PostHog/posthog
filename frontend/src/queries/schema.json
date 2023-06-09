@@ -1225,9 +1225,25 @@
         "InsightVizNode": {
             "additionalProperties": false,
             "properties": {
+                "full": {
+                    "description": "Show with most visual options enabled. Used in insight scene.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "InsightVizNode",
                     "type": "string"
+                },
+                "showCorrelationTable": {
+                    "type": "boolean"
+                },
+                "showHeader": {
+                    "type": "boolean"
+                },
+                "showLastComputation": {
+                    "type": "boolean"
+                },
+                "showTable": {
+                    "type": "boolean"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"

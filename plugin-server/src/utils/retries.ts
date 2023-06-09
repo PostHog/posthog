@@ -2,8 +2,35 @@ import { RetryError } from '@posthog/plugin-scaffold'
 
 import { runInTransaction } from '../sentry'
 import { Hub } from '../types'
+import { status } from '../utils/status'
 import { AppMetricIdentifier, ErrorWithContext } from '../worker/ingestion/app-metrics'
 
+// Simple retries in our code
+export const defaultRetryConfig = {
+    // for easy value changes in tests
+    RETRY_INTERVAL_DEFAULT: 1000,
+    MAX_RETRIES_DEFAULT: 3,
+}
+
+export async function promiseRetry<T>(
+    fn: () => Promise<T>,
+    name: string,
+    retries = defaultRetryConfig.MAX_RETRIES_DEFAULT,
+    retryIntervalMillis: number = defaultRetryConfig.RETRY_INTERVAL_DEFAULT,
+    previousError?: Error
+): Promise<T> {
+    if (retries <= 0) {
+        status.error('🚨', `Final retry failure for ${name}`, { previousError })
+        return Promise.reject(previousError)
+    }
+    return fn().catch(async (error) => {
+        status.debug('🔁', `failed ${name}, retrying`, { error })
+        await new Promise((resolve) => setTimeout(resolve, retryIntervalMillis))
+        return promiseRetry(fn, name, retries - 1, 2 * retryIntervalMillis, error)
+    })
+}
+
+// For Apps retries
 export function getNextRetryMs(baseMs: number, multiplier: number, attempt: number): number {
     if (attempt < 1) {
         throw new Error('Attempts are indexed starting with 1')
