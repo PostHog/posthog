@@ -1,5 +1,5 @@
-from typing import cast, Optional
-
+from typing import cast, Optional, List, Dict
+from freezegun import freeze_time
 import pytest
 from django.db.utils import IntegrityError
 from django.utils import timezone
@@ -279,3 +279,163 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_can_get_property_verification_data(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
+        assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
+
+        query_list_response = self.client.get(f"/api/projects/@current/property_definitions")
+        matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "enterprise property"]
+        assert len(matches) == 1
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_verify_then_unverify(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
+
+        # Verify the event
+        self.client.patch(f"/api/projects/@current/property_definitions/{event.id}", {"verified": True})
+        response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] is True
+        assert response.json()["verified_by"]["id"] == self.user.id
+        assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
+
+        # Unverify the event
+        self.client.patch(f"/api/projects/@current/property_definitions/{event.id}", {"verified": False})
+        response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
+
+    def test_verify_then_verify_again_no_change(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
+
+        with freeze_time("2021-08-25T22:09:14.252Z"):
+            self.client.patch(f"/api/projects/@current/property_definitions/{event.id}", {"verified": True})
+            response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] is True
+        assert response.json()["verified_by"]["id"] == self.user.id
+        assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
+        assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
+
+        with freeze_time("2021-10-26T22:09:14.252Z"):
+            self.client.patch(f"/api/projects/@current/property_definitions/{event.id}", {"verified": True})
+            response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] is True
+        assert response.json()["verified_by"]["id"] == self.user.id
+        assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"  # Note `verified_at` did not change
+        # updated_at automatically updates on every patch request
+        assert response.json()["updated_at"] == "2021-10-26T22:09:14.252000Z"
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_cannot_update_verified_meta_properties_directly(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
+
+        with freeze_time("2021-08-25T22:09:14.252Z"):
+            self.client.patch(
+                f"/api/projects/@current/property_definitions/{event.id}",
+                {
+                    "verified_by": self.user.id,
+                    "verified_at": timezone.now(),
+                },  # These properties are ignored by the serializer
+            )
+            response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
+
+    def test_list_property_definitions(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        properties: List[Dict] = [
+            {"name": "4_when_verified", "query_usage_30_day": 4, "verified": False},
+            {"name": "5_when_verified", "query_usage_30_day": 4, "verified": False},
+            {"name": "1_when_verified", "query_usage_30_day": 4, "verified": True},
+            {"name": "2_when_verified", "query_usage_30_day": 3, "verified": True},
+            {"name": "6_when_verified", "query_usage_30_day": 1, "verified": False},
+            {"name": "3_when_verified", "query_usage_30_day": 1, "verified": True},
+        ]
+
+        for property in properties:
+            EnterprisePropertyDefinition.objects.create(
+                team=self.team, name=property["name"], query_usage_30_day=property["query_usage_30_day"]
+            )
+
+        response = self.client.get("/api/projects/@current/property_definitions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], len(properties))
+
+        assert [(r["name"], r["query_usage_30_day"], r["verified"]) for r in response.json()["results"]] == [
+            ("1_when_verified", 4, False),
+            ("4_when_verified", 4, False),
+            ("5_when_verified", 4, False),
+            ("2_when_verified", 3, False),
+            ("3_when_verified", 1, False),
+            ("6_when_verified", 1, False),
+        ]
+
+        for property in properties:
+            definition = EnterprisePropertyDefinition.objects.filter(name=property["name"], team=self.team).first()
+            if definition is None:
+                raise AssertionError(f"Property definition {property['name']} not found")
+            definition.verified = property["verified"] or False
+            definition.save()
+
+        response = self.client.get("/api/projects/@current/property_definitions/")
+
+        assert [(r["name"], r["query_usage_30_day"], r["verified"]) for r in response.json()["results"]] == [
+            ("1_when_verified", 4, True),
+            ("2_when_verified", 3, True),
+            ("3_when_verified", 1, True),
+            ("4_when_verified", 4, False),
+            ("5_when_verified", 4, False),
+            ("6_when_verified", 1, False),
+        ]

@@ -13,6 +13,7 @@
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -131,6 +132,7 @@
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -181,7 +183,7 @@
          "posthog_featureflag"."usage_dashboard_id"
   FROM "posthog_earlyaccessfeature"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_earlyaccessfeature"."feature_flag_id" = "posthog_featureflag"."id")
-  WHERE ("posthog_earlyaccessfeature"."team_id" = 2
-         AND NOT ("posthog_earlyaccessfeature"."stage" = 'general-availability')) /*controller='posthog.api.early_access_feature.early_access_features',route='%5Eapi/early_access_features/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+  WHERE ("posthog_earlyaccessfeature"."stage" = 'beta'
+         AND "posthog_earlyaccessfeature"."team_id" = 2) /*controller='posthog.api.early_access_feature.early_access_features',route='%5Eapi/early_access_features/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
   '
 ---
