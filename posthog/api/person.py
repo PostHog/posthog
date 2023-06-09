@@ -156,6 +156,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: Type[ActorBaseQuery]
 
     if filter.correlation_person_entity and EE_AVAILABLE:
+
         if EE_AVAILABLE:
             from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 
@@ -338,7 +339,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if key:
             result = self._get_person_property_values_for_key(key, value)
 
-            for value, count in result:
+            for (value, count) in result:
                 try:
                     # Try loading as json for dicts or arrays
                     flattened.append({"name": convert_property_value(json.loads(value)), "count": count})  # type: ignore
