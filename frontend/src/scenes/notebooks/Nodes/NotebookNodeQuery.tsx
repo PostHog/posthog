@@ -59,7 +59,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
     return (
         <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={HEIGHT} {...props}>
-            <div className="flex" style={{ maxHeight: HEIGHT }}>
+            <div style={{ height: HEIGHT }}>
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
                 </BindLogic>

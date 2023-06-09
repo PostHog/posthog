@@ -1,5 +1,5 @@
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -11,6 +11,7 @@ import { useInView } from 'react-intersection-observer'
 import { posthog } from 'posthog-js'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
@@ -18,6 +19,7 @@ export interface NodeWrapperProps extends NodeViewProps {
     children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     heightEstimate?: number | string
     href?: string
+    resizeable?: boolean
 }
 
 export function NodeWrapper({
@@ -27,9 +29,17 @@ export function NodeWrapper({
     selected,
     href,
     heightEstimate = '4rem',
+    resizeable = true,
+    node,
+    updateAttributes,
 }: NodeWrapperProps): JSX.Element {
     const { ready, shortId } = useValues(notebookLogic)
     const [ref, inView] = useInView({ triggerOnce: true })
+    const contentRef = useRef<HTMLDivElement | null>(null)
+
+    const height = node.attrs.height
+
+    console.log({ height })
 
     useEffect(() => {
         if (selected && shortId) {
@@ -39,6 +49,23 @@ export function NodeWrapper({
             })
         }
     }, [selected])
+
+    useResizeObserver<HTMLDivElement>({
+        ref: contentRef,
+        onResize: ({ width }) => {
+            console.log('resize', contentRef.current, width)
+        },
+    })
+
+    useEffect(() => {
+        const int = setInterval(() => {
+            if (contentRef.current) {
+                const heightAttr = contentRef.current.style.height
+                console.log({ heightAttr })
+            }
+        }, 1000)
+        return () => clearInterval(int)
+    }, [])
 
     return (
         <NodeViewWrapper
@@ -79,7 +106,12 @@ export function NodeWrapper({
                                 )}
                             </div>
                         </div>
-                        <div className="relative z-0 overflow-hidden">{children}</div>
+                        <div
+                            ref={contentRef}
+                            className={clsx('relative z-0 overflow-hidden', resizeable && 'resize-y')}
+                        >
+                            {children}
+                        </div>
                     </>
                 )}
             </ErrorBoundary>

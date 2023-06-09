@@ -8,6 +8,7 @@ import { isCurrentNodeEmpty } from './utils'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
+import { InsightVizNode } from '~/queries/schema'
 
 export function FloatingControls(): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
@@ -89,8 +90,30 @@ export function FloatingControls(): JSX.Element | null {
                                 icon: <IconCohort />,
                                 label: 'Persons',
                                 onClick: () => {
+                                    const query: InsightVizNode = {
+                                        kind: 'InsightVizNode',
+                                        source: {
+                                            kind: 'TrendsQuery',
+                                            series: [
+                                                {
+                                                    kind: 'EventsNode',
+                                                    event: '$pageview',
+                                                    name: '$pageview',
+                                                    math: 'total',
+                                                },
+                                                {
+                                                    kind: 'EventsNode',
+                                                    event: null,
+                                                    math: 'total',
+                                                },
+                                            ],
+                                            trendsFilter: {},
+                                        },
+                                    }
+
                                     insertPostHogNode(NotebookNodeType.Query, {
-                                        query: examples['PersonsTableFull'],
+                                        // query: examples['PersonsTableFull'],
+                                        query,
                                     })
                                 },
                             },
