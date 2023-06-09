@@ -3,11 +3,11 @@ import { Select } from 'antd'
 import { BarsOutlined } from '@ant-design/icons'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 
-import { pathsLogic, DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
+import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, EditorFilterProps, PathsFilterType } from '~/types'
+import { AvailableFeature, PathsFilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface StepOption {
@@ -21,13 +21,6 @@ export function PathStepPickerDataExploration(): JSX.Element {
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
     return <PathStepPickerComponent setFilter={updateInsightFilter} {...insightFilter} />
-}
-
-export function PathStepPicker({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
-    const { filter } = useValues(pathsLogic(insightProps))
-    const { setFilter } = useActions(pathsLogic(insightProps))
-
-    return <PathStepPickerComponent setFilter={setFilter} {...filter} />
 }
 
 type PathStepPickerComponentProps = {
