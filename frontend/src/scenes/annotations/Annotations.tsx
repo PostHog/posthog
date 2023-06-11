@@ -22,7 +22,6 @@ import { AnnotationModal } from './AnnotationModal'
 import { shortTimeZone } from 'lib/utils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -32,11 +31,17 @@ export const scene: SceneExport = {
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { user } = useValues(userLogic)
-    const { annotations, annotationsLoading, next, loadingNext, timezone } = useValues(annotationModalLogic)
+    const {
+        annotations,
+        annotationsLoading,
+        next,
+        loadingNext,
+        timezone,
+        shouldShowEmptyState,
+        shouldShowProductIntroduction,
+    } = useValues(annotationModalLogic)
     const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } =
         useActions(annotationModalLogic)
-    const shouldShowEmptyState = annotations.length === 0 && !annotationsLoading
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -150,7 +155,7 @@ export function Annotations(): JSX.Element {
                 }
             />
             <div data-attr={'annotations-content'}>
-                {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.ANNOTATIONS]) && (
+                {(shouldShowEmptyState || shouldShowProductIntroduction) && (
                     <ProductIntroduction
                         productName="Annotations"
                         productKey={ProductKey.ANNOTATIONS}
