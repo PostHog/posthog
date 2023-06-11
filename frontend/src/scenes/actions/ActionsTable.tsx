@@ -35,13 +35,12 @@ export function ActionsTable(): JSX.Element {
     const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
 
-    const { filterByMe, searchTerm, actionsFiltered } = useValues(actionsLogic)
+    const { filterByMe, searchTerm, actionsFiltered, shouldShowProductIntroduction, shouldShowEmptyState } =
+        useValues(actionsLogic)
     const { setFilterByMe, setSearchTerm } = useActions(actionsLogic)
 
-    const { user, hasAvailableFeature } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
-
-    const shouldShowEmptyState = actionsFiltered.length == 0 && !actionsLoading && !searchTerm.length
 
     const columns: LemonTableColumns<ActionType> = [
         {
@@ -230,7 +229,7 @@ export function ActionsTable(): JSX.Element {
                 buttons={<NewActionButton />}
             />
             <DataManagementPageTabs tab={DataManagementTab.Actions} />
-            {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.ACTIONS]) && (
+            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
                 <ProductIntroduction
                     productName="Actions"
                     productKey={ProductKey.ACTIONS}
