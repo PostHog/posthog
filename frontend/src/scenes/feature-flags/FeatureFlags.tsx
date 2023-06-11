@@ -53,6 +53,9 @@ export function OverViewTab({
 
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportEmptyStateShown } = useActions(eventUsageLogic)
+    const shouldShowProductIntroduction =
+        !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS] &&
+        !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
     useEffect(() => {
         if (shouldShowEmptyState) {
@@ -233,7 +236,7 @@ export function OverViewTab({
 
     return (
         <>
-            {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]) &&
+            {(shouldShowEmptyState || shouldShowProductIntroduction) &&
                 featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' && (
                     <ProductIntroduction
                         productName="Feature flags"
