@@ -12,18 +12,7 @@ export function createIncomingRecordingMessage(
     // that will have data_items, which are the actual snapshots each individually compressed
 
     const { data: rrwebData, ...snapshotDataObject } = jsonFullSnapshot.properties.$snapshot_data
-    const snapshotEvent = compressToString(
-        JSON.stringify({
-            ...jsonFullSnapshot,
-            properties: {
-                ...jsonFullSnapshot.properties,
-                $snapshot_data: {
-                    ...snapshotDataObject,
-                    data_items: [compressToString(JSON.stringify(payload || rrwebData))],
-                },
-            },
-        })
-    )
+
     return {
         team_id: 1,
         distinct_id: 'distinct_id',
@@ -31,7 +20,7 @@ export function createIncomingRecordingMessage(
         window_id: 'window_id_1',
 
         // Properties data
-        data_items: snapshotEvent,
+        data_items: [compressToString(JSON.stringify(payload || rrwebData))],
         compression: 'gzip-base64',
         has_full_snapshot: true,
         events_summary: [
@@ -41,6 +30,7 @@ export function createIncomingRecordingMessage(
                 data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
             },
         ],
+        ...snapshotDataObject,
         ...partialIncomingMessage,
         metadata: {
             topic: 'session_recording_events',

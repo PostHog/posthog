@@ -196,6 +196,16 @@ export class SessionRecordingBlobIngester {
             return
         }
 
+        if (!('data_items' in $snapshot_data)) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'no_data_items',
+                })
+                .inc()
+            return
+        }
+
         const recordingMessage: IncomingRecordingMessage = {
             metadata: {
                 partition: message.partition,
