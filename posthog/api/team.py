@@ -1,3 +1,4 @@
+import json
 from functools import cached_property
 from typing import Any, Dict, List, Optional, Type, cast
 
@@ -82,6 +83,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "api_token",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
+            "autocapture_exceptions_errors_to_drop",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "session_recording_opt_in",
@@ -121,6 +123,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "correlation_config",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
+            "autocapture_exceptions_errors_to_drop",
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
             "session_recording_opt_in",
@@ -180,6 +183,21 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if attrs["session_recording_version"] not in ["v1", "v2"]:
                 raise exceptions.ValidationError("Invalid session recording version")
 
+        if "autocapture_exceptions_errors_to_drop" in attrs:
+            if not isinstance(attrs["autocapture_exceptions_errors_to_drop"], list):
+                raise exceptions.ValidationError(
+                    "Must provide a list for field: autocapture_exceptions_errors_to_drop."
+                )
+            for error in attrs["autocapture_exceptions_errors_to_drop"]:
+                if not isinstance(error, str):
+                    raise exceptions.ValidationError(
+                        "Must provide a list of strings to field: autocapture_exceptions_errors_to_drop."
+                    )
+
+            if len(json.dumps(attrs["autocapture_exceptions_errors_to_drop"])) > 300:
+                raise exceptions.ValidationError(
+                    "Field autocapture_exceptions_errors_to_drop must be less than 300 characters. Complex config should be provided in posthog-js initialization."
+                )
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:

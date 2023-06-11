@@ -309,6 +309,7 @@ export interface TeamType extends TeamBasicType {
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
     autocapture_exceptions_opt_in: boolean
+    autocapture_exceptions_errors_to_drop: string[]
     session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
