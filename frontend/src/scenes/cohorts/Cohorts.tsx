@@ -19,6 +19,8 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { combineUrl, router } from 'kea-router'
 import { LemonInput } from '@posthog/lemon-ui'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -36,6 +38,11 @@ export function Cohorts(): JSX.Element {
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState<string>('')
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const shouldShowEmptyState = cohorts.length == 0 && !cohortsLoading
+    const shouldShowProductIntroduction =
+        !user?.has_seen_product_intro_for?.[ProductKey.COHORTS] &&
+        !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -156,7 +163,7 @@ export function Cohorts(): JSX.Element {
                 title="Cohorts"
                 caption="Create lists of users who have something in common to use in analytics or feature flags."
             />
-            {(!user?.has_seen_product_intro_for?.[ProductKey.COHORTS] || cohorts.length == 0) && !cohortsLoading && (
+            {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName="Cohorts"
                     productKey={ProductKey.COHORTS}
@@ -167,7 +174,7 @@ export function Cohorts(): JSX.Element {
                     action={() => router.actions.push(urls.cohort('new'))}
                 />
             )}
-            {(cohorts.length > 0 || cohortsLoading) && (
+            {!shouldShowEmptyState && (
                 <>
                     <div className="flex justify-between items-center mb-4 gap-2">
                         <LemonInput

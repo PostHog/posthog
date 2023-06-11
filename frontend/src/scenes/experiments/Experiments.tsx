@@ -31,10 +31,16 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState } =
-        useValues(experimentsLogic)
+    const {
+        filteredExperiments,
+        experimentsLoading,
+        tab,
+        searchTerm,
+        shouldShowEmptyState,
+        shouldShowProductIntroduction,
+    } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
-    const { hasAvailableFeature, user } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportEmptyStateShown } = useActions(eventUsageLogic)
 
@@ -185,7 +191,7 @@ export function Experiments(): JSX.Element {
                             { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                         ]}
                     />
-                    {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.experiments) &&
+                    {(shouldShowEmptyState || shouldShowProductIntroduction) &&
                         featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' &&
                         (tab === ExperimentsTabs.Archived ? (
                             <ProductIntroduction

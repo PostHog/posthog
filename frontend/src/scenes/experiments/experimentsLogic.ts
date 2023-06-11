@@ -8,6 +8,8 @@ import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { loaders } from 'kea-loaders'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
     if (!experiment.start_date) {
@@ -20,7 +22,16 @@ export function getExperimentStatus(experiment: Experiment): ProgressStatus {
 
 export const experimentsLogic = kea<experimentsLogicType>([
     path(['scenes', 'experiments', 'experimentsLogic']),
-    connect({ values: [teamLogic, ['currentTeamId'], userLogic, ['user', 'hasAvailableFeature']] }),
+    connect({
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user', 'hasAvailableFeature'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
+    }),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSearchStatus: (status: ProgressStatus | 'all') => ({ status }),
@@ -110,6 +121,15 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     !experimentsLoading &&
                     !values.searchTerm &&
                     !values.searchStatus
+                )
+            },
+        ],
+        shouldShowProductIntroduction: [
+            (s) => [s.user, s.featureFlags],
+            (user, featureFlags): boolean => {
+                return (
+                    !user?.has_seen_product_intro_for?.experiments &&
+                    !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
                 )
             },
         ],
