@@ -31,7 +31,7 @@ export function createIncomingRecordingMessage(
         window_id: 'window_id_1',
 
         // Properties data
-        data: snapshotEvent,
+        data_items: snapshotEvent,
         compression: 'gzip-base64',
         has_full_snapshot: true,
         events_summary: [
