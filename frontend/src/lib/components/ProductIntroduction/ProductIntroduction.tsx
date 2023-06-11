@@ -94,6 +94,7 @@ export const ProductIntroduction = ({
                                 status="muted-alt"
                                 sideIcon={<IconOpenInNew className="w-4 h-4" />}
                                 to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
+                                data-attr="product-introduction-docs-link"
                             >
                                 Learn more about {productName}
                             </LemonButton>
