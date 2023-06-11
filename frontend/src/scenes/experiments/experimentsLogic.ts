@@ -2,7 +2,7 @@ import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { AvailableFeature, Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
+import { AvailableFeature, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
@@ -128,7 +128,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (s) => [s.user, s.featureFlags],
             (user, featureFlags): boolean => {
                 return (
-                    !user?.has_seen_product_intro_for?.experiments &&
+                    !user?.has_seen_product_intro_for?.[ProductKey.EXPERIMENTS] &&
                     !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
                 )
             },

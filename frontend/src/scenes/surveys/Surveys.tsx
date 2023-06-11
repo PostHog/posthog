@@ -58,7 +58,7 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived surveys' },
                 ]}
             />
-            {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.surveys) && (
+            {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
                 <ProductIntroduction
                     productName={'Surveys'}
                     thingName={'survey'}
