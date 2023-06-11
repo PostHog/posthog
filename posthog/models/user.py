@@ -137,7 +137,7 @@ class User(AbstractUser, UUIDClassicModel):
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified: models.BooleanField = models.BooleanField(null=True, blank=True)
     requested_password_reset_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    has_seen_product_intro_for: models.JSONField = models.JSONField(null=True, blank=True, default=dict)
+    has_seen_product_intro_for: models.JSONField = models.JSONField(null=True, blank=True)
 
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
