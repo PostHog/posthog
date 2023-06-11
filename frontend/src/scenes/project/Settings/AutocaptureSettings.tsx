@@ -65,9 +65,9 @@ export function AutocaptureSettings(): JSX.Element {
                             autocaptured.
                             <br />
                             You can enter error titles here to drop them. One per line. For example, if you want to drop
-                            all errors that contain the word "bot", you can enter ".* bot .*" here.
+                            all errors that contain the word "bot", you can enter "*bot*" here.
                             <br />
-                            Only a 300 characters of config are allowed here. More than that and you must initialize
+                            Only up to 300 characters of config are allowed here. More than that and you must initialize
                             this setting directly in posthog-js.
                         </p>
                         <LemonTextArea
