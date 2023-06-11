@@ -99,6 +99,7 @@ class _KafkaProducer:
         kafka_base64_keys=settings.KAFKA_BASE64_KEYS,
         kafka_hosts=settings.KAFKA_HOSTS,
         kafka_security_protocol=settings.KAFKA_SECURITY_PROTOCOL,
+        max_message_bytes=None,
     ):
         if test:
             self.producer = KafkaProducerForTests()
@@ -109,6 +110,7 @@ class _KafkaProducer:
                 retries=KAFKA_PRODUCER_RETRIES,
                 bootstrap_servers=kafka_hosts,
                 security_protocol=kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+                **{"max.message.bytes": max_message_bytes} if max_message_bytes else {},
                 **_sasl_params(),
             )
 
@@ -177,6 +179,7 @@ def sessionRecordingKafkaProducer():
         return SessionRecordingKafkaProducer(
             kafka_hosts=settings.SESSION_RECORDING_KAFKA_HOSTS,
             kafka_security_protocol=settings.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
+            max_message_bytes=settings.SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES,
         )
     else:
         return KafkaProducer()
