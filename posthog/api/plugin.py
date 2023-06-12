@@ -164,8 +164,7 @@ class PlainRenderer(renderers.BaseRenderer):
         return smart_str(data, encoding=self.charset or "utf-8")
 
 
-# mypy unhappy with BasePermissionMetaclass inheritance
-class PluginsAccessLevelPermission(BasePermission):  # type: ignore
+class PluginsAccessLevelPermission(BasePermission):
     message = "Your organization's plugin access level is insufficient."
 
     def has_permission(self, request, view) -> bool:
@@ -177,8 +176,7 @@ class PluginsAccessLevelPermission(BasePermission):  # type: ignore
         return view.organization.plugins_access_level >= min_level
 
 
-# mypy unhappy with BasePermissionMetaclass inheritance
-class PluginOwnershipPermission(BasePermission):  # type: ignore
+class PluginOwnershipPermission(BasePermission):
     message = "This plugin installation is managed by another organization."
 
     def has_object_permission(self, request, view, object) -> bool:

@@ -16,12 +16,12 @@ class Migration(migrations.Migration):
     operations = [
         AddIndexConcurrently(
             model_name="propertydefinition",
-            index=models.Index(  # type: ignore
-                F("team_id"),  # type: ignore
-                F("type"),  # type: ignore
-                Coalesce(F("group_type_index"), -1),  # type: ignore
-                OrderBy(F("query_usage_30_day"), descending=True, nulls_last=True),  # type: ignore
-                OrderBy(F("name")),  # type: ignore
+            index=models.Index(
+                F("team_id"),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                OrderBy(F("query_usage_30_day"), descending=True, nulls_last=True),
+                OrderBy(F("name")),
                 name="index_property_def_query",
             ),
         ),
