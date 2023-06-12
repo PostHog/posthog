@@ -74,6 +74,7 @@ import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponen
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import clsx from 'clsx'
+import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -524,6 +525,24 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <UsageTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
+
+                                    {featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id && (
+                                        <Tabs.TabPane
+                                            tab={
+                                                <div className="flex flex-row">
+                                                    <div>Analysis</div>
+                                                    <LemonTag className="ml-1 float-right uppercase" type="warning">
+                                                        {' '}
+                                                        Beta
+                                                    </LemonTag>
+                                                </div>
+                                            }
+                                            key="analysis"
+                                        >
+                                            <AnalysisTab id={id} featureFlag={featureFlag} />
+                                        </Tabs.TabPane>
+                                    )}
+
                                     {featureFlag.id && (
                                         <Tabs.TabPane tab="History" key="history">
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
