@@ -7,7 +7,6 @@ import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { Form } from 'kea-forms'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
-import { PersonsScene } from 'scenes/persons/Persons'
 import { IconClose, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { useState } from 'react'
@@ -20,6 +19,9 @@ import { PersonsLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { PersonsTable } from 'scenes/persons/PersonsTable'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PersonsSearch } from 'scenes/persons/PersonsSearch'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -32,7 +34,7 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, promote, deleteEarlyAccessFeature } =
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, releaseBeta, deleteEarlyAccessFeature } =
         useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
@@ -61,7 +63,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     }}
                                     loading={isEarlyAccessFeatureSubmitting}
                                 >
-                                    Save
+                                    {isNewEarlyAccessFeature ? 'Save Draft' : 'Save'}
                                 </LemonButton>
                             </>
                         ) : (
@@ -171,18 +173,27 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <div>
                                 <b>Stage</b>
                                 <div>
-                                    <LemonTag type="highlight" className="mt-2 uppercase">
+                                    <LemonTag
+                                        type={
+                                            earlyAccessFeature.stage === 'beta'
+                                                ? 'warning'
+                                                : earlyAccessFeature.stage === 'general-availability'
+                                                ? 'success'
+                                                : 'default'
+                                        }
+                                        className="mt-2 uppercase"
+                                    >
                                         {earlyAccessFeature.stage}
                                     </LemonTag>
                                 </div>
                             </div>
-                            {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
+                            {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
                                 <LemonButton
-                                    onClick={() => promote()}
-                                    tooltip={'Make feature generally available'}
+                                    onClick={() => releaseBeta()}
+                                    tooltip={'Make beta feature available'}
                                     type="secondary"
                                 >
-                                    Promote
+                                    Release Beta
                                 </LemonButton>
                             )}
                         </div>
@@ -294,37 +305,57 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
         ],
     }
     const logic = personsLogic(personsLogicProps)
-    const { persons } = useValues(logic)
+    const { persons, personsLoading, listFilters } = useValues(logic)
+    const { loadPersons, setListFilters } = useActions(logic)
     const { featureFlag } = useValues(featureFlagLogic({ id: earlyAccessFeature.feature_flag.id || 'link' }))
 
     return (
         <BindLogic logic={personsLogic} props={personsLogicProps}>
             <h3 className="text-xl font-semibold">Opted-In Users</h3>
-            <PersonsScene
-                showSearch={persons.results.length > 0}
-                showFilters={persons.results.length > 0}
-                extraSceneActions={
-                    persons.results.length > 0
-                        ? [
-                              <LemonButton
-                                  key="help-button"
-                                  onClick={toggleImplementOptInInstructionsModal}
-                                  sideIcon={<IconHelpOutline />}
-                              >
-                                  Implement public opt-in
-                              </LemonButton>,
-                          ]
-                        : []
-                }
-                compact={true}
-                showExportAction={false}
-                emptyState={
-                    <div>
-                        No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
-                        <a onClick={toggleImplementOptInInstructionsModal}>implementing public opt-in</a>
+
+            <div className="space-y-2">
+                {
+                    <div className="flex-col">
+                        <PersonsSearch />
                     </div>
                 }
-            />
+                <div className="flex flex-row justify-between">
+                    <PropertyFilters
+                        pageKey="persons-list-page"
+                        propertyFilters={listFilters.properties}
+                        onChange={(properties) => {
+                            setListFilters({ properties })
+                            loadPersons()
+                        }}
+                        endpoint="person"
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                        showConditionBadge
+                    />
+                    <LemonButton
+                        key="help-button"
+                        onClick={toggleImplementOptInInstructionsModal}
+                        sideIcon={<IconHelpOutline />}
+                    >
+                        Implement public opt-in
+                    </LemonButton>
+                </div>
+                <PersonsTable
+                    people={persons.results}
+                    loading={personsLoading}
+                    hasPrevious={!!persons.previous}
+                    hasNext={!!persons.next}
+                    loadPrevious={() => loadPersons(persons.previous)}
+                    loadNext={() => loadPersons(persons.next)}
+                    compact={true}
+                    extraColumns={[]}
+                    emptyState={
+                        <div>
+                            No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
+                            <a onClick={toggleImplementOptInInstructionsModal}>implementing public opt-in</a>
+                        </div>
+                    }
+                />
+            </div>
             <InstructionsModal
                 featureFlag={featureFlag}
                 visible={implementOptInInstructionsModal}

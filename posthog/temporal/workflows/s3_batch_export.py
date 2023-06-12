@@ -4,11 +4,9 @@ from dataclasses import dataclass
 from string import Template
 import tempfile
 from typing import TYPE_CHECKING, List
-from aiochclient import ChClient
 
 from django.conf import settings
 import boto3
-from aiohttp import ClientSession
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import S3BatchExportInputs
@@ -20,6 +18,7 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
+from posthog.temporal.workflows.clickhouse import get_client
 
 if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import CompletedPartTypeDef
@@ -36,41 +35,23 @@ SELECT_QUERY_TEMPLATE = Template(
     """
 )
 
-TABLE_PARTITION_KEYS = {
-    "events": {
-        "hour": "toStartOfHour(timestamp)",
-        "day": "toStartOfDay(timestamp)",
-        "week": "toStartOfWeek(timestamp)",
-        "month": "toStartOfMonth(timestamp)",
-    }
-}
-
 
 @dataclass
 class S3InsertInputs:
-    """Inputs for ClickHouse INSERT INTO S3 function."""
+    """Inputs for S3 exports."""
+
+    # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
+    # to keep track of where credentials are being stored and increases the
+    # attach surface for credential leaks.
 
     bucket_name: str
     region: str
-    key_template: str
+    prefix: str
     team_id: int
     data_interval_start: str
     data_interval_end: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
-
-
-def prepare_template_vars(inputs: S3InsertInputs):
-    end_at = dt.datetime.fromisoformat(inputs.data_interval_end)
-    return {
-        "datetime": inputs.data_interval_end,
-        "year": end_at.year,
-        "month": end_at.month,
-        "day": end_at.day,
-        "hour": end_at.hour,
-        "minute": end_at.minute,
-        "second": end_at.second,
-    }
 
 
 @activity.defn
@@ -94,15 +75,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     """
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
-    async with ClientSession() as s:
-        client = ChClient(
-            s,
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-        )
-
+    async with get_client() as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
@@ -133,14 +106,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
-        template_vars = prepare_template_vars(inputs)
-
         query_template = Template(SELECT_QUERY_TEMPLATE.template)
 
         activity.logger.debug(query_template.template)
 
         # Create a multipart upload to S3
-        key = inputs.key_template.format(**template_vars)
+        key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
         s3_client = boto3.client(
             "s3",
             region_name=inputs.region,
@@ -183,11 +154,13 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 # Write the results to a local file
                 local_results_file.write(json.dumps(result).encode("utf-8"))
                 local_results_file.write("\n".encode("utf-8"))
-                local_results_file.flush()
 
                 # Write results to S3 when the file reaches 50MB and reset the
                 # file, or if there is nothing else to write.
-                if local_results_file.tell() > 50 * 1024 * 1024:
+                if (
+                    local_results_file.tell()
+                    and local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES
+                ):
                     activity.logger.info("Uploading part %s", part_number)
 
                     local_results_file.seek(0)
@@ -198,10 +171,11 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         UploadId=upload_id,
                         Body=local_results_file,
                     )
-                    part_number += 1
 
                     # Record the ETag for the part
                     parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+
+                    part_number += 1
 
                     # Reset the file
                     local_results_file.seek(0)
@@ -273,7 +247,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
             region=inputs.region,
-            key_template=inputs.key_template,
+            prefix=inputs.prefix,
             team_id=inputs.team_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,

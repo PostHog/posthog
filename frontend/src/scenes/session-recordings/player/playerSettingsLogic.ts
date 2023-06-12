@@ -68,6 +68,12 @@ const MiniFilters: SharedListMiniFilter[] = [
         tooltip: 'Autocapture events such as clicks and inputs',
     },
     {
+        tab: SessionRecordingPlayerTab.EVENTS,
+        key: 'events-exceptions',
+        name: 'Exceptions',
+        tooltip: 'Exception events from PostHog or its Sentry integration',
+    },
+    {
         tab: SessionRecordingPlayerTab.CONSOLE,
         key: 'console-all',
         name: 'All',

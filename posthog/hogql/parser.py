@@ -1,6 +1,6 @@
 from typing import Dict, List, Literal, Optional, cast
 
-from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
+from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
 
 from posthog.hogql import ast
@@ -9,42 +9,32 @@ from posthog.hogql.errors import NotImplementedException, HogQLException, Syntax
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
-from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
+from posthog.hogql.placeholders import replace_placeholders
 
 
-def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False) -> ast.Expr:
+def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
     parse_tree = get_parser(expr).expr()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         return replace_placeholders(node, placeholders)
-    elif no_placeholders:
-        assert_no_placeholders(node)
-
     return node
 
 
-def parse_order_expr(
-    order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
-) -> ast.Expr:
+def parse_order_expr(order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
     parse_tree = get_parser(order_expr).orderExpr()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         return replace_placeholders(node, placeholders)
-    elif no_placeholders:
-        assert_no_placeholders(node)
-
     return node
 
 
 def parse_select(
-    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
+    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
     parse_tree = get_parser(statement).select()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         node = replace_placeholders(node, placeholders)
-    elif no_placeholders:
-        assert_no_placeholders(node)
     return node
 
 
@@ -54,16 +44,48 @@ def get_parser(query: str) -> HogQLParser:
     stream = CommonTokenStream(lexer)
     parser = HogQLParser(stream)
     parser.removeErrorListeners()
-    parser.addErrorListener(HogQLErrorListener())
+    parser.addErrorListener(HogQLErrorListener(query))
     return parser
 
 
 class HogQLErrorListener(ErrorListener):
+    query: str
+
+    def __init__(self, query: str = ""):
+        super().__init__()
+        self.query = query
+
+    def get_position(self, line, column):
+        lines = self.query.split("\n")
+        try:
+            position = sum(len(lines[i]) + 1 for i in range(line - 1)) + column
+        except IndexError:
+            return -1
+        if position > len(self.query):
+            return -1
+        return position
+
     def syntaxError(self, recognizer, offendingType, line, column, msg, e):
-        raise SyntaxException(msg, line=line, column=column)
+        start = max(self.get_position(line, column), 0)
+        raise SyntaxException(msg, start=start, end=len(self.query))
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
+    def visit(self, ctx: ParserRuleContext):
+        start = ctx.start.start if ctx.start else None
+        end = ctx.stop.stop + 1 if ctx.stop else None
+        try:
+            node = super().visit(ctx)
+            if isinstance(node, ast.AST):
+                node.start = start
+                node.end = end
+            return node
+        except HogQLException as e:
+            if start is not None and end is not None and e.start is None or e.end is None:
+                e.start = start
+                e.end = end
+            raise e
+
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
 
@@ -88,7 +110,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
-            macros=self.visit(ctx.withClause()) if ctx.withClause() else None,
+            ctes=self.visit(ctx.withClause()) if ctx.withClause() else None,
             select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
             distinct=True if ctx.DISTINCT() else None,
             select_from=self.visit(ctx.fromClause()) if ctx.fromClause() else None,
@@ -426,17 +448,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.BinaryOperation(left=left, right=right, op=op)
 
     def visitColumnExprPrecedence2(self, ctx: HogQLParser.ColumnExprPrecedence2Context):
-        if ctx.PLUS():
-            op = ast.BinaryOperationOp.Add
-        elif ctx.DASH():
-            op = ast.BinaryOperationOp.Sub
-        elif ctx.CONCAT():
-            raise NotImplementedException(f"Yet unsupported text concat operation: {ctx.operator.text}")
-        else:
-            raise NotImplementedException(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
         left = self.visit(ctx.left)
         right = self.visit(ctx.right)
-        return ast.BinaryOperation(left=left, right=right, op=op)
+
+        if ctx.PLUS():
+            return ast.BinaryOperation(left=left, right=right, op=ast.BinaryOperationOp.Add)
+        elif ctx.DASH():
+            return ast.BinaryOperation(left=left, right=right, op=ast.BinaryOperationOp.Sub)
+        elif ctx.CONCAT():
+            args = []
+            if isinstance(left, ast.Call) and left.name == "concat":
+                args.extend(left.args)
+            else:
+                args.append(left)
+
+            if isinstance(right, ast.Call) and right.name == "concat":
+                args.extend(right.args)
+            else:
+                args.append(right)
+
+            return ast.Call(name="concat", args=args)
+        else:
+            raise NotImplementedException(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
         if ctx.EQ_SINGLE() or ctx.EQ_DOUBLE():
@@ -619,21 +652,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
-        macros: Dict[str, ast.Macro] = {}
+        ctes: Dict[str, ast.CTE] = {}
         for expr in ctx.withExpr():
-            macro = self.visit(expr)
-            macros[macro.name] = macro
-        return macros
+            cte = self.visit(expr)
+            ctes[cte.name] = cte
+        return ctes
 
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
         subquery = self.visit(ctx.selectUnionStmt())
         name = self.visit(ctx.identifier())
-        return ast.Macro(name=name, expr=subquery, macro_format="subquery")
+        return ast.CTE(name=name, expr=subquery, cte_type="subquery")
 
     def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
         expr = self.visit(ctx.columnExpr())
         name = self.visit(ctx.identifier())
-        return ast.Macro(name=name, expr=expr, macro_format="column")
+        return ast.CTE(name=name, expr=expr, cte_type="column")
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
         if ctx.PLACEHOLDER():

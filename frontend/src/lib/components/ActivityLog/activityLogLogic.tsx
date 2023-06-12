@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import api, { ACTIVITY_PAGE_SIZE, CountedPaginatedResponse } from 'lib/api'
+import api, { ACTIVITY_PAGE_SIZE, ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
     ActivityScope,
@@ -52,13 +52,13 @@ export const activityLogLogic = kea<activityLogLogicType>({
     },
     loaders: ({ values, props }) => ({
         nextPage: [
-            { results: [], total_count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
+            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
                 fetchNextPage: async () => await api.activity.list(props, values.page),
             },
         ],
         previousPage: [
-            { results: [], total_count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
+            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
                 fetchPreviousPage: async () => await api.activity.list(props, values.page - 1),
             },

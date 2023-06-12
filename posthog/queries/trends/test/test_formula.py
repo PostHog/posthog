@@ -307,6 +307,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-04",
                     ],
                     "label": "London",
+                    "breakdown_value": "London",
                 },
                 {
                     "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -332,6 +333,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-04",
                     ],
                     "label": "Paris",
+                    "breakdown_value": "Paris",
                 },
             ],
         )

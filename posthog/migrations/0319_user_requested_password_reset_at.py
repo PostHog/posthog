@@ -6,13 +6,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0317_batch_export_models"),
+        ("posthog", "0318_alter_earlyaccessfeature_stage"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name="team",
-            name="extra_settings",
-            field=models.JSONField(blank=True, null=True),
+            model_name="user",
+            name="requested_password_reset_at",
+            field=models.DateTimeField(blank=True, null=True),
         ),
     ]

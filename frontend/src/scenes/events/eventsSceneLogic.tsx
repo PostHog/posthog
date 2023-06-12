@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
 import { actionToUrl, urlToAction } from 'kea-router'
@@ -8,18 +8,31 @@ import { urls } from 'scenes/urls'
 import { objectsEqual } from 'lib/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
+import { teamLogic } from 'scenes/teamLogic'
+import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
+    connect({ values: [teamLogic, ['currentTeam']] }),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
-    reducers({ query: [getDefaultEventsSceneQuery() as Node, { setQuery: (_, { query }) => query }] }),
-
+    reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
+    selectors({
+        defaultQuery: [
+            (s) => [s.currentTeam],
+            (currentTeam) => {
+                const defaultSourceForTeam = currentTeam && getDefaultEventsQueryForTeam(currentTeam)
+                const defaultForScene = getDefaultEventsSceneQuery()
+                return defaultSourceForTeam ? { ...defaultForScene, source: defaultSourceForTeam } : defaultForScene
+            },
+        ],
+        query: [(s) => [s.savedQuery, s.defaultQuery], (savedQuery, defaultQuery) => savedQuery || defaultQuery],
+    }),
     actionToUrl(({ values }) => ({
         setQuery: () => [
             urls.events(),
             {},
-            objectsEqual(values.query, getDefaultEventsSceneQuery()) ? {} : { q: values.query },
+            objectsEqual(values.query, values.defaultQuery) ? {} : { q: values.query },
             { replace: true },
         ],
     })),
@@ -30,8 +43,8 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                 // nothing in the URL
                 if (!queryParam) {
                     // set the default unless it's already there
-                    if (!objectsEqual(values.query, getDefaultEventsSceneQuery())) {
-                        actions.setQuery(getDefaultEventsSceneQuery())
+                    if (!objectsEqual(values.query, values.defaultQuery)) {
+                        actions.setQuery(values.defaultQuery)
                     }
                 } else {
                     if (typeof queryParam === 'object') {

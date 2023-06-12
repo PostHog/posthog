@@ -630,14 +630,12 @@ export const insightLogic = kea<insightLogicType>([
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         insightChanged: [
-            (s) => [s.insight, s.savedInsight, s.filters, s.isUsingDataExploration],
-            (insight, savedInsight, filters, isUsingDataExploration): boolean => {
+            (s) => [s.insight, s.savedInsight],
+            (insight, savedInsight): boolean => {
                 return (
                     (insight.name || '') !== (savedInsight.name || '') ||
                     (insight.description || '') !== (savedInsight.description || '') ||
-                    !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
-                    (!isUsingDataExploration &&
-                        !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})))
+                    !objectsEqual(insight.tags || [], savedInsight.tags || [])
                 )
             },
         ],
@@ -697,7 +695,9 @@ export const insightLogic = kea<insightLogicType>([
         isSingleSeries: [
             (s) => [s.filters, s.localFilters],
             (filters, localFilters): boolean => {
-                return (isTrendsFilter(filters) && !!filters.formula) || localFilters.length <= 1
+                return (
+                    ((isTrendsFilter(filters) && !!filters.formula) || localFilters.length <= 1) && !filters.breakdown
+                )
             },
         ],
         intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
@@ -777,12 +777,6 @@ export const insightLogic = kea<insightLogicType>([
                 )
             },
         ],
-        isUsingDataExploration: [
-            () => [],
-            (): boolean => {
-                return true
-            },
-        ],
         isUsingDashboardQueries: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => {
@@ -833,7 +827,7 @@ export const insightLogic = kea<insightLogicType>([
 
             // (Re)load results when filters have changed or if there's no result yet
             if (backendFilterChanged || !values.insight?.result) {
-                if ((!values.isUsingDataExploration || props.disableDataExploration) && !values.insight?.query) {
+                if (props.disableDataExploration && !values.insight?.query) {
                     actions.loadResults()
                 }
             }

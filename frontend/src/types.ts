@@ -89,6 +89,18 @@ export type AvailableProductFeature = {
     unit?: string | null
 }
 
+export enum ProductKey {
+    COHORTS = 'cohorts',
+    ACTIONS = 'actions',
+    EXPERIMENTS = 'experiments',
+    FEATURE_FLAGS = 'feature_flags',
+    ANNOTATIONS = 'annotations',
+    HISTORY = 'history',
+    INGESTION_WARNINGS = 'ingestion_warnings',
+    PERSONS = 'persons',
+    SURVEYS = 'surveys',
+}
+
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -153,6 +165,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_seen_product_intro_for?: Record<string, boolean>
 }
 
 export interface NotificationSettings {
@@ -308,6 +321,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    autocapture_exceptions_opt_in: boolean
     session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -680,7 +694,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
-export type DurationTypeFilter = 'duration' | 'active_seconds'
+export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export interface RecordingFilters {
     date_from?: string | null
@@ -749,13 +763,11 @@ export interface PersonListParams {
     search?: string
     cohort?: number
     distinct_id?: string
+    include_total?: boolean // PostHog 3000-only
 }
 
 export interface MatchedRecordingEvent {
     uuid: string
-    session_id: string
-    window_id: string
-    timestamp: string
 }
 
 export interface MatchedRecording {
@@ -1273,17 +1285,15 @@ export interface InsightModel extends Cacheable {
     query?: Node | null
 }
 
-export interface DashboardType {
+export interface DashboardBasicType {
     id: number
     name: string
     description: string
     pinned: boolean
-    tiles: DashboardTile[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
     deleted: boolean
-    filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
@@ -1291,6 +1301,11 @@ export interface DashboardType {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+}
+
+export interface DashboardType extends DashboardBasicType {
+    tiles: DashboardTile[]
+    filters: Record<string, any>
 }
 
 export interface DashboardTemplateType {
@@ -1996,6 +2011,7 @@ export interface Survey {
     type: SurveyType
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
+    targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
     conditions: { url: string; selector: string } | null
     appearance: SurveyAppearance
     questions: SurveyQuestion[]
@@ -2102,6 +2118,7 @@ export interface CombinedFeatureFlagAndValueType {
 }
 
 export enum EarlyAccessFeatureStage {
+    Draft = 'draft',
     Concept = 'concept',
     Alpha = 'alpha',
     Beta = 'beta',
@@ -2292,6 +2309,9 @@ export interface PropertyDefinition {
     last_seen_at?: string // TODO: Implement
     example?: string
     is_action?: boolean
+    verified?: boolean
+    verified_at?: string
+    verified_by?: string
 }
 
 export enum PropertyDefinitionState {
