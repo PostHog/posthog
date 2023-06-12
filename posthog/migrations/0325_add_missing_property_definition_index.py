@@ -11,7 +11,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        AddIndexConcurrently(
+        # mypy fails here because we're using such an old version
+        # error: Module "django.contrib.postgres.operations" has no attribute "AddIndexConcurrently"
+        # but that's not true
+        AddIndexConcurrently(  # type: ignore
             model_name="propertydefinition",
             index=models.Index(fields=["team_id", "type", "is_numerical"], name="posthog_pro_team_id_eac36d_idx"),
         ),
