@@ -1833,7 +1833,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
         )
         self.client.logout()
-        with self.settings(ENABLE_DECIDE_BILLING_ANALYTICS=False, DECIDE_BILLING_SAMPLING_RATE=1):
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=0):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, 200)
 
@@ -1841,9 +1841,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # check that no increments made it to redis
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
-        with self.settings(ENABLE_DECIDE_BILLING_ANALYTICS="true", DECIDE_BILLING_SAMPLING_RATE=1), freeze_time(
-            "2022-05-07 12:23:07"
-        ):
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=1), freeze_time("2022-05-07 12:23:07"):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, 200)
 
@@ -1851,7 +1849,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # check that single increment made it to redis
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {b"165192618": b"1"})
 
-    # @patch("posthog.api.decide.increment_request_count")
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_appropriately(self, *args):
         random.seed(12345)
@@ -1859,9 +1856,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
         )
         self.client.logout()
-        with self.settings(ENABLE_DECIDE_BILLING_ANALYTICS="true", DECIDE_BILLING_SAMPLING_RATE=0.5), freeze_time(
-            "2022-05-07 12:23:07"
-        ):
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=0.5), freeze_time("2022-05-07 12:23:07"):
             for _ in range(5):
                 # given the seed, 4 out of 5 are sampled
                 response = self._post_decide(api_version=3)
@@ -1878,9 +1873,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
         )
         self.client.logout()
-        with self.settings(ENABLE_DECIDE_BILLING_ANALYTICS="true", DECIDE_BILLING_SAMPLING_RATE=0.02), freeze_time(
-            "2022-05-07 12:23:07"
-        ):
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=0.02), freeze_time("2022-05-07 12:23:07"):
             for _ in range(5):
                 # given the seed, 1 out of 5 are sampled
                 response = self._post_decide(api_version=3)
@@ -1897,9 +1890,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
         )
         self.client.logout()
-        with self.settings(ENABLE_DECIDE_BILLING_ANALYTICS="true", DECIDE_BILLING_SAMPLING_RATE=0), freeze_time(
-            "2022-05-07 12:23:07"
-        ):
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=0), freeze_time("2022-05-07 12:23:07"):
             for _ in range(5):
                 # 0 out of 5 are sampled
                 response = self._post_decide(api_version=3)

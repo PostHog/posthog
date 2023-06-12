@@ -19,11 +19,6 @@ from temporalio.client import (
 )
 
 
-class S3BatchExportWorkflow:
-    def run(self, inputs):
-        raise NotImplementedError
-
-
 @dataclass
 class S3BatchExportInputs:
     """Inputs for S3 export workflow.
@@ -47,16 +42,30 @@ class S3BatchExportInputs:
     batch_window_size: int
     team_id: int
     batch_export_id: str
-    table_name: str = "events"
-    file_format: str = "CSVWithNames"
-    partition_key: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     data_interval_end: str | None = None
 
 
+@dataclass
+class SnowflakeBatchExportInputs:
+    """Inputs for Snowflake export workflow."""
+
+    batch_export_id: str
+    team_id: int
+    user: str
+    password: str
+    account: str
+    database: str
+    warehouse: str
+    schema: str
+    table_name: str = "events"
+    data_interval_end: str | None = None
+
+
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
+    "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
 }
 
 

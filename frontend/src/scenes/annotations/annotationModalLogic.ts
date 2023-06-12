@@ -1,11 +1,14 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { AnnotationScope, AnnotationType, InsightModel } from '~/types'
+import { AnnotationScope, AnnotationType, InsightModel, ProductKey } from '~/types'
 import { forms } from 'kea-forms'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
 import type { annotationModalLogicType } from './annotationModalLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -40,6 +43,10 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             ['annotations', 'annotationsLoading', 'next', 'loadingNext'],
             teamLogic,
             ['timezone'],
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     }),
     actions({
@@ -94,6 +101,23 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 actions.setAnnotationModalValue('dashboardItemId', insightId)
             }
         },
+    })),
+    selectors(({}) => ({
+        shouldShowEmptyState: [
+            (s) => [s.annotations, s.annotationsLoading],
+            (annotations, annotationsLoading): boolean => {
+                return annotations.length === 0 && !annotationsLoading
+            },
+        ],
+        shouldShowProductIntroduction: [
+            (s) => [s.user, s.featureFlags],
+            (user, featureFlags): boolean => {
+                return (
+                    !user?.has_seen_product_intro_for?.[ProductKey.ANNOTATIONS] &&
+                    !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
+                )
+            },
+        ],
     })),
     forms(({ actions, values }) => ({
         annotationModal: {

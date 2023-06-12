@@ -58,7 +58,7 @@ class Type(AST):
 
 
 class Expr(AST):
-    type: Optional[Type]
+    type: Optional[Type] = None
 
 
 class CTE(Expr):
