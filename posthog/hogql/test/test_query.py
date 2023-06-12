@@ -1037,10 +1037,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
 
-            query = f"SELECT * FROM events WHERE properties.string = '{random_uuid}'"
+            query = f"SELECT * FROM events WHERE event='big event' and properties.string = '{random_uuid}'"
             first_response = execute_hogql_query(query, team=self.team)
             self.assertEqual(len(first_response.results), 1)
 
+            # Testing all in one big test to save time.
             alternatives = [
                 "properties.array_str.0",
                 "properties.array_str[0]",
@@ -1050,10 +1051,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "properties.array_obj[0].id",
                 "properties.array_obj_array.0.id.0",
                 "properties.array_obj_array[0].id[0]",
-                "properties.array_obj_array_obj[0].id[0].id",
                 "properties.array_obj_array_obj.0.id.0.id",
+                "properties.array_obj_array_obj[0].id[0].id",
             ]
             for alternative in alternatives:
-                query = f"SELECT * FROM events WHERE {alternative} = '{random_uuid}'"
-                response = execute_hogql_query(query, team=self.team)
-                self.assertEqual(response.results, first_response.results)
+                try:
+                    query = f"SELECT * FROM events WHERE {alternative} = '{random_uuid}'"
+                    response = execute_hogql_query(query, team=self.team)
+                    self.assertEqual(response.results, first_response.results)
+                except Exception as e:
+                    self.fail(f"Failed with {alternative}: {e}")
