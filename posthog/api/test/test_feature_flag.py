@@ -11,6 +11,7 @@ from django.test.client import RequestFactory
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
+from posthog import redis
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
@@ -46,6 +47,11 @@ class TestFeatureFlag(APIBaseTest):
 
     def setUp(self):
         cache.clear()
+
+        # delete all keys in redis
+        r = redis.get_client()
+        for key in r.scan_iter("*"):
+            r.delete(key)
         return super().setUp()
 
     @classmethod
@@ -1468,6 +1474,64 @@ class TestFeatureFlag(APIBaseTest):
             },
             sorted_flags[1],
         )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_local_evaluation_billing_analytics(self):
+        FeatureFlag.objects.all().delete()
+
+        # old style feature flags
+        FeatureFlag.objects.create(
+            name="Beta feature",
+            key="beta-feature",
+            team=self.team,
+            rollout_percentage=51,
+            filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
+            created_by=self.user,
+        )
+        # and inactive flag
+        FeatureFlag.objects.create(
+            name="Inactive feature",
+            key="inactive-flag",
+            team=self.team,
+            active=False,
+            rollout_percentage=100,
+            filters={"properties": []},
+            created_by=self.user,
+        )
+
+        client = redis.get_client()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        self.client.logout()
+        # `local_evaluation` is called by logged out clients!
+
+        with freeze_time("2022-05-07 12:23:07"):
+            # missing API key
+            response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+
+            response = self.client.get(f"/api/feature_flag/local_evaluation")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+
+            response = self.client.get(
+                f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {b"165192618": b"1"})
+
+            for _ in range(5):
+                response = self.client.get(
+                    f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {b"165192618": b"6"})
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):
