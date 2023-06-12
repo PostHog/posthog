@@ -607,14 +607,10 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                         ],
                         event: '$feature_flag_called',
                         properties: propertyFilter,
+                        after: '-30d',
                     },
-                    full: true,
-                    showEventFilter: false,
-                    showPropertyFilter: false,
-                    showColumnConfigurator: false,
-                    showExport: false,
-                    showActions: false,
-                    showReload: false,
+                    full: false,
+                    showDateRange: true,
                 }}
             />
         </div>
