@@ -25,7 +25,7 @@ const silentFailuresAsyncHandlers = new Counter({
     help: 'Number silent failures from async handlers.',
 })
 const pipelineStepCompletionCounter = new Counter({
-    name: 'events_pipeline_step',
+    name: 'events_pipeline_step_executed_total',
     help: 'Number of events that have completed the step',
     labelNames: ['step_name'],
 })
