@@ -1104,8 +1104,7 @@ class TestCapture(BaseTest):
         )
 
     def test_sentry_tracing_headers(self):
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/e/?ip=1&_=1651741927805",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
@@ -1116,8 +1115,7 @@ class TestCapture(BaseTest):
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
 
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/decide/",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
@@ -1132,8 +1130,7 @@ class TestCapture(BaseTest):
         # Azure App Insights sends the same tracing headers as Sentry
         # _and_ a request-context header
 
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/e/?ip=1&_=1651741927805",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
@@ -1145,8 +1142,7 @@ class TestCapture(BaseTest):
             "X-Requested-With,Content-Type,traceparent,request-id,request-context",
         )
 
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/decide/",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",

@@ -22,8 +22,8 @@ logger = structlog.get_logger(__name__)
 # load dashboard_template_schema.json
 dashboard_template_schema = json.loads((Path(__file__).parent / "dashboard_template_schema.json").read_text())
 
-
-class OnlyStaffCanEditDashboardTemplate(BasePermission):
+# mypy unhappy with BasePermissionMetaclass inheritance
+class OnlyStaffCanEditDashboardTemplate(BasePermission):  # type: ignore
     message = "You don't have edit permissions for this dashboard template."
 
     def has_permission(self, request: Request, view) -> bool:
