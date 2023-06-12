@@ -382,3 +382,20 @@ class TestDashboardTemplates(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["scope"] == "global"
+
+    def test_filter_template_list_by_scope(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        id = response.json()["id"]
+
+        self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{id}",
+            {"scope": "feature_flag"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?scope=feature_flag")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["scope"] == "feature_flag"

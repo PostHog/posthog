@@ -1,11 +1,11 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
-import { DashboardTemplateType } from '~/types'
+import { DashboardTemplateScope, DashboardTemplateType } from '~/types'
 import { useState } from 'react'
 
 import { pluralize } from 'lib/utils'
@@ -53,7 +53,7 @@ function TemplateItem({
 }
 
 export function DashboardTemplatePreview(): JSX.Element {
-    const { activeDashboardTemplate } = useValues(newDashboardLogic)
+    const { activeDashboardTemplate, variableSelectModalVisible } = useValues(newDashboardLogic)
     const { variables } = useValues(dashboardTemplateVariablesLogic)
     const { createDashboardFromTemplate, clearActiveDashboardTemplate } = useActions(newDashboardLogic)
 
@@ -62,9 +62,13 @@ export function DashboardTemplatePreview(): JSX.Element {
             <DashboardTemplateVariables />
 
             <div className="flex justify-between my-4">
-                <LemonButton onClick={clearActiveDashboardTemplate} type="secondary">
-                    Back
-                </LemonButton>
+                {variableSelectModalVisible ? (
+                    <div />
+                ) : (
+                    <LemonButton onClick={clearActiveDashboardTemplate} type="secondary">
+                        Back
+                    </LemonButton>
+                )}
                 <LemonButton
                     onClick={() => {
                         activeDashboardTemplate && createDashboardFromTemplate(activeDashboardTemplate, variables)
@@ -78,12 +82,22 @@ export function DashboardTemplatePreview(): JSX.Element {
     )
 }
 
-export function DashboardTemplateChooser(): JSX.Element {
-    const { allTemplates } = useValues(dashboardTemplatesLogic)
+interface DashboardTemplateChooserProps {
+    scope?: DashboardTemplateScope
+}
 
-    const { isLoading } = useValues(newDashboardLogic)
-    const { setActiveDashboardTemplate, createDashboardFromTemplate, addDashboard, setIsLoading } =
-        useActions(newDashboardLogic)
+export function DashboardTemplateChooser({ scope = 'global' }: DashboardTemplateChooserProps): JSX.Element {
+    const templatesLogic = dashboardTemplatesLogic({ scope })
+    const { allTemplates } = useValues(templatesLogic)
+
+    const { isLoading, newDashboardModalVisible } = useValues(newDashboardLogic)
+    const {
+        setActiveDashboardTemplate,
+        createDashboardFromTemplate,
+        addDashboard,
+        setIsLoading,
+        showVariableSelectModal,
+    } = useActions(newDashboardLogic)
 
     return (
         <div>
@@ -124,7 +138,11 @@ export function DashboardTemplateChooser(): JSX.Element {
                                 }
                                 createDashboardFromTemplate(template, template.variables || [])
                             } else {
-                                setActiveDashboardTemplate(template)
+                                if (!newDashboardModalVisible) {
+                                    showVariableSelectModal(template)
+                                } else {
+                                    setActiveDashboardTemplate(template)
+                                }
                             }
                         }}
                         index={index + 1}
@@ -138,10 +156,15 @@ export function DashboardTemplateChooser(): JSX.Element {
 }
 
 export function NewDashboardModal(): JSX.Element {
+    const builtLogic = useMountedLogic(newDashboardLogic)
     const { hideNewDashboardModal } = useActions(newDashboardLogic)
-    const { newDashboardModalVisible } = useValues(newDashboardLogic)
+    const { newDashboardModalVisible, activeDashboardTemplate } = useValues(newDashboardLogic)
 
-    const { activeDashboardTemplate } = useValues(newDashboardLogic)
+    const _dashboardTemplateChooser = builtLogic.props.featureFlagId ? (
+        <DashboardTemplateChooser scope="feature_flag" />
+    ) : (
+        <DashboardTemplateChooser />
+    )
 
     return (
         <LemonModal
@@ -160,7 +183,7 @@ export function NewDashboardModal(): JSX.Element {
             }
         >
             <div className="NewDashboardModal">
-                {activeDashboardTemplate ? <DashboardTemplatePreview /> : <DashboardTemplateChooser />}
+                {activeDashboardTemplate ? <DashboardTemplatePreview /> : _dashboardTemplateChooser}
             </div>
         </LemonModal>
     )

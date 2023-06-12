@@ -1303,6 +1303,12 @@ export interface DashboardBasicType {
     _highlight?: boolean
 }
 
+export interface DashboardTemplateListParams {
+    scope?: DashboardTemplateScope
+}
+
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+
 export interface DashboardType extends DashboardBasicType {
     tiles: DashboardTile[]
     filters: Record<string, any>
@@ -1319,7 +1325,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
-    scope?: 'team' | 'global'
+    scope?: DashboardTemplateScope
 }
 
 export interface MonacoMarker {
@@ -2103,6 +2109,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     usage_dashboard?: number
+    analytics_dashboards?: number[] | null
 }
 
 export interface FeatureFlagRollbackConditions {
