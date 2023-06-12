@@ -1,8 +1,9 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from '../urls'
-import { Link } from '../../lib/lemon-ui/Link'
-import { useCurrentTeamId, useExports } from './api'
 import { LemonButton } from '../../lib/lemon-ui/LemonButton'
+import { useCurrentTeamId, useExports } from './api'
+import { LemonTable } from '../../lib/lemon-ui/LemonTable'
+import { Link } from 'lib/lemon-ui/Link'
 
 export const scene: SceneExport = {
     component: Exports,
@@ -44,29 +45,30 @@ export function Exports(): JSX.Element {
     return (
         <>
             <h1>Exports</h1>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Type</th>
-                        <th>Frequency</th>
-                        <th>Status</th>
-                        <th>Last run</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {exports.map((export_) => (
-                        <tr key={export_.id}>
-                            <td>
-                                <Link to={urls.viewExport(export_.id)}>{export_.name}</Link>
-                            </td>
-                            <td>{export_.destination.type}</td>
-                            <td>{export_.interval}</td>
-                            <td>{export_.status}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            <LemonTable
+                dataSource={exports}
+                columns={[
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        render: function RenderName(_, export_) {
+                            return <Link to={urls.viewExport(export_.id)}>{export_.name}</Link>
+                        },
+                    },
+                    {
+                        title: 'Type',
+                        key: 'type',
+                        render: function RenderType(_, export_) {
+                            return <>{export_.destination.type}</>
+                        },
+                    },
+                    {
+                        title: 'Frequency',
+                        key: 'frequency',
+                        dataIndex: 'interval',
+                    },
+                ]}
+            />
             <LemonButton to={urls.createExport()}>Create export</LemonButton>
             {/* If we are loading, we overlay a spinner */}
             {loading && <div>Loading...</div>}

@@ -1,6 +1,6 @@
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
-import { billingLogic } from '../billingLogic'
-import { convertAmountToUsage } from '../billing-utils'
+import { billingLogic } from './billingLogic'
+import { convertAmountToUsage } from './billing-utils'
 import { useActions, useValues } from 'kea'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { billingProductLogic } from './billingProductLogic'

@@ -1849,7 +1849,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # check that single increment made it to redis
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {b"165192618": b"1"})
 
-    # @patch("posthog.api.decide.increment_request_count")
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_appropriately(self, *args):
         random.seed(12345)

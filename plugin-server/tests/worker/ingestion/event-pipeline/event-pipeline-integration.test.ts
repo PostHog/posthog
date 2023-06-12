@@ -221,11 +221,11 @@ describe('Event Pipeline integration test', () => {
 
         await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
         expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
-        expect(hub.db.fetchPerson).not.toHaveBeenCalled()
 
         // second time single fetch
         await new EventPipelineRunner(hub, event).runEventPipeline(event)
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 })

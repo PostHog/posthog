@@ -6,15 +6,14 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { getSurveyStatus, surveysLogic } from './surveysLogic'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Survey } from '~/types'
+import { ProductKey, Survey } from '~/types'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -29,9 +28,10 @@ export enum SurveysTabs {
 
 export function Surveys(): JSX.Element {
     const { nonArchivedSurveys, archivedSurveys, surveys, surveysLoading } = useValues(surveysLogic)
+    const { user } = useValues(userLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const [tab, setSurveyTab] = useState(SurveysTabs.All)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const shouldShowEmptyState = !surveysLoading && surveys.length === 0
 
     return (
         <div className="mt-10">
@@ -58,14 +58,19 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived surveys' },
                 ]}
             />
-            {!surveysLoading && surveys.length === 0 && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
-                <ProductEmptyState
-                    productName={'Survey'}
+            {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
+                <ProductIntroduction
+                    productName={'Surveys'}
                     thingName={'survey'}
-                    description={'Use surveys to gather user qualitative feedback on new or existing features!'}
+                    description={
+                        'Use surveys to gather qualitative feedback from your users on new or existing features.'
+                    }
                     action={() => router.actions.push(urls.survey('new'))}
+                    isEmpty={surveys.length === 0}
+                    productKey={ProductKey.SURVEYS}
                 />
-            ) : (
+            )}
+            {!shouldShowEmptyState && (
                 <LemonTable
                     className="mt-6"
                     columns={[
