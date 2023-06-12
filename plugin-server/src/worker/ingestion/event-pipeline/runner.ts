@@ -24,6 +24,11 @@ const silentFailuresAsyncHandlers = new Counter({
     name: 'async_handlers_silent_failure',
     help: 'Number silent failures from async handlers.',
 })
+const pipelineStepCompletionCounter = new Counter({
+    name: 'events_pipeline_step_executed_total',
+    help: 'Number of events that have completed the step',
+    labelNames: ['step_name'],
+})
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -179,6 +184,7 @@ export class EventPipelineRunner {
                 })
                 try {
                     const result = await step(...args)
+                    pipelineStepCompletionCounter.labels(step.name).inc()
                     this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: step.name })
                     this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: step.name })
                     return result
