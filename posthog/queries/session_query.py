@@ -17,10 +17,17 @@ class SessionQuery:
 
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
+    _session_id_alias: str
 
-    def __init__(self, filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter], team: Team) -> None:
+    def __init__(
+        self,
+        filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
+        team: Team,
+        session_id_alias="$session_id",
+    ) -> None:
         self._filter = filter
         self._team = team
+        self._session_id_alias = session_id_alias
 
     def get_query(self) -> Tuple[str, Dict]:
         params = {"team_id": self._team.pk}
@@ -34,16 +41,16 @@ class SessionQuery:
         return (
             f"""
                 SELECT
-                    $session_id,
+                    $session_id AS {self._session_id_alias},
                     dateDiff('second',min(timestamp), max(timestamp)) as session_duration
                 FROM
                     events
                 WHERE
-                    $session_id != ''
+                    {self._session_id_alias} != ''
                     AND team_id = %(team_id)s
                     {parsed_date_from} - INTERVAL 24 HOUR
                     {parsed_date_to} + INTERVAL 24 HOUR
-                GROUP BY $session_id
+                GROUP BY {self._session_id_alias}
             """,
             params,
         )
