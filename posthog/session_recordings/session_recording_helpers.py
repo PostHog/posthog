@@ -89,22 +89,12 @@ EVENT_SUMMARY_DATA_INCLUSIONS = [
 
 Event = Dict[str, Any]
 
+result = []
+snapshots_by_session_and_window_id = defaultdict(list)
+
 
 def legacy_preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> List[Event]:
-    result = []
-    snapshots_by_session_and_window_id = defaultdict(list)
-    for event in events:
-        if is_unprocessed_snapshot_event(event):
-            session_id = event["properties"]["$session_id"]
-            window_id = event["properties"].get("$window_id")
-            snapshots_by_session_and_window_id[(session_id, window_id)].append(event)
-        else:
-            result.append(event)
-
-    for _, snapshots in snapshots_by_session_and_window_id.items():
-        result.extend(list(legacy_compress_and_chunk_snapshots(snapshots)))
-
-    return result
+    return _process_windowed_events(events, lambda x: legacy_compress_and_chunk_snapshots(x, chunk_size=512 * 1024))
 
 
 def legacy_compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> Generator[Event, None, None]:
@@ -146,6 +136,94 @@ def split_replay_events(events: List[Event]) -> List[Event]:
         replay.append(event) if is_unprocessed_snapshot_event(event) else other.append(event)
 
     return replay, other
+
+
+def preprocess_replay_events_for_blob_ingestion(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
+    """
+    The events going to blob ingestion are uncompressed (the compression happens in the Kafka producer)
+    1. Since posthog-js 1.TODO we are grouping events on the frontend in a batch and passing their size in $snapshot_data
+    """
+    return [preprocess_replay_events(event, max_size_bytes=max_size_bytes) for event in events]
+
+
+def preprocess_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
+    """
+    The events going to blob ingestion are uncompressed (the compression happens in the Kafka producer)
+    1. Since posthog-js {version} we are grouping events on the frontend in a batch and passing their size in $snapshot_bytes
+       These are easy to group as we can simply make sure the total size is not higher than our max message size in Kafka.
+       If one message has this property, they all do (thanks to batching).
+    2. If this property isn't set, we estimate the size (json.dumps) and if it is small enough - merge it all together in one event
+    3. If not, we split out the "full snapshots" from the rest (they are typically bigger) and send them individually, trying one more time to group the rest, otherwise sending them individually
+    """
+
+    if len(events) == 0:
+        return []
+
+    session_id = events[0]["properties"]["$session_id"]
+    window_id = events[0]["properties"].get("$window_id")
+
+    def new_event(items: List[dict] = []) -> Event:
+        return {
+            **events[0],
+            "properties": {
+                "$session_id": session_id,
+                "$window_id": window_id,
+                "$snapshot_items": items,
+            },
+        }
+
+    # 1. Group by $snapshot_bytes if any of the events have it
+    if events[0]["properties"].get("$snapshot_bytes"):
+        current_event = None
+        current_event_size = 0
+
+        for event in events:
+            additional_bytes = event["properties"]["$snapshot_bytes"]
+            additional_data = flatten([event["properties"]["$snapshot_data"]], max_depth=1)
+
+            if not current_event or current_event_size + additional_bytes > max_size_bytes:
+                # If adding the new data would put us over the max size, yield the current event and start a new one
+                if current_event:
+                    yield current_event
+                current_event = new_event()
+                current_event_size = 0
+
+            # Add the existing data to the base event
+            current_event["properties"]["$snapshot_items"].extend(additional_data)
+
+        yield current_event
+    else:
+        snapshot_data_list = flatten([event["properties"]["$snapshot_data"] for event in events], max_depth=1)
+
+        # 2. Otherwise try and group all the events if they are small enough
+        if byte_size_dict(snapshot_data_list) < max_size_bytes:
+            event = new_event(snapshot_data_list)
+            yield event
+        else:
+            # 3. If not, split out the full snapshots from the rest
+            full_snapshots = []
+            incremental_snapshots = []
+
+            for snapshot_data in snapshot_data_list:
+                if snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot:
+                    full_snapshots.append(snapshot_data)
+                else:
+                    incremental_snapshots.append(snapshot_data)
+
+            # Send the full snapshots individually
+            for snapshot_data in full_snapshots:
+                event = new_event([snapshot_data])
+                yield event
+
+            # Try and group the rest
+            if byte_size_dict(incremental_snapshots) < max_size_bytes:
+                event = new_event(incremental_snapshots)
+                yield event
+            else:
+                # If not, send them individually
+                for snapshot_data in incremental_snapshots:
+                    event = new_event([snapshot_data])
+                    yield event
 
 
 def compress_replay_events(events: List[Event]) -> List[Event]:
