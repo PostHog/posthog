@@ -624,7 +624,7 @@ class TestPrinter(BaseTest):
     def test_tumble_datetime(self):
         self.assertEqual(
             self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1'))"),
-            f"tumble(toDateTime(%(hogql_val_0)s), toIntervalDay(%(hogql_val_1)s))",
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
         )
         self.assertEqual(
             self._expr("tumble(now(), toIntervalDay('1'))"),

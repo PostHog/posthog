@@ -673,6 +673,7 @@ HOGQL_AGGREGATIONS = {
     "maxIntersectionsPositionIf": 3,
 }
 ADD_TIMEZONE_TO_FUNCTIONS = ("now", "NOW", "toDateTime", "parseDateTime", "parseDateTimeBestEffort")
+ADD_OR_NULL_DATETIME_FUNCTIONS = ("toDateTime", "parseDateTime", "parseDateTimeBestEffort")
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 
