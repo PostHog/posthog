@@ -35,8 +35,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
-        releaseBeta: true,
-        deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
+        updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
     }),
     loaders(({ props }) => ({
         earlyAccessFeature: {
@@ -110,11 +109,11 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             }
             actions.editFeature(false)
         },
-        releaseBeta: async () => {
+        updateStage: async ({ stage }) => {
             'id' in values.earlyAccessFeature &&
                 (await api.earlyAccessFeatures.update(props.id, {
                     ...values.earlyAccessFeature,
-                    stage: EarlyAccessFeatureStage.Beta,
+                    stage: stage,
                 }))
             actions.loadEarlyAccessFeature()
             actions.loadEarlyAccessFeatures()
@@ -124,20 +123,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             actions.loadEarlyAccessFeatures()
             earlyAccessFeature.id && router.actions.replace(urls.earlyAccessFeature(earlyAccessFeature.id))
             actions.editFeature(false)
-        },
-        deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
-            try {
-                await api.earlyAccessFeatures.delete(earlyAccessFeatureId)
-                lemonToast.info(
-                    'Early access feature deleted. Remember to delete corresponding feature flag if necessary'
-                )
-                actions.loadEarlyAccessFeaturesSuccess(
-                    values.earlyAccessFeatures.filter((feature) => feature.id !== earlyAccessFeatureId)
-                )
-                router.actions.push(urls.earlyAccessFeatures())
-            } catch (e) {
-                lemonToast.error(`Error deleting Early Access Feature: ${e}`)
-            }
         },
     })),
     urlToAction(({ actions, props }) => ({
