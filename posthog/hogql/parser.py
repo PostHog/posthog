@@ -543,10 +543,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprArrayAccess(self, ctx: HogQLParser.ColumnExprArrayAccessContext):
         object = self.visit(ctx.columnExpr(0))
         property = self.visit(ctx.columnExpr(1))
-        if isinstance(object, ast.Field) and isinstance(property, ast.Constant):
-            return ast.Field(chain=object.chain + [property.value])
-        else:
-            return ast.ArrayAccess(array=object, property=property)
+        return ast.ArrayAccess(array=object, property=property)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         raise NotImplementedException(f"Unsupported node: ColumnExprBetween")
@@ -588,7 +585,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Or(exprs=left_array + right_array)
 
     def visitColumnExprTupleAccess(self, ctx: HogQLParser.ColumnExprTupleAccessContext):
-        return ast.TupleAccess(tuple=self.visit(ctx.columnExpr()), index=int(ctx.DECIMAL_LITERAL().getText()))
+        tuple = self.visit(ctx.columnExpr())
+        index = int(ctx.DECIMAL_LITERAL().getText())
+        return ast.TupleAccess(tuple=tuple, index=index)
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):
         columns = [self.visit(column) for column in ctx.columnExpr()]

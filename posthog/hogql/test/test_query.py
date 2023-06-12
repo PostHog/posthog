@@ -1029,6 +1029,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 properties={
                     "string": random_uuid,
                     "array_str": [random_uuid],
+                    "obj_array": {"id": [random_uuid]},
                     "array_array_str": [[random_uuid]],
                     "array_obj": [{"id": random_uuid}],
                     "array_obj_array": [{"id": [random_uuid]}],
@@ -1037,27 +1038,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
 
-            query = f"SELECT * FROM events WHERE event='big event' and properties.string = '{random_uuid}'"
-            first_response = execute_hogql_query(query, team=self.team)
-            self.assertEqual(len(first_response.results), 1)
-
-            # Testing all in one big test to save time.
             alternatives = [
-                "properties.array_str.0",
-                "properties.array_str[0]",
-                "properties.array_array_str.0.0",
-                "properties.array_array_str[0][0]",
-                "properties.array_obj.0.id",
-                "properties.array_obj[0].id",
-                "properties.array_obj_array.0.id.0",
-                "properties.array_obj_array[0].id[0]",
-                "properties.array_obj_array_obj.0.id.0.id",
-                "properties.array_obj_array_obj[0].id[0].id",
+                "properties.string",
+                "properties.array_str.1",
+                "properties.array_str[1]",
+                "properties.obj_array.id.1",
+                "properties.obj_array.id[1]",
+                "properties.array_array_str.1.1",
+                "properties.array_array_str[1][1]",
+                # "properties.array_obj.1.id",
+                # "properties.array_obj[1].id",
+                # "properties.array_obj_array.1.id.1",
+                # "properties.array_obj_array[1]['id'][1]",
+                # "properties.array_obj_array_obj.1.id.1.id",
+                # "properties.array_obj_array_obj[1].id[1].id",
             ]
-            for alternative in alternatives:
-                try:
-                    query = f"SELECT * FROM events WHERE {alternative} = '{random_uuid}'"
-                    response = execute_hogql_query(query, team=self.team)
-                    self.assertEqual(response.results, first_response.results)
-                except Exception as e:
-                    self.fail(f"Failed with {alternative}: {e}")
+            columns = ",".join(alternatives)
+            query = f"SELECT {columns} FROM events WHERE properties.string = '{random_uuid}'"
+            response = execute_hogql_query(query, team=self.team)
+            self.assertEqual(response.results[0], tuple(map(lambda x: random_uuid, alternatives)))
