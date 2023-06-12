@@ -186,7 +186,7 @@ export class SessionRecordingBlobIngester {
 
         const $snapshot_data = event.properties?.$snapshot_data
 
-        if ('$chunk_index' in $snapshot_data) {
+        if ('chunk_index' in $snapshot_data) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
