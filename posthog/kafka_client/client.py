@@ -96,11 +96,18 @@ class _KafkaProducer:
         test=settings.TEST,
         # the default producer uses these defaulted environment variables,
         # but the session recording producer needs to override them
-        kafka_base64_keys=settings.KAFKA_BASE64_KEYS,
-        kafka_hosts=settings.KAFKA_HOSTS,
-        kafka_security_protocol=settings.KAFKA_SECURITY_PROTOCOL,
+        kafka_base64_keys=None,
+        kafka_hosts=None,
+        kafka_security_protocol=None,
         max_message_bytes=None,
     ):
+        if kafka_security_protocol is None:
+            kafka_security_protocol = settings.KAFKA_SECURITY_PROTOCOL
+        if kafka_hosts is None:
+            kafka_hosts = settings.KAFKA_HOSTS
+        if kafka_base64_keys is None:
+            kafka_base64_keys = settings.KAFKA_BASE64_KEYS
+
         if test:
             self.producer = KafkaProducerForTests()
         elif kafka_base64_keys:
