@@ -469,7 +469,7 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
-                if node.name.startswith("tumble"):
+                if node.name.startswith("tumble") or node.name.startswith("hop"):
                     args: List[str] = []
                     for idx, arg in enumerate(node.args):
                         if idx == 0:
