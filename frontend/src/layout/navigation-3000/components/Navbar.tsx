@@ -37,12 +37,9 @@ export function Navbar(): JSX.Element {
                                     title={item.label}
                                     identifier={item.identifier}
                                     icon={item.icon}
-                                    // TODO: Simplify all the pointer handling below
-                                    to={
-                                        'pointer' in item && typeof item.pointer === 'string' ? item.pointer : undefined
-                                    }
+                                    to={'to' in item ? item.to : undefined}
                                     onClick={
-                                        'pointer' in item && typeof item.pointer !== 'string'
+                                        'logic' in item
                                             ? () => {
                                                   if (activeNavbarItemId === item.identifier && isSidebarShown) {
                                                       hideSidebar()

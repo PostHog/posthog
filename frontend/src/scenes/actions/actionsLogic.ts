@@ -6,14 +6,20 @@ import type { actionsLogicType } from './actionsLogicType'
 import { actionsModel } from '~/models/actionsModel'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
+import { subscriptions } from 'kea-subscriptions'
 
-export type ActionFuse = Fuse<ActionType> // This is exported for kea-typegen
+export const actionsFuse = new Fuse<ActionType>([], {
+    keys: [{ name: 'name', weight: 2 }, 'description', 'tags'],
+    threshold: 0.3,
+    ignoreLocation: true,
+    includeMatches: true,
+})
 
 export const actionsLogic = kea<actionsLogicType>([
     path(['scenes', 'actions', 'actionsLogic']),
-    connect({
-        values: [actionsModel({ params: 'include_count=1' }), ['actions'], userLogic, ['user']],
-    }),
+    connect(() => ({
+        values: [actionsModel({ params: 'include_count=1' }), ['actions', 'actionsLoading'], userLogic, ['user']],
+    })),
     actions({
         setFilterByMe: (filterByMe: boolean) => ({ filterByMe }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -34,19 +40,11 @@ export const actionsLogic = kea<actionsLogicType>([
         ],
     }),
     selectors({
-        actionsFuse: [
-            (s) => [s.actions],
-            (actions): ActionFuse =>
-                new Fuse<ActionType>(actions, {
-                    keys: ['name', 'url'],
-                    threshold: 0.3,
-                }),
-        ],
         actionsFiltered: [
-            (s) => [s.actions, s.actionsFuse, s.filterByMe, s.searchTerm, s.user],
-            (actions, actionsFuse, filterByMe, searchTerm, user) => {
+            (s) => [s.actions, s.filterByMe, s.searchTerm, s.user],
+            (actions, filterByMe, searchTerm, user) => {
                 let data = actions
-                if (searchTerm && searchTerm.length > 0) {
+                if (searchTerm) {
                     data = actionsFuse.search(searchTerm).map((result) => result.item)
                 }
                 if (filterByMe) {
@@ -68,5 +66,10 @@ export const actionsLogic = kea<actionsLogicType>([
                 },
             ],
         ],
+    }),
+    subscriptions({
+        actions: (actions) => {
+            actionsFuse.setCollection(actions)
+        },
     }),
 ])

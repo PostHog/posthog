@@ -701,7 +701,8 @@ const api = {
             offset?: number
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
-        }): Promise<PaginatedResponse<EventDefinition>> {
+            search?: string
+        }): Promise<CountedPaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
@@ -716,6 +717,7 @@ const api = {
             offset?: number
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
+            search?: string
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -758,8 +760,9 @@ const api = {
             type?: PropertyDefinitionType
             limit?: number
             offset?: number
+            search?: string
             teamId?: TeamType['id']
-        }): Promise<PaginatedResponse<PropertyDefinition>> {
+        }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
             return new ApiRequest()
                 .propertyDefinitions(teamId)
                 .withQueryString(
@@ -782,6 +785,7 @@ const api = {
             is_feature_flag?: boolean
             limit?: number
             offset?: number
+            search?: string
             teamId?: TeamType['id']
             type?: PropertyDefinitionType
             group_type_index?: number
