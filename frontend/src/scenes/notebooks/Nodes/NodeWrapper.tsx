@@ -1,4 +1,4 @@
-import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
+import { Attributes, NodeViewProps, NodeViewWrapper } from '@tiptap/react'
 import { ReactNode, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
@@ -36,6 +36,7 @@ export function NodeWrapper({
     const { ready, shortId } = useValues(notebookLogic)
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const contentHeightRef = useRef<string>()
 
     const height = node.attrs.height
 
@@ -58,10 +59,17 @@ export function NodeWrapper({
     })
 
     useEffect(() => {
+        if (!resizeable) {
+            return
+        }
         const int = setInterval(() => {
-            if (contentRef.current) {
-                const heightAttr = contentRef.current.style.height
-                console.log({ heightAttr })
+            // css resize sets the style attr so we check that to detect changes. Resize obsserver doesn't trigger for style changes
+            const heightAttr = contentRef.current?.style.height
+            if (heightAttr && heightAttr !== contentHeightRef.current) {
+                contentHeightRef.current = heightAttr
+                updateAttributes({
+                    height: contentRef.current?.clientHeight,
+                })
             }
         }, 1000)
         return () => clearInterval(int)
@@ -108,7 +116,12 @@ export function NodeWrapper({
                         </div>
                         <div
                             ref={contentRef}
-                            className={clsx('relative z-0 overflow-hidden', resizeable && 'resize-y')}
+                            className={clsx(
+                                'flex flex-col relative z-0 overflow-hidden min-h-40',
+                                resizeable && 'resize-y'
+                            )}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ height }}
                         >
                             {children}
                         </div>
@@ -117,4 +130,13 @@ export function NodeWrapper({
             </ErrorBoundary>
         </NodeViewWrapper>
     )
+}
+
+export function getNodeWrapperAttributes(): Attributes {
+    return {
+        height: {
+            default: undefined,
+            keepOnSplit: true,
+        },
+    }
 }

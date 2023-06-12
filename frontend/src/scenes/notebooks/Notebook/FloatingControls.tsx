@@ -90,30 +90,8 @@ export function FloatingControls(): JSX.Element | null {
                                 icon: <IconCohort />,
                                 label: 'Persons',
                                 onClick: () => {
-                                    const query: InsightVizNode = {
-                                        kind: 'InsightVizNode',
-                                        source: {
-                                            kind: 'TrendsQuery',
-                                            series: [
-                                                {
-                                                    kind: 'EventsNode',
-                                                    event: '$pageview',
-                                                    name: '$pageview',
-                                                    math: 'total',
-                                                },
-                                                {
-                                                    kind: 'EventsNode',
-                                                    event: null,
-                                                    math: 'total',
-                                                },
-                                            ],
-                                            trendsFilter: {},
-                                        },
-                                    }
-
                                     insertPostHogNode(NotebookNodeType.Query, {
-                                        // query: examples['PersonsTableFull'],
-                                        query,
+                                        query: examples['PersonsTableFull'],
                                     })
                                 },
                             },

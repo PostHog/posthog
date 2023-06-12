@@ -1,6 +1,6 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
-import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { getNodeWrapperAttributes, NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
@@ -64,13 +64,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             href={urls.replay(undefined, filters)}
             heightEstimate={HEIGHT}
         >
-            <div
-                className="flex flex-row overflow-hidden gap-2 flex-1"
-                style={{ height: HEIGHT }}
-                contentEditable={false}
-            >
-                {content}
-            </div>
+            <div className="flex flex-row overflow-hidden gap-2 flex-1">{content}</div>
         </NodeWrapper>
     )
 }
@@ -83,6 +77,7 @@ export const NotebookNodePlaylist = Node.create({
 
     addAttributes() {
         return {
+            ...getNodeWrapperAttributes(),
             filters: {
                 default: '{}',
             },
