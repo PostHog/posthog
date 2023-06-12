@@ -87,12 +87,6 @@ REPLAY_INGESTION_COUNTER = Counter(
     labelnames=["method"],
 )
 
-REPLAY_INGESTION_BATCH_COMPRESSION_RATIO_COUNTER = Counter(
-    "capture_replay_ingestion_batch_compression_ratio",
-    "Indicates how well we turned X batch events into Y kafka events.",
-    labelnames=["method"],
-)
-
 REPLAY_INGESTION_BATCH_COMPRESSION_RATIO_HISTOGRAM = Histogram(
     "session_recordings_chunks_length",
     "We chunk session recordings to fit them into kafka, how often do we chunk and by how much?",
