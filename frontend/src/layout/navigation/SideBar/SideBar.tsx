@@ -9,6 +9,7 @@ import {
     IconCoffee,
     IconCohort,
     IconComment,
+    IconDNS,
     IconExperiment,
     IconFeedback,
     IconFlag,
@@ -189,9 +190,9 @@ function Pages(): JSX.Element {
                         />
                     )}
 
-                    {featureFlags[FEATURE_FLAGS.SURVEYS] && (
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                         <PageButton
-                            icon={<IconFeedback />}
+                            icon={<IconDNS />}
                             identifier={Scene.Surveys}
                             title={'Surveys'}
                             to={urls.surveys()}
@@ -217,6 +218,14 @@ function Pages(): JSX.Element {
                         to={urls.persons()}
                         title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
                     />
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
+                        <PageButton
+                            icon={<IconFeedback />}
+                            identifier={Scene.DataWarehouse}
+                            title={'Data Warehouse'}
+                            to={urls.dataWarehouse()}
+                        />
+                    )}
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (

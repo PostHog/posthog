@@ -8,6 +8,7 @@ from pydantic import Field as PydanticField
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database.models import (
     DatabaseField,
+    ExternalTable,
     FieldTraverser,
     LazyJoin,
     StringJSONDatabaseField,
@@ -93,6 +94,9 @@ class BaseTableType(Type):
             return AsteriskType(table_type=self)
         if self.has_child(name):
             field = self.resolve_database_table().get_field(name)
+            import ipdb
+
+            ipdb.set_trace()
             if isinstance(field, LazyJoin):
                 return LazyJoinType(table_type=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):
@@ -101,6 +105,8 @@ class BaseTableType(Type):
                 return FieldTraverserType(table_type=self, chain=field.chain)
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
+            if isinstance(field, ExternalTable):
+                return ExternalTableType(table_type=self, field=name)
             return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field not found: {name}")
 
@@ -148,6 +154,16 @@ class VirtualTableType(BaseTableType):
         return self.virtual_table.has_field(name)
 
 
+class ExternalTableType(BaseTableType):
+    table: ExternalTable
+
+    def resolve_database_table(self) -> Table:
+        import ipdb
+
+        ipdb.set_trace()
+        return self.table
+
+
 TableOrSelectType = Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
 
 
@@ -165,6 +181,7 @@ class SelectQueryType(Type):
     anonymous_tables: List[Union["SelectQueryType", "SelectUnionQueryType"]] = PydanticField(default_factory=list)
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
+
         for key, value in self.tables.items():
             if value == table_type:
                 return key

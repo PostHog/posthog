@@ -102,3 +102,8 @@ class FieldTraverser(BaseModel):
         extra = Extra.forbid
 
     chain: List[str]
+
+
+class ExternalTable(Table):
+    class Config:
+        extra = Extra.forbid

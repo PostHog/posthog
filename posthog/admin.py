@@ -24,6 +24,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.warehouse.models import DataWarehouseTable
 
 admin.site.register(Person)
 admin.site.register(Element)
@@ -31,6 +32,7 @@ admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(InstanceSetting)
+admin.site.register(DataWarehouseTable)
 
 
 @admin.register(Insight)

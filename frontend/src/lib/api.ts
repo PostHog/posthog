@@ -42,6 +42,7 @@ import {
     Survey,
     NotebookType,
     PropertyDefinitionType,
+    DataWarehouseTable,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -414,6 +415,14 @@ class ApiRequest {
 
     public survey(id: Survey['id'], teamId?: TeamType['id']): ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
+    }
+
+    // # Warehouse
+    public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_table')
+    }
+    public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseTables(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -1198,7 +1207,7 @@ const api = {
 
     surveys: {
         async list(): Promise<PaginatedResponse<Survey>> {
-            return await new ApiRequest().surveys().get()
+            return await new ApiRequest().warehouseTables().get()
         },
         async get(surveyId: Survey['id']): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).get()
@@ -1214,6 +1223,27 @@ const api = {
             data: Pick<Survey, 'name' | 'description' | 'linked_flag' | 'start_date' | 'end_date'>
         ): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
+        },
+    },
+
+    dataWarehouseTables: {
+        async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
+            return await new ApiRequest().dataWarehouseTables().get()
+        },
+        async get(tableId: Survey['id']): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTable(tableId).get()
+        },
+        async create(data: Partial<Survey>): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTables().create({ data })
+        },
+        async delete(tableId: Survey['id']): Promise<void> {
+            await new ApiRequest().survey(tableId).delete()
+        },
+        async update(
+            tableId: Survey['id'],
+            data: Pick<Survey, 'name' | 'description' | 'linked_flag' | 'start_date' | 'end_date'>
+        ): Promise<Survey> {
+            return await new ApiRequest().survey(tableId).update({ data })
         },
     },
 

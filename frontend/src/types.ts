@@ -2927,3 +2927,17 @@ export enum NotebookNodeType {
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export interface DataWarehouseCredential {
+    access_key: string
+    access_secret: string
+}
+export interface DataWarehouseTable {
+    /** UUID */
+    id: string
+    name: string
+    url_pattern: string
+    credential: DataWarehouseCredential
+}
+
+export type DataWarehouseTableTypes = 'CSV' | 'Parquet'

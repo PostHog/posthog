@@ -46,6 +46,10 @@ class LazyTableResolver(TraversingVisitor):
             return f"{self._get_long_table_name(select, type.table_type)}__{type.field}"
         elif isinstance(type, ast.VirtualTableType):
             return f"{self._get_long_table_name(select, type.table_type)}__{type.field}"
+        elif isinstance(type, ast.ExternalTable):
+            import ipdb
+
+            ipdb.set_trace()
         else:
             raise HogQLException("Should not be reachable")
 
