@@ -10,6 +10,7 @@ import { loadPostHogJS } from './loadPostHogJS'
 import { ErrorBoundary } from './layout/ErrorBoundary'
 
 import { PostHogProvider } from 'posthog-js/react'
+import posthog from 'posthog-js'
 
 loadPostHogJS()
 initKea()
@@ -24,16 +25,12 @@ if (typeof window !== 'undefined') {
     }
 }
 
-const options = {
-    api_host: window.JS_POSTHOG_HOST,
-}
-
 function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
         ReactDOM.render(
             <ErrorBoundary>
-                <PostHogProvider apiKey={window.JS_POSTHOG_API_KEY} options={options}>
+                <PostHogProvider client={posthog}>
                     <App />
                 </PostHogProvider>
             </ErrorBoundary>,
