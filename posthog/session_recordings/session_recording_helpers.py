@@ -3,7 +3,7 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional
+from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional, Tuple
 
 from dateutil.parser import ParserError, parse
 from sentry_sdk.api import capture_exception, capture_message
@@ -139,7 +139,7 @@ def legacy_compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 10
         }
 
 
-def split_replay_events(events: List[Event]) -> List[Event]:
+def split_replay_events(events: List[Event]) -> Tuple[List[Event], List[Event]]:
     replay, other = [], []
 
     for event in events:
@@ -179,13 +179,13 @@ def reduce_replay_events_by_window(events: List[Event], max_size_bytes=512 * 102
     return _process_windowed_events(events, lambda x: reduce_replay_events(x, max_size_bytes))
 
 
-def reduce_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
+def reduce_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> Generator[Dict[str, Any], None, None]:
     """
     Now that we have compressed events, we group them based on the max size to reduce the number of events
     written to Kafka
     """
     if len(events) == 0:
-        return []
+        return
 
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
@@ -213,7 +213,8 @@ def reduce_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> List
 
         if not current_event:
             current_event = new_event()
-        elif byte_size_dict(current_event) + byte_size_dict(additional_snapshot_data) > max_size_bytes:
+        # mypy incorrectly determines this branch as unreachable
+        elif byte_size_dict(current_event) + byte_size_dict(additional_snapshot_data) > max_size_bytes:  # type: ignore
             # If adding the new data would put us over the max size, yield the current event and start a new one
             yield current_event
             current_event = new_event()
@@ -228,7 +229,8 @@ def reduce_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> List
             or additional_snapshot_data["has_full_snapshot"]
         )
 
-    yield current_event
+    if current_event:
+        yield current_event
 
 
 def chunk_replay_events_by_window(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
@@ -279,11 +281,13 @@ def chunk_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> Gener
             yield event
 
 
-def _process_windowed_events(events: List[Event], fn: Callable[[List[Event], Any], List[Event]]) -> List[Event]:
+def _process_windowed_events(
+    events: List[Event], fn: Callable[[List[Event]], Generator[Dict[str, Any], None, None]]
+) -> List[Event]:
     """
     Helper method to simplify grouping events by window_id and session_id, processing them with the given function, and then returning the flattened list
     """
-    result = []
+    result: List[Event] = []
     snapshots_by_session_and_window_id = defaultdict(list)
 
     for event in events:
@@ -392,7 +396,7 @@ def decompress_chunked_snapshot_data(
 
             if len(chunks) == event["snapshot_data"]["chunk_count"]:
                 count += 1
-                chunks_collector[event["snapshot_data"]["chunk_id"]] = None
+                chunks_collector[event["snapshot_data"]["chunk_id"]] = []
 
                 # Somehow mark this chunk_id as processed...
                 processed_chunk_ids.add(event["snapshot_data"]["chunk_id"])

@@ -10,7 +10,6 @@ from posthog.models import (
     BatchExport,
     BatchExportDestination,
     BatchExportRun,
-    Team,
     User,
 )
 from posthog.batch_exports.service import (
@@ -45,9 +44,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict) -> BatchExportDestination:
         """Create a BatchExportDestination."""
-        team = Team.objects.get(id=self.context["team_id"])
-        # TODO should this take a team or not?
-        export_destination = BatchExportDestination.objects.create(team=team, **validated_data)
+        export_destination = BatchExportDestination.objects.create(**validated_data)
         return export_destination
 
     def to_representation(self, instance: BatchExportDestination) -> dict:

@@ -205,7 +205,8 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 PropertyGroup(
                     type=PropertyOperatorType.AND,
-                    values=[],
+                    # mypy confused about the type of this empty list
+                    values=[],  # type: ignore
                 )
             ),
             self._parse_expr("true"),

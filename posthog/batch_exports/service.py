@@ -3,6 +3,9 @@ from asgiref.sync import sync_to_async
 from uuid import UUID
 
 from dataclasses import dataclass, asdict
+
+from rest_framework.exceptions import ValidationError
+
 from posthog import settings
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.temporal.client import sync_connect
@@ -136,7 +139,9 @@ def backfill_export(batch_export_id: str, start_at: dt.datetime | None = None, e
             BatchExportSchedule's created_at.
     """
     batch_export = BatchExport.objects.get(id=batch_export_id)
-    # TODO data_interval_start and data_interval_end should be optional or handle start_at and end_at being None here
+    if start_at is None or end_at is None:
+        raise ValidationError("start_at and end_at must be defined for backfilling")
+
     backfill_run = BatchExportRun.objects.create(
         batch_export=batch_export,
         data_interval_start=start_at,
