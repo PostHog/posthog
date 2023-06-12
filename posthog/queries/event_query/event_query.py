@@ -206,7 +206,7 @@ class EventQuery(metaclass=ABCMeta):
         if isinstance(self._filter, PropertiesTimelineFilter):
             raise Exception("Properties Timeline never needs sessions query")
         return SessionQuery(
-            filter=self._filter, team=self._team, session_id_alias=f"session_id{self._session_id_suffix}"
+            filter=self._filter, team=self._team, session_id_alias=f"$session_id{self._session_id_suffix}"
         )
 
     def _get_sessions_query(self) -> Tuple[str, Dict]:
@@ -218,7 +218,7 @@ class EventQuery(metaclass=ABCMeta):
                     INNER JOIN (
                         {session_query}
                     ) as {SessionQuery.SESSION_TABLE_ALIAS}
-                    ON {SessionQuery.SESSION_TABLE_ALIAS}.session_id{self._session_id_suffix} = {self.EVENT_TABLE_ALIAS}.$session_id
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id{self._session_id_suffix} = {self.EVENT_TABLE_ALIAS}.$session_id
                 """,
                 session_params,
             )
