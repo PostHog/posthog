@@ -81,7 +81,9 @@ class EventQuery(metaclass=ABCMeta):
         # Guards against a ClickHouse bug involving multiple joins against the same table
         # with the same column name. This issue manifests for us with formulas, where on queries A and B we join events against itself
         # and both tables end up having $session_id. Without a formula this is not a problem.
-        self._session_id_suffix = random.randint(0, 10000000000000000000)
+        self._session_id_suffix = (
+            f"_{random.randint(0, 10000000000000000000)}" if self._filter.formula is not None else ""
+        )
 
         if override_aggregate_users_by_distinct_id is not None:
             self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id
@@ -204,7 +206,7 @@ class EventQuery(metaclass=ABCMeta):
         if isinstance(self._filter, PropertiesTimelineFilter):
             raise Exception("Properties Timeline never needs sessions query")
         return SessionQuery(
-            filter=self._filter, team=self._team, session_id_alias=f"session_id_{self._session_id_suffix}"
+            filter=self._filter, team=self._team, session_id_alias=f"session_id{self._session_id_suffix}"
         )
 
     def _get_sessions_query(self) -> Tuple[str, Dict]:
@@ -216,7 +218,7 @@ class EventQuery(metaclass=ABCMeta):
                     INNER JOIN (
                         {session_query}
                     ) as {SessionQuery.SESSION_TABLE_ALIAS}
-                    ON {SessionQuery.SESSION_TABLE_ALIAS}.session_id_{self._session_id_suffix} = {self.EVENT_TABLE_ALIAS}.$session_id
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}.session_id{self._session_id_suffix} = {self.EVENT_TABLE_ALIAS}.$session_id
                 """,
                 session_params,
             )
