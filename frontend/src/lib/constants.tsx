@@ -153,6 +153,7 @@ export const FEATURE_FLAGS = {
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // owner: @raquelmsmith
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
+    FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
