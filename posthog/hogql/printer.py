@@ -472,7 +472,14 @@ class _Printer(Visitor):
                     args: List[str] = []
                     for idx, arg in enumerate(node.args):
                         if idx == 0:
-                            args.append(f"toDateTime({self.visit(arg)})")
+                            if arg.name == "toDateTime":
+                                args.append(f"toDateTime({self.visit(arg.args[0])})")
+                            elif arg.name == "parseDateTime":
+                                args.append(f"parseDateTime({self.visit(arg.args[0])},{self.visit(arg.args[1])})")
+                            elif arg.name == "parseDateTimeBestEffort":
+                                args.append(f"parseDateTimeBestEffort({self.visit(arg.args[0])})")
+                            else:
+                                args.append(f"toDateTime({self.visit(arg)})")
                         else:
                             args.append(self.visit(arg))
                 elif node.name == "concat":
