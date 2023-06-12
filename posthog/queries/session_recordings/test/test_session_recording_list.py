@@ -10,7 +10,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
-from posthog.session_recordings.test.test_factory import create_chunked_snapshots, create_snapshot
+from posthog.session_recordings.test.test_factory import create_snapshots, create_snapshot
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -829,7 +829,7 @@ def session_recording_list_test_factory(session_recording_list):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
             # Creates 1 full snapshot
-            create_chunked_snapshots(
+            create_snapshots(
                 team_id=self.team.id,
                 snapshot_count=1,
                 distinct_id="user",
@@ -841,7 +841,7 @@ def session_recording_list_test_factory(session_recording_list):
             )
 
             # Creates 10 click events at 1 second intervals
-            create_chunked_snapshots(
+            create_snapshots(
                 team_id=self.team.id,
                 snapshot_count=10,
                 distinct_id="user",
@@ -853,7 +853,7 @@ def session_recording_list_test_factory(session_recording_list):
             )
 
             # Creates 10 input events at 1 second intervals
-            create_chunked_snapshots(
+            create_snapshots(
                 team_id=self.team.id,
                 snapshot_count=10,
                 distinct_id="user",
