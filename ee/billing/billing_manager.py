@@ -52,9 +52,6 @@ class BillingManager:
         self.license = license or License.objects.first_valid()
 
     def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> Dict[str, Any]:
-        # Get the specified plans from "plan_keys" query param, otherwise get the defaults
-
-        plans = self._get_plans(plan_keys)
         if organization and self.license and self.license.is_v2_license:
             billing_service_response = self._get_billing(organization)
 
@@ -75,14 +72,12 @@ class BillingManager:
                 products = self.get_default_products(organization)
                 response["products"] = products["products"]
 
-            response["available_plans"] = plans["plans"]
             stripe_portal_url = self._get_stripe_portal_url(organization)
             response["stripe_portal_url"] = stripe_portal_url
         else:
             products = self.get_default_products(organization)
             response = {
                 "available_features": [],
-                "available_plans": plans["plans"],
                 "products": products["products"],
             }
 
@@ -126,7 +121,7 @@ class BillingManager:
         response = {}
         # If we don't have products from the billing service then get the default ones with our local usage calculation
         products = self._get_products(organization)
-        response["products"] = products["standard"]
+        response["products"] = products
 
         return response
 
@@ -202,14 +197,14 @@ class BillingManager:
             headers = self.get_auth_headers(organization)
 
         res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/products",
+            f"{BILLING_SERVICE_URL}/api/products-v2",
             params=params,
             headers=headers,
         )
 
         handle_billing_service_error(res)
 
-        return res.json()
+        return res.json().get("products", [])
 
     def update_org_details(self, organization: Organization, billing_status: BillingStatus) -> Organization:
         """

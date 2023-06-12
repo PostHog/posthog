@@ -233,6 +233,7 @@ class TestSurvey(APIBaseTest):
                     "created_by": ANY,
                     "targeting_flag": None,
                     "linked_flag": None,
+                    "linked_flag_id": None,
                     "conditions": None,
                     "archived": False,
                     "start_date": None,

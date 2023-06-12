@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
+from django.test import TestCase
 
 import structlog
 from dateutil.relativedelta import relativedelta
@@ -300,6 +301,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ff_active_count": 1,
                     "decide_requests_count_in_month": 0,
                     "decide_requests_count_in_period": 0,
+                    "local_evaluation_requests_count_in_month": 0,
+                    "local_evaluation_requests_count_in_period": 0,
                     "hogql_app_bytes_read": 0,
                     "hogql_app_rows_read": 0,
                     "hogql_app_duration_ms": 0,
@@ -335,6 +338,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ff_active_count": 1,
                             "decide_requests_count_in_month": 0,
                             "decide_requests_count_in_period": 0,
+                            "local_evaluation_requests_count_in_month": 0,
+                            "local_evaluation_requests_count_in_period": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -364,6 +369,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ff_active_count": 0,
                             "decide_requests_count_in_month": 0,
                             "decide_requests_count_in_period": 0,
+                            "local_evaluation_requests_count_in_month": 0,
+                            "local_evaluation_requests_count_in_period": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -414,6 +421,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ff_active_count": 0,
                     "decide_requests_count_in_month": 0,
                     "decide_requests_count_in_period": 0,
+                    "local_evaluation_requests_count_in_month": 0,
+                    "local_evaluation_requests_count_in_period": 0,
                     "hogql_app_bytes_read": 0,
                     "hogql_app_rows_read": 0,
                     "hogql_app_duration_ms": 0,
@@ -449,6 +458,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ff_active_count": 0,
                             "decide_requests_count_in_month": 0,
                             "decide_requests_count_in_period": 0,
+                            "local_evaluation_requests_count_in_month": 0,
+                            "local_evaluation_requests_count_in_period": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -555,7 +566,7 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
 
 
 @freeze_time("2022-01-10T00:01:00Z")
-class TestFeatureFlagsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+class TestFeatureFlagsUsageReport(TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
         return super().setUp()
@@ -624,7 +635,7 @@ class TestFeatureFlagsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
             all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
 
-        assert len(all_reports) == 4
+        assert len(all_reports) == 3
 
         all_reports = sorted(all_reports, key=lambda x: x["organization_name"])
 
@@ -632,7 +643,6 @@ class TestFeatureFlagsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             "Org 1",
             "Org 2",
             "PostHog",
-            "Test",
         ]
 
         org_1_report = all_reports[0]
@@ -672,7 +682,110 @@ class TestFeatureFlagsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         )
 
         # capture usage report calls are made for all orgs
-        assert posthog_capture_mock.return_value.capture.call_count == 4
+        assert posthog_capture_mock.return_value.capture.call_count == 3
+
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_usage_report_local_evaluation_requests(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+
+        self._setup_teams()
+        for i in range(10):
+            _create_event(
+                distinct_id="3",
+                event="local evaluation usage",
+                properties={"count": 10, "token": "correct"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(5):
+            _create_event(
+                distinct_id="4",
+                event="local evaluation usage",
+                properties={"count": 1, "token": "correct"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+            _create_event(
+                distinct_id="4",
+                event="local evaluation usage",
+                properties={"count": 100, "token": "wrong"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(7):
+            _create_event(
+                distinct_id="5",
+                event="local evaluation usage",
+                properties={"count": 100},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        # some out of range events
+        _create_event(
+            distinct_id="3",
+            event="local evaluation usage",
+            properties={"count": 20000, "token": "correct"},
+            timestamp=now() - relativedelta(days=20),
+            team=self.analytics_team,
+        )
+        flush_persons_and_events()
+
+        with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
+            all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
+
+        assert len(all_reports) == 3
+
+        all_reports = sorted(all_reports, key=lambda x: x["organization_name"])
+
+        assert [all_reports["organization_name"] for all_reports in all_reports] == [
+            "Org 1",
+            "Org 2",
+            "PostHog",
+        ]
+
+        org_1_report = all_reports[0]
+        org_2_report = all_reports[1]
+        analytics_report = all_reports[2]
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["local_evaluation_requests_count_in_period"] == 11
+        assert org_1_report["local_evaluation_requests_count_in_month"] == 105
+        assert org_1_report["teams"]["3"]["local_evaluation_requests_count_in_period"] == 10
+        assert org_1_report["teams"]["3"]["local_evaluation_requests_count_in_month"] == 100
+        assert org_1_report["teams"]["4"]["local_evaluation_requests_count_in_period"] == 1
+        assert org_1_report["teams"]["4"]["local_evaluation_requests_count_in_month"] == 5
+
+        # because of wrong token, Org 2 has no decide counts.
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["local_evaluation_requests_count_in_period"] == 0
+        assert org_2_report["local_evaluation_requests_count_in_month"] == 0
+        assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_period"] == 0
+        assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_month"] == 0
+
+        # billing service calls are made only for org1, which has decide requests, and analytics org - which has local evaluation usage events.
+        calls = [
+            call(
+                org_1_report["organization_id"],
+                ANY,
+            ),
+            call(
+                analytics_report["organization_id"],
+                ANY,
+            ),
+        ]
+        assert billing_task_mock.delay.call_count == 2
+        billing_task_mock.delay.assert_has_calls(
+            calls,
+            any_order=True,
+        )
+
+        # capture usage report calls are made for all orgs
+        assert posthog_capture_mock.return_value.capture.call_count == 3
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

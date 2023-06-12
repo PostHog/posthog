@@ -5,7 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLSettings
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
+from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
@@ -28,10 +28,7 @@ def execute_hogql_query(
     else:
         select_query = parse_select(str(query))  # type: ignore
 
-    if placeholders:
-        select_query = replace_placeholders(select_query, placeholders)  # type: ignore
-    else:
-        assert_no_placeholders(select_query)
+    select_query = replace_placeholders(select_query, placeholders)  # type: ignore
 
     if select_query.limit is None:
         # One more "max" of MAX_SELECT_RETURNED_ROWS (100k) in applied in the query printer, overriding this if higher.

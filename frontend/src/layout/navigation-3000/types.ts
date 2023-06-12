@@ -6,8 +6,7 @@ import React from 'react'
 export interface SidebarLogic extends Logic {
     actions: Record<never, never> // No actions required in the base version
     values: {
-        isLoading: boolean
-        contents: Accordion[] | BasicListItem[] | ExtendedListItem[]
+        contents: SidebarCategory[]
         /**
          * Tuple for an item inside an accordion, the first element being the accordion key.
          * Otherwise a primitive (string or number key). Null if no item is active.
@@ -17,9 +16,9 @@ export interface SidebarLogic extends Logic {
         debounceSearch?: boolean
     }
     selectors: {
-        isLoading: (state: any, props?: any) => SidebarLogic['values']['isLoading']
         contents: (state: any, props?: any) => SidebarLogic['values']['contents']
         activeListItemKey: (state: any, props?: any) => SidebarLogic['values']['activeListItemKey']
+        debounceSearch?: (state: any, props?: any) => SidebarLogic['values']['debounceSearch']
     }
 }
 
@@ -38,12 +37,20 @@ export interface SidebarNavbarItem extends NavbarItemBase {
 // TODO: Remove NavbarItemBase from NavbarItem once all 3000 navbar items are interactive
 export type NavbarItem = NavbarItemBase | SceneNavbarItem | SidebarNavbarItem
 
-export interface Accordion {
+/** A category of items. This is either displayed directly for sidebars with only one category, or as an accordion. */
+export interface SidebarCategory {
     key: string
     title: string
     items: BasicListItem[] | ExtendedListItem[]
-    loadMore?: () => void
-    loading?: boolean
+    loading: boolean
+    /** Controls for data that's only loaded partially from the API at first. This powers infinite loading. */
+    remote?: {
+        isItemLoaded: (index: number) => boolean
+        loadMoreItems: (startIndex: number, stopIndex: number) => Promise<void>
+        itemCount: number
+        /** The "page" size. @default 100 */
+        minimumBatchSize?: number
+    }
 }
 
 export interface SearchMatch {

@@ -26,7 +26,7 @@ class TestProperty(BaseTest):
     def _property_to_expr(
         self, property: Union[HogQLPropertyFilter, PropertyGroup, Property, dict, list], team: Optional[Team] = None
     ):
-        return clear_locations(property_to_expr(property, team=team))
+        return clear_locations(property_to_expr(property, team=team or self.team))
 
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
@@ -102,6 +102,10 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
             self._parse_expr("not(match(properties.a, '.*'))"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}),
+            self._parse_expr("true"),
         )
 
     def test_property_to_expr_boolean(self):
@@ -197,6 +201,16 @@ class TestProperty(BaseTest):
         )
 
     def test_property_groups(self):
+        self.assertEqual(
+            self._property_to_expr(
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[],
+                )
+            ),
+            self._parse_expr("true"),
+        )
+
         self.assertEqual(
             self._property_to_expr(
                 PropertyGroup(

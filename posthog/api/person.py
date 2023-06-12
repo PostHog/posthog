@@ -61,7 +61,12 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
-from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
+from posthog.utils import (
+    convert_property_value,
+    format_query_params_absolute_url,
+    is_anonymous_id,
+    relative_date_parse,
+)
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
@@ -93,6 +98,7 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
                     "format": "uri",
                     "example": "https://app.posthog.com/api/projects/{project_id}/accounts/?offset=400&limit=100",
                 },
+                "count": {"type": "integer", "example": 400},
                 "results": schema,
             },
         }
@@ -238,14 +244,33 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
-
-        raw_result = insight_sync_execute(
-            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list", team_id=team.pk
+        person_query = PersonQuery(filter, team.pk)
+        paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+        raw_paginated_result = insight_sync_execute(
+            paginated_query,
+            {**paginated_params, **filter.hogql_context.values},
+            filter=filter,
+            query_type="person_list",
+            team_id=team.pk,
         )
+        actor_ids = [row[0] for row in raw_paginated_result]
+        _, serialized_actors = get_people(team, actor_ids)
 
-        actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team, actor_ids)
+        # If the undocumented include_total param is set to true, we'll return the total count of people
+        # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
+        # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
+        total_count: Optional[int] = None
+        if "include_total" in request.GET:
+            total_query, total_params = person_query.get_query(paginate=False, filter_future_persons=True)
+            total_query_aggregated = f"SELECT count() FROM ({total_query})"
+            raw_paginated_result = insight_sync_execute(
+                total_query_aggregated,
+                {**total_params, **filter.hogql_context.values},
+                filter=filter,
+                query_type="person_list_total",
+                team_id=team.pk,
+            )
+            total_count = raw_paginated_result[0][0]
 
         _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
@@ -255,7 +280,14 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             else None
         )
 
-        return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
+        return Response(
+            {
+                "results": serialized_actors,
+                "next": next_url,
+                "previous": previous_url,
+                **({"count": total_count} if total_count is not None else {}),
+            }
+        )
 
     @extend_schema(
         parameters=[

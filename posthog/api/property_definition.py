@@ -233,7 +233,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY {verified_ordering} is_seen_on_filtered_events DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
+            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 

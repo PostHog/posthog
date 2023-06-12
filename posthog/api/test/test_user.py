@@ -1,8 +1,8 @@
 import datetime
-from typing import cast
-from urllib.parse import quote
 import uuid
+from typing import cast
 from unittest.mock import ANY, Mock, patch
+from urllib.parse import quote
 
 import pytest
 from django.contrib.auth.tokens import default_token_generator
@@ -203,6 +203,7 @@ class TestUserAPI(APIBaseTest):
                 "email_opt_in": False,
                 "events_column_config": {"active": ["column_1", "column_2"]},
                 "notification_settings": {"plugin_disabled": False},
+                "has_seen_product_intro_for": {"feature_flags": True},
                 "uuid": 1,  # should be ignored
                 "id": 1,  # should be ignored
                 "organization": str(another_org.id),  # should be ignored
@@ -220,6 +221,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["events_column_config"], {"active": ["column_1", "column_2"]})
         self.assertEqual(response_data["organization"]["id"], str(self.organization.id))
         self.assertEqual(response_data["team"]["id"], self.team.id)
+        self.assertEqual(response_data["has_seen_product_intro_for"], {"feature_flags": True})
 
         user.refresh_from_db()
         self.assertNotEqual(user.pk, 1)
@@ -227,6 +229,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.first_name, "Cooper")
         self.assertEqual(user.anonymize_data, True)
         self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
+        self.assertEqual(user.has_seen_product_intro_for, {"feature_flags": True})
 
         mock_capture.assert_called_once_with(
             user.distinct_id,
@@ -237,6 +240,7 @@ class TestUserAPI(APIBaseTest):
                     "email_opt_in",
                     "events_column_config",
                     "first_name",
+                    "has_seen_product_intro_for",
                     "partial_notification_settings",
                 ]
             },
