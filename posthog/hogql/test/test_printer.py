@@ -620,3 +620,17 @@ class TestPrinter(BaseTest):
             self._expr("'a' || 'b' || 3 || timestamp"),
             f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
         )
+
+    def test_tumble_datetime(self):
+        self.assertEqual(
+            self._expr("tumble(now(), toIntervalDay('1'))"),
+            f"tumble(toDateTime(now64(6, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s))",
+        )
+        # self.assertEqual(
+        #     self._expr("tumble( toDateTime('2020-02-02'), toIntervalDay('1'))"),
+        #     f"tumble(toDateTime(now64(6, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s))",
+        # )
+        # self.assertEqual(
+        #     self._expr("tumble( toDateTime(timestamp), toIntervalDay('1'))"),
+        #     f"tumble(toDateTime(now64(6, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s))",
+        # )

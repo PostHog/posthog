@@ -468,7 +468,14 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
-                if node.name == "concat":
+                if node.name.startswith("tumble"):
+                    args: List[str] = []
+                    for idx, arg in enumerate(node.args):
+                        if idx == 0:
+                            args.append(f"toDateTime({self.visit(arg)})")
+                        else:
+                            args.append(self.visit(arg))
+                elif node.name == "concat":
                     args: List[str] = []
                     for arg in node.args:
                         if isinstance(arg, ast.Constant):
