@@ -17,6 +17,7 @@ from posthog.models.session_recording.metadata import (
     SnapshotDataTaggedWithWindowId,
     WindowId,
 )
+from posthog.utils import flatten
 
 FULL_SNAPSHOT = 2
 
@@ -107,7 +108,7 @@ def legacy_preprocess_session_recording_events_for_clickhouse(events: List[Event
 
 
 def legacy_compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> Generator[Event, None, None]:
-    data_list = [event["properties"]["$snapshot_data"] for event in events]
+    data_list = list(flatten([event["properties"]["$snapshot_data"] for event in events]))
     session_id = events[0]["properties"]["$session_id"]
     has_full_snapshot = any(snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot for snapshot_data in data_list)
     window_id = events[0]["properties"].get("$window_id")
