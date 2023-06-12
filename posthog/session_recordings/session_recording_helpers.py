@@ -249,9 +249,7 @@ def reduce_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> List
     window_id = events[0]["properties"].get("$window_id")
 
     event_with_all_data = reduce_events(events)
-    size_dict = byte_size_dict(event_with_all_data)
-
-    if size_dict < max_size_bytes:
+    if byte_size_dict(event_with_all_data) < max_size_bytes:
         yield event_with_all_data
         return
 
