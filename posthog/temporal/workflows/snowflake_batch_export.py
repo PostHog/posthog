@@ -3,12 +3,9 @@ import json
 from dataclasses import dataclass
 from string import Template
 import tempfile
-import uuid
-from aiochclient import ChClient
 
 from django.conf import settings
 import snowflake.connector
-from aiohttp import ClientSession
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import SnowflakeBatchExportInputs
@@ -20,6 +17,7 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
+from posthog.temporal.workflows.clickhouse import get_client
 
 
 SELECT_QUERY_TEMPLATE = Template(
@@ -71,15 +69,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
     """
     activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
-    async with ClientSession() as s:
-        client = ChClient(
-            s,
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-        )
-
+    async with get_client() as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
@@ -172,7 +162,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 },
             )
 
-            with tempfile.NamedTemporaryFile() as local_results_file:
+            local_results_file = tempfile.NamedTemporaryFile()
+            try:
                 while True:
                     try:
                         result = await results_iterator.__anext__()
@@ -194,29 +185,27 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     ):
                         activity.logger.info("Uploading to Snowflake")
 
-                        local_results_file.seek(0)
-
-                        # Make sure that the staged file has a unique name
-                        staged_file_name = f"{inputs.table_name}_{uuid.uuid4()}.json"
+                        # Flush the file to make sure everything is written
+                        local_results_file.flush()
                         cursor.execute(
-                            f"PUT file://{local_results_file.name} @%{inputs.table_name}/{staged_file_name}",
+                            f"PUT file://{local_results_file.name} @%{inputs.table_name}",
                         )
 
-                        # Reset the file
-                        local_results_file.seek(0)
-                        local_results_file.truncate()
+                        # Delete the temporary file and create a new one
+                        local_results_file.close()
+                        local_results_file = tempfile.NamedTemporaryFile()
 
-                # Upload the last part
-                local_results_file.seek(0)
-
-                # Make sure that the staged file has a unique name
-                staged_file_name = f"{inputs.table_name}_{uuid.uuid4()}.json"
-
+                # Flush the file to make sure everything is written
+                local_results_file.flush()
                 cursor.execute(
                     f"""
-                    PUT file://{local_results_file.name} @%"{inputs.table_name}/{staged_file_name}"
+                    PUT file://{local_results_file.name} @%"{inputs.table_name}"
                     """
                 )
+
+                # We don't need the file anymore, close (and delete) it.
+                local_results_file.close()
+
                 cursor.execute(
                     f"""
                     COPY INTO "{inputs.table_name}"
@@ -225,6 +214,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     PURGE = TRUE
                     """
                 )
+            finally:
+                local_results_file.close()
         finally:
             conn.close()
 

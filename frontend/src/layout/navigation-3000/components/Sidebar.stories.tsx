@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { Scene } from 'scenes/sceneTypes'
 import { useStorybookMocks } from '~/mocks/browser'
@@ -8,6 +8,7 @@ import { Sidebar } from './Sidebar'
 import featureFlagsJson from '../../../scenes/feature-flags/__mocks__/feature_flags.json'
 import dashboardsJson from '../../../scenes/dashboard/__mocks__/dashboards.json'
 import { with3000 } from 'storybook/decorators/with3000'
+import { SidebarNavbarItem } from '../types'
 
 export default {
     title: 'PostHog 3000/Sidebar',
@@ -39,13 +40,14 @@ export function Dashboards(): JSX.Element {
         },
     })
     const { showSidebar } = useActions(navigation3000Logic)
+    const { activeNavbarItem } = useValues(navigation3000Logic)
     useEffect(() => {
         showSidebar(Scene.Dashboards) // Active this sidebar
     }, [])
 
     return (
         <div className="flex">
-            <Sidebar />
+            <Sidebar navbarItem={activeNavbarItem as SidebarNavbarItem} />
         </div>
     )
 }
@@ -57,13 +59,14 @@ export function FeatureFlags(): JSX.Element {
         },
     })
     const { showSidebar } = useActions(navigation3000Logic)
+    const { activeNavbarItem } = useValues(navigation3000Logic)
     useEffect(() => {
         showSidebar(Scene.FeatureFlags) // Activate this sidebar
     }, [])
 
     return (
         <div className="flex">
-            <Sidebar />
+            <Sidebar navbarItem={activeNavbarItem as SidebarNavbarItem} />
         </div>
     )
 }

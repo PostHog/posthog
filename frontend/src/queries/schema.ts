@@ -19,6 +19,7 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     HogQLMathType,
+    InsightLogicProps,
 } from '~/types'
 
 /**
@@ -307,7 +308,12 @@ export interface InsightVizNode extends Node {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
 
-    // showViz, showTable, etc.
+    /** Show with most visual options enabled. Used in insight scene. */
+    full?: boolean
+    showHeader?: boolean
+    showTable?: boolean
+    showCorrelationTable?: boolean
+    showLastComputation?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
@@ -527,6 +533,7 @@ export interface QueryContext {
     showQueryEditor?: boolean
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
+    insightProps?: InsightLogicProps
     emptyStateHeading?: string
     emptyStateDetail?: string
 }
