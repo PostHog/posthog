@@ -6,8 +6,8 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, 
 import './PlanComparisonModal.scss'
 import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { convertLargeNumberToWords, getUpgradeAllProductsLink } from '../billing-utils'
-import { billingLogic } from '../billingLogic'
+import { convertLargeNumberToWords, getUpgradeAllProductsLink } from './billing-utils'
+import { billingLogic } from './billingLogic'
 
 export function PlanIcon({
     feature,
