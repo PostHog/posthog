@@ -83,7 +83,7 @@ type SnowflakeDestination = {
     }
 }
 
-type Destination = S3Destination | SnowflakeDestination
+export type Destination = S3Destination | SnowflakeDestination
 
 export type BatchExportData = {
     // User provided data for the export. This is the data that the user
