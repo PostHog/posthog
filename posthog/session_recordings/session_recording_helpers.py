@@ -179,10 +179,68 @@ def reduce_replay_events_by_window(events: List[Event], max_size_bytes=512 * 102
     return _process_windowed_events(events, lambda x: reduce_replay_events(x, max_size_bytes))
 
 
+def new_event(base: Event, session_id: str, window_id: str) -> Event:
+    return {
+        **base,
+        "properties": {
+            **base["properties"],
+            "$session_id": session_id,
+            "$window_id": window_id,
+            "$snapshot_data": {
+                "data_items": [],
+                "compression": "gzip-base64",
+                "has_full_snapshot": False,
+                "events_summary": [],
+            },
+        },
+    }
+
+
+def cleaned_event(event: Event, session_id: str, window_id: str) -> Event:
+    return {
+        **event,
+        "properties": {
+            **event["properties"],
+            "$session_id": session_id,
+            "$window_id": window_id,
+            "$snapshot_data": {
+                "data_items": [event["properties"]["$snapshot_data"]["data"]],
+                "compression": "gzip-base64",
+                "has_full_snapshot": event["properties"]["$snapshot_data"]["has_full_snapshot"],
+                "events_summary": event["properties"]["$snapshot_data"]["events_summary"],
+            },
+        },
+    }
+
+
 def reduce_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
     """
     Now that we have compressed events, we group them based on the max size to reduce the number of events
     written to Kafka
+
+    Each event received here has
+
+    "properties": {
+        "$snapshot_data": {
+            "data": compressed_data,
+            "compression": "gzip-base64",
+            "has_full_snapshot": has_full_snapshot,
+            "events_summary": events_summary,
+        },
+    }
+
+    data is single rrweb snapshot data item compressed
+
+    previously we reduced these to the fewest emitted events by grouping data_items by max size
+    this was CPU intensive.
+
+    Now, we first check if the entire list of events will fit in the max size
+    if it would not we separate full snapshots from all other snapshot types
+
+    We then check if the incremental snapshots will fit in the max size
+    if so, we emit them, if not we group them by max size
+
+    We emit each full snapshot as its own event
     """
     if len(events) == 0:
         return []
@@ -190,45 +248,47 @@ def reduce_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> List
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
 
-    def new_event() -> Event:
-        return {
-            **events[0],
-            "properties": {
-                **events[0]["properties"],
-                "$session_id": session_id,
-                "$window_id": window_id,
-                "$snapshot_data": {
-                    "data_items": [],
-                    "compression": "gzip-base64",
-                    "has_full_snapshot": False,
-                    "events_summary": [],
-                },
-            },
-        }
+    event_with_all_data = reduce_events(events)
+    size_dict = byte_size_dict(event_with_all_data)
 
-    current_event = None
+    if size_dict < max_size_bytes:
+        yield event_with_all_data
+        return
 
+    # otherwise we want to look at everything except full snapshots:
+    not_full_snapshots = []
+    for event in events:
+        if event["properties"]["$snapshot_data"]["has_full_snapshot"]:
+            yield cleaned_event(event, session_id=session_id, window_id=window_id)
+        else:
+            not_full_snapshots.append(event)
+
+    non_full_snapshot_events = reduce_events(not_full_snapshots)
+    if byte_size_dict(non_full_snapshot_events) < max_size_bytes:
+        yield non_full_snapshot_events
+    else:
+        for event in not_full_snapshots:
+            yield cleaned_event(event, session_id=session_id, window_id=window_id)
+
+
+def reduce_events(events: List[Event]) -> Event:
+    session_id = events[0]["properties"]["$session_id"]
+    window_id = events[0]["properties"].get("$window_id")
+
+    event_with_alldata = new_event(events[0], session_id=session_id, window_id=window_id)
     for event in events:
         additional_snapshot_data = event["properties"]["$snapshot_data"]
 
-        if not current_event:
-            current_event = new_event()
-        elif byte_size_dict(current_event) + byte_size_dict(additional_snapshot_data) > max_size_bytes:
-            # If adding the new data would put us over the max size, yield the current event and start a new one
-            yield current_event
-            current_event = new_event()
-
         # Add the existing data to the base event
-        current_event["properties"]["$snapshot_data"]["data_items"].append(additional_snapshot_data["data"])
-        current_event["properties"]["$snapshot_data"]["events_summary"].extend(
+        event_with_alldata["properties"]["$snapshot_data"]["data_items"].append(additional_snapshot_data["data"])
+        event_with_alldata["properties"]["$snapshot_data"]["events_summary"].extend(
             additional_snapshot_data["events_summary"]
         )
-        current_event["properties"]["$snapshot_data"]["has_full_snapshot"] = (
-            current_event["properties"]["$snapshot_data"]["has_full_snapshot"]
+        event_with_alldata["properties"]["$snapshot_data"]["has_full_snapshot"] = (
+            event_with_alldata["properties"]["$snapshot_data"]["has_full_snapshot"]
             or additional_snapshot_data["has_full_snapshot"]
         )
-
-    yield current_event
+    return event_with_alldata
 
 
 def chunk_replay_events_by_window(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:

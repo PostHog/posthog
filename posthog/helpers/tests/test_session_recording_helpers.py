@@ -1,5 +1,8 @@
+import string
 from datetime import datetime, timedelta, timezone
+import random
 from typing import List, cast
+from unittest.mock import ANY
 
 import pytest
 from pytest_mock import MockerFixture
@@ -19,6 +22,7 @@ from posthog.session_recordings.session_recording_helpers import (
     is_active_event,
     reduce_replay_events_by_window,
     split_replay_events,
+    RRWEB_MAP_EVENT_TYPE,
 )
 
 MILLISECOND_TIMESTAMP = round(datetime(2019, 1, 1).timestamp() * 1000)
@@ -130,6 +134,158 @@ def test_compression_and_grouping(raw_snapshot_events, mocker: MockerFixture):
                 "distinct_id": "abc123",
             },
         }
+    ]
+
+
+def test_large_full_snapshot_is_separated(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch("posthog.models.utils.UUIDT", return_value="0178495e-8521-0000-8e1c-2652fa57099b")
+    mocker.patch("time.time", return_value=0)
+
+    events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+            },
+        },
+    ] + [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {
+                    "type": RRWEB_MAP_EVENT_TYPE.FullSnapshot,
+                    "timestamp": 123,
+                    "something": "".join(random.choices(string.ascii_uppercase + string.digits, k=1025)),
+                },
+                "distinct_id": "abc123",
+            },
+        },
+    ]
+    assert list(mock_capture_flow(events, max_size_bytes=2000)) == [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {
+                    "compression": "gzip-base64",
+                    "data_items": [
+                        ANY,
+                    ],
+                    "has_full_snapshot": True,
+                    "events_summary": [
+                        {"timestamp": 123, "type": 2, "data": {}},
+                    ],
+                },
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {
+                    "compression": "gzip-base64",
+                    "data_items": [
+                        ANY,
+                        ANY,
+                    ],
+                    "has_full_snapshot": False,
+                    "events_summary": [
+                        {"timestamp": MILLISECOND_TIMESTAMP, "type": 3, "data": {}},
+                        {"timestamp": MILLISECOND_TIMESTAMP, "type": 3, "data": {}},
+                    ],
+                },
+                "distinct_id": "abc123",
+            },
+        },
+    ]
+
+
+def test_large_non_full_snapshots_are_separated(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch("posthog.models.utils.UUIDT", return_value="0178495e-8521-0000-8e1c-2652fa57099b")
+    mocker.patch("time.time", return_value=0)
+
+    events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {
+                    "type": 7,
+                    "timestamp": 234,
+                    "something": "".join(random.choices(string.ascii_uppercase + string.digits, k=1025)),
+                },
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {
+                    "type": 8,
+                    "timestamp": 123,
+                    "something": "".join(random.choices(string.ascii_uppercase + string.digits, k=1025)),
+                },
+                "distinct_id": "abc123",
+            },
+        },
+    ]
+    assert list(mock_capture_flow(events, max_size_bytes=2000)) == [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {
+                    "compression": "gzip-base64",
+                    "data_items": [
+                        ANY,
+                    ],
+                    "has_full_snapshot": False,
+                    "events_summary": [
+                        {"timestamp": 234, "type": 7, "data": {}},
+                    ],
+                },
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {
+                    "compression": "gzip-base64",
+                    "data_items": [
+                        ANY,
+                    ],
+                    "has_full_snapshot": False,
+                    "events_summary": [
+                        {"timestamp": 123, "type": 8, "data": {}},
+                    ],
+                },
+                "distinct_id": "abc123",
+            },
+        },
     ]
 
 
