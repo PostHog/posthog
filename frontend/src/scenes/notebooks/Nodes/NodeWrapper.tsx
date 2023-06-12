@@ -11,7 +11,6 @@ import { useInView } from 'react-intersection-observer'
 import { posthog } from 'posthog-js'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
@@ -38,9 +37,8 @@ export function NodeWrapper({
     const contentRef = useRef<HTMLDivElement | null>(null)
     const contentHeightRef = useRef<string>()
 
+    // If resizeable is true then the node attr "height" is required
     const height = node.attrs.height
-
-    console.log({ height })
 
     useEffect(() => {
         if (selected && shortId) {
@@ -51,29 +49,19 @@ export function NodeWrapper({
         }
     }, [selected])
 
-    useResizeObserver<HTMLDivElement>({
-        ref: contentRef,
-        onResize: ({ width }) => {
-            console.log('resize', contentRef.current, width)
-        },
-    })
-
-    useEffect(() => {
+    const checkResize = (): void => {
         if (!resizeable) {
             return
         }
-        const int = setInterval(() => {
-            // css resize sets the style attr so we check that to detect changes. Resize obsserver doesn't trigger for style changes
-            const heightAttr = contentRef.current?.style.height
-            if (heightAttr && heightAttr !== contentHeightRef.current) {
-                contentHeightRef.current = heightAttr
-                updateAttributes({
-                    height: contentRef.current?.clientHeight,
-                })
-            }
-        }, 1000)
-        return () => clearInterval(int)
-    }, [])
+        // css resize sets the style attr so we check that to detect changes. Resize obsserver doesn't trigger for style changes
+        const heightAttr = contentRef.current?.style.height
+        if (heightAttr && heightAttr !== contentHeightRef.current) {
+            contentHeightRef.current = heightAttr
+            updateAttributes({
+                height: contentRef.current?.clientHeight,
+            })
+        }
+    }
 
     return (
         <NodeViewWrapper
@@ -116,12 +104,10 @@ export function NodeWrapper({
                         </div>
                         <div
                             ref={contentRef}
-                            className={clsx(
-                                'flex flex-col relative z-0 overflow-hidden min-h-40',
-                                resizeable && 'resize-y'
-                            )}
+                            className={clsx('relative z-0 overflow-hidden min-h-40', resizeable && 'resize-y')}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ height }}
+                            onMouseUp={() => checkResize()}
                         >
                             {children}
                         </div>

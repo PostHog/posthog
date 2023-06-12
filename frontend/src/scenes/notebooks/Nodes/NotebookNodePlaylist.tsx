@@ -64,7 +64,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             href={urls.replay(undefined, filters)}
             heightEstimate={HEIGHT}
         >
-            <div className="flex flex-row overflow-hidden gap-2 flex-1">{content}</div>
+            <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
         </NodeWrapper>
     )
 }
@@ -77,7 +77,10 @@ export const NotebookNodePlaylist = Node.create({
 
     addAttributes() {
         return {
-            ...getNodeWrapperAttributes(),
+            height: {
+                default: HEIGHT,
+                keepOnSplit: true,
+            },
             filters: {
                 default: '{}',
             },
