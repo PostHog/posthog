@@ -482,7 +482,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                               <h2>{surveyCompletedCount}</h2>
                                           </div> */}
                                               </div>
-                                              <LemonDivider />
                                               {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}
                                           </div>
                                       ),

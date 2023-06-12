@@ -56,6 +56,27 @@ export const getSurveyEventName = (surveyName: string): string => {
     return `${surveyName} survey sent`
 }
 
+export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
+    const surveyDataQuery: DataTableNode = {
+        kind: NodeKind.DataTableNode,
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp', 'person'],
+            orderBy: ['timestamp DESC'],
+            after: '-30d',
+            limit: 100,
+            event: getSurveyEventName(surveyName),
+        },
+        propertiesViaUrl: true,
+        showExport: true,
+        showReload: true,
+        showColumnConfigurator: true,
+        showEventFilter: true,
+        showPropertyFilter: true,
+    }
+    return surveyDataQuery
+}
+
 export interface SurveyLogicProps {
     id: string | 'new'
 }
@@ -90,6 +111,10 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             updateSurvey: async (surveyPayload) => {
                 return await api.surveys.update(props.id, surveyPayload)
+            },
+            launchSurvey: async () => {
+                const startDate = dayjs()
+                return await api.surveys.update(props.id, { start_date: startDate.toISOString() })
             },
             updateTargetingFlagFilters: ({ index, properties }) => {
                 if (!values.survey.targeting_flag_filters) {
@@ -137,24 +162,7 @@ export const surveyLogic = kea<surveyLogicType>([
     listeners(({ actions }) => ({
         loadSurveySuccess: ({ survey }) => {
             if (survey.start_date) {
-                const surveyDataQuery: DataTableNode = {
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.EventsQuery,
-                        select: ['*', 'event', 'timestamp', 'person'],
-                        orderBy: ['timestamp DESC'],
-                        after: '-30d',
-                        limit: 100,
-                        event: getSurveyEventName(survey.name),
-                    },
-                    propertiesViaUrl: true,
-                    showExport: true,
-                    showReload: true,
-                    showColumnConfigurator: true,
-                    showEventFilter: true,
-                    showPropertyFilter: true,
-                }
-                actions.setDataTableQuery(surveyDataQuery)
+                actions.setDataTableQuery(getSurveyDataQuery(survey.name))
             }
         },
         createSurveySuccess: async ({ survey }) => {
@@ -165,11 +173,12 @@ export const surveyLogic = kea<surveyLogicType>([
         updateSurveySuccess: async ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} updated</>)
             actions.editingSurvey(false)
-            router.actions.replace(urls.survey(survey.id))
+            actions.loadSurveys()
         },
-        launchSurvey: async () => {
-            const startDate = dayjs()
-            actions.updateSurvey({ start_date: startDate.toISOString() })
+        launchSurveySuccess: async ({ survey }) => {
+            lemonToast.success(<>Survey {survey.name} launched</>)
+            actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+            actions.loadSurveys()
         },
         stopSurvey: async () => {
             const endDate = dayjs()
