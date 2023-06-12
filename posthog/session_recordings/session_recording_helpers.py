@@ -138,15 +138,11 @@ def split_replay_events(events: List[Event]) -> List[Event]:
     return replay, other
 
 
-def preprocess_replay_events_for_blob_ingestion(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
-    """
-    The events going to blob ingestion are uncompressed (the compression happens in the Kafka producer)
-    1. Since posthog-js 1.TODO we are grouping events on the frontend in a batch and passing their size in $snapshot_data
-    """
-    return [preprocess_replay_events(event, max_size_bytes=max_size_bytes) for event in events]
+def preprocess_replay_events_for_blob_ingestion(events: List[Event], max_size_bytes=1024 * 1024) -> List[Event]:
+    return _process_windowed_events(events, lambda x: preprocess_replay_events(x, max_size_bytes=max_size_bytes))
 
 
-def preprocess_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
+def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) -> List[Event]:
     """
     The events going to blob ingestion are uncompressed (the compression happens in the Kafka producer)
     1. Since posthog-js {version} we are grouping events on the frontend in a batch and passing their size in $snapshot_bytes
@@ -159,6 +155,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> 
     if len(events) == 0:
         return []
 
+    distinct_id = events[0]["properties"]["distinct_id"]
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
 
@@ -166,6 +163,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> 
         return {
             **events[0],
             "properties": {
+                "distinct_id": distinct_id,
                 "$session_id": session_id,
                 "$window_id": window_id,
                 "$snapshot_items": items,
@@ -193,7 +191,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> 
 
         yield current_event
     else:
-        snapshot_data_list = flatten([event["properties"]["$snapshot_data"] for event in events], max_depth=1)
+        snapshot_data_list = list(flatten([event["properties"]["$snapshot_data"] for event in events], max_depth=1))
 
         # 2. Otherwise try and group all the events if they are small enough
         if byte_size_dict(snapshot_data_list) < max_size_bytes:
@@ -202,26 +200,30 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> 
         else:
             # 3. If not, split out the full snapshots from the rest
             full_snapshots = []
-            incremental_snapshots = []
+            other_snapshots = []
 
             for snapshot_data in snapshot_data_list:
                 if snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot:
                     full_snapshots.append(snapshot_data)
                 else:
-                    incremental_snapshots.append(snapshot_data)
+                    other_snapshots.append(snapshot_data)
 
             # Send the full snapshots individually
             for snapshot_data in full_snapshots:
                 event = new_event([snapshot_data])
                 yield event
 
+            other_size = byte_size_dict(other_snapshots)
+
             # Try and group the rest
-            if byte_size_dict(incremental_snapshots) < max_size_bytes:
-                event = new_event(incremental_snapshots)
+            if byte_size_dict(other_snapshots) < max_size_bytes:
+                event = new_event(other_snapshots)
                 yield event
             else:
+                print(other_size, max_size_bytes)
+
                 # If not, send them individually
-                for snapshot_data in incremental_snapshots:
+                for snapshot_data in other_snapshots:
                     event = new_event([snapshot_data])
                     yield event
 

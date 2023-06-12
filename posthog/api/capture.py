@@ -350,19 +350,19 @@ def get_event(request):
 
         try:
             replay_events, other_events = split_replay_events(events)
+            processed_replay_events = replay_events
 
             if len(replay_events) > 0:
                 # Legacy solution stays in place
-                replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
+                processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
 
                 if random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO:
-                    pass
                     # The new flow is to a separate Kafka topic and doesn't compress but rather groups data as small as possible
-                    new_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events)
+                    alternative_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events)
 
                     # TODO: Send these to a different topic...
 
-            events = replay_events + other_events
+            events = processed_replay_events + other_events
 
         except ValueError as e:
             return cors_response(
