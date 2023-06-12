@@ -2,7 +2,7 @@ import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
-import { getNodeWrapperAttributes, NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { BindLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -21,6 +21,8 @@ const DEFAULT_QUERY: QuerySchema = {
     },
     expandable: false,
 }
+
+const DEFAULT_HEIGHT = 500
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
@@ -56,7 +58,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     }, [query, editing])
 
     return (
-        <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={500} {...props}>
+        <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={DEFAULT_HEIGHT} {...props}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
             </BindLogic>
@@ -72,7 +74,9 @@ export const NotebookNodeQuery = Node.create({
 
     addAttributes() {
         return {
-            ...getNodeWrapperAttributes(),
+            height: {
+                default: DEFAULT_HEIGHT,
+            },
             query: {
                 default: DEFAULT_QUERY,
             },

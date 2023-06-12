@@ -1,6 +1,6 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
-import { getNodeWrapperAttributes, NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
@@ -79,7 +79,6 @@ export const NotebookNodePlaylist = Node.create({
         return {
             height: {
                 default: HEIGHT,
-                keepOnSplit: true,
             },
             filters: {
                 default: '{}',

@@ -1,5 +1,5 @@
 import { Attributes, NodeViewProps, NodeViewWrapper } from '@tiptap/react'
-import { ReactNode, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -11,6 +11,7 @@ import { useInView } from 'react-intersection-observer'
 import { posthog } from 'posthog-js'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
@@ -35,7 +36,6 @@ export function NodeWrapper({
     const { ready, shortId } = useValues(notebookLogic)
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
-    const contentHeightRef = useRef<string>()
 
     // If resizeable is true then the node attr "height" is required
     const height = node.attrs.height
@@ -49,19 +49,24 @@ export function NodeWrapper({
         }
     }, [selected])
 
-    const checkResize = (): void => {
+    const onResizeStart = useCallback((): void => {
         if (!resizeable) {
             return
         }
-        // css resize sets the style attr so we check that to detect changes. Resize obsserver doesn't trigger for style changes
-        const heightAttr = contentRef.current?.style.height
-        if (heightAttr && heightAttr !== contentHeightRef.current) {
-            contentHeightRef.current = heightAttr
-            updateAttributes({
-                height: contentRef.current?.clientHeight,
-            })
+        const initialHeightAttr = contentRef.current?.style.height
+        const onResizedEnd = (): void => {
+            window.removeEventListener('mouseup', onResizedEnd)
+            // css resize sets the style attr so we check that to detect changes. Resize obsserver doesn't trigger for style changes
+            const heightAttr = contentRef.current?.style.height
+            if (heightAttr && heightAttr !== initialHeightAttr) {
+                updateAttributes({
+                    height: contentRef.current?.clientHeight,
+                })
+            }
         }
-    }
+
+        window.addEventListener('mouseup', onResizedEnd)
+    }, [resizeable, updateAttributes])
 
     return (
         <NodeViewWrapper
@@ -107,7 +112,7 @@ export function NodeWrapper({
                             className={clsx('relative z-0 overflow-hidden min-h-40', resizeable && 'resize-y')}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ height }}
-                            onMouseUp={() => checkResize()}
+                            onMouseDown={onResizeStart}
                         >
                             {children}
                         </div>
@@ -116,13 +121,4 @@ export function NodeWrapper({
             </ErrorBoundary>
         </NodeViewWrapper>
     )
-}
-
-export function getNodeWrapperAttributes(): Attributes {
-    return {
-        height: {
-            default: undefined,
-            keepOnSplit: true,
-        },
-    }
 }
