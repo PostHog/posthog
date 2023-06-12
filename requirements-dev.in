@@ -16,8 +16,8 @@ pip-tools==6.13.0
 mypy==1.3.0
 mypy-extensions==1.0.0
 datamodel-code-generator==0.16.1
-djangorestframework-stubs==1.4.0
-django-stubs==1.8.0
+djangorestframework-stubs==1.10.0
+django-stubs==1.16.0
 Faker==17.5.0
 fakeredis[lua]==2.11.0
 freezegun==1.2.2

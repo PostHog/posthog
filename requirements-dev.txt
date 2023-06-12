@@ -52,10 +52,6 @@ colorama==0.4.4
     # via pytest-watch
 colored==1.4.2
     # via syrupy
-coreapi==2.3.3
-    # via djangorestframework-stubs
-coreschema==0.0.4
-    # via coreapi
 coverage==5.5
     # via pytest-cov
 cryptography==37.0.2
@@ -70,13 +66,13 @@ django==3.2.18
     #   -c requirements.txt
     #   django-stubs
     #   django-stubs-ext
-django-stubs==1.8.0
+django-stubs==1.16.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
-django-stubs-ext==0.7.0
+django-stubs-ext==4.2.1
     # via django-stubs
-djangorestframework-stubs==1.4.0
+djangorestframework-stubs==1.10.0
     # via -r requirements-dev.in
 dnspython==2.2.1
     # via
@@ -112,12 +108,8 @@ iniconfig==1.1.1
     # via pytest
 isort==5.2.2
     # via datamodel-code-generator
-itypes==1.2.0
-    # via coreapi
 jinja2==2.11.3
-    # via
-    #   coreschema
-    #   datamodel-code-generator
+    # via datamodel-code-generator
 jsonschema==4.4.0
     # via
     #   -c requirements.txt
@@ -250,7 +242,6 @@ redis==4.5.4
 requests==2.28.1
     # via
     #   -c requirements.txt
-    #   coreapi
     #   djangorestframework-stubs
     #   prance
     #   responses
@@ -290,6 +281,7 @@ tomli==1.2.3
     # via
     #   black
     #   build
+    #   django-stubs
     #   mypy
     #   pyproject-hooks
 typed-ast==1.5.4
@@ -301,15 +293,21 @@ types-markdown==3.3.9
 types-python-dateutil==2.8.3
     # via -r requirements-dev.in
 types-pytz==2021.3.2
-    # via -r requirements-dev.in
+    # via
+    #   -r requirements-dev.in
+    #   django-stubs
 types-pyyaml==6.0.1
     # via
     #   -r requirements-dev.in
+    #   django-stubs
+    #   djangorestframework-stubs
     #   responses
 types-redis==4.3.20
     # via -r requirements-dev.in
 types-requests==2.26.1
-    # via -r requirements-dev.in
+    # via
+    #   -r requirements-dev.in
+    #   djangorestframework-stubs
 typing-extensions==4.4.0
     # via
     #   -c requirements.txt
@@ -319,10 +317,6 @@ typing-extensions==4.4.0
     #   jsonschema-spec
     #   mypy
     #   pydantic
-uritemplate==4.1.1
-    # via
-    #   -c requirements.txt
-    #   coreapi
 urllib3[secure,socks]==1.26.13
     # via
     #   -c requirements.txt

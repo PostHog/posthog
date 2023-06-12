@@ -95,3 +95,30 @@ max-complexity = 10
 "./posthog/management/commands/test_migrations_are_safe.py" = ["T201"]
 "./posthog/management/commands/api_keys.py" = ["T201"]
 "./posthog/demo/matrix/manager.py" = ["T201"]
+
+[tool.mypy]
+plugins = [
+    "mypy_django_plugin.main",
+    "mypy_drf_plugin.main",
+    "pydantic.mypy",
+]
+strict_optional = true
+no_implicit_optional = true
+warn_unused_ignores = true
+check_untyped_defs = true
+warn_unreachable = true
+strict_equality = true
+ignore_missing_imports = true
+exclude = [
+    "posthog/hogql/grammar",
+    'bin/migrate_kafka_data\.py',
+    'gunicorn.config\.py',
+]
+
+[[tool.mypy.overrides]]
+module = "posthog.tasks.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.django-stubs]
+django_settings_module = "posthog.settings"
