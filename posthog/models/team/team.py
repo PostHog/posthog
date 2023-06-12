@@ -224,7 +224,7 @@ class Team(UUIDClassicModel):
         # on PostHog Cloud, use the feature flag
         if is_cloud():
             # users can override our feature flag via extra_settings
-            if AvailableExtraSettings.poe_v2_enabled in self.extra_settings:
+            if self.extra_settings and AvailableExtraSettings.poe_v2_enabled in self.extra_settings:
                 return self.extra_settings["poe_v2_enabled"]
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
