@@ -15,8 +15,8 @@ export function AutocaptureSettings(): JSX.Element {
     const { reportIngestionAutocaptureToggled, reportIngestionAutocaptureExceptionsToggled } =
         useActions(eventUsageLogic)
 
-    const { errorsToDropRules, rulesCharacters } = useValues(autocaptureExceptionsLogic)
-    const { setErrorsToDropRules } = useActions(autocaptureExceptionsLogic)
+    const { errorsToIgnoreRules, rulesCharacters } = useValues(autocaptureExceptionsLogic)
+    const { setErrorsToIgnoreRules } = useActions(autocaptureExceptionsLogic)
 
     return (
         <>
@@ -72,8 +72,8 @@ export function AutocaptureSettings(): JSX.Element {
                         </p>
                         <LemonTextArea
                             id="posthog-autocapture-exceptions-dropped"
-                            value={errorsToDropRules}
-                            onChange={setErrorsToDropRules}
+                            value={errorsToIgnoreRules}
+                            onChange={setErrorsToIgnoreRules}
                             disabled={!currentTeam?.autocapture_exceptions_opt_in}
                         />
                         <div
