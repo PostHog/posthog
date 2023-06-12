@@ -378,34 +378,36 @@ class TestTeamAPI(APIBaseTest):
 
     def test_configure_exception_autocapture_event_dropping(self):
         response = self.client.get("/api/projects/@current/")
-        assert response.json()["autocapture_exceptions_errors_to_drop"] == []
+        assert response.json()["autocapture_exceptions_errors_to_ignore"] == []
 
         response = self.client.patch(
-            "/api/projects/@current/", {"autocapture_exceptions_errors_to_drop": {"wat": "am i"}}
+            "/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": {"wat": "am i"}}
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "Must provide a list for field: autocapture_exceptions_errors_to_drop."
+        assert response.json()["detail"] == "Must provide a list for field: autocapture_exceptions_errors_to_ignore."
 
-        response = self.client.patch("/api/projects/@current/", {"autocapture_exceptions_errors_to_drop": [1, False]})
+        response = self.client.patch("/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": [1, False]})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert (
             response.json()["detail"]
-            == "Must provide a list of strings to field: autocapture_exceptions_errors_to_drop."
+            == "Must provide a list of strings to field: autocapture_exceptions_errors_to_ignore."
         )
 
-        response = self.client.patch("/api/projects/@current/", {"autocapture_exceptions_errors_to_drop": ["wat am i"]})
+        response = self.client.patch(
+            "/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": ["wat am i"]}
+        )
         assert response.status_code == status.HTTP_200_OK
         response = self.client.get("/api/projects/@current/")
-        assert response.json()["autocapture_exceptions_errors_to_drop"] == ["wat am i"]
+        assert response.json()["autocapture_exceptions_errors_to_ignore"] == ["wat am i"]
 
     def test_configure_exception_autocapture_event_dropping_only_allows_simple_config(self):
         response = self.client.patch(
-            "/api/projects/@current/", {"autocapture_exceptions_errors_to_drop": ["abc" * 300]}
+            "/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": ["abc" * 300]}
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert (
             response.json()["detail"]
-            == "Field autocapture_exceptions_errors_to_drop must be less than 300 characters. Complex config should be provided in posthog-js initialization."
+            == "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
         )
 
 

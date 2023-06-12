@@ -89,6 +89,18 @@ export type AvailableProductFeature = {
     unit?: string | null
 }
 
+export enum ProductKey {
+    COHORTS = 'cohorts',
+    ACTIONS = 'actions',
+    EXPERIMENTS = 'experiments',
+    FEATURE_FLAGS = 'feature_flags',
+    ANNOTATIONS = 'annotations',
+    HISTORY = 'history',
+    INGESTION_WARNINGS = 'ingestion_warnings',
+    PERSONS = 'persons',
+    SURVEYS = 'surveys',
+}
+
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -153,6 +165,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_seen_product_intro_for?: Record<string, boolean>
 }
 
 export interface NotificationSettings {
@@ -309,7 +322,7 @@ export interface TeamType extends TeamBasicType {
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
     autocapture_exceptions_opt_in: boolean
-    autocapture_exceptions_errors_to_drop: string[]
+    autocapture_exceptions_errors_to_ignore: string[]
     session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean

@@ -4,7 +4,7 @@ import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Experiment, ExperimentsTabs, AvailableFeature, ProgressStatus } from '~/types'
+import { Experiment, ExperimentsTabs, AvailableFeature, ProgressStatus, ProductKey } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -18,7 +18,7 @@ import { userLogic } from 'scenes/userLogic'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -31,8 +31,14 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState } =
-        useValues(experimentsLogic)
+    const {
+        filteredExperiments,
+        experimentsLoading,
+        tab,
+        searchTerm,
+        shouldShowEmptyState,
+        shouldShowProductIntroduction,
+    } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -185,24 +191,29 @@ export function Experiments(): JSX.Element {
                             { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                         ]}
                     />
-                    {shouldShowEmptyState && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
-                        tab === ExperimentsTabs.Archived ? (
-                            <ProductEmptyState
+                    {(shouldShowEmptyState || shouldShowProductIntroduction) &&
+                        featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' &&
+                        (tab === ExperimentsTabs.Archived ? (
+                            <ProductIntroduction
                                 productName="Experiments"
+                                productKey={ProductKey.EXPERIMENTS}
                                 thingName="archived experiment"
                                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                                 docsURL="https://posthog.com/docs/experiments"
+                                isEmpty={shouldShowEmptyState}
                             />
                         ) : (
-                            <ProductEmptyState
+                            <ProductIntroduction
                                 productName="Experiments"
+                                productKey={ProductKey.EXPERIMENTS}
                                 thingName="experiment"
                                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                                 docsURL="https://posthog.com/docs/experiments"
                                 action={() => router.actions.push(urls.experiment('new'))}
+                                isEmpty={shouldShowEmptyState}
                             />
-                        )
-                    ) : (
+                        ))}
+                    {(!shouldShowEmptyState || featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] !== 'test') && (
                         <>
                             <div className="flex justify-between mb-4">
                                 <LemonInput

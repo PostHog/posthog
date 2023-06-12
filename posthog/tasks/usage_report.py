@@ -29,6 +29,7 @@ from posthog import version_requirement
 from posthog.celery import app
 from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
+from posthog.constants import FlagRequestType
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -71,6 +72,8 @@ class UsageReportCounters:
     ff_active_count: int
     decide_requests_count_in_period: int
     decide_requests_count_in_month: int
+    local_evaluation_requests_count_in_period: int
+    local_evaluation_requests_count_in_month: int
     # HogQL
     hogql_app_bytes_read: int
     hogql_app_rows_read: int
@@ -432,20 +435,30 @@ def get_teams_with_hogql_metric(
     return result
 
 
-def get_teams_with_decide_requests_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+def get_teams_with_feature_flag_requests_count_in_period(
+    begin: datetime, end: datetime, request_type: FlagRequestType
+) -> List[Tuple[int, int]]:
     # depending on the region, events are stored in different teams
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
+
+    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
 
     result = sync_execute(
         """
         SELECT distinct_id as team, sum(JSONExtractInt(properties, 'count')) as sum
         FROM events
-        WHERE team_id = %(team_to_query)s AND event='decide usage' AND timestamp between %(begin)s AND %(end)s
+        WHERE team_id = %(team_to_query)s AND event=%(target_event)s AND timestamp between %(begin)s AND %(end)s
         AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
         GROUP BY team
     """,
-        {"begin": begin, "end": end, "team_to_query": team_to_query, "validity_token": validity_token},
+        {
+            "begin": begin,
+            "end": end,
+            "team_to_query": team_to_query,
+            "validity_token": validity_token,
+            "target_event": target_event,
+        },
     )
 
     return result
@@ -483,6 +496,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         report.event_count_in_period > 0
         or report.recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
+        or report.local_evaluation_requests_count_in_period > 0
     )
 
 
@@ -514,11 +528,17 @@ def send_all_org_usage_reports(
         # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
         teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
         teams_with_recording_count_total=get_teams_with_recording_count_total(),
-        teams_with_decide_requests_count_in_period=get_teams_with_decide_requests_count_in_period(
-            period_start, period_end
+        teams_with_decide_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
+            period_start, period_end, FlagRequestType.DECIDE
         ),
-        teams_with_decide_requests_count_in_month=get_teams_with_decide_requests_count_in_period(
-            period_start.replace(day=1), period_end
+        teams_with_decide_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
+            period_start.replace(day=1), period_end, FlagRequestType.DECIDE
+        ),
+        teams_with_local_evaluation_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
+            period_start, period_end, FlagRequestType.LOCAL_EVALUATION
+        ),
+        teams_with_local_evaluation_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
+            period_start.replace(day=1), period_end, FlagRequestType.LOCAL_EVALUATION
         ),
         teams_with_group_types_total=list(
             GroupTypeMapping.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
@@ -662,6 +682,12 @@ def send_all_org_usage_reports(
             ),
             decide_requests_count_in_month=find_count_for_team_in_rows(
                 team.id, all_data["teams_with_decide_requests_count_in_month"]
+            ),
+            local_evaluation_requests_count_in_period=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_local_evaluation_requests_count_in_period"]
+            ),
+            local_evaluation_requests_count_in_month=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_local_evaluation_requests_count_in_month"]
             ),
             dashboard_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_count"]),
             dashboard_template_count=find_count_for_team_in_rows(

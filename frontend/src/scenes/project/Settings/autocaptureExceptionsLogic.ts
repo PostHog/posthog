@@ -10,31 +10,31 @@ export const autocaptureExceptionsLogic = kea<autocaptureExceptionsLogicType>([
         actions: [teamLogic, ['updateCurrentTeam']],
     }),
     actions({
-        setErrorsToDropRules: (newRules: string) => ({ newRules }),
+        setErrorsToIgnoreRules: (newRules: string) => ({ newRules }),
     }),
     reducers({
-        errorsToDropRules: [
-            (teamLogic.values.currentTeam?.autocapture_exceptions_errors_to_drop || []).join('\n'),
+        errorsToIgnoreRules: [
+            (teamLogic.values.currentTeam?.autocapture_exceptions_errors_to_ignore || []).join('\n'),
             {
-                setErrorsToDropRules: (_, { newRules }) => newRules,
+                setErrorsToIgnoreRules: (_, { newRules }) => newRules,
             },
         ],
         rulesCharacters: [
             0,
             {
-                setErrorsToDropRules: (_, { newRules }) => newRules.length,
+                setErrorsToIgnoreRules: (_, { newRules }) => newRules.length,
             },
         ],
     }),
     selectors({
-        currentTeamErrorsToDropRules: [
+        currentTeamErrorsToIgnoreRules: [
             (s) => [s.currentTeam],
-            (currentTeam) => (currentTeam?.autocapture_exceptions_errors_to_drop || []).join('\n'),
+            (currentTeam) => (currentTeam?.autocapture_exceptions_errors_to_ignore || []).join('\n'),
         ],
     }),
     listeners(({ actions, values }) => ({
-        setErrorsToDropRules: async ({ newRules }, breakpoint) => {
-            if (values.currentTeamErrorsToDropRules === newRules.trim()) {
+        setErrorsToIgnoreRules: async ({ newRules }, breakpoint) => {
+            if (values.currentTeamErrorsToIgnoreRules === newRules.trim()) {
                 return
             }
 
@@ -46,7 +46,7 @@ export const autocaptureExceptionsLogic = kea<autocaptureExceptionsLogicType>([
                 .map((rule) => rule.trim())
                 .filter((rule) => !!rule)
             actions.updateCurrentTeam({
-                autocapture_exceptions_errors_to_drop: updateRules,
+                autocapture_exceptions_errors_to_ignore: updateRules,
             })
         },
     })),
