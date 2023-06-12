@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0323_alter_batchexportdestination_type"),
+        ("posthog", "0324_user_has_seen_product_intro_for"),
     ]
 
     operations = [

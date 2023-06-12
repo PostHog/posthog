@@ -9,42 +9,32 @@ from posthog.hogql.errors import NotImplementedException, HogQLException, Syntax
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
-from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
+from posthog.hogql.placeholders import replace_placeholders
 
 
-def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False) -> ast.Expr:
+def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
     parse_tree = get_parser(expr).expr()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         return replace_placeholders(node, placeholders)
-    elif no_placeholders:
-        assert_no_placeholders(node)
-
     return node
 
 
-def parse_order_expr(
-    order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
-) -> ast.Expr:
+def parse_order_expr(order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
     parse_tree = get_parser(order_expr).orderExpr()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         return replace_placeholders(node, placeholders)
-    elif no_placeholders:
-        assert_no_placeholders(node)
-
     return node
 
 
 def parse_select(
-    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
+    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
     parse_tree = get_parser(statement).select()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         node = replace_placeholders(node, placeholders)
-    elif no_placeholders:
-        assert_no_placeholders(node)
     return node
 
 
@@ -54,13 +44,30 @@ def get_parser(query: str) -> HogQLParser:
     stream = CommonTokenStream(lexer)
     parser = HogQLParser(stream)
     parser.removeErrorListeners()
-    parser.addErrorListener(HogQLErrorListener())
+    parser.addErrorListener(HogQLErrorListener(query))
     return parser
 
 
 class HogQLErrorListener(ErrorListener):
+    query: str
+
+    def __init__(self, query: str = ""):
+        super().__init__()
+        self.query = query
+
+    def get_position(self, line, column):
+        lines = self.query.split("\n")
+        try:
+            position = sum(len(lines[i]) + 1 for i in range(line - 1)) + column
+        except IndexError:
+            return -1
+        if position > len(self.query):
+            return -1
+        return position
+
     def syntaxError(self, recognizer, offendingType, line, column, msg, e):
-        raise SyntaxException(msg, line=line, column=column)
+        start = max(self.get_position(line, column), 0)
+        raise SyntaxException(msg, start=start, end=len(self.query))
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):

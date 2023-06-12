@@ -15,6 +15,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
@@ -28,6 +29,7 @@ from posthog.models.feature_flag import (
     get_all_feature_flags,
     get_user_blast_radius,
 )
+from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
@@ -415,6 +417,9 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                     if id not in cohorts:
                         cohort = Cohort.objects.get(id=id)
                         cohorts[cohort.pk] = cohort.properties.to_dict()
+
+        # Add request for analytics
+        increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
         return Response(
             {
