@@ -2664,8 +2664,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     ),
                 },
             )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             found_data_points = response.json()["result"][0]["count"]
             self.assertEqual(found_data_points, 14)
+
+            # test trends global property filter with a disallowed placeholder
+            response_placeholder = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                data={
+                    "events": json.dumps([{"id": "$pageview"}]),
+                    "properties": json.dumps(
+                        [
+                            {"key": "{team_id} * 5", "type": "hogql"},
+                        ]
+                    ),
+                },
+            )
+            self.assertEqual(response_placeholder.status_code, status.HTTP_400_BAD_REQUEST, response_placeholder.json())
+            self.assertEqual(
+                response_placeholder.json(),
+                self.validation_error_response("Placeholders, such as {team_id}, are not supported in this context"),
+            )
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     @snapshot_clickhouse_queries
