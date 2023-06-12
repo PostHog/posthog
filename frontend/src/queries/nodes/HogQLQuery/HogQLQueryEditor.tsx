@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 import { HogQLQuery } from '~/queries/schema'
 import { useEffect, useRef, useState } from 'react'
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
-import MonacoEditor from '@monaco-editor/react'
+import MonacoEditor, { Monaco } from '@monaco-editor/react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IDisposable } from 'monaco-editor'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
+import { IDisposable, editor as importedEditor } from 'monaco-editor'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -19,8 +19,12 @@ export interface HogQLQueryEditorProps {
 let uniqueNode = 0
 export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const [key] = useState(() => uniqueNode++)
-    const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key }
-    const { queryInput } = useValues(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
+    const [monacoAndEditor, setMonacoAndEditor] = useState(
+        null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
+    )
+    const [monaco, editor] = monacoAndEditor ?? []
+    const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key, editor, monaco }
+    const { queryInput, hasErrors, error } = useValues(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
     const { setQueryInput, saveQuery } = useActions(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
@@ -35,7 +39,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         <div className="space-y-2">
             <div
                 data-attr="hogql-query-editor"
-                className={'flex flex-col p-2 bg-border space-y-2 resize-y overflow-auto h-80 w-full rounded min-h-60'}
+                className={'flex flex-col p-2 bg-border space-y-2 resize-y h-80 w-full rounded min-h-60'}
             >
                 <div className="relative flex-1">
                     <span className="absolute top-0 right-0 mt-1 mr-1 z-10">
@@ -79,6 +83,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             run: () => saveQuery(),
                                         })
                                     )
+                                    setMonacoAndEditor([monaco, editor])
                                 }}
                                 options={{
                                     minimap: {
@@ -95,7 +100,13 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     onClick={saveQuery}
                     type="primary"
                     status={'muted-alt'}
-                    disabledReason={!props.setQuery ? 'No permission to update' : undefined}
+                    disabledReason={
+                        !props.setQuery
+                            ? 'No permission to update'
+                            : hasErrors
+                            ? error ?? 'Query has errors'
+                            : undefined
+                    }
                     fullWidth
                     center
                 >
