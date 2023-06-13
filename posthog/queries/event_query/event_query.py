@@ -81,7 +81,7 @@ class EventQuery(metaclass=ABCMeta):
         # Guards against a ClickHouse bug involving multiple joins against the same table
         # with the same column name. This issue manifests for us with formulas, where on queries A and B we join events against itself
         # and both tables end up having $session_id. Without a formula this is not a problem.
-        has_formula = "formula" in self._filter and self._filter.formula is not None
+        has_formula = hasattr(self._filter, "formula") and self._filter.formula is not None
         self._session_id_suffix = f"_{random.randint(0, 10000000000000000000)}" if has_formula else ""
 
         if override_aggregate_users_by_distinct_id is not None:
