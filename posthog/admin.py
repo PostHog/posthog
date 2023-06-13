@@ -289,6 +289,7 @@ class OrganizationTeamInline(admin.TabularInline):
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
+    date_hierarchy = "created_at"
     fields = [
         "name",
         "created_at",
