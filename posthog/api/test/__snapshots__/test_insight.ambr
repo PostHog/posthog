@@ -662,6 +662,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -702,6 +703,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -818,6 +820,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -1044,6 +1047,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -1174,6 +1178,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -1313,6 +1318,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -1434,6 +1440,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -1542,6 +1549,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -1617,6 +1625,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -1691,6 +1700,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -1738,6 +1748,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
