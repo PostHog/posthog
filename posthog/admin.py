@@ -26,7 +26,6 @@ from posthog.models import (
 
 admin.site.register(Person)
 admin.site.register(FeatureFlag)
-admin.site.register(InstanceSetting)
 
 
 @admin.register(Insight)
@@ -353,3 +352,12 @@ class OrganizationAdmin(admin.ModelAdmin):
 
 class OrganizationBillingAdmin(admin.ModelAdmin):
     search_fields = ("name", "members__email")
+
+
+@admin.register(InstanceSetting)
+class InstanceSettingAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "key",
+        "value",
+    )
