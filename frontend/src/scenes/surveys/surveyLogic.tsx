@@ -241,7 +241,7 @@ export const surveyLogic = kea<surveyLogicType>([
             submit: async (surveyPayload) => {
                 const surveyPayloadWithTargetingFlagFilters = {
                     ...surveyPayload,
-                    targeting_flag_filters: values.targetingFlagFilters,
+                    ...(values.targetingFlagFilters ? { targeting_flag_filters: values.targetingFlagFilters } : {}),
                 }
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(surveyPayloadWithTargetingFlagFilters)
