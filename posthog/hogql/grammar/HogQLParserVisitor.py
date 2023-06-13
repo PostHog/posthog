@@ -544,11 +544,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#identifierOrDecimal.
-    def visitIdentifierOrDecimal(self, ctx:HogQLParser.IdentifierOrDecimalContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#enumValue.
     def visitEnumValue(self, ctx:HogQLParser.EnumValueContext):
         return self.visitChildren(ctx)

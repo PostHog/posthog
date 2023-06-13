@@ -229,5 +229,4 @@ keywordForAlias
     ;
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
-identifierOrDecimal: identifier | DECIMAL_LITERAL;
 enumValue: STRING_LITERAL EQ_SINGLE numberLiteral;
