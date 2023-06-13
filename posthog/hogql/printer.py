@@ -389,9 +389,7 @@ class _Printer(Visitor):
             isinstance(node.value, str) or isinstance(node.value, list) or isinstance(node.value, tuple)
         ):
             # inline the string in hogql, but use %(hogql_val_0)s in clickhouse
-            key = f"hogql_val_{len(self.context.values)}"
-            self.context.values[key] = node.value
-            return f"%({key})s"
+            return self.context.add_value(node.value)
         else:
             return self._print_escaped_string(node.value)
 
