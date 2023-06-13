@@ -7,6 +7,7 @@ from freezegun import freeze_time
 
 from posthog import datetime
 from posthog.hogql import ast
+from posthog.hogql.errors import SyntaxException
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
@@ -1058,3 +1059,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query = f"SELECT {columns} FROM events WHERE properties.string = '{random_uuid}'"
             response = execute_hogql_query(query, team=self.team)
             self.assertEqual(response.results[0], tuple(map(lambda x: random_uuid, alternatives)))
+
+    def test_property_access_with_arrays_zero_index_error(self):
+        query = f"SELECT properties.something[0] FROM events"
+        with self.assertRaises(SyntaxException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "SQL indexes start from 1, not 0")
+
+        query = f"SELECT properties.something.0 FROM events"
+        with self.assertRaises(SyntaxException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "SQL indexes start from 1, not 0")
