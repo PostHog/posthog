@@ -52,7 +52,6 @@ export class PersonState {
     private statsd: StatsD | undefined
     private personManager: PersonManager
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
-    private poEEmbraceJoin: boolean
 
     constructor(
         event: PluginEvent,
@@ -62,7 +61,6 @@ export class PersonState {
         db: DB,
         statsd: StatsD | undefined,
         personManager: PersonManager,
-        poEEmbraceJoin: boolean,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
@@ -81,9 +79,6 @@ export class PersonState {
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
         this.updateIsIdentified = false
-
-        // For persons on events embrace the join gradual roll-out, remove after fully rolled out
-        this.poEEmbraceJoin = poEEmbraceJoin
     }
 
     async update(): Promise<Person> {
@@ -429,12 +424,10 @@ export class PersonState {
         // How the merge works:
         // Merging properties:
         //   on key conflict we use the properties from the person provided as the first argument in identify or alias calls (mergeInto person),
-        //   Note it's important for us to compute this before potentially swapping the persons for personID merging purposes in PoEEmbraceJoin mode
-        // In case of PoE Embrace the join mode:
-        //   we want to keep using the older person to reduce the number of partitions that need to be updated during squash
+        //   Note it's important for us to compute this before potentially swapping the persons for personID merging purposes.
+        //   We want to keep using the older person to reduce the number of partitions that need to be updated during squash
         //   to do that we'll swap otherPerson and mergeInto person (after properties merge computation!)
         //   additionally update person overrides table in postgres and clickhouse
-        //   TODO: ^
         // If the merge fails:
         //   we'll roll back the transaction and then try from scratch in the origial order of persons provided for property merges
         //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
@@ -443,12 +436,10 @@ export class PersonState {
         let properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         properties = this.applyEventPropertyUpdates(properties)
 
-        if (this.poEEmbraceJoin) {
-            // Optimize merging persons to keep using the person id that has longer history,
-            // which means we'll have less events to update during the squash later
-            if (otherPerson.created_at < mergeInto.created_at) {
-                ;[mergeInto, otherPerson] = [otherPerson, mergeInto]
-            }
+        // Optimize merging persons to keep using the person id that has longer history,
+        // which means we'll have less events to update during the squash later
+        if (otherPerson.created_at < mergeInto.created_at) {
+            ;[mergeInto, otherPerson] = [otherPerson, mergeInto]
         }
 
         const [kafkaMessages, mergedPerson] = await this.handleMergeTransaction(
@@ -492,10 +483,7 @@ export class PersonState {
 
             const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
 
-            let personOverrideMessages: ProducerRecord[] = []
-            if (this.poEEmbraceJoin) {
-                personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, client)]
-            }
+            const personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, client)]
 
             return [
                 [...personOverrideMessages, ...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages],

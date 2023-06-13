@@ -27,12 +27,24 @@ Latest person properties are joined in during query time.
 Distinct_id to Person mapping is joined together at query time, see [docs](https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons).
 
 ## PoEv1
+We're now in PoEv2 roll-out phase.
+
+## PoEv2
+
+aka PoE with merges after 2023-06-09 when override writes were enabled in US and EU for everyone.
 
 ### 1. Filtering on person properties
 
 Person properties at the time the event was processed are used, see [docs](https://posthog.com/docs/how-posthog-works/queries#filtering-on-person-properties)
 
 ### 2. Insights counting unique persons
+
+-   All [person merges](https://posthog.com/docs/how-posthog-works/ingestion-pipeline#merging-two-persons) that were done before enabling will be counted separately (see older merges below).
+-   All merges after 2023-06-09 and going forward will update the events table, i.e. unique user counts work the same way as with JOINs, see [docs](https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons).
+
+> **Note:** We don't _exactly_ update the events table directly during event processing, but it's rather a simplification we're using here to keep the docs easy to follow.
+
+#### Older merges
 
 Person IDs at the time the event was processed are used. Let's look at the same example from the [docs](https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons)
 
@@ -79,20 +91,6 @@ To continue the example, let's say that Alice views the homepage again now that 
 
 In this case, the trend graph would show 2 unique users (based on person_id = `user-1` and `user-2`) but the Person modal would only show `user-1` as `user-2` has been deleted.
 
-## PoEv2
-
-aka PoE with future merges
-
-### 1. Filtering on person properties
-
-Person properties at the time the event was processed are used, see [docs](https://posthog.com/docs/how-posthog-works/queries#filtering-on-person-properties)
-
-### 2. Insights counting unique persons
-
--   All [person merges](https://posthog.com/docs/how-posthog-works/ingestion-pipeline#merging-two-persons) that were done before enabling will be counted separately (see PoEv1 above).
--   All merges going forward will update the events table, i.e. unique user counts work the same way as with JOINs, see [docs](https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons).
-
-> **Note:** We don't _exactly_ update the events table directly during event processing, but it's rather a simplification we're using here to keep the docs easy to follow.
 
 ## PoEv3
 
