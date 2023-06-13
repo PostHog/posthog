@@ -29,7 +29,6 @@ from posthog.models import (
 admin.site.register(Person)
 admin.site.register(Element)
 admin.site.register(FeatureFlag)
-admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(InstanceSetting)
 
@@ -60,6 +59,12 @@ class PluginAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
 
+class ActionInline(admin.TabularInline):
+    extra = 0
+    model = Action
+    classes = ("collapse",)
+
+
 class GroupTypeMappingInline(admin.TabularInline):
     extra = 0
     model = GroupTypeMapping
@@ -75,7 +80,7 @@ class TeamAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_link", "organization_id")
     search_fields = ("id", "name", "organization__id", "organization__name", "api_token")
     readonly_fields = ["organization", "primary_dashboard", "test_account_filters"]
-    inlines = [GroupTypeMappingInline]
+    inlines = [GroupTypeMappingInline, ActionInline]
     fieldsets = [
         (
             None,
