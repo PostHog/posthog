@@ -87,9 +87,6 @@ EVENT_SUMMARY_DATA_INCLUSIONS = [
 
 Event = Dict[str, Any]
 
-result = []
-snapshots_by_session_and_window_id = defaultdict(list)
-
 
 def legacy_preprocess_session_recording_events_for_clickhouse(
     events: List[Event], chunk_size=512 * 1024
@@ -159,7 +156,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
 
-    def new_event(items: List[dict] = []) -> Event:
+    def new_event(items: List[dict] = None) -> Event:
         return {
             **events[0],
             "event": "$snapshot_items",  # New event name to avoid confusion with the old $snapshot event
@@ -167,7 +164,8 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
                 "distinct_id": distinct_id,
                 "$session_id": session_id,
                 "$window_id": window_id,
-                "$snapshot_items": items,
+                # We instantiate here instead of in the arg to avoid mutable default args
+                "$snapshot_items": items or [],
             },
         }
 
@@ -189,6 +187,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
 
             # Add the existing data to the base event
             current_event["properties"]["$snapshot_items"].extend(additional_data)
+            current_event_size += additional_bytes
 
         yield current_event
     else:

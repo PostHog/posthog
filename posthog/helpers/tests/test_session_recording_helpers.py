@@ -1,3 +1,4 @@
+import json
 import random
 import string
 from datetime import datetime
@@ -673,6 +674,84 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                 "$window_id": "1",
                 "$snapshot_items": [{"type": 8, "timestamp": 123, "something": almost_too_big_payloads[1]}],
                 "distinct_id": "abc123",
+            },
+        },
+    ]
+
+
+def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch("posthog.models.utils.UUIDT", return_value="0178495e-8521-0000-8e1c-2652fa57099b")
+    mocker.patch("time.time", return_value=0)
+
+    almost_too_big_event = {
+        "type": 7,
+        "timestamp": 234,
+        "something": "".join(random.choices(string.ascii_uppercase + string.digits, k=1024)),
+    }
+
+    small_event = {
+        "type": 7,
+        "timestamp": 234,
+        "something": "small",
+    }
+
+    events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_bytes": len(json.dumps([small_event, small_event])),
+                "$snapshot_data": [small_event, small_event],
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_bytes": len(json.dumps([almost_too_big_event])),
+                "$snapshot_data": [almost_too_big_event],
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_bytes": len(json.dumps([small_event, small_event, small_event])),
+                "$snapshot_data": [small_event, small_event, small_event],
+                "distinct_id": "abc123",
+            },
+        },
+    ]
+
+    assert [event["properties"]["$snapshot_bytes"] for event in events] == [106, 1072, 159]
+
+    print("before!")
+    assert list(mock_capture_flow(events, max_size_bytes=106 + 1072 + 50)[1]) == [
+        {
+            "event": "$snapshot_items",
+            "properties": {
+                "distinct_id": "abc123",
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_items": [
+                    small_event,
+                    small_event,
+                    almost_too_big_event,
+                ],
+            },
+        },
+        {
+            "event": "$snapshot_items",
+            "properties": {
+                "distinct_id": "abc123",
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_items": [small_event, small_event, small_event],
             },
         },
     ]

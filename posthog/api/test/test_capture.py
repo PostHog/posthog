@@ -35,7 +35,6 @@ from posthog.api.capture import (
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
-from posthog.session_recordings.session_recording_helpers import compress_to_string
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
     KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
@@ -1201,7 +1200,7 @@ class TestCapture(BaseTest):
         snapshot_type = 8
         event_data = {"foo": "bar"}
         with self.settings(REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1):
-            sent_event = self._send_session_recording_event(
+            self._send_session_recording_event(
                 timestamp=timestamp,
                 snapshot_source=snapshot_source,
                 snapshot_type=snapshot_type,
