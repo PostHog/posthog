@@ -1,18 +1,27 @@
 import { kea, selectors, path, actions, reducers, connect } from 'kea'
-import { ActionType, Breadcrumb } from '~/types'
+import { ActionType, Breadcrumb, ProductKey } from '~/types'
 import { urls } from 'scenes/urls'
 
 import type { actionsLogicType } from './actionsLogicType'
 import { actionsModel } from '~/models/actionsModel'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type ActionFuse = Fuse<ActionType> // This is exported for kea-typegen
 
 export const actionsLogic = kea<actionsLogicType>([
     path(['scenes', 'actions', 'actionsLogic']),
     connect({
-        values: [actionsModel({ params: 'include_count=1' }), ['actions'], userLogic, ['user']],
+        values: [
+            actionsModel({ params: 'include_count=1' }),
+            ['actions', 'actionsLoading'],
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     }),
     actions({
         setFilterByMe: (filterByMe: boolean) => ({ filterByMe }),
@@ -67,6 +76,21 @@ export const actionsLogic = kea<actionsLogicType>([
                     path: urls.actions(),
                 },
             ],
+        ],
+        shouldShowProductIntroduction: [
+            (s) => [s.user, s.featureFlags],
+            (user, featureFlags): boolean => {
+                return (
+                    !user?.has_seen_product_intro_for?.[ProductKey.ACTIONS] &&
+                    !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
+                )
+            },
+        ],
+        shouldShowEmptyState: [
+            (s) => [s.actionsFiltered, s.actionsLoading, s.searchTerm],
+            (actionsFiltered, actionsLoading, searchTerm): boolean => {
+                return actionsFiltered.length == 0 && !actionsLoading && !searchTerm.length
+            },
         ],
     }),
 ])

@@ -3,7 +3,6 @@ import json
 from dataclasses import dataclass
 from string import Template
 import tempfile
-import uuid
 
 from django.conf import settings
 import snowflake.connector
@@ -163,7 +162,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 },
             )
 
-            with tempfile.NamedTemporaryFile() as local_results_file:
+            local_results_file = tempfile.NamedTemporaryFile()
+            try:
                 while True:
                     try:
                         result = await results_iterator.__anext__()
@@ -185,29 +185,27 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     ):
                         activity.logger.info("Uploading to Snowflake")
 
-                        local_results_file.seek(0)
-
-                        # Make sure that the staged file has a unique name
-                        staged_file_name = f"{inputs.table_name}_{uuid.uuid4()}.json"
+                        # Flush the file to make sure everything is written
+                        local_results_file.flush()
                         cursor.execute(
-                            f"PUT file://{local_results_file.name} @%{inputs.table_name}/{staged_file_name}",
+                            f"PUT file://{local_results_file.name} @%{inputs.table_name}",
                         )
 
-                        # Reset the file
-                        local_results_file.seek(0)
-                        local_results_file.truncate()
+                        # Delete the temporary file and create a new one
+                        local_results_file.close()
+                        local_results_file = tempfile.NamedTemporaryFile()
 
-                # Upload the last part
-                local_results_file.seek(0)
-
-                # Make sure that the staged file has a unique name
-                staged_file_name = f"{inputs.table_name}_{uuid.uuid4()}.json"
-
+                # Flush the file to make sure everything is written
+                local_results_file.flush()
                 cursor.execute(
                     f"""
-                    PUT file://{local_results_file.name} @%"{inputs.table_name}/{staged_file_name}"
+                    PUT file://{local_results_file.name} @%"{inputs.table_name}"
                     """
                 )
+
+                # We don't need the file anymore, close (and delete) it.
+                local_results_file.close()
+
                 cursor.execute(
                     f"""
                     COPY INTO "{inputs.table_name}"
@@ -216,6 +214,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     PURGE = TRUE
                     """
                 )
+            finally:
+                local_results_file.close()
         finally:
             conn.close()
 

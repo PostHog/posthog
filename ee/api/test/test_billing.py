@@ -11,7 +11,6 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.api.test.fixtures.billing_plans_response import create_billing_plans_mock_response
 from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
 from ee.models.license import License
 from posthog.models.organization import OrganizationMembership
@@ -86,7 +85,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
 
 def create_billing_products_response(**kwargs) -> Dict[str, List[CustomerProduct]]:
     data: Any = {
-        "standard": [
+        "products": [
             CustomerProduct(
                 name="Product OS",
                 description="Product Analytics, event pipelines, data warehousing",
@@ -108,30 +107,7 @@ def create_billing_products_response(**kwargs) -> Dict[str, List[CustomerProduct
                 projected_usage=0,
                 projected_amount_usd="0.00",
             )
-        ],
-        "enterprise": [
-            CustomerProduct(
-                name="Product OS Enterprise",
-                description="Product Analytics, event pipelines, data warehousing",
-                price_description=None,
-                type="events",
-                image_url="https://posthog.com/static/images/product-os.png",
-                free_allocation=10000,
-                tiers=[
-                    {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                    {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
-                ],
-                tiered=True,
-                unit_amount_usd="0.00",
-                current_amount_usd="0.00",
-                current_usage=0,
-                usage_limit=None,
-                has_exceeded_limit=False,
-                percentage_usage=0,
-                projected_usage=0,
-                projected_amount_usd="0.00",
-            )
-        ],
+        ]
     }
     data.update(kwargs)
     return data
@@ -154,9 +130,6 @@ class TestUnlicensedBillingAPI(APIBaseTest):
             elif "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
-            elif "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -166,8 +139,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         assert res.status_code == 200
         assert res.json() == {
             "available_features": [],
-            "available_plans": create_billing_plans_mock_response()["plans"],
-            "products": create_billing_products_response()["standard"],
+            "products": create_billing_products_response()["products"],
         }
 
 
@@ -193,18 +165,14 @@ class TestBillingAPI(APILicensedTest):
             elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(customer=create_billing_customer())
-            elif "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
         mock_request.side_effect = mock_implementation
 
         self.client.get("/api/billing-v2")
-        assert mock_request.call_args_list[0].args[0].endswith("/api/plans")
-        assert mock_request.call_args_list[1].args[0].endswith("/api/billing")
-        token = mock_request.call_args_list[1].kwargs["headers"]["Authorization"].split(" ")[1]
+        assert mock_request.call_args_list[0].args[0].endswith("/api/billing")
+        token = mock_request.call_args_list[0].kwargs["headers"]["Authorization"].split(" ")[1]
 
         secret = self.license.key.split("::")[1]
 
@@ -232,9 +200,6 @@ class TestBillingAPI(APILicensedTest):
             elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(customer=create_billing_customer())
-            elif "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -251,7 +216,6 @@ class TestBillingAPI(APILicensedTest):
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
             "current_total_amount_usd": "100.00",
             "available_features": [],
-            "available_plans": create_billing_plans_mock_response()["plans"],
             "deactivated": False,
             "products": [
                 {
@@ -299,9 +263,6 @@ class TestBillingAPI(APILicensedTest):
             elif "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
-            elif "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -315,7 +276,6 @@ class TestBillingAPI(APILicensedTest):
             "custom_limits_usd": {},
             "has_active_subscription": False,
             "available_features": [],
-            "available_plans": create_billing_plans_mock_response()["plans"],
             "products": [
                 {
                     "name": "Product OS",
@@ -442,9 +402,6 @@ class TestBillingAPI(APILicensedTest):
                 mock.json.return_value = create_billing_response(
                     customer=create_billing_customer(available_features=["feature1", "feature2"])
                 )
-            elif "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -481,9 +438,6 @@ class TestBillingAPI(APILicensedTest):
             elif "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
-            elif "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -520,9 +474,6 @@ class TestBillingAPI(APILicensedTest):
             elif "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
-            elif "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -561,9 +512,6 @@ class TestBillingAPI(APILicensedTest):
                     # Set usage to none so it is calculated from scratch
                     customer=create_billing_customer(has_active_subscription=False, usage=None)
                 )
-            elif "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 

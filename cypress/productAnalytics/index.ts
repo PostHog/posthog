@@ -126,23 +126,25 @@ export const insight = {
     updateQueryEditorText(query: string, selector: string = 'query-editor'): void {
         // the default JSON query doesn't have any results, switch to one that does
 
-        // obviously we need to clear the text area multiple times
-        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}')
-        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}')
-        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}')
-        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}')
-        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}')
-        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}')
-        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}')
-        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}')
+        // "obviously" we need to clear the text area multiple times
+        // monaco has elements in front of the text area that the human doesn't see
+        // so force: true is needed everywhere
+        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}', { force: true })
+        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}', { force: true })
+        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}', { force: true })
+        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}', { force: true })
+        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}', { force: true })
+        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}', { force: true })
+        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}', { force: true })
+        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}', { force: true })
 
-        cy.get(`[data-attr="${selector}"] textarea`).type(query)
+        cy.get(`[data-attr="${selector}"] textarea`).type(query, { force: true })
 
         // monaco adds closing squares and curlies as we type,
         // so, we need to delete any trailing characters to make valid JSON
         // 😡
         for (let i = 0; i < 10; i++) {
-            cy.get(`[data-attr="${selector}"] textarea`).type('{del}')
+            cy.get(`[data-attr="${selector}"] textarea`).type('{del}', { force: true })
         }
 
         cy.get(`[data-attr="${selector}"] button`).click()

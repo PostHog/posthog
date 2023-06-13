@@ -58,7 +58,7 @@ class Type(AST):
 
 
 class Expr(AST):
-    type: Optional[Type]
+    type: Optional[Type] = None
 
 
 class CTE(Expr):
@@ -275,7 +275,7 @@ class AsteriskType(Type):
 
 
 class FieldTraverserType(Type):
-    chain: List[str]
+    chain: List[str | int]
     table_type: TableOrSelectType
 
 
@@ -302,7 +302,7 @@ class FieldType(Type):
             return DateTimeType()
         return UnknownType()
 
-    def get_child(self, name: str) -> Type:
+    def get_child(self, name: str | int) -> Type:
         database_field = self.resolve_database_field()
         if database_field is None:
             raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
@@ -314,18 +314,22 @@ class FieldType(Type):
 
 
 class PropertyType(Type):
-    chain: List[str]
+    chain: List[str | int]
     field_type: FieldType
 
     # The property has been moved into a field we query from a joined subquery
     joined_subquery: Optional[SelectQueryAliasType]
     joined_subquery_field_name: Optional[str]
 
-    def get_child(self, name: str) -> "Type":
+    def get_child(self, name: str | int) -> "Type":
         return PropertyType(chain=self.chain + [name], field_type=self.field_type)
 
-    def has_child(self, name: str) -> bool:
+    def has_child(self, name: str | int) -> bool:
         return True
+
+    class Config:
+        # Without this, pydantic converts all integers in "chain" into strings, breaking array access
+        smart_union = True
 
 
 class LambdaArgumentType(Type):
@@ -429,7 +433,7 @@ class Constant(Expr):
 
 
 class Field(Expr):
-    chain: List[str]
+    chain: List[str | int]
 
 
 class Placeholder(Expr):
