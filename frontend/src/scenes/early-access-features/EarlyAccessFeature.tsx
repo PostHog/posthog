@@ -21,6 +21,7 @@ import { InstructionsModal } from './InstructionsModal'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PersonsSearch } from 'scenes/persons/PersonsSearch'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -33,7 +34,8 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, updateStage } = useActions(earlyAccessFeatureLogic)
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, updateStage, deleteEarlyAccessFeature } =
+        useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
@@ -66,6 +68,35 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </>
                         ) : (
                             <>
+                                <LemonButton
+                                    data-attr="delete-feature"
+                                    status="danger"
+                                    type="secondary"
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Permanently delete feature?',
+                                            description:
+                                                'Doing so will remove any opt in conditions from the feature flag.',
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                type: 'primary',
+                                                status: 'danger',
+                                                onClick: () => {
+                                                    // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
+                                                    deleteEarlyAccessFeature(
+                                                        (earlyAccessFeature as EarlyAccessFeatureType)?.id
+                                                    )
+                                                },
+                                            },
+                                            secondaryButton: {
+                                                children: 'Close',
+                                                type: 'secondary',
+                                            },
+                                        })
+                                    }}
+                                >
+                                    Delete
+                                </LemonButton>
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Beta && (
                                     <LemonButton
                                         data-attr="archive-feature"
