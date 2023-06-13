@@ -144,6 +144,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             event_type: values.filters.event_type,
                         })
                     }
+                    await breakpoint(200)
                     cache.eventsStartTime = performance.now()
                     const response = await api.get(url)
                     breakpoint()
@@ -296,8 +297,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
-        setFilters: async (_, breakpoint) => {
-            await breakpoint(200)
+        setFilters: async () => {
             actions.loadEventDefinitions(
                 normalizeEventDefinitionEndpointUrl({
                     url: values.eventDefinitions.current,
