@@ -547,6 +547,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]")
         return ast.ArrayAccess(array=object, property=property)
 
+    def visitColumnExprPropertyAccess(self, ctx: HogQLParser.ColumnExprPropertyAccessContext):
+        object = self.visit(ctx.columnExpr())
+        property = ast.Constant(value=self.visit(ctx.identifier()))
+        return ast.ArrayAccess(array=object, property=property)
+
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         raise NotImplementedException(f"Unsupported node: ColumnExprBetween")
 
