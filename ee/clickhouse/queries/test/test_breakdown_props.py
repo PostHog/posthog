@@ -396,7 +396,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        aggregate_operation, _, _ = process_math(filter.entities[0], self.team)
+        aggregate_operation, _, _ = process_math(filter.entities[0], self.team, filter=filter)
 
         result = get_breakdown_prop_values(filter, filter.entities[0], aggregate_operation, self.team)
         # test should come first, based on aggregate operation, even if absolute count of events for

@@ -6,8 +6,6 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ChartParams, GraphType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
@@ -70,27 +68,7 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
             data-attr="trend-bar-value-graph"
             type={GraphType.HorizontalBar}
             tooltip={{
-                altTitle: function _renderAltTitle(tooltipData) {
-                    return (
-                        <>
-                            <SeriesLetter
-                                className="mr-1"
-                                hasBreakdown={false}
-                                seriesIndex={tooltipData?.[0]?.action?.order ?? 0}
-                            />
-                            <InsightLabel
-                                className="series-column-header"
-                                action={tooltipData?.[0]?.action}
-                                fallbackName="Series"
-                                hideBreakdown
-                                hideCompare
-                                hideIcon
-                                allowWrap
-                                showEventName
-                            />
-                        </>
-                    )
-                },
+                showHeader: false,
             }}
             labelGroupType={labelGroupType}
             datasets={data}

@@ -1,17 +1,14 @@
 @import '../../../styles/mixins';
 
-$sidebar-width: 40rem;
-
 .NotebookSidebar {
     position: relative;
     height: 100%;
     min-height: calc(100vh - 3.5rem);
     display: flex;
-    width: $sidebar-width;
-    flex: 1;
+    max-width: 80%;
+    min-width: 600px;
 
     .NotebookSidebar__content {
-        width: $sidebar-width;
         height: 100%;
         transform: translateX(0);
         display: flex;
@@ -23,41 +20,10 @@ $sidebar-width: 40rem;
         box-shadow: var(--shadow--elevation);
     }
 
-    width: $sidebar-width;
-
-    &--enter {
-        width: 0;
-        .NotebookSidebar__content {
-            transform: translateX(100%);
-        }
-    }
-
-    &--enter-active,
-    &--enter-done {
-        width: $sidebar-width;
-        .NotebookSidebar__content {
-            transition: 200ms ease transform;
-            transform: translateX(0%);
-        }
-    }
-
-    &--exit {
-        width: $sidebar-width;
-        .NotebookSidebar__content {
-            transition: 200ms ease transform;
-            transform: translateX(0%);
-        }
-    }
-
-    &--exit-active {
-        width: 0;
-        .NotebookSidebar__content {
-            transform: translateX(100%);
-        }
-    }
-
     &--full-screen {
         width: auto;
+        max-width: initial;
+        flex: 1;
 
         .NotebookSidebar__content {
             width: 100%;

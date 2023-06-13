@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { mkdirSync, rmSync } from 'node:fs'
@@ -19,42 +20,32 @@ import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { IncomingRecordingMessage } from './blob-ingester/types'
 
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
+
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
+const hoursInMillis = (hours: number) => hours * 60 * 60 * 1000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
-export const gaugeIngestionLag = new Gauge({
-    name: 'recording_blob_ingestion_lag',
-    help: 'A gauge of the number of milliseconds behind now for the timestamp of the latest message',
-})
-export const gaugeSessionsHandled = new Gauge({
+const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
     help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
 })
 
-export const gaugePartitionsRevoked = new Gauge({
-    name: 'recording_blob_ingestion_partitions_revoked',
-    help: 'A gauge of the number of partitions being revoked when a re-balance occurs',
-})
-
-export const gaugeSessionsRevoked = new Gauge({
+const gaugeSessionsRevoked = new Gauge({
     name: 'recording_blob_ingestion_sessions_revoked',
     help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
 })
 
-export const gaugePartitionsAssigned = new Gauge({
-    name: 'recording_blob_ingestion_partitions_assigned',
-    help: 'A gauge of the number of partitions being assigned when a re-balance occurs',
-})
-
-export const gaugeBytesBuffered = new Gauge({
+const gaugeBytesBuffered = new Gauge({
     name: 'recording_blob_ingestion_bytes_buffered',
     help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
 })
 
-export const gaugeLagMilliseconds = new Gauge({
+const gaugeLagMilliseconds = new Gauge({
     name: 'recording_blob_ingestion_lag_in_milliseconds',
     help: "A gauge of the lag in milliseconds, more useful than lag in messages since it affects how much work we'll be pushing to redis",
     labelNames: ['partition'],
@@ -65,10 +56,12 @@ export class SessionRecordingBlobIngester {
     offsetManager?: OffsetManager
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
-    lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
     enabledTeams: number[] | null
-    latestKafkaMessageTimestamp: Record<number, number | null> = {}
+    // the time at the most recent message of a particular partition
+    partitionNow: Record<number, number | null> = {}
+    // the most recent message timestamp seen across all partitions
+    consumerNow: number | null = null
 
     constructor(
         private teamManager: TeamManager,
@@ -89,8 +82,13 @@ export class SessionRecordingBlobIngester {
 
         // track the latest message timestamp seen so, we can use it to calculate a reference "now"
         // lag does not distribute evenly across partitions, so track timestamps per partition
-        this.latestKafkaMessageTimestamp[partition] = timestamp
-        gaugeLagMilliseconds.labels(partition.toString()).set(DateTime.now().toMillis() - timestamp)
+        this.partitionNow[partition] = timestamp
+        gaugeLagMilliseconds
+            .labels({
+                partition: partition.toString(),
+            })
+            .set(DateTime.now().toMillis() - timestamp)
+        this.consumerNow = Math.max(timestamp, this.consumerNow ?? -Infinity)
 
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
@@ -123,7 +121,7 @@ export class SessionRecordingBlobIngester {
         // If it is recoverable, we probably want to retry?
     }
 
-    public async handleKafkaMessage(message: Message): Promise<void> {
+    public async handleKafkaMessage(message: Message, span?: Sentry.Span): Promise<void> {
         const statusWarn = (reason: string, extra?: Record<string, any>) => {
             status.warn('⚠️', 'invalid_message', {
                 reason,
@@ -159,11 +157,15 @@ export class SessionRecordingBlobIngester {
 
         let team: Team | null = null
 
+        const teamSpan = span?.startChild({
+            op: 'fetchTeam',
+        })
         if (messagePayload.team_id != null) {
             team = await this.teamManager.fetchTeam(messagePayload.team_id)
         } else if (messagePayload.token) {
             team = await this.teamManager.getTeamByToken(messagePayload.token)
         }
+        teamSpan?.finish()
 
         if (team == null) {
             return statusWarn('team_not_found', {
@@ -207,26 +209,32 @@ export class SessionRecordingBlobIngester {
             chunk_index: $snapshot_data.chunk_index,
             chunk_count: $snapshot_data.chunk_count,
             data: $snapshot_data.data,
-            compresssion: $snapshot_data.compression,
+            compression: $snapshot_data.compression,
             has_full_snapshot: $snapshot_data.has_full_snapshot,
             events_summary: $snapshot_data.events_summary,
         }
 
+        const consumeSpan = span?.startChild({
+            op: 'consume',
+        })
         await this.consume(recordingMessage)
+        consumeSpan?.finish()
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
-        let highestTimestamp = -Infinity
+        const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
 
-        for (const message of messages) {
-            if (!!message.timestamp && message.timestamp > highestTimestamp) {
-                highestTimestamp = message.timestamp
-            }
+        await Promise.all(
+            messages.map(async (message) => {
+                const childSpan = transaction.startChild({
+                    op: 'handleKafkaMessage',
+                })
+                await this.handleKafkaMessage(message, childSpan)
+                childSpan.finish()
+            })
+        )
 
-            await this.handleKafkaMessage(message)
-        }
-
-        gaugeIngestionLag.set(DateTime.now().toMillis() - highestTimestamp)
+        transaction.finish()
     }
 
     public async start(): Promise<void> {
@@ -255,7 +263,9 @@ export class SessionRecordingBlobIngester {
             consumerMaxBytes: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             consumerMaxWaitMs: this.serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            consumerErrorBackoffMs: this.serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             fetchBatchSize,
+            batchingTimeoutMs: this.serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             autoCommit: false,
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)
@@ -278,13 +288,6 @@ export class SessionRecordingBlobIngester {
                  * The assign_partitions indicates that the consumer group has new assignments.
                  * We don't need to do anything, but it is useful to log for debugging.
                  */
-                const assignedPartitions = topicPartitions.map((c) => c.partition).sort()
-
-                if (!assignedPartitions.length) {
-                    return
-                }
-
-                gaugePartitionsAssigned.set(assignedPartitions.length)
                 return
             }
 
@@ -308,7 +311,9 @@ export class SessionRecordingBlobIngester {
                 await this.destroySessions(sessionsToDrop)
 
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
-                gaugePartitionsRevoked.set(revokedPartitions.length)
+                revokedPartitions.forEach((partition) => {
+                    gaugeLagMilliseconds.remove({ partition: partition.toString() })
+                })
                 return
             }
 
@@ -338,23 +343,36 @@ export class SessionRecordingBlobIngester {
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
             status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
-            // It's unclear what happens if an exception occurs here so we try catch it just in case
+            // It's unclear what happens if an exception occurs here so, we try catch it just in case
             let sessionManagerBufferSizes = 0
 
             for (const [key, sessionManager] of this.sessions) {
                 sessionManagerBufferSizes += sessionManager.buffer.size
 
-                // in practice, we will always have a values for latestKaftaMessageTimestamp,
-                // but in case we get here before the first message, we use now
-                const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition]
-
-                if (!kafkaNow) {
+                // in practice, we will always have a values for latestKafkaMessageTimestamp,
+                let referenceTime = this.partitionNow[sessionManager.partition]
+                if (!referenceTime) {
                     throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
+                }
+
+                // it is possible for a session to need an idle flush to continue
+                // but for the head of that partition to be within the idle timeout threshold.
+                // for e.g. when no new message is received on the partition
+                // and so, it will never flush on idle.
+                // in that circumstance, we still need to flush the session.
+                // the aim is for no partition to lag more than ten minutes behind "now"
+                // but as traffic isn't distributed evenly between partitions.
+                // if "partition now" is lagging behind "consumer now" then we use "consumer now"
+                // and if there is no "consumer now" then we use "server now"
+                // that way so long as the consumer is running and receiving messages
+                // we will be more likely to flush "stuck" partitions
+                if (DateTime.now().toMillis() - referenceTime >= hoursInMillis(2)) {
+                    referenceTime = this.consumerNow ?? DateTime.now().toMillis()
                 }
 
                 void sessionManager
                     .flushIfSessionBufferIsOld(
-                        kafkaNow,
+                        referenceTime,
                         this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
                     )
                     .catch((err) => {

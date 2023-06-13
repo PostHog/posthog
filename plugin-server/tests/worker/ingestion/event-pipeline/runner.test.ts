@@ -101,7 +101,7 @@ describe('EventPipelineRunner', () => {
             { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
         ])
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
-        jest.mocked(createEventStep).mockResolvedValue(null)
+        jest.mocked(createEventStep).mockResolvedValue([null, Promise.resolve()])
         jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
     })
 
@@ -120,7 +120,8 @@ describe('EventPipelineRunner', () => {
         })
 
         it('emits metrics for every step', async () => {
-            await runner.runEventPipeline(pipelineEvent)
+            const result = await runner.runEventPipeline(pipelineEvent)
+            expect(result.error).toBeUndefined()
 
             expect(hub.statsd.timing).toHaveBeenCalledTimes(5)
             expect(hub.statsd.increment).toHaveBeenCalledTimes(8)
@@ -191,6 +192,7 @@ describe('EventPipelineRunner', () => {
                     team_id: 2,
                     distinct_id: 'my_id',
                     error: 'ingestEvent failed. Error: testError',
+                    error_location: 'plugin_server_ingest_event:prepareEventStep',
                 })
                 expect(hub.statsd.increment).toHaveBeenCalledWith('events_added_to_dead_letter_queue')
             })

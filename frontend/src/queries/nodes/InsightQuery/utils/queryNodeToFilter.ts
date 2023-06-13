@@ -31,6 +31,7 @@ export const seriesToActionsAndEvents = (
             // TODO: math is not supported by funnel and lifecycle queries
             math: node.math,
             math_property: node.math_property,
+            math_hogql: node.math_hogql,
             math_group_type_index: node.math_group_type_index,
             properties: node.properties as any, // TODO,
         })

@@ -1,5 +1,5 @@
 import { initKeaTests } from '~/test/init'
-import { featureFlagsLogic, FeatureFlagsTabs } from 'scenes/feature-flags/featureFlagsLogic'
+import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { expectLogic } from 'kea-test-utils'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -14,40 +14,40 @@ describe('the feature flags logic', () => {
     })
 
     it('starts with active tab as "overview"', async () => {
-        await expectLogic(logic).toMatchValues({ activeTab: FeatureFlagsTabs.OVERVIEW })
+        await expectLogic(logic).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
     })
 
     it('can set tab to "history"', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
-        }).toMatchValues({ activeTab: FeatureFlagsTabs.HISTORY })
+            logic.actions.setActiveTab(FeatureFlagsTab.HISTORY)
+        }).toMatchValues({ activeTab: FeatureFlagsTab.HISTORY })
         expect(router.values.searchParams['tab']).toEqual('history')
     })
 
     it('can set tab back to "overview"', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
-            logic.actions.setActiveTab(FeatureFlagsTabs.OVERVIEW)
-        }).toMatchValues({ activeTab: FeatureFlagsTabs.OVERVIEW })
+            logic.actions.setActiveTab(FeatureFlagsTab.HISTORY)
+            logic.actions.setActiveTab(FeatureFlagsTab.OVERVIEW)
+        }).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
         expect(router.values.searchParams['tab']).toEqual('overview')
     })
 
     it('ignores unexpected tab keys', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
-            logic.actions.setActiveTab('tomato' as FeatureFlagsTabs)
+            logic.actions.setActiveTab(FeatureFlagsTab.HISTORY)
+            logic.actions.setActiveTab('tomato' as FeatureFlagsTab)
         }).toMatchValues({
-            activeTab: FeatureFlagsTabs.HISTORY,
+            activeTab: FeatureFlagsTab.HISTORY,
         })
         expect(router.values.searchParams['tab']).toEqual('history')
     })
 
     it('sets the tab from the URL', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setActiveTab(FeatureFlagsTabs.OVERVIEW)
+            logic.actions.setActiveTab(FeatureFlagsTab.OVERVIEW)
             router.actions.push(urls.featureFlags(), { tab: 'history' })
         }).toMatchValues({
-            activeTab: FeatureFlagsTabs.HISTORY,
+            activeTab: FeatureFlagsTab.HISTORY,
         })
     })
 })

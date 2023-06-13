@@ -46,9 +46,7 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def property_to_expr(
-    property: Union[BaseModel, PropertyGroup, Property, dict, list], team: Optional[Team] = None
-) -> ast.Expr:
+def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, list], team: Team) -> ast.Expr:
     if isinstance(property, dict):
         property = Property(**property)
     elif isinstance(property, list):
@@ -59,15 +57,18 @@ def property_to_expr(
     elif isinstance(property, Property):
         pass
     elif isinstance(property, PropertyGroup):
+        if property.type != PropertyOperatorType.AND and property.type != PropertyOperatorType.OR:
+            raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
+
+        if len(property.values) == 0:
+            return ast.Constant(value=True)
+        if len(property.values) == 1:
+            return property_to_expr(property.values[0], team)
+
         if property.type == PropertyOperatorType.AND:
-            if len(property.values) == 1:
-                return property_to_expr(property.values[0], team)
             return ast.And(exprs=[property_to_expr(p, team) for p in property.values])
-        if property.type == PropertyOperatorType.OR:
-            if len(property.values) == 1:
-                return property_to_expr(property.values[0], team)
+        else:
             return ast.Or(exprs=[property_to_expr(p, team) for p in property.values])
-        raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
     elif isinstance(property, BaseModel):
         property = Property(**property.dict())
     else:
@@ -81,7 +82,9 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
         if isinstance(value, list):
-            if len(value) == 1:
+            if len(value) == 0:
+                return ast.Constant(value=True)
+            elif len(value) == 1:
                 value = value[0]
             else:
                 exprs = [
@@ -207,10 +210,8 @@ def property_to_expr(
             sql = "person_id in (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
 
         return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort.pk)})
-    # "group",
-    # "recording",
-    # "behavioral",
-    # "session",
+
+    # TODO: Add support for these types "group", "recording", "behavioral", and "session" types
 
     raise NotImplementedException(f"property_to_expr not implemented for filter type {type(property).__name__}")
 
@@ -233,9 +234,21 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.tag_name is not None:
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
-                exprs.append(element_chain_key_filter("href", step.href, PropertyOperator.exact))
+                if step.href_matching == ActionStep.REGEX:
+                    operator = PropertyOperator.regex
+                elif step.href_matching == ActionStep.CONTAINS:
+                    operator = PropertyOperator.icontains
+                else:
+                    operator = PropertyOperator.exact
+                exprs.append(element_chain_key_filter("href", step.href, operator))
             if step.text is not None:
-                exprs.append(element_chain_key_filter("text", step.text, PropertyOperator.exact))
+                if step.text_matching == ActionStep.REGEX:
+                    operator = PropertyOperator.regex
+                elif step.text_matching == ActionStep.CONTAINS:
+                    operator = PropertyOperator.icontains
+                else:
+                    operator = PropertyOperator.exact
+                exprs.append(element_chain_key_filter("text", step.text, operator))
 
         if step.url:
             if step.url_matching == ActionStep.EXACT:
@@ -247,7 +260,7 @@ def action_to_expr(action: Action) -> ast.Expr:
             exprs.append(expr)
 
         if step.properties:
-            exprs.append(property_to_expr(step.properties))
+            exprs.append(property_to_expr(step.properties, action.team))
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])

@@ -10,6 +10,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
+from posthog.api.test.test_team import create_team
 from posthog.models import Organization, Person, SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
@@ -64,7 +65,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             snapshots=[snapshot],
         )
 
-    def create_chunked_snapshots(
+    def create_snapshots(
         self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True, window_id=""
     ):
         snapshots = []
@@ -102,7 +103,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             session_id=session_id,
             window_id=window_id,
             snapshots=snapshots,
-            chunk_size=15,
         )
 
     def test_get_session_recordings(self):
@@ -280,23 +280,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "created_at": "2023-01-01T12:00:00Z",
                 "uuid": ANY,
             },
-            "segments": [
-                {
-                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "window_id": "",
-                    "is_active": False,
-                }
-            ],
-            "start_and_end_times_by_window_id": {
-                "": {
-                    "window_id": "",
-                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "is_active": False,
-                }
-            },
-            "snapshot_data_by_window_id": None,
             "storage": "clickhouse",
         }
 
@@ -339,7 +322,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with freeze_time("2020-09-13T12:26:40.000Z"):
             start_time = now()
             for index, s in enumerate(range(num_chunks)):
-                self.create_chunked_snapshots(
+                self.create_snapshots(
                     snapshots_per_chunk,
                     "user",
                     chunked_session_id,
@@ -387,7 +370,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with freeze_time("2020-09-13T12:26:40.000Z"):
             start_time = now()
             for index, s in enumerate(range(num_chunks)):
-                self.create_chunked_snapshots(
+                self.create_snapshots(
                     snapshots_per_chunk,
                     "user",
                     chunked_session_id,
@@ -414,7 +397,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with freeze_time("2020-09-13T12:26:40.000Z"):
             start_time = now()
             for index, s in enumerate(range(num_chunks)):
-                self.create_chunked_snapshots(
+                self.create_snapshots(
                     snapshots_per_chunk,
                     "user",
                     chunked_session_id,
@@ -485,50 +468,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @freeze_time("2020-09-13T12:26:40.000Z")
     def test_get_metadata_for_chunked_session_recording(self):
-
-        with freeze_time("2020-09-13T12:26:40.000Z"):
-            p = Person.objects.create(
-                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
-            )
-            chunked_session_id = "chunked_session_id"
-            num_chunks = 60
-            snapshots_per_chunk = 2
-            for index in range(num_chunks):
-                self.create_chunked_snapshots(
-                    snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index)
-                )
-            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
-            response_data = response.json()
-            self.assertEqual(response_data["person"]["id"], p.pk)
-            self.assertEqual(
-                response_data["start_and_end_times_by_window_id"],
-                {
-                    "": {
-                        "is_active": False,
-                        "window_id": "",
-                        "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "end_time": (
-                            now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
-                        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    }
-                },
-            )
-            self.assertEqual(
-                response_data["segments"],
-                [
-                    {
-                        "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "end_time": (
-                            now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
-                        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "is_active": False,
-                        "window_id": "",
-                    }
-                ],
-            )
-            self.assertEqual(response_data["viewed"], False)
-            self.assertEqual(response_data["id"], chunked_session_id)
+        p = Person.objects.create(
+            team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+        )
+        chunked_session_id = "chunked_session_id"
+        num_chunks = 60
+        snapshots_per_chunk = 2
+        for index in range(num_chunks):
+            self.create_snapshots(snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index))
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
+        response_data = response.json()
+        self.assertEqual(response_data["person"]["id"], p.pk)
+        self.assertEqual(response_data["viewed"], False)
+        self.assertEqual(response_data["id"], chunked_session_id)
 
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
@@ -629,11 +583,48 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_delete_session_recording(self):
         self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-
-        assert response_data["success"]
-
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         # Trying to delete same recording again returns 404
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_via_sharing_token(self):
+        other_team = create_team(organization=self.organization)
+
+        session_id = str(uuid.uuid4())
+        with freeze_time("2023-01-01T12:00:00Z"):
+            self.create_snapshot("user", session_id, now() - relativedelta(days=1), team_id=self.team.pk)
+
+        token = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/sharing", {"enabled": True}
+        ).json()["access_token"]
+
+        self.client.logout()
+
+        # Unallowed routes
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/2?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(f"/api/projects/12345/session_recordings?sharing_access_token={token}")
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/session_recordings/{session_id}?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json() == {
+            "id": session_id,
+            "recording_duration": 0,
+            "start_time": "2022-12-31T12:00:00Z",
+            "end_time": "2022-12-31T12:00:00Z",
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

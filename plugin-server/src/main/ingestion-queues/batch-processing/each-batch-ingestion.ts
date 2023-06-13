@@ -1,17 +1,31 @@
 import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
-import { exponentialBuckets, Histogram } from 'prom-client'
+import { Counter, exponentialBuckets, Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter, WarningLimiter } from '../../../utils/token-bucket'
+import { EventPipelineResult } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
-import { eachBatch } from './each-batch'
+
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
+
+// The following two counters can be used to see how often we start,
+// but fail to commit offsets, which can cause duplicate events
+const kafkaBatchStart = new Counter({
+    name: 'ingestion_kafka_batch_start',
+    help: 'Number of times we have started working on a kafka batch',
+})
+const kafkaBatchOffsetCommitted = new Counter({
+    name: 'ingestion_kafka_batch_committed_offsets',
+    help: 'Number of times we have committed kafka offsets',
+})
 
 export enum IngestionOverflowMode {
     Disabled,
@@ -24,35 +38,11 @@ type IngestionSplitBatch = {
     toOverflow: KafkaMessage[]
 }
 
-export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
-    const event = formPipelineEvent(message)
-    await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
-}
-
-export async function eachBatchIngestion(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
-    function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], batchSize: number): KafkaMessage[][] {
-        // Once we see a distinct ID we've already seen break up the batch
-        const batches = []
-        const seenIds: Set<string> = new Set()
-        let currentBatch: KafkaMessage[] = []
-        for (const message of kafkaMessages) {
-            const pluginEvent = formPipelineEvent(message)
-            const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
-            if (currentBatch.length === batchSize || seenIds.has(seenKey)) {
-                seenIds.clear()
-                batches.push(currentBatch)
-                currentBatch = []
-            }
-            seenIds.add(seenKey)
-            currentBatch.push(message)
-        }
-        if (currentBatch) {
-            batches.push(currentBatch)
-        }
-        return batches
-    }
-
-    await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
+// Subset of EventPipelineResult to make sure we don't access what's exported for the tests
+type IngestResult = {
+    // Promises that the batch handler should await on before committing offsets,
+    // contains the Kafka producer ACKs, to avoid blocking after every message.
+    promises?: Array<Promise<void>>
 }
 
 export async function eachBatchParallelIngestion(
@@ -60,8 +50,8 @@ export async function eachBatchParallelIngestion(
     queue: IngestionConsumer,
     overflowMode: IngestionOverflowMode
 ): Promise<void> {
-    async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<void> {
-        await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
+    async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<IngestResult> {
+        return ingestEvent(queue.pluginsServer, queue.workerMethods, event)
     }
 
     const batchStartTimer = new Date()
@@ -76,6 +66,7 @@ export async function eachBatchParallelIngestion(
          * We're sorting with biggest last and pop()ing. Ideally, we'd use a priority queue by length
          * and a separate array for single messages, but let's look at profiles before optimizing.
          */
+        const prepareSpan = transaction.startChild({ op: 'prepareBatch' })
         const splitBatch = splitIngestionBatch(batch.messages, overflowMode)
         splitBatch.toProcess.sort((a, b) => a.length - b.length)
 
@@ -85,7 +76,9 @@ export async function eachBatchParallelIngestion(
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', splitBatch.toProcess.length, {
             key: metricKey,
         })
+        prepareSpan.finish()
 
+        const processingPromises: Array<Promise<void>> = []
         async function processMicroBatches(batches: PipelineEvent[][]): Promise<void> {
             let currentBatch
             let processedBatches = 0
@@ -95,6 +88,7 @@ export async function eachBatchParallelIngestion(
                     data: { batchLength: currentBatch.length },
                 })
 
+                // Process overflow ingestion warnings
                 if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0])
                     const distinct_id = currentBatch[0].distinct_id
@@ -105,9 +99,16 @@ export async function eachBatchParallelIngestion(
                     }
                 }
 
+                // Process every message sequentially, stash promises to await on later
                 for (const message of currentBatch) {
-                    await Promise.all([eachMessage(message, queue), heartbeat()])
+                    const result = await eachMessage(message, queue)
+                    if (result.promises) {
+                        processingPromises.push(...result.promises)
+                    }
                 }
+
+                // Emit the Kafka heartbeat if needed then close the micro-batch
+                await heartbeat()
                 processedBatches++
                 batchSpan.finish()
             }
@@ -134,11 +135,21 @@ export async function eachBatchParallelIngestion(
                 overflow_mode: IngestionOverflowMode[overflowMode],
             })
             .observe(splitBatch.toProcess.length)
+        kafkaBatchStart.inc() // just before processing any events
         const tasks = [...Array(parallelism)].map(() => processMicroBatches(splitBatch.toProcess))
         if (splitBatch.toOverflow.length > 0) {
+            const overflowSpan = transaction.startChild({
+                op: 'emitToOverflow',
+                data: { eventCount: splitBatch.toOverflow.length },
+            })
             tasks.push(emitToOverflow(queue, splitBatch.toOverflow))
+            overflowSpan.finish()
         }
         await Promise.all(tasks)
+
+        const awaitSpan = transaction.startChild({ op: 'awaitACKs', data: { promiseCount: processingPromises.length } })
+        await Promise.all(processingPromises)
+        awaitSpan.finish()
 
         // Commit offsets once at the end of the batch. We run the risk of duplicates
         // if the pod is prematurely killed in the middle of a batch, but this allows
@@ -153,6 +164,7 @@ export async function eachBatchParallelIngestion(
                 .set(Number.parseInt(lastMessage.timestamp))
         }
         commitSpan.finish()
+        kafkaBatchOffsetCommitted.inc() // and we successfully committed the offsets
 
         status.debug(
             '🧩',
@@ -181,7 +193,7 @@ export async function ingestEvent(
     workerMethods: WorkerMethods,
     event: PipelineEvent,
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
-): Promise<void> {
+): Promise<EventPipelineResult> {
     const eachEventStartTimer = new Date()
 
     checkAndPause?.()
@@ -189,11 +201,12 @@ export async function ingestEvent(
     server.statsd?.increment('kafka_queue_ingest_event_hit', {
         pipeline: 'runEventPipeline',
     })
-    await workerMethods.runEventPipeline(event)
+    const result = await workerMethods.runEventPipeline(event)
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
-
     countAndLogEvents()
+
+    return result
 }
 
 let messageCounter = 0
@@ -230,6 +243,18 @@ export function splitIngestionBatch(
         toProcess: [],
         toOverflow: [],
     }
+
+    if (overflowMode === IngestionOverflowMode.Consume) {
+        /**
+         * Grouping by distinct_id is inefficient here, because only a few ones are overflowing
+         * at a time. When messages are sent to overflow, we already give away the ordering guarantee,
+         * so we just return batches of one to increase concurrency.
+         * TODO: add a PipelineEvent[] field to IngestionSplitBatch for batches of 1
+         */
+        output.toProcess = kafkaMessages.map((m) => new Array(formPipelineEvent(m)))
+        return output
+    }
+
     const batches: Map<string, PipelineEvent[]> = new Map()
     for (const message of kafkaMessages) {
         if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {

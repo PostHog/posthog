@@ -128,14 +128,6 @@ mark {
     }
 }
 
-code.code {
-    // Temporary: .code class to transition legacy elements
-    color: var(--danger);
-    background-color: var(--mid);
-    border-radius: var(--radius);
-    padding: 2px 6px;
-}
-
 hr {
     border: 1px solid var(--border);
 }

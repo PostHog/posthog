@@ -44,7 +44,7 @@ concurrency:
 jobs:
     code-quality:
         name: Code quality
-        runs-on: ubuntu-22.04
+        runs-on: ubuntu-latest
         defaults:
             run:
                 working-directory: 'plugin-server'
@@ -74,7 +74,7 @@ jobs:
 
     tests:
         name: Tests (${{matrix.shard}})
-        runs-on: ubuntu-22.04
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -158,14 +158,13 @@ jobs:
               run: cd plugin-server && pnpm test -- --runInBand --forceExit tests/ --shard=${{matrix.shard}}
 
     functional-tests:
-        name: Functional tests (POE_TEAMS=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}} BATCHING=${{matrix.INGESTION_PARALLEL_BATCHING_ENABLED}})
-        runs-on: ubuntu-latest-8-cores
+        name: Functional tests (POE_EMBRACE_JOIN_FOR_TEAMS=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}})
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
                 POE_EMBRACE_JOIN_FOR_TEAMS: ['', '*']
-                INGESTION_PARALLEL_BATCHING_ENABLED: ['false', 'true']
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -174,7 +173,6 @@ jobs:
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             POE_EMBRACE_JOIN_FOR_TEAMS: ${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}}
-            INGESTION_PARALLEL_BATCHING_ENABLED: ${{matrix.INGESTION_PARALLEL_BATCHING_ENABLED}}
 
         steps:
             - name: Code check out
@@ -265,7 +263,7 @@ jobs:
         # comparable results, but rather to give a rough idea of how
         # ingestion performance changes over time.
 
-        runs-on: ubuntu-latest-8-cores
+        runs-on: ubuntu-latest
 
         env:
             DEBUG: 'true'

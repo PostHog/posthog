@@ -31,7 +31,6 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
-    EventsTableRowItem,
     PropertyFilterType,
     PropertyOperator,
     Resource,
@@ -55,14 +54,13 @@ import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { FeatureFlagsTabs } from './featureFlagsLogic'
+import { FeatureFlagsTab } from './featureFlagsLogic'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { LemonSelect } from '@posthog/lemon-ui'
-import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { ResourcePermission } from 'scenes/ResourcePermissionModal'
@@ -75,10 +73,11 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import clsx from 'clsx'
+import { AnalysisTab } from './FeatureFlagAnalysisTab'
+import { NodeKind } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -114,7 +113,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
+    const [activeTab, setActiveTab] = useState(FeatureFlagsTab.OVERVIEW)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
@@ -378,6 +377,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         ) : (
                             <>
                                 <PageHeader
+                                    notebookProps={{
+                                        href: urls.featureFlag(id),
+                                    }}
                                     title={
                                         <div className="flex items-center gap-2 mb-2">
                                             {featureFlag.key || 'Untitled'}
@@ -489,15 +491,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
-                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                                                    <span>
-                                                        <AddToNotebook
-                                                            node={NotebookNodeType.FeatureFlag}
-                                                            properties={{ id }}
-                                                            type="secondary"
-                                                        />
-                                                    </span>
-                                                </FlaggedFeature>
                                             </div>
                                         </>
                                     }
@@ -505,7 +498,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <Tabs
                                     activeKey={activeTab}
                                     destroyInactiveTabPane
-                                    onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
+                                    onChange={(t) => setActiveTab(t as FeatureFlagsTab)}
                                 >
                                     <Tabs.TabPane tab="Overview" key="overview">
                                         <Row>
@@ -532,6 +525,24 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <UsageTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
+
+                                    {featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id && (
+                                        <Tabs.TabPane
+                                            tab={
+                                                <div className="flex flex-row">
+                                                    <div>Analysis</div>
+                                                    <LemonTag className="ml-1 float-right uppercase" type="warning">
+                                                        {' '}
+                                                        Beta
+                                                    </LemonTag>
+                                                </div>
+                                            }
+                                            key="analysis"
+                                        >
+                                            <AnalysisTab id={id} featureFlag={featureFlag} />
+                                        </Tabs.TabPane>
+                                    )}
+
                                     {featureFlag.id && (
                                         <Tabs.TabPane tab="History" key="history">
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
@@ -581,7 +592,6 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         },
     ]
 
-    // TODO: reintegrate HogQL Editor
     return (
         <div>
             {connectedDashboardExists ? (
@@ -603,31 +613,24 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                 <b>Log</b>
                 <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
             </div>
-            <EventsTable
-                fixedFilters={{
-                    event_filter: '$feature_flag_called',
-                    properties: propertyFilter,
-                }}
-                fixedColumns={[
-                    {
-                        title: 'Value',
-                        key: 'value',
-                        render: function renderEventProperty(_, { event }: EventsTableRowItem) {
-                            return event?.properties['$feature_flag_response']?.toString()
-                        },
+            <Query
+                query={{
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: [
+                            ...defaultDataTableColumns(NodeKind.EventsQuery),
+                            featureFlag.filters.multivariate
+                                ? 'properties.$feature_flag_response'
+                                : "if(properties.$feature_flag_response == 1, 'true', 'false') -- Feature Flag Response",
+                        ],
+                        event: '$feature_flag_called',
+                        properties: propertyFilter,
+                        after: '-30d',
                     },
-                ]}
-                startingColumns={['person']}
-                fetchMonths={1}
-                pageKey={`feature-flag-` + featureFlagKey}
-                showPersonColumn={true}
-                showEventFilter={false}
-                showPropertyFilter={false}
-                showCustomizeColumns={false}
-                showAutoload={false}
-                showExport={false}
-                showActionsButton={false}
-                emptyPrompt={`No events received`}
+                    full: false,
+                    showDateRange: true,
+                }}
             />
         </div>
     )

@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from sentry_sdk import capture_exception, push_scope
 
 from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, UNIQUE_GROUPS, UNIQUE_USERS, WEEKLY_ACTIVE
+from posthog.hogql.hogql import translate_hogql
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
@@ -47,7 +48,11 @@ ALL_SUPPORTED_MATH_FUNCTIONS = [*list(PROPERTY_MATH_FUNCTIONS.keys()), *list(COU
 
 
 def process_math(
-    entity: Entity, team: Team, event_table_alias: Optional[str] = None, person_id_alias: str = "person_id"
+    entity: Entity,
+    team: Team,
+    filter: Filter,
+    event_table_alias: Optional[str] = None,
+    person_id_alias: str = "person_id",
 ) -> Tuple[str, str, Dict[str, Any]]:
     aggregate_operation = "count(*)"
     join_condition = ""
@@ -80,6 +85,8 @@ def process_math(
             params[key] = entity.math_property
     elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
         aggregate_operation = f"{COUNT_PER_ACTOR_MATH_FUNCTIONS[entity.math]}(intermediate_count)"
+    elif entity.math == "hogql":
+        aggregate_operation = translate_hogql(entity.math_hogql, filter.hogql_context)
 
     return aggregate_operation, join_condition, params
 

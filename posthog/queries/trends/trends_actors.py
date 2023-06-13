@@ -156,6 +156,8 @@ class TrendsActors(ActorBaseQuery):
     @cached_property
     def _aggregation_actor_value_expression_with_params(self) -> Tuple[str, Dict[str, Any]]:
         if self.entity.math in PROPERTY_MATH_FUNCTIONS:
-            math_aggregate_operation, _, math_params = process_math(self.entity, self._team, event_table_alias="e")
+            math_aggregate_operation, _, math_params = process_math(
+                self.entity, self._team, filter=self._filter, event_table_alias="e"
+            )
             return math_aggregate_operation, math_params
         return "count()", {}

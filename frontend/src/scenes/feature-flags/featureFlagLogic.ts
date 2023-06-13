@@ -16,6 +16,7 @@ import {
     RolloutConditionType,
     FeatureFlagGroupType,
     UserBlastRadiusType,
+    DashboardBasicType,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -34,6 +35,8 @@ import { dayjs } from 'lib/dayjs'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -189,7 +192,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
     key(({ id }) => id ?? 'unknown'),
-    connect({
+    connect((props: FeatureFlagLogicProps) => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -197,8 +200,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
             userLogic,
             ['hasAvailableFeature'],
+            dashboardsLogic,
+            ['dashboards'],
         ],
-    }),
+        actions: [
+            newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
+            ['submitNewDashboardSuccessWithResult'],
+        ],
+    })),
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         setFeatureFlagMissing: true,
@@ -528,6 +537,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     })),
     listeners(({ actions, values, props }) => ({
+        submitNewDashboardSuccessWithResult: async ({ result }) => {
+            await api.update(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlag.id}`, {
+                analytics_dashboards: [result.id],
+            })
+        },
         generateUsageDashboard: async () => {
             if (props.id) {
                 await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)
@@ -776,6 +790,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 })
 
                 return Math.min(total, 100)
+            },
+        ],
+        filteredDashboards: [
+            (s) => [s.dashboards, s.featureFlag],
+            (dashboards, featureFlag) => {
+                if (!featureFlag) {
+                    return dashboards
+                }
+
+                return dashboards.filter((dashboard: DashboardBasicType) => {
+                    return featureFlag.analytics_dashboards?.includes(dashboard.id)
+                })
             },
         ],
     }),

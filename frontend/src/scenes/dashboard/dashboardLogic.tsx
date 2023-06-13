@@ -70,8 +70,6 @@ export interface DashboardLogicProps {
     id?: number
     dashboard?: DashboardType
     placement?: DashboardPlacement
-    /** If showing a shared dashboard, we need the access token for refreshing. */
-    sharingAccessToken?: string
 }
 
 export interface RefreshStatus {
@@ -319,7 +317,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         filters: [
-            { date_from: null, date_to: null } as FilterType,
+            { date_from: null, date_to: null, properties: [] } as FilterType,
             {
                 setDates: (state, { dateFrom, dateTo }) => ({
                     ...state,
@@ -334,6 +332,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     date_from: dashboard?.filters.date_from || null,
                     date_to: dashboard?.filters.date_to || null,
+                    properties: dashboard?.filters.properties || [],
                 }),
             },
         ],
@@ -949,7 +948,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
-                    sharing_access_token: props.sharingAccessToken,
                 })}`
 
                 try {

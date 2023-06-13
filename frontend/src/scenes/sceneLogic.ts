@@ -33,6 +33,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
     [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
+    [Scene.Survey]: Scene.Surveys,
     [Scene.AppMetrics]: Scene.Plugins,
     [Scene.ReplaySingle]: Scene.Replay,
     [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,

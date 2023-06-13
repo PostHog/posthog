@@ -90,17 +90,20 @@ function TaxonomyIntroductionSection(): JSX.Element {
     )
 }
 
-export function VerifiedEventCheckbox({
+export function VerifiedDefinitionCheckbox({
     verified,
+    isProperty,
     onChange,
     compact = false,
 }: {
     verified: boolean
+    isProperty: boolean
     onChange: (nextVerified: boolean) => void
     compact?: boolean
 }): JSX.Element {
-    const copy =
-        'Verified events are prioritized in filters and other selection components. Verifying an event is a signal to collaborators that this event should be used in favor of similar events.'
+    const copy = isProperty
+        ? 'Verifying a property is a signal to collaborators that this property should be used in favor of similar properties.'
+        : 'Verified events are prioritized in filters and other selection components. Verifying an event is a signal to collaborators that this event should be used in favor of similar events.'
 
     return (
         <div className="border p-2 rounded">
@@ -111,7 +114,7 @@ export function VerifiedEventCheckbox({
                 }}
             >
                 <span className="font-semibold">
-                    Verified event
+                    Verified {isProperty ? 'property' : 'event'}
                     {compact && (
                         <Tooltip title={copy}>
                             <IconInfo className="ml-1 text-muted text-xl shrink-0" />
@@ -132,18 +135,17 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         return <></>
     }
 
+    const description: string | JSX.Element | undefined | null =
+        (definition && 'description' in definition && definition?.description) ||
+        (definition?.name &&
+            (keyMapping.element[definition.name]?.description || keyMapping.event[definition.name]?.description))
+
     const sharedComponents = (
         <>
-            {hasTaxonomyFeatures &&
-                definition &&
-                'description' in definition &&
-                (hasTaxonomyFeatures && definition.description ? (
-                    <DefinitionPopover.Description description={definition.description} />
-                ) : (
-                    <DefinitionPopover.DescriptionEmpty />
-                ))}
-            {isElement && definition?.name && (
-                <DefinitionPopover.Description description={keyMapping.element[definition.name].description} />
+            {description ? (
+                <DefinitionPopover.Description description={description} />
+            ) : (
+                <DefinitionPopover.DescriptionEmpty />
             )}
             <DefinitionPopover.Example value={group?.getValue?.(definition)?.toString()} />
             {hasTaxonomyFeatures && definition && 'tags' in definition && !!definition.tags?.length && (
@@ -318,6 +320,7 @@ function DefinitionEdit(): JSX.Element {
         type,
         dirty,
         viewFullDetailUrl,
+        isProperty,
     } = useValues(definitionPopoverLogic)
     const { setLocalDefinition, handleCancel, handleSave } = useActions(definitionPopoverLogic)
 
@@ -365,8 +368,9 @@ function DefinitionEdit(): JSX.Element {
                     </>
                 )}
                 {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (
-                    <VerifiedEventCheckbox
+                    <VerifiedDefinitionCheckbox
                         verified={!!localDefinition.verified}
+                        isProperty={isProperty}
                         onChange={(nextVerified) => {
                             setLocalDefinition({ verified: nextVerified })
                         }}
@@ -438,7 +442,7 @@ export function ControlledDefinitionPopover({
 
     const icon = group.getIcon?.(definition || item)
 
-    // Must use `useEffect` here to hydrate popover card with newest item, since lifecycle of `ItemPopover` is controlled
+    // Must use `useEffect` here to hydrate popover card with the newest item, since lifecycle of `ItemPopover` is controlled
     // independently by `infiniteListLogic`
     useEffect(() => {
         setDefinition(item)

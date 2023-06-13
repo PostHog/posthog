@@ -24,8 +24,6 @@ export class PendingChunks {
         return Object.values(
             // keep only one of each chunk_index, assumes any duplicates are ignorable duplicates
             this.chunks.reduce((acc, curr) => {
-                // If the chunk_index doesn't exist in the accumulator or
-                // the existing object is older than the current one, update the accumulator
                 if (!acc[curr.chunk_index]) {
                     acc[curr.chunk_index] = curr
                 }

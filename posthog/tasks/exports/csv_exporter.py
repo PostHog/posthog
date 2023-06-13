@@ -173,8 +173,12 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     all_csv_rows: List[Any] = []
 
     if resource.get("source"):
+        from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+
         query = resource.get("source")
-        query_response = process_query(team=exported_asset.team, query_json=query, is_hogql_enabled=True)
+        query_response = process_query(
+            team=exported_asset.team, query_json=query, default_limit=MAX_SELECT_RETURNED_ROWS
+        )
         all_csv_rows = _convert_response_to_csv_data(query_response)
 
     else:

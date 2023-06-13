@@ -75,6 +75,7 @@ class Lifecycle:
             },
             query_type="lifecycle_people",
             filter=filter,
+            team_id=team.pk,
         )
         people = get_persons_by_uuids(team=team, uuids=[p[0] for p in result])
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))

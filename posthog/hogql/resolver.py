@@ -5,6 +5,7 @@ from uuid import UUID
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import StringJSONDatabaseField
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -45,22 +46,22 @@ def resolve_types(node: ast.Expr, database: Database, scopes: Optional[List[ast.
 
 
 class Resolver(CloningVisitor):
-    """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all macros"""
+    """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
     def __init__(self, database: Database, scopes: Optional[List[ast.SelectQueryType]] = None):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
         self.database = database
-        self.macro_counter = 0
+        self.cte_counter = 0
 
     def visit(self, node: ast.Expr) -> ast.Expr:
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolverException(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
             )
-        if self.macro_counter > 50:
-            raise ResolverException("Too many macro expansions (50+). Probably a macro loop.")
+        if self.cte_counter > 50:
+            raise ResolverException("Too many CTE expansions (50+). Probably a CTE loop.")
         return super().visit(node)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
@@ -75,18 +76,20 @@ class Resolver(CloningVisitor):
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
 
-        # First step: add all the "WITH" macros onto the "scope" if there are any
-        if node.macros:
-            node_type.macros = node.macros
+        # First step: add all the "WITH" CTEs onto the "scope" if there are any
+        if node.ctes:
+            node_type.ctes = node.ctes
 
         # Append the "scope" onto the stack early, so that nodes we "self.visit" below can access it.
         self.scopes.append(node_type)
 
         # Clone the select query, piece by piece
         new_node = ast.SelectQuery(
+            start=node.start,
+            end=node.end,
             type=node_type,
-            # macros have been expanded (moved to the type for now), so remove from the printable "WITH" clause
-            macros=None,
+            # CTEs have been expanded (moved to the type for now), so remove from the printable "WITH" clause
+            ctes=None,
             # "select" needs a default value, so [] it is
             select=[],
         )
@@ -128,6 +131,9 @@ class Resolver(CloningVisitor):
         new_node.limit_with_ties = node.limit_with_ties
         new_node.offset = self.visit(node.offset)
         new_node.distinct = node.distinct
+        new_node.window_exprs = (
+            {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
+        )
 
         self.scopes.pop()
 
@@ -170,18 +176,18 @@ class Resolver(CloningVisitor):
 
         scope = self.scopes[-1]
 
-        # If selecting from a macro, expand and visit the new node
+        # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
             table_name = node.table.chain[0]
-            macro = lookup_macro_by_name(self.scopes, table_name)
-            if macro:
+            cte = lookup_cte_by_name(self.scopes, table_name)
+            if cte:
                 node = cast(ast.JoinExpr, clone_expr(node))
-                node.table = clone_expr(macro.expr)
+                node.table = clone_expr(cte.expr)
                 node.alias = table_name
 
-                self.macro_counter += 1
+                self.cte_counter += 1
                 response = self.visit(node)
-                self.macro_counter -= 1
+                self.cte_counter -= 1
                 return response
 
         if isinstance(node.table, ast.Field):
@@ -251,11 +257,7 @@ class Resolver(CloningVisitor):
             raise ResolverException("Alias cannot be empty")
 
         node = super().visit_alias(node)
-
-        if not node.expr.type:
-            raise ResolverException(f"Cannot alias an expression without a type: {node.alias}")
-
-        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type)
+        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
         scope.aliases[node.alias] = node.type
         return node
 
@@ -329,17 +331,17 @@ class Resolver(CloningVisitor):
             type = lookup_field_by_name(scope, name)
 
         if not type:
-            macro = lookup_macro_by_name(self.scopes, name)
-            if macro:
+            cte = lookup_cte_by_name(self.scopes, name)
+            if cte:
                 if len(node.chain) > 1:
-                    raise ResolverException(f"Cannot access fields on macro {macro.name} yet.")
-                # SubQuery macros ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
+                    raise ResolverException(f"Cannot access fields on CTE {cte.name} yet.")
+                # SubQuery CTEs ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
                 # which is handled in visit_join_expr. Referring to it here means we want to access its value.
-                if macro.macro_format == "subquery":
+                if cte.cte_type == "subquery":
                     return ast.Field(chain=node.chain)
-                self.macro_counter += 1
-                response = self.visit(clone_expr(macro.expr))
-                self.macro_counter -= 1
+                self.cte_counter += 1
+                response = self.visit(clone_expr(cte.expr))
+                self.cte_counter -= 1
                 return response
 
         if not type:
@@ -360,6 +362,43 @@ class Resolver(CloningVisitor):
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
+        return node
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        node = super().visit_array_access(node)
+
+        if (
+            isinstance(node.array, ast.Field)
+            and isinstance(node.property, ast.Constant)
+            and (isinstance(node.property.value, str) or isinstance(node.property.value, int))
+            and (
+                (isinstance(node.array.type, ast.PropertyType))
+                or (
+                    isinstance(node.array.type, ast.FieldType)
+                    and isinstance(node.array.type.resolve_database_field(), StringJSONDatabaseField)
+                )
+            )
+        ):
+            node.array.chain.append(node.property.value)
+            node.array.type = node.array.type.get_child(node.property.value)
+            return node.array
+
+        return node
+
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        node = super().visit_tuple_access(node)
+
+        if isinstance(node.tuple, ast.Field) and (
+            (isinstance(node.tuple.type, ast.PropertyType))
+            or (
+                isinstance(node.tuple.type, ast.FieldType)
+                and isinstance(node.tuple.type.resolve_database_field(), StringJSONDatabaseField)
+            )
+        ):
+            node.tuple.chain.append(node.index)
+            node.tuple.type = node.tuple.type.get_child(node.index)
+            return node.tuple
+
         return node
 
     def visit_constant(self, node: ast.Constant):
@@ -404,8 +443,8 @@ def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.
         return None
 
 
-def lookup_macro_by_name(scopes: List[ast.SelectQueryType], name: str) -> Optional[ast.Macro]:
+def lookup_cte_by_name(scopes: List[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
     for scope in reversed(scopes):
-        if scope and scope.macros and name in scope.macros:
-            return scope.macros[name]
+        if scope and scope.ctes and name in scope.ctes:
+            return scope.ctes[name]
     return None

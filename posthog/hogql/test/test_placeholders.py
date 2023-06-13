@@ -1,7 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
+from posthog.hogql.placeholders import replace_placeholders
 from posthog.test.base import BaseTest
 
 
@@ -10,45 +10,51 @@ class TestParser(BaseTest):
         expr = parse_expr("{foo}")
         self.assertEqual(
             expr,
-            ast.Placeholder(field="foo"),
+            ast.Placeholder(field="foo", start=0, end=5),
         )
         expr2 = replace_placeholders(expr, {"foo": ast.Constant(value="bar")})
         self.assertEqual(
             expr2,
-            ast.Constant(value="bar"),
+            ast.Constant(value="bar", start=0, end=5),
         )
 
     def test_replace_placeholders_error(self):
         expr = ast.Placeholder(field="foo")
         with self.assertRaises(HogQLException) as context:
             replace_placeholders(expr, {})
-        self.assertTrue("Placeholder 'foo' not found in provided dict:" in str(context.exception))
+        self.assertEqual("Placeholders, such as {foo}, are not supported in this context", str(context.exception))
         with self.assertRaises(HogQLException) as context:
             replace_placeholders(expr, {"bar": ast.Constant(value=123)})
-        self.assertTrue("Placeholder 'foo' not found in provided dict: bar" in str(context.exception))
+        self.assertEqual(
+            "Placeholder {foo} is not available in this context. You can use the following: bar", str(context.exception)
+        )
 
     def test_replace_placeholders_comparison(self):
         expr = parse_expr("timestamp < {timestamp}")
         self.assertEqual(
             expr,
             ast.CompareOperation(
+                start=0,
+                end=23,
                 op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Placeholder(field="timestamp"),
+                left=ast.Field(chain=["timestamp"], start=0, end=9),
+                right=ast.Placeholder(field="timestamp", start=12, end=23),
             ),
         )
         expr2 = replace_placeholders(expr, {"timestamp": ast.Constant(value=123)})
         self.assertEqual(
             expr2,
             ast.CompareOperation(
+                start=0,
+                end=23,
                 op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=123),
+                left=ast.Field(chain=["timestamp"], start=0, end=9),
+                right=ast.Constant(value=123, start=12, end=23),
             ),
         )
 
     def test_assert_no_placeholders(self):
         expr = ast.Placeholder(field="foo")
         with self.assertRaises(HogQLException) as context:
-            assert_no_placeholders(expr)
-        self.assertTrue("Placeholder 'foo' not allowed in this context" in str(context.exception))
+            replace_placeholders(expr, None)
+        self.assertEqual("Placeholders, such as {foo}, are not supported in this context", str(context.exception))

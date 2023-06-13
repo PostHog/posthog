@@ -131,6 +131,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual([p1.uuid], self._get_people_at_path(filter, "3_/3", "4_/4"))
 
     @snapshot_clickhouse_queries
+    @freeze_time("2023-05-23T11:00:00.000Z")
     def test_step_conversion_times(self):
         _create_person(team_id=self.team.pk, distinct_ids=["fake"])
 
@@ -728,6 +729,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response, correct_response)
 
     @snapshot_clickhouse_queries
+    @freeze_time("2023-05-23T11:00:00.000Z")
     def test_path_cleaning_rules_with_wildcard_groups(self):
         _create_person(distinct_ids=[f"user_1"], team=self.team)
         _create_person(distinct_ids=[f"user_2"], team=self.team)
@@ -1576,6 +1578,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    @freeze_time("2023-05-23T11:00:00.000Z")
     def test_event_inclusion_exclusion_filters(self):
         # P1 for pageview event
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
@@ -1720,6 +1723,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    @freeze_time("2023-05-23T11:00:00.000Z")
     def test_event_exclusion_filters_with_wildcard_groups(self):
         # P1 for pageview event /2/bar/1/foo
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
@@ -1939,6 +1943,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    @freeze_time("2023-05-23T11:00:00.000Z")
     def test_respect_session_limits(self):
         _create_person(team_id=self.team.pk, distinct_ids=["fake"])
 
@@ -2241,6 +2246,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(should_query_list(filter), (False, True))
 
     @snapshot_clickhouse_queries
+    @freeze_time("2023-05-23T11:00:00.000Z")
     def test_wildcard_groups_across_people(self):
         # P1 for pageview event /2/bar/1/foo
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
@@ -2336,6 +2342,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    @freeze_time("2023-05-23T11:00:00.000Z")
     def test_wildcard_groups_evil_input(self):
         evil_string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
         # P1 for pageview event /2/bar/1/foo
@@ -3117,8 +3124,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
-    # query is not guaranteed, so adding it would lead to a flaky test.
     @freeze_time("2012-01-01T03:21:34.000Z")
     @snapshot_clickhouse_queries
     def test_recording(self):

@@ -617,9 +617,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (
                 results.count > 0 &&
                 (groupType === TaxonomicFilterGroupType.EventProperties ||
+                    groupType === TaxonomicFilterGroupType.PersonProperties ||
                     groupType === TaxonomicFilterGroupType.NumericalEventProperties)
             ) {
-                updatePropertyDefinitions(results.results as PropertyDefinition[])
+                const propertyDefinitions: PropertyDefinition[] = results.results as PropertyDefinition[]
+                const apiType = groupType === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
+                const newPropertyDefinitions = Object.fromEntries(
+                    propertyDefinitions.map((propertyDefinition) => [
+                        `${apiType}/${propertyDefinition.name}`,
+                        propertyDefinition,
+                    ])
+                )
+                updatePropertyDefinitions(newPropertyDefinitions)
             }
         },
     }),

@@ -7,9 +7,9 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import {
-    CohortPersonPropertiesValuesFieldProps,
     CohortFieldBaseProps,
     CohortNumberFieldProps,
+    CohortPersonPropertiesValuesFieldProps,
     CohortSelectorFieldProps,
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
@@ -17,7 +17,7 @@ import {
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
-import { PropertyFilterValue, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
 
 let uniqueMemoizedIndex = 0
 
@@ -157,7 +157,7 @@ export function CohortPersonPropertiesValuesField({
             className={clsx('CohortField', 'CohortField__CohortPersonPropertiesValuesField')}
             operator={operator || PropertyOperator.Exact}
             propertyKey={propertyKey as string}
-            type="person"
+            type={PropertyFilterType.Person}
             value={value as PropertyFilterValue}
             onSet={(newValue: PropertyOperator) => {
                 onChange({ [fieldKey]: newValue })

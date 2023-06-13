@@ -10,6 +10,7 @@ import {
     IconCohort,
     IconComment,
     IconExperiment,
+    IconFeedback,
     IconFlag,
     IconGauge,
     IconLive,
@@ -185,6 +186,15 @@ function Pages(): JSX.Element {
                             identifier={Scene.EarlyAccessFeatures}
                             title={'Early Access Management'}
                             to={urls.earlyAccessFeatures()}
+                        />
+                    )}
+
+                    {featureFlags[FEATURE_FLAGS.SURVEYS] && (
+                        <PageButton
+                            icon={<IconFeedback />}
+                            identifier={Scene.Surveys}
+                            title={'Surveys'}
+                            to={urls.surveys()}
                         />
                     )}
 

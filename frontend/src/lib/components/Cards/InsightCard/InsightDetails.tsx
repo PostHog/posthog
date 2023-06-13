@@ -146,16 +146,23 @@ function SeriesDisplay({
                     {insightType !== InsightType.FUNNELS && (
                         <div>
                             counted by{' '}
-                            {mathDefinition?.category === MathCategory.PropertyValue && filter.math_property && (
+                            {mathDefinition?.category === MathCategory.HogQLExpression ? (
+                                <code>{filter.math_hogql}</code>
+                            ) : (
                                 <>
-                                    {' '}
-                                    event's
-                                    <span className="SeriesDisplay__raw-name">
-                                        <PropertyKeyInfo value={filter.math_property} />
-                                    </span>
+                                    {mathDefinition?.category === MathCategory.PropertyValue &&
+                                        filter.math_property && (
+                                            <>
+                                                {' '}
+                                                event's
+                                                <span className="SeriesDisplay__raw-name">
+                                                    <PropertyKeyInfo value={filter.math_property} />
+                                                </span>
+                                            </>
+                                        )}
+                                    <b>{mathDefinition?.name.toLowerCase()}</b>
                                 </>
                             )}
-                            <b>{mathDefinition?.name.toLowerCase()}</b>
                         </div>
                     )}
                     {filter.properties && filter.properties.length > 0 && (
@@ -170,23 +177,21 @@ function SeriesDisplay({
                 </>
             }
         >
-            <span>
-                {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
-                {filter.custom_name && <b> "{filter.custom_name}"</b>}
-                {filter.type === 'actions' && filter.id ? (
-                    <Link
-                        to={urls.action(filter.id)}
-                        className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
-                        title="Action series"
-                    >
-                        {filter.name}
-                    </Link>
-                ) : (
-                    <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                        <PropertyKeyInfo value={filter.name || '$pageview'} />
-                    </span>
-                )}
-            </span>
+            {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
+            {filter.custom_name && <b> "{filter.custom_name}"</b>}
+            {filter.type === 'actions' && filter.id ? (
+                <Link
+                    to={urls.action(filter.id)}
+                    className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
+                    title="Action series"
+                >
+                    {filter.name}
+                </Link>
+            ) : (
+                <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
+                    <PropertyKeyInfo value={filter.name || '$pageview'} />
+                </span>
+            )}
         </LemonRow>
     )
 }

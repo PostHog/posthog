@@ -1,21 +1,11 @@
-import { EachBatchPayload, KafkaMessage } from 'kafkajs'
+import { EachBatchPayload } from 'kafkajs'
 import * as schedule from 'node-schedule'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
-import { isIngestionParallelBatchingEnabled } from '../../utils/env-utils'
-import { formPipelineEvent } from '../../utils/event'
 import { status } from '../../utils/status'
-import { WarningLimiter } from '../../utils/token-bucket'
-import { groupIntoBatches } from '../../utils/utils'
 import Piscina from '../../worker/piscina'
-import { captureIngestionWarning } from './../../worker/ingestion/utils'
-import { eachBatch } from './batch-processing/each-batch'
-import {
-    eachBatchParallelIngestion,
-    eachMessageIngestion,
-    IngestionOverflowMode,
-} from './batch-processing/each-batch-ingestion'
+import { eachBatchParallelIngestion, IngestionOverflowMode } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
 
 export const startAnalyticsEventsIngestionOverflowConsumer = async ({
@@ -44,13 +34,8 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
     // group id. In these cases, updating to this version will result in the
     // re-exporting of events still in Kafka `clickhouse_events_json` topic.
 
-    let batchHandler
-    if (isIngestionParallelBatchingEnabled()) {
-        batchHandler = async (payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> => {
-            await eachBatchParallelIngestion(payload, queue, IngestionOverflowMode.Consume)
-        }
-    } else {
-        batchHandler = eachBatchIngestionFromOverflow
+    const batchHandler = async (payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> => {
+        await eachBatchParallelIngestion(payload, queue, IngestionOverflowMode.Consume)
     }
 
     const queue = new IngestionConsumer(
@@ -68,25 +53,4 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
     })
 
     return queue
-}
-
-export async function eachBatchIngestionFromOverflow(
-    payload: EachBatchPayload,
-    queue: IngestionConsumer
-): Promise<void> {
-    await eachBatch(payload, queue, eachMessageIngestionFromOverflow, groupIntoBatches, 'ingestion')
-}
-
-export async function eachMessageIngestionFromOverflow(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
-    const pluginEvent = formPipelineEvent(message)
-    // Warnings are limited to 1/key/hour to avoid spamming.
-    // TODO: now that we use lightweight capture, we need to ensure that we
-    // resolve the team_id, as at the moment it will always be null.
-    if (pluginEvent.team_id && WarningLimiter.consume(`${pluginEvent.team_id}:${pluginEvent.distinct_id}`, 1)) {
-        captureIngestionWarning(queue.pluginsServer.db, pluginEvent.team_id, 'ingestion_capacity_overflow', {
-            overflowDistinctId: pluginEvent.distinct_id,
-        })
-    }
-
-    await eachMessageIngestion(message, queue)
 }
