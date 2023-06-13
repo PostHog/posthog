@@ -43,7 +43,7 @@ jobs:
                   ls | grep -v foss-release-image-publish.yml | xargs rm
 
             - name: Commit "Sync and remove all non-FOSS parts"
-              uses: EndBug/add-and-commit@v7
+              uses: EndBug/add-and-commit@v9
               with:
                   message: 'Sync and remove all non-FOSS parts'
                   remove: '["-r ee/"]'
@@ -51,4 +51,3 @@ jobs:
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   repository: 'posthog/posthog-foss'
                   ref: master
-            - run: echo # Empty step so that GitHub doesn't complain about an empty job on forks
