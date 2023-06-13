@@ -56,12 +56,14 @@ export const getSurveyEventName = (surveyName: string): string => {
     return `${surveyName} survey sent`
 }
 
+const SURVEY_ANSWER_PROPERTY = '$survey_answer'
+
 export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
     const surveyDataQuery: DataTableNode = {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
-            select: ['*', 'event', 'timestamp', 'person'],
+            select: ['*', 'event', `properties.${SURVEY_ANSWER_PROPERTY}`, 'timestamp', 'person'],
             orderBy: ['timestamp DESC'],
             after: '-30d',
             limit: 100,
