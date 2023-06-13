@@ -1,7 +1,11 @@
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Extra
 
 from posthog.hogql.errors import HogQLException, NotImplementedException
+
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 
 class DatabaseField(BaseModel):
@@ -103,6 +107,28 @@ class LazyTable(Table):
 class VirtualTable(Table):
     class Config:
         extra = Extra.forbid
+
+
+class TableFunction(Table):
+    alias: str
+
+    class Config:
+        extra = Extra.forbid
+
+    def has_field(self, name: str) -> bool:
+        raise NotImplementedException("TableFunction.has_field not overridden")
+
+    def get_field(self, name: str) -> DatabaseField:
+        raise NotImplementedException("TableFunction.get_field not overridden")
+
+    def to_printed_hogql(self, context: "HogQLContext"):
+        raise NotImplementedException("TableFunction.to_printed_hogql not overridden")
+
+    def to_printed_clickhouse(self, context: "HogQLContext"):
+        raise NotImplementedException("TableFunction.to_printed_clickhouse not overridden")
+
+    def get_asterisk(self) -> Dict[str, DatabaseField]:
+        raise NotImplementedException("Table.get_asterisk not supported")
 
 
 class FieldTraverser(BaseModel):

@@ -16,6 +16,7 @@ from posthog.hogql.database.models import (
     DateDatabaseField,
     FloatDatabaseField,
 )
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -24,6 +25,7 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, RawPersonOverridesTable
 from posthog.hogql.database.schema.session_recording_events import SessionRecordingEvents
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
+from posthog.hogql.database.test.tables import AAPLStockTable
 from posthog.hogql.errors import HogQLException
 from posthog.utils import PersonOnEventsMode
 
@@ -48,6 +50,8 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
+
+    aapl_stock: S3Table = AAPLStockTable.copy()
 
     def __init__(self, timezone: Optional[str]):
         super().__init__()

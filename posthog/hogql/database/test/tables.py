@@ -1,0 +1,17 @@
+from posthog.hogql.database.models import DateDatabaseField, IntegerDatabaseField, FloatDatabaseField
+from posthog.hogql.database.s3_table import S3Table
+
+AAPLStockTable = S3Table(
+    alias="aapl_stock",
+    url="https://datasets-documentation.s3.eu-west-3.amazonaws.com/aapl_stock.csv",
+    format="CSVWithNames",
+    fields={
+        "Date": DateDatabaseField(name="Date"),
+        "Open": FloatDatabaseField(name="Open"),
+        "High": FloatDatabaseField(name="High"),
+        "Low": FloatDatabaseField(name="Low"),
+        "Close": FloatDatabaseField(name="Close"),
+        "Volume": FloatDatabaseField(name="Volume"),
+        "OpenInt": IntegerDatabaseField(name="OpenInt"),
+    },
+)
