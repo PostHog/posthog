@@ -105,17 +105,13 @@ class SessionRecordingEvents:
 
     def get_metadata(self) -> Optional[RecordingMetadata]:
         snapshots = self._query_recording_snapshots(include_snapshots=False)
-
-        if len(snapshots) == 0:
-            return None
-
-        distinct_id = snapshots[0]["distinct_id"]
-
         events_summary = self._get_events_summary(snapshots)
+
+        if len(events_summary) == 0:
+            return None
 
         start_time = parse_snapshot_timestamp(events_summary[0]["timestamp"])
         end_time = parse_snapshot_timestamp(events_summary[-1]["timestamp"])
-
         click_count = len([x for x in events_summary if x["type"] == 3 and x["data"]["source"] == 2])
         keypress_count = len([x for x in events_summary if x["type"] == 3 and x["data"]["source"] == 5])
         urls: List[str] = [
@@ -133,6 +129,7 @@ class SessionRecordingEvents:
         )
 
     def _get_events_summary(self, snapshots: List[SessionRecordingEvent]) -> List[SessionRecordingEventSummary]:
-        return list(flatten([cast(SessionRecordingEventSummary, x.get("events_summary", [])) for x in snapshots])).sort(
-            key=lambda x: x["timestamp"]
+        return sorted(
+            list(flatten([cast(SessionRecordingEventSummary, x.get("events_summary", [])) for x in snapshots])),
+            key=lambda x: x["timestamp"],
         )
