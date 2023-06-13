@@ -2,8 +2,17 @@ from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
-from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.kafka_engine import (
+    KAFKA_COLUMNS,
+    STORAGE_POLICY,
+    kafka_engine,
+    trim_quotes_expr,
+)
+from posthog.clickhouse.table_engines import (
+    Distributed,
+    ReplacingMergeTree,
+    ReplicationScheme,
+)
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events"
@@ -86,7 +95,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     table_name=EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=EVENTS_DATA_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=KAFKA_COLUMNS + ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW()",
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
