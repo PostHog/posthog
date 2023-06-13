@@ -710,10 +710,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=alias)
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
-        raise NotImplementedException(f"Unsupported node: TableExprFunction")
+        return self.visit(ctx.tableFunctionExpr())
 
     def visitTableFunctionExpr(self, ctx: HogQLParser.TableFunctionExprContext):
-        raise NotImplementedException(f"Unsupported node: TableFunctionExpr")
+        return ast.Call(name=self.visit(ctx.identifier()), args=self.visit(ctx.tableArgList()))
 
     def visitTableIdentifier(self, ctx: HogQLParser.TableIdentifierContext):
         text = self.visit(ctx.identifier())
@@ -722,10 +722,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [text]
 
     def visitTableArgList(self, ctx: HogQLParser.TableArgListContext):
-        raise NotImplementedException(f"Unsupported node: TableArgList")
+        return [self.visit(arg) for arg in ctx.tableArgExpr()]
 
     def visitTableArgExpr(self, ctx: HogQLParser.TableArgExprContext):
-        raise NotImplementedException(f"Unsupported node: TableArgExpr")
+        return self.visitChildren(ctx)
 
     def visitDatabaseIdentifier(self, ctx: HogQLParser.DatabaseIdentifierContext):
         return self.visit(ctx.identifier())

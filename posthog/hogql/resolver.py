@@ -141,7 +141,13 @@ class Resolver(CloningVisitor):
 
     def _expand_asterisk_columns(self, select_query: ast.SelectQuery, asterisk: ast.AsteriskType):
         """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
-        if isinstance(asterisk.table_type, ast.BaseTableType):
+        if isinstance(asterisk.table_type, ast.TableFunctionType):
+            key = "number"
+            type = ast.FieldType(name=key, table_type=asterisk.table_type)
+            select_query.select.append(ast.Field(chain=[key], type=type))
+            select_query.type.columns[key] = type
+
+        elif isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table()
             database_fields = table.get_asterisk()
             for key in database_fields.keys():
@@ -237,11 +243,34 @@ class Resolver(CloningVisitor):
                 scope.anonymous_tables.append(node.type)
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
+            # Lines below expect scope.tables or scope.anonymous_tables to have been set
             node.next_join = self.visit(node.next_join)
             node.constraint = self.visit(node.constraint)
             node.sample = self.visit(node.sample)
 
             return node
+        elif isinstance(node.table, ast.Call):
+
+            table_name = node.table.name
+            table_alias = node.alias or table_name
+            if table_alias in scope.tables:
+                raise ResolverException(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
+
+            if table_name == "numbers":
+                if len(node.table.args) < 1:
+                    raise ResolverException(f'Expected at least 1 argument for table function "numbers".')
+                if len(node.table.args) > 2:
+                    raise ResolverException(f'Expected at most 2 arguments for table function "numbers".')
+
+                node = super().visit_join_expr(node)  # cloning and visiting, no tricky bits here
+                node.type = ast.TableFunctionType(name="numbers", arg_types=[arg.type for arg in node.table.args])
+                if table_alias != table_name:
+                    node.type = ast.TableAliasType(alias=table_alias, table_type=node.type)
+                scope.tables[table_alias] = node.type
+                return node
+            else:
+                raise ResolverException(f'Unknown table function "{table_name}".')
+
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 

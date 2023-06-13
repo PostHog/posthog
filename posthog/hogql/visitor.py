@@ -168,6 +168,10 @@ class TraversingVisitor(Visitor):
     def visit_table_alias_type(self, node: ast.TableAliasType):
         self.visit(node.table_type)
 
+    def visit_table_function_type(self, node: ast.TableFunctionType):
+        for arg_type in node.arg_types:
+            self.visit(arg_type)
+
     def visit_select_query_alias_type(self, node: ast.SelectQueryAliasType):
         self.visit(node.select_query_type)
 

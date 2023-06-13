@@ -277,6 +277,11 @@ class _Printer(Visitor):
         elif isinstance(node.type, ast.LazyTableType) and self.dialect == "hogql":
             join_strings.append(self._print_identifier(node.type.table.hogql_table()))
 
+        elif isinstance(node.type, ast.TableFunctionType) and isinstance(node.table, ast.Call):
+            name = self._print_identifier(node.type.name)
+            args = [self.visit(arg) for arg in node.table.args]
+            join_strings.append(f"{name}({', '.join(args)}")
+
         else:
             raise HogQLException("Only selecting from a table or a subquery is supported")
 

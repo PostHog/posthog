@@ -82,7 +82,7 @@ class FieldAliasType(Type):
 
 
 class BaseTableType(Type):
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self) -> Optional[Table]:
         raise NotImplementedException("BaseTableType.resolve_database_table not overridden")
 
     def has_child(self, name: str) -> bool:
@@ -108,15 +108,26 @@ class BaseTableType(Type):
 class TableType(BaseTableType):
     table: Table
 
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self) -> Optional[Table]:
         return self.table
+
+
+class TableFunctionType(BaseTableType):
+    name: str
+    arg_types: List[Type]
+
+    def has_child(self, name: str) -> bool:
+        return name == "number"
+
+    def resolve_database_table(self) -> Optional[Table]:
+        return None
 
 
 class TableAliasType(BaseTableType):
     alias: str
-    table_type: TableType
+    table_type: TableType | TableFunctionType
 
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self) -> Optional[Table]:
         return self.table_type.table
 
 
@@ -125,14 +136,14 @@ class LazyJoinType(BaseTableType):
     field: str
     lazy_join: LazyJoin
 
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self) -> Optional[Table]:
         return self.lazy_join.join_table
 
 
 class LazyTableType(BaseTableType):
     table: LazyTable
 
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self) -> Optional[Table]:
         return self.table
 
 
@@ -141,7 +152,7 @@ class VirtualTableType(BaseTableType):
     field: str
     virtual_table: VirtualTable
 
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self) -> Optional[Table]:
         return self.virtual_table
 
     def has_child(self, name: str) -> bool:
@@ -444,6 +455,7 @@ class Call(Expr):
     name: str
     args: List[Expr]
     distinct: Optional[bool] = None
+    # table_function: Optional[bool] = None
 
 
 class JoinExpr(Expr):
@@ -451,7 +463,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType]
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectUnionQuery", Field, Call]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
     constraint: Optional[Expr] = None
