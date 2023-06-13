@@ -30,7 +30,7 @@ class LicenseError(exceptions.APIException):
 
 class LicenseManager(models.Manager):
     def first_valid(self) -> Optional["License"]:
-        """Return the highest valid license."""
+        """Return the highest valid license or cloud licenses if any"""
         valid_licenses = list(self.filter(Q(valid_until__gte=timezone.now()) | Q(plan="cloud")))
         if not valid_licenses:
             return None
