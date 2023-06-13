@@ -328,7 +328,7 @@ class PropertyType(Type):
         return True
 
     class Config:
-        # Without this, pydantic converting all integers in "chain" into strings, breaking array access
+        # Without this, pydantic converts all integers in "chain" into strings, breaking array access
         smart_union = True
 
 
