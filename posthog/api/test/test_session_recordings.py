@@ -280,22 +280,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "created_at": "2023-01-01T12:00:00Z",
                 "uuid": ANY,
             },
-            "segments": [
-                {
-                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "window_id": "",
-                    "is_active": False,
-                }
-            ],
-            "start_and_end_times_by_window_id": {
-                "": {
-                    "window_id": "",
-                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "is_active": False,
-                }
-            },
             "snapshot_data_by_window_id": None,
             "storage": "clickhouse",
         }
@@ -498,32 +482,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
         response_data = response.json()
         self.assertEqual(response_data["person"]["id"], p.pk)
-        self.assertEqual(
-            response_data["start_and_end_times_by_window_id"],
-            {
-                "": {
-                    "is_active": False,
-                    "window_id": "",
-                    "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end_time": (
-                        now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
-                    ).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                }
-            },
-        )
-        self.assertEqual(
-            response_data["segments"],
-            [
-                {
-                    "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end_time": (
-                        now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
-                    ).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "is_active": False,
-                    "window_id": "",
-                }
-            ],
-        )
         self.assertEqual(response_data["viewed"], False)
         self.assertEqual(response_data["id"], chunked_session_id)
 
