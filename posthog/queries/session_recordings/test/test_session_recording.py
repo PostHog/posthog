@@ -1,4 +1,3 @@
-import math
 import random
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch

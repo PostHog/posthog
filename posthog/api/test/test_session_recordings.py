@@ -280,7 +280,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "created_at": "2023-01-01T12:00:00Z",
                 "uuid": ANY,
             },
-            "snapshot_data_by_window_id": None,
             "storage": "clickhouse",
         }
 
