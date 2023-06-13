@@ -1,16 +1,16 @@
 import datetime as dt
 import json
+import tempfile
 from dataclasses import dataclass
 from string import Template
-import tempfile
 from typing import TYPE_CHECKING, List
 
-from django.conf import settings
 import boto3
+from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.batch_exports.service import S3BatchExportInputs
 
+from posthog.batch_exports.service import S3BatchExportInputs
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -117,7 +117,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             region_name=inputs.region,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
         )
         multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
         upload_id = multipart_response["UploadId"]

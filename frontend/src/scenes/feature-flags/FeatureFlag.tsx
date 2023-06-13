@@ -31,7 +31,6 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
-    EventsTableRowItem,
     PropertyFilterType,
     PropertyOperator,
     Resource,
@@ -62,7 +61,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { LemonSelect } from '@posthog/lemon-ui'
-import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { ResourcePermission } from 'scenes/ResourcePermissionModal'
@@ -76,6 +74,11 @@ import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponen
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import clsx from 'clsx'
+import { AnalysisTab } from './FeatureFlagAnalysisTab'
+import { NodeKind } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { PostHogFeature } from 'posthog-js/react'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -523,6 +526,26 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <UsageTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
+
+                                    {featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id && (
+                                        <Tabs.TabPane
+                                            tab={
+                                                <div className="flex flex-row">
+                                                    <div>Analysis</div>
+                                                    <LemonTag className="ml-1 float-right uppercase" type="warning">
+                                                        {' '}
+                                                        Beta
+                                                    </LemonTag>
+                                                </div>
+                                            }
+                                            key="analysis"
+                                        >
+                                            <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
+                                                <AnalysisTab id={id} featureFlag={featureFlag} />
+                                            </PostHogFeature>
+                                        </Tabs.TabPane>
+                                    )}
+
                                     {featureFlag.id && (
                                         <Tabs.TabPane tab="History" key="history">
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
@@ -572,7 +595,6 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         },
     ]
 
-    // TODO: reintegrate HogQL Editor
     return (
         <div>
             {connectedDashboardExists ? (
@@ -594,31 +616,24 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                 <b>Log</b>
                 <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
             </div>
-            <EventsTable
-                fixedFilters={{
-                    event_filter: '$feature_flag_called',
-                    properties: propertyFilter,
-                }}
-                fixedColumns={[
-                    {
-                        title: 'Value',
-                        key: 'value',
-                        render: function renderEventProperty(_, { event }: EventsTableRowItem) {
-                            return event?.properties['$feature_flag_response']?.toString()
-                        },
+            <Query
+                query={{
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: [
+                            ...defaultDataTableColumns(NodeKind.EventsQuery),
+                            featureFlag.filters.multivariate
+                                ? 'properties.$feature_flag_response'
+                                : "if(properties.$feature_flag_response == 1, 'true', 'false') -- Feature Flag Response",
+                        ],
+                        event: '$feature_flag_called',
+                        properties: propertyFilter,
+                        after: '-30d',
                     },
-                ]}
-                startingColumns={['person']}
-                fetchMonths={1}
-                pageKey={`feature-flag-` + featureFlagKey}
-                showPersonColumn={true}
-                showEventFilter={false}
-                showPropertyFilter={false}
-                showCustomizeColumns={false}
-                showAutoload={false}
-                showExport={false}
-                showActionsButton={false}
-                emptyPrompt={`No events received`}
+                    full: false,
+                    showDateRange: true,
+                }}
             />
         </div>
     )

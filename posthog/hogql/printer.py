@@ -398,15 +398,15 @@ class _Printer(Visitor):
             return self._print_escaped_string(node.value)
 
     def visit_field(self, node: ast.Field):
-        original_field = ".".join([self._print_identifier(identifier) for identifier in node.chain])
         if node.type is None:
-            raise HogQLException(f"Field {original_field} has no type")
+            field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
+            raise HogQLException(f"Field {field} has no type")
 
         if self.dialect == "hogql":
             if node.chain == ["*"]:
                 return "*"
             # When printing HogQL, we print the properties out as a chain as they are.
-            return ".".join([self._print_identifier(identifier) for identifier in node.chain])
+            return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
 
         if node.type is not None:
             if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
@@ -766,6 +766,12 @@ class _Printer(Visitor):
     def _print_identifier(self, name: str) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_identifier(name)
+        return escape_hogql_identifier(name)
+
+    def _print_hogql_identifier_or_index(self, name: str | int) -> str:
+        # Regular identifiers can't start with a number. Print digit strings as-is for unesacped tuple access.
+        if isinstance(name, int) and str(name).isdigit():
+            return str(name)
         return escape_hogql_identifier(name)
 
     def _print_escaped_string(self, name: float | int | str | list | tuple | datetime) -> str:
