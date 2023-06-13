@@ -52,8 +52,9 @@ LOG_RATE_LIMITER = Limiter(
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
-SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
-SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = "$snapshot_items"
+SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
+SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event") + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
+
 
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
