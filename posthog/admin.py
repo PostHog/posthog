@@ -66,6 +66,8 @@ class GroupTypeMappingInline(admin.TabularInline):
     fields = ("group_type_index", "group_type", "name_singular", "name_plural")
     readonly_fields = fields
     classes = ("collapse",)
+    max_num = 5
+    min_num = 5
 
 
 @admin.register(Team)
@@ -299,32 +301,3 @@ class OrganizationAdmin(admin.ModelAdmin):
 
 class OrganizationBillingAdmin(admin.ModelAdmin):
     search_fields = ("name", "members__email")
-
-
-@admin.register(GroupTypeMapping)
-class GroupTypeMappingAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "organization_link",
-        "team_link",
-        "group_type",
-        "group_type_index",
-        "name_singular",
-        "name_plural",
-    )
-    list_filter = ("group_type_index",)
-    search_fields = ("group_type", "team__name", "team__organization__name")
-
-    def organization_link(self, group_type_mapping: GroupTypeMapping):
-        return format_html(
-            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
-            group_type_mapping.team.organization.pk,
-            group_type_mapping.team.organization.name,
-        )
-
-    def team_link(self, group_type_mapping: GroupTypeMapping):
-        return format_html(
-            '<a href="/admin/posthog/team/{}/change/">{}</a>',
-            group_type_mapping.team.pk,
-            group_type_mapping.team.name,
-        )

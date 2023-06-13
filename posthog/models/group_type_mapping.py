@@ -19,6 +19,3 @@ class GroupTypeMapping(models.Model):
     # Used to display in UI
     name_singular: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     name_plural: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-
-    def __str__(self) -> str:
-        return self.group_type
