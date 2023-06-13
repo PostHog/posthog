@@ -181,15 +181,13 @@ KafkaProducer = SingletonDecorator(_KafkaProducer)
 SessionRecordingKafkaProducer = SingletonDecorator(_KafkaProducer)
 
 
-def sessionRecordingKafkaProducer():
+def sessionRecordingKafkaProducer() -> Optional[_KafkaProducer]:
     if settings.SESSION_RECORDING_KAFKA_HOSTS:
         return SessionRecordingKafkaProducer(
             kafka_hosts=settings.SESSION_RECORDING_KAFKA_HOSTS,
             kafka_security_protocol=settings.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
             max_message_bytes=settings.SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES,
         )
-    else:
-        return KafkaProducer()
 
 
 def build_kafka_consumer(

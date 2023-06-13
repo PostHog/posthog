@@ -31,6 +31,7 @@ from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
     legacy_preprocess_session_recording_events_for_clickhouse,
+    preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
 from posthog.utils import cors_response, get_ip_address
@@ -52,6 +53,7 @@ LOG_RATE_LIMITER = Limiter(
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
+SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = "$snapshot_items"
 
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
@@ -160,8 +162,8 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        if event_name in SESSION_RECORDING_EVENT_NAMES:
-            producer = sessionRecordingKafkaProducer()
+        if event_name in SESSION_RECORDING_DEDICATED_KAFKA_EVENTS:
+            producer = sessionRecordingKafkaProducer() or KafkaProducer()
         else:
             producer = KafkaProducer()
         future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
@@ -373,14 +375,15 @@ def get_event(request):
                 # Legacy solution stays in place
                 processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
 
-                if random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO:
-                    # The new flow is to a separate Kafka topic and doesn't compress but rather groups data as small as possible
-                    # alternative_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events)
-                    pass
+                if (
+                    random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO
+                    and settings.SESSION_RECORDING_KAFKA_HOSTS
+                ):
+                    # The new flow we only enable if the the dedicated kafka is enabled
+                    processed_replay_events += preprocess_replay_events_for_blob_ingestion(replay_events)
 
-                    # TODO: Send these to a different topic...
-
-            events = processed_replay_events + other_events
+                    #
+                    events = processed_replay_events + other_events
 
         except ValueError as e:
             return cors_response(
