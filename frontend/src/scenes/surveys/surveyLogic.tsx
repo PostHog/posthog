@@ -52,27 +52,12 @@ const NEW_SURVEY: NewSurvey = {
     archived: false,
 }
 
-export interface SurveyLogicProps {
-    id: string | 'new'
+export const getSurveyEventName = (surveyName: string): string => {
+    return `${surveyName} survey sent`
 }
 
-const DEFAULT_DATATABLE_QUERY: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    full: true,
-    source: {
-        kind: NodeKind.EventsQuery,
-        select: ['*', 'event', 'timestamp', 'person'],
-        orderBy: ['timestamp DESC'],
-        after: '-30d',
-        limit: 100,
-        event: 'insight viewed',
-    },
-    propertiesViaUrl: true,
-    showExport: true,
-    showReload: true,
-    showColumnConfigurator: true,
-    showEventFilter: true,
-    showPropertyFilter: true,
+export interface SurveyLogicProps {
+    id: string | 'new'
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -86,9 +71,11 @@ export const surveyLogic = kea<surveyLogicType>([
         editingSurvey: (editing: boolean) => ({ editing }),
         updateTargetingFlagFilters: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
         addConditionSet: true,
+        removeConditionSet: (index: number) => ({ index }),
         launchSurvey: true,
         stopSurvey: true,
         archiveSurvey: true,
+        setDataTableQuery: (query: DataTableNode) => ({ query }),
     }),
     loaders(({ props, values }) => ({
         survey: {
@@ -111,9 +98,17 @@ export const surveyLogic = kea<surveyLogicType>([
                 const surv = { ...values.survey }
                 const groups = [...values.survey.targeting_flag_filters.groups]
                 if (properties !== undefined) {
-                    groups[index] = { ...groups[index], properties }
+                    groups[index] = { ...groups[index], properties, rollout_percentage: 100 }
                 }
                 return { ...surv, targeting_flag_filters: { groups } }
+            },
+            removeConditionSet: ({ index }) => {
+                if (!values.survey) {
+                    return values.survey
+                }
+                const groups = [...(values.survey.targeting_flag_filters?.groups || [])]
+                groups.splice(index, 1)
+                return { ...values.survey, targeting_flag_filters: { ...values.survey.targeting_flag_filters, groups } }
             },
             addConditionSet: () => {
                 if (!values.survey) {
@@ -122,7 +117,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (values.survey.targeting_flag_filters) {
                     const groups = [
                         ...values.survey?.targeting_flag_filters?.groups,
-                        { properties: [], rollout_percentage: null, variant: null },
+                        { properties: [], rollout_percentage: 0, variant: null },
                     ]
                     return {
                         ...values.survey,
@@ -132,7 +127,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return {
                         ...values.survey,
                         targeting_flag_filters: {
-                            groups: [{ properties: [], rollout_percentage: null, variant: null }],
+                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
                         },
                     }
                 }
@@ -140,6 +135,28 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     listeners(({ actions }) => ({
+        loadSurveySuccess: ({ survey }) => {
+            if (survey.start_date) {
+                const surveyDataQuery: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: ['*', 'event', 'timestamp', 'person'],
+                        orderBy: ['timestamp DESC'],
+                        after: '-30d',
+                        limit: 100,
+                        event: getSurveyEventName(survey.name),
+                    },
+                    propertiesViaUrl: true,
+                    showExport: true,
+                    showReload: true,
+                    showColumnConfigurator: true,
+                    showEventFilter: true,
+                    showPropertyFilter: true,
+                }
+                actions.setDataTableQuery(surveyDataQuery)
+            }
+        },
         createSurveySuccess: async ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
@@ -169,7 +186,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 editingSurvey: (_, { editing }) => editing,
             },
         ],
-        dataTableQuery: [DEFAULT_DATATABLE_QUERY as DataTableNode],
+        dataTableQuery: [
+            null as DataTableNode | null,
+            {
+                setDataTableQuery: (_, { query }) => query,
+            },
+        ],
     }),
     selectors({
         isSurveyRunning: [

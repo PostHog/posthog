@@ -65,11 +65,14 @@ export interface PaginatedResponse<T> {
     results: T[]
     next?: string | null
     previous?: string | null
-    missing_persons?: number
 }
 
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
-    total_count: number
+    count: number
+}
+
+export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
+    total_count: number // FIXME: This is non-standard naming, DRF uses `count` and we should use that consistently
 }
 
 export interface ApiMethodOptions {
@@ -579,7 +582,7 @@ const api = {
             activityLogProps: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<CountedPaginatedResponse<ActivityLogItem>> {
+        ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
             const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
@@ -973,7 +976,7 @@ const api = {
                     },
                 })
         },
-        async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
+        async list(params: PersonListParams = {}): Promise<CountedPaginatedResponse<PersonType>> {
             return await new ApiRequest().persons().withQueryString(toParams(params)).get()
         },
         determineListUrl(params: PersonListParams = {}): string {

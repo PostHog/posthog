@@ -2,51 +2,94 @@ import { Link, TZLabel } from '@posthog/apps-common'
 import clsx from 'clsx'
 import { isDayjs } from 'lib/dayjs'
 import { IconCheckmark, IconClose, IconEllipsis } from 'lib/lemon-ui/icons'
-import { BasicListItem, ExtendedListItem, ExtraListItemContext, Accordion } from '../types'
+import { BasicListItem, ExtendedListItem, ExtraListItemContext, SidebarCategory } from '../types'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 import { navigation3000Logic } from '../navigationLogic'
 import { captureException } from '@sentry/react'
 import { KeyboardShortcut } from './KeyboardShortcut'
+import { List, ListProps } from 'react-virtualized/dist/es/List'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
+import { useValues } from 'kea'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export function SidebarList({
     items,
     activeItemKey,
-    loadMore,
+    remote,
 }: {
     items: BasicListItem[] | ExtendedListItem[]
     activeItemKey: string | number | null
-    loadMore: Accordion['loadMore']
+    remote?: SidebarCategory['remote']
 }): JSX.Element {
+    const { sidebarWidth } = useValues(navigation3000Logic)
+
+    const firstItem = items.find(Boolean)
+    const usingExtendedItemFormat = !!firstItem && 'summary' in firstItem
+
+    const listProps = {
+        className: 'SidebarList',
+        width: sidebarWidth,
+        rowHeight: usingExtendedItemFormat ? 46 : 32,
+        rowRenderer: ({ index, style }) => {
+            const item = items[index]
+            if (!item) {
+                return <SidebarListItemSkeleton key={index} style={style} />
+            }
+            let active: boolean
+            if (Array.isArray(item.key)) {
+                active = typeof activeItemKey === 'string' ? item.key.includes(activeItemKey) : false
+            } else {
+                active = item.key === activeItemKey
+            }
+            return <SidebarListItem key={index} item={item} active={active} style={style} />
+        },
+        overscanRowCount: 20,
+        tabIndex: null,
+    } as ListProps
+
     return (
-        <ul className="SidebarList">
-            {items.map((item) => {
-                let elementKey: React.Key
-                let active: boolean
-                if (Array.isArray(item.key)) {
-                    elementKey = item.key[0]
-                    active = typeof activeItemKey === 'string' ? item.key.includes(activeItemKey) : false
-                } else {
-                    elementKey = item.key
-                    active = item.key === activeItemKey
+        // The div is for AutoSizer to work
+        <div className="flex-1">
+            <AutoSizer disableWidth>
+                {({ height }) =>
+                    remote ? (
+                        <InfiniteLoader
+                            isRowLoaded={({ index }) => remote.isItemLoaded(index)}
+                            loadMoreRows={({ startIndex, stopIndex }) => remote.loadMoreItems(startIndex, stopIndex)}
+                            rowCount={remote.itemCount}
+                            minimumBatchSize={remote.minimumBatchSize || 100} // Sync default with the REST_FRAMEWORK PAGE_SIZE setting
+                        >
+                            {({ onRowsRendered, registerChild }) => (
+                                <List
+                                    {...listProps}
+                                    ref={registerChild}
+                                    height={height}
+                                    rowCount={remote.itemCount}
+                                    onRowsRendered={onRowsRendered}
+                                />
+                            )}
+                        </InfiniteLoader>
+                    ) : (
+                        <List {...listProps} height={height} rowCount={items.length} />
+                    )
                 }
-                return <SidebarListItem key={elementKey} item={item} active={active} />
-            })}
-            {loadMore && (
-                <SidebarListItem
-                    item={{
-                        key: 'load-more',
-                        name: 'Load more',
-                        url: null,
-                    }}
-                />
-            )}
-        </ul>
+            </AutoSizer>
+        </div>
     )
 }
 
-function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListItem; active?: boolean }): JSX.Element {
+function SidebarListItem({
+    item,
+    active,
+    style,
+}: {
+    item: BasicListItem | ExtendedListItem
+    active: boolean
+    style: React.CSSProperties
+}): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [renamingName, setRenamingName] = useState<null | string>(null)
     const [isSavingName, setIsSavingName] = useState(false)
@@ -222,6 +265,7 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
                 'summary' in item && 'SidebarListItem--extended'
             )}
             aria-current={active ? 'page' : undefined}
+            style={style} // eslint-disable-line react/forbid-dom-props
         >
             {content}
             {renamingName !== null ? (
@@ -304,4 +348,15 @@ function TextWithHighlights({
 /** Smart rendering of list item extra context. */
 function ExtraContext({ data }: { data: ExtraListItemContext }): JSX.Element {
     return isDayjs(data) ? <TZLabel time={data} /> : <>{data}</>
+}
+
+function SidebarListItemSkeleton({ style }: { style: React.CSSProperties }): JSX.Element {
+    return (
+        <li
+            className="SidebarListItem SidebarListItem__link"
+            style={style} // eslint-disable-line react/forbid-dom-props
+        >
+            <LemonSkeleton />
+        </li>
+    )
 }
