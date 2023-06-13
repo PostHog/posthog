@@ -83,6 +83,13 @@ runs:
           shell: bash
           run: bin/check_kafka_clickhouse_up
 
+        - name: Wait for Temporal
+          shell: bash
+          run: |
+              while true; do
+                curl -s -o /dev/null -I 'http://localhost:8088/' && break || echo 'Checking Temporal status...' && sleep 1
+              done
+
         - name: Determine if --snapshot-update should be on
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
           # runs, as we want to ignore snapshots diverging there

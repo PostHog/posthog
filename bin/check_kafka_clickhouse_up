@@ -11,8 +11,3 @@ done
 while true; do
 curl -s -o /dev/null -I 'http://localhost:8123/' && break || echo 'Checking ClickHouse status...' && sleep 1
 done
-
-# Check Temporal
-while true; do
-curl -s -o /dev/null -I 'http://localhost:8088/' && break || echo 'Checking Temporal status...' && sleep 1
-done
