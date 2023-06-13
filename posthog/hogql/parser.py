@@ -707,13 +707,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return expr
 
     def visitNestedIdentifier(self, ctx: HogQLParser.NestedIdentifierContext):
-        array = [self.visit(ctx.identifier())]
-        for element in ctx.identifierOrDecimal():
-            if element.identifier():
-                array.append(self.visit(element.identifier()))
-            else:
-                array.append(int(element.DECIMAL_LITERAL().getText()))
-        return array
+        return [self.visit(identifier) for identifier in ctx.identifier()]
 
     def visitTableExprIdentifier(self, ctx: HogQLParser.TableExprIdentifierContext):
         chain = self.visit(ctx.tableIdentifier())

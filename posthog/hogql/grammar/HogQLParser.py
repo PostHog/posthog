@@ -330,7 +330,7 @@ def serializedATN():
         1,0,0,0,804,87,1,0,0,0,805,813,5,199,0,0,806,807,3,96,48,0,807,808,
         5,209,0,0,808,810,1,0,0,0,809,806,1,0,0,0,809,810,1,0,0,0,810,811,
         1,0,0,0,811,813,3,90,45,0,812,805,1,0,0,0,812,809,1,0,0,0,813,89,
-        1,0,0,0,814,819,3,118,59,0,815,816,5,209,0,0,816,818,3,120,60,0,
+        1,0,0,0,814,819,3,118,59,0,815,816,5,209,0,0,816,818,3,118,59,0,
         817,815,1,0,0,0,818,821,1,0,0,0,819,817,1,0,0,0,819,820,1,0,0,0,
         820,91,1,0,0,0,821,819,1,0,0,0,822,823,6,46,-1,0,823,830,3,96,48,
         0,824,830,3,94,47,0,825,826,5,218,0,0,826,827,3,2,1,0,827,828,5,
@@ -6150,8 +6150,11 @@ class HogQLParser ( Parser ):
             super().__init__(parent, invokingState)
             self.parser = parser
 
-        def identifier(self):
-            return self.getTypedRuleContext(HogQLParser.IdentifierContext,0)
+        def identifier(self, i:int=None):
+            if i is None:
+                return self.getTypedRuleContexts(HogQLParser.IdentifierContext)
+            else:
+                return self.getTypedRuleContext(HogQLParser.IdentifierContext,i)
 
 
         def DOT(self, i:int=None):
@@ -6159,13 +6162,6 @@ class HogQLParser ( Parser ):
                 return self.getTokens(HogQLParser.DOT)
             else:
                 return self.getToken(HogQLParser.DOT, i)
-
-        def identifierOrDecimal(self, i:int=None):
-            if i is None:
-                return self.getTypedRuleContexts(HogQLParser.IdentifierOrDecimalContext)
-            else:
-                return self.getTypedRuleContext(HogQLParser.IdentifierOrDecimalContext,i)
-
 
         def getRuleIndex(self):
             return HogQLParser.RULE_nestedIdentifier
@@ -6195,7 +6191,7 @@ class HogQLParser ( Parser ):
                     self.state = 815
                     self.match(HogQLParser.DOT)
                     self.state = 816
-                    self.identifierOrDecimal() 
+                    self.identifier() 
                 self.state = 821
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,101,self._ctx)

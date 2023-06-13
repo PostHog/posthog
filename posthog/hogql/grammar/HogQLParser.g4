@@ -175,7 +175,7 @@ withExpr
 // We parse and convert "databaseIdentifier.tableIdentifier.columnIdentifier.nestedIdentifier.*"
 // to just one ast.Field(chain=['a','b','columnIdentifier','on','and','on']).
 columnIdentifier: PLACEHOLDER | ((tableIdentifier DOT)? nestedIdentifier);
-nestedIdentifier: identifier (DOT identifierOrDecimal)*;
+nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
     | tableFunctionExpr                  # TableExprFunction
