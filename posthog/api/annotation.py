@@ -55,6 +55,10 @@ class AnnotationSerializer(serializers.ModelSerializer):
         return annotation
 
 
+class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
+    default_limit = 1000
+
+
 class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/user-guides/annotations) for more information on annotations.
@@ -64,7 +68,7 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [filters.SearchFilter]
-    pagination_class = pagination.LimitOffsetPagination(default_limit=1000)
+    pagination_class = AnnotationsLimitOffsetPagination
     search_fields = ["content"]
 
     def get_queryset(self) -> QuerySet:

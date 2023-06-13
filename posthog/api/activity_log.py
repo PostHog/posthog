@@ -34,10 +34,14 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
+class ActivityLogPagination(pagination.LimitOffsetPagination):
+    default_limit = 500
+
+
 class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
-    pagination_class = pagination.LimitOffsetPagination(default_limit=500)
+    pagination_class = ActivityLogPagination
 
     def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
         team = self.team
