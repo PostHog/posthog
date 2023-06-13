@@ -541,12 +541,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Tuple(exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [])
 
     def visitColumnExprArrayAccess(self, ctx: HogQLParser.ColumnExprArrayAccessContext):
-        object = self.visit(ctx.columnExpr(0))
-        property = self.visit(ctx.columnExpr(1))
-        if isinstance(object, ast.Field) and isinstance(property, ast.Constant):
-            return ast.Field(chain=object.chain + [property.value])
-        else:
-            return ast.ArrayAccess(array=object, property=property)
+        object: ast.Expr = self.visit(ctx.columnExpr(0))
+        property: ast.Expr = self.visit(ctx.columnExpr(1))
+        if isinstance(property, ast.Constant) and property.value == 0:
+            raise SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]")
+        return ast.ArrayAccess(array=object, property=property)
+
+    def visitColumnExprPropertyAccess(self, ctx: HogQLParser.ColumnExprPropertyAccessContext):
+        object = self.visit(ctx.columnExpr())
+        property = ast.Constant(value=self.visit(ctx.identifier()))
+        return ast.ArrayAccess(array=object, property=property)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         raise NotImplementedException(f"Unsupported node: ColumnExprBetween")
@@ -588,7 +592,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Or(exprs=left_array + right_array)
 
     def visitColumnExprTupleAccess(self, ctx: HogQLParser.ColumnExprTupleAccessContext):
-        return ast.TupleAccess(tuple=self.visit(ctx.columnExpr()), index=int(ctx.DECIMAL_LITERAL().getText()))
+        tuple = self.visit(ctx.columnExpr())
+        index = int(ctx.DECIMAL_LITERAL().getText())
+        if index == 0:
+            raise SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]")
+        return ast.TupleAccess(tuple=tuple, index=index)
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):
         columns = [self.visit(column) for column in ctx.columnExpr()]
@@ -676,8 +684,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
 
         if len(table) == 0 and len(nested) > 0:
-            if isinstance(nested[0], ast.Expr):
-                return nested[0]
             text = ctx.getText().lower()
             if text == "true":
                 return ast.Constant(value=True)
@@ -765,9 +771,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         ):
             text = parse_string(text)
         return text
-
-    def visitIdentifierOrNull(self, ctx: HogQLParser.IdentifierOrNullContext):
-        raise NotImplementedException(f"Unsupported node: IdentifierOrNull")
 
     def visitEnumValue(self, ctx: HogQLParser.EnumValueContext):
         raise NotImplementedException(f"Unsupported node: EnumValue")
