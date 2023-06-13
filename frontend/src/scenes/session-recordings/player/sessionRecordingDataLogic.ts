@@ -375,7 +375,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             )
         },
     })),
-    loaders(({ values, props, cache, actions }) => ({
+    loaders(({ values, props, cache }) => ({
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 cache.metaStartTime = performance.now()
@@ -388,14 +388,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 })
                 const response = await api.recordings.get(props.sessionRecordingId, params)
                 breakpoint()
-
-                if (response.snapshot_data_by_window_id) {
-                    const snapshots = convertSnapshotsResponse(response.snapshot_data_by_window_id)
-                    // When loaded from S3 the snapshots are already present
-                    actions.loadRecordingSnapshotsSuccess({
-                        snapshots,
-                    })
-                }
 
                 return response
             },

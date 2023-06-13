@@ -625,14 +625,6 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
-export interface SessionRecordingMeta {
-    pinnedCount: number
-    segments: RecordingSegment[]
-    recordingDurationMs: number
-    startTimestamp: Dayjs
-    endTimestamp: Dayjs
-}
-
 export type RecordingSnapshot = eventWithTime & {
     windowId: string
 }
@@ -980,13 +972,8 @@ export interface SessionRecordingType {
     start_url?: string
     /** Count of number of playlists this recording is pinned to. **/
     pinned_count?: number
-    /** Where this recording information was loaded from (S3 or Clickhouse) */
-    storage?: string
-
-    // These values are only present when loaded as a full recording
-    segments?: SessionRecordingSegmentType[]
-    start_and_end_times_by_window_id?: Record<string, Record<string, string>>
-    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
+    /** Where this recording information was loaded from  */
+    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {
