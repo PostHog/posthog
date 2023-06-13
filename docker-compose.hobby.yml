@@ -105,6 +105,7 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            SKIP_ASYNC_MIGRATIONS_SETUP: 0
 
     # Temporal containers
     temporal:

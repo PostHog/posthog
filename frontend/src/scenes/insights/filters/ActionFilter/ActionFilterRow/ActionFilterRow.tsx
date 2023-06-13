@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     ActionFilter as ActionFilterType,
@@ -13,7 +13,6 @@ import {
     HogQLMathType,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
@@ -39,6 +38,7 @@ import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { entityFilterLogicType } from '../entityFilterLogicType'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -53,7 +53,7 @@ export enum MathAvailability {
 }
 
 export interface ActionFilterRowProps {
-    logic: typeof entityFilterLogic
+    logic: BuiltLogic<entityFilterLogicType>
     filter: ActionFilter
     index: number
     typeKey: string
@@ -132,6 +132,8 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+
+    const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -239,6 +241,7 @@ export function ActionFilterRow({
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
                         : undefined
                 }}
+                disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
             />
         </IconWithCount>
     )
@@ -281,6 +284,20 @@ export function ActionFilterRow({
         />
     )
 
+    const rowStartElements = [
+        sortable && filterCount > 1 ? <DragHandle /> : null,
+        showSeriesIndicator && <div>{seriesIndicator}</div>,
+    ].filter(Boolean)
+
+    const rowEndElements = !readOnly
+        ? [
+              !hideFilter && propertyFiltersButton,
+              !hideRename && renameRowButton,
+              !hideDuplicate && !singleFilter && duplicateRowButton,
+              !hideDeleteBtn && !singleFilter && deleteButton,
+          ].filter(Boolean)
+        : []
+
     return (
         <div className={'ActionFilterRow'}>
             <div className="ActionFilterRow-content">
@@ -297,10 +314,9 @@ export function ActionFilterRow({
                 ) : (
                     <>
                         {/* left section fixed */}
-                        <div className="ActionFilterRow__start">
-                            {sortable && filterCount > 1 ? <DragHandle /> : null}
-                            {showSeriesIndicator && <div>{seriesIndicator}</div>}
-                        </div>
+                        {rowStartElements.length ? (
+                            <div className="ActionFilterRow__start">{rowStartElements}</div>
+                        ) : null}
                         {/* central section flexible */}
                         <div className="ActionFilterRow__center">
                             <div className="flex-auto overflow-hidden">{filterElement}</div>
@@ -357,15 +373,19 @@ export function ActionFilterRow({
                                         MathCategory.HogQLExpression && (
                                         <div className="flex-auto overflow-hidden">
                                             <LemonDropdown
+                                                visible={isHogQLDropdownVisible}
+                                                closeOnClickInside={false}
+                                                onClickOutside={() => setIsHogQLDropdownVisible(false)}
                                                 overlay={
                                                     // eslint-disable-next-line react/forbid-dom-props
                                                     <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                                                         <HogQLEditor
                                                             disablePersonProperties
                                                             value={mathHogQL}
-                                                            onChange={(currentValue) =>
+                                                            onChange={(currentValue) => {
                                                                 onMathHogQLSelect(index, currentValue)
-                                                            }
+                                                                setIsHogQLDropdownVisible(false)
+                                                            }}
                                                         />
                                                     </div>
                                                 }
@@ -375,6 +395,7 @@ export function ActionFilterRow({
                                                     status="stealth"
                                                     type="secondary"
                                                     data-attr={`math-hogql-select-${index}`}
+                                                    onClick={() => setIsHogQLDropdownVisible(!isHogQLDropdownVisible)}
                                                 >
                                                     <code>{mathHogQL}</code>
                                                 </LemonButton>
@@ -385,22 +406,13 @@ export function ActionFilterRow({
                             )}
                         </div>
                         {/* right section fixed */}
-                        <div className="ActionFilterRow__end">
-                            {!readOnly ? (
-                                <>
-                                    {!hideFilter && propertyFiltersButton}
-                                    {!hideRename && renameRowButton}
-                                    {!hideDuplicate && !singleFilter && duplicateRowButton}
-                                    {!hideDeleteBtn && !singleFilter && deleteButton}
-                                </>
-                            ) : null}
-                        </div>
+                        {rowEndElements.length ? <div className="ActionFilterRow__end">{rowEndElements}</div> : null}
                     </>
                 )}
             </div>
 
             {propertyFiltersVisible && (
-                <div className={`ActionFilterRow-filters`}>
+                <div className="ActionFilterRow-filters">
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}

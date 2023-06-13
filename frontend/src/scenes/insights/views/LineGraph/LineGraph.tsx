@@ -32,6 +32,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
@@ -423,12 +424,28 @@ export function LineGraph_({
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     timezone={timezone}
                                     seriesData={seriesData}
-                                    hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                    renderSeries={(value, datum) => {
+                                        const hasBreakdown =
+                                            datum.breakdown_value !== undefined && !!datum.breakdown_value
+                                        return (
+                                            <div className="datum-label-column">
+                                                {!filters?.formula && (
+                                                    <SeriesLetter
+                                                        className="mr-2"
+                                                        hasBreakdown={hasBreakdown}
+                                                        seriesIndex={datum?.action?.order ?? datum.id}
+                                                        seriesColor={datum.color}
+                                                    />
+                                                )}
+                                                {value}
+                                            </div>
+                                        )
+                                    }}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
                                         ((value: number): string => formatAggregationAxisValue(filters, value))
                                     }
-                                    forceEntitiesAsColumns={isHorizontal}
+                                    entitiesAsColumnsOverride={filters?.formula ? false : undefined}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
                                     groupTypeLabel={
                                         labelGroupType === 'people'

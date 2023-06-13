@@ -101,9 +101,7 @@ class SessionRecordingEvents:
             )
             for recording_snapshot in self._query_recording_snapshots(include_snapshots=True)
         ]
-        decompressed = decompress_chunked_snapshot_data(
-            self._team.pk, self._session_recording_id, all_snapshots, limit, offset
-        )
+        decompressed = decompress_chunked_snapshot_data(all_snapshots, limit, offset)
 
         if decompressed["snapshot_data_by_window_id"] == {}:
             return None
@@ -169,9 +167,7 @@ class SessionRecordingEvents:
             for snapshot in snapshots
         ]
 
-        decompressed_recording_data = decompress_chunked_snapshot_data(
-            self._team.pk, self._session_recording_id, all_snapshots, return_only_activity_data=True
-        )
+        decompressed_recording_data = decompress_chunked_snapshot_data(all_snapshots, return_only_activity_data=True)
 
         events_summary_by_window_id = {
             window_id: cast(List[SessionRecordingEventSummary], event_list)

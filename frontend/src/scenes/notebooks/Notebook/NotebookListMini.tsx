@@ -17,7 +17,7 @@ export function NotebookListMini({
     onSelectNotebook,
     onNewNotebook,
 }: NotebookListMiniProps): JSX.Element {
-    const { notebooks, notebooksLoading, scratchpadNotebook } = useValues(notebooksListLogic)
+    const { notebooks, notebookTemplates, notebooksLoading, scratchpadNotebook } = useValues(notebooksListLogic)
     const { loadNotebooks } = useActions(notebooksListLogic)
 
     const onVisibilityChange = useCallback((visible: boolean): void => {
@@ -29,7 +29,9 @@ export function NotebookListMini({
     const selectedTitle =
         selectedNotebookId === 'scratchpad'
             ? 'Scratchpad'
-            : notebooks.find((notebook) => notebook.short_id === selectedNotebookId)?.title || 'Untitled'
+            : notebookTemplates.find((notebook) => notebook.short_id === selectedNotebookId)?.title ||
+              notebooks.find((notebook) => notebook.short_id === selectedNotebookId)?.title ||
+              'Untitled'
 
     const items: LemonMenuItems = [
         {

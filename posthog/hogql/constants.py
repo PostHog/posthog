@@ -1,9 +1,17 @@
 # HogQL -> ClickHouse allowed transformations
-from typing import Optional, Dict, Tuple, Literal
+from datetime import date, datetime
+from typing import Optional, Dict, Tuple, Literal, TypeAlias
+from uuid import UUID
 
 from pydantic import BaseModel, Extra
 
-ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
+ConstantDataType: TypeAlias = Literal[
+    "int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"
+]
+ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None
+ConstantSupportedData: TypeAlias = (
+    ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
+)
 
 CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     # arithmetic
@@ -330,13 +338,13 @@ CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     "mapFilter": ("mapFilter", 2, 2),
     "mapUpdate": ("mapUpdate", 2, 2),
     # splitting strings
-    "splitByChar": ("splitByChar", 3, 3),
-    "splitByString": ("splitByString", 3, 3),
-    "splitByRegexp": ("splitByRegexp", 3, 3),
-    "splitByWhitespace": ("splitByWhitespace", 2, 2),
-    "splitByNonAlpha": ("splitByNonAlpha", 2, 2),
+    "splitByChar": ("splitByChar", 2, 3),
+    "splitByString": ("splitByString", 2, 3),
+    "splitByRegexp": ("splitByRegexp", 2, 3),
+    "splitByWhitespace": ("splitByWhitespace", 1, 2),
+    "splitByNonAlpha": ("splitByNonAlpha", 1, 2),
     "arrayStringConcat": ("arrayStringConcat", 1, 2),
-    "alphaTokens": ("alphaTokens", 2, 2),
+    "alphaTokens": ("alphaTokens", 1, 2),
     "extractAllGroups": ("extractAllGroups", 2, 2),
     "ngrams": ("ngrams", 2, 2),
     "tokens": ("tokens", 1, 1),

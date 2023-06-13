@@ -41,6 +41,7 @@ import {
     NewEarlyAccessFeatureType,
     Survey,
     NotebookType,
+    DashboardTemplateListParams,
     PropertyDefinitionType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
@@ -64,11 +65,14 @@ export interface PaginatedResponse<T> {
     results: T[]
     next?: string | null
     previous?: string | null
-    missing_persons?: number
 }
 
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
-    total_count: number
+    count: number
+}
+
+export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
+    total_count: number // FIXME: This is non-standard naming, DRF uses `count` and we should use that consistently
 }
 
 export interface ApiMethodOptions {
@@ -578,7 +582,7 @@ const api = {
             activityLogProps: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<CountedPaginatedResponse<ActivityLogItem>> {
+        ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
             const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
@@ -848,8 +852,8 @@ const api = {
     },
 
     dashboardTemplates: {
-        async list(): Promise<PaginatedResponse<DashboardTemplateType>> {
-            return await new ApiRequest().dashboardTemplates().get()
+        async list(params: DashboardTemplateListParams = {}): Promise<PaginatedResponse<DashboardTemplateType>> {
+            return await new ApiRequest().dashboardTemplates().withQueryString(toParams(params)).get()
         },
 
         async get(dashboardTemplateId: DashboardTemplateType['id']): Promise<DashboardTemplateType> {
@@ -972,7 +976,7 @@ const api = {
                     },
                 })
         },
-        async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
+        async list(params: PersonListParams = {}): Promise<CountedPaginatedResponse<PersonType>> {
             return await new ApiRequest().persons().withQueryString(toParams(params)).get()
         },
         determineListUrl(params: PersonListParams = {}): string {
@@ -1164,8 +1168,11 @@ const api = {
         async list(): Promise<PaginatedResponse<NotebookType>> {
             return await new ApiRequest().notebooks().get()
         },
-        async create(data?: Pick<NotebookType, 'content'>): Promise<NotebookType> {
+        async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
+        },
+        async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).delete()
         },
     },
 
@@ -1187,9 +1194,6 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
-        },
-        async promote(featureId: EarlyAccessFeatureType['id']): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
-            return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
         },
     },
 

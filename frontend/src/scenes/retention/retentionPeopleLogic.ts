@@ -6,7 +6,6 @@ import { RetentionTablePeoplePayload } from 'scenes/retention/types'
 import { InsightLogicProps } from '~/types'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
@@ -19,7 +18,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
     path: (key) => ['scenes', 'retention', 'retentionPeopleLogic', key],
     connect: (props: InsightLogicProps) => ({
         values: [insightVizDataLogic(props), ['querySource']],
-        actions: [insightLogic(props), ['loadResultsSuccess']],
+        actions: [insightVizDataLogic(props), ['loadDataSuccess']],
     }),
     actions: () => ({
         clearPeople: true,
@@ -53,7 +52,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
         ],
     },
     listeners: ({ actions, values }) => ({
-        loadResultsSuccess: async () => {
+        loadDataSuccess: async () => {
             // clear people when changing the insight filters
             actions.clearPeople()
         },
