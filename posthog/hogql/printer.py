@@ -9,6 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     CLICKHOUSE_FUNCTIONS,
+    FIRST_ARG_DATETIME_FUNCTIONS,
     HOGQL_AGGREGATIONS,
     MAX_SELECT_RETURNED_ROWS,
     HogQLSettings,
@@ -469,7 +470,7 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
-                if node.name.startswith("tumble") or node.name.startswith("hop"):
+                if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: List[str] = []
                     for idx, arg in enumerate(node.args):
                         if idx == 0:
