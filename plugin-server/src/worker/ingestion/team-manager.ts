@@ -158,7 +158,8 @@ export async function fetchTeam(client: Client | Pool, teamId: Team['id']): Prom
                 api_token,
                 slack_incoming_webhook,
                 session_recording_opt_in,
-                ingested_event
+                ingested_event,
+                person_display_name_properties
             FROM posthog_team
             WHERE id = $1
             `,

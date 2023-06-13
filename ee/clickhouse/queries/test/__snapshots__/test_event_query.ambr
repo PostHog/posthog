@@ -115,7 +115,7 @@
     AND event = 'event_name'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
-    AND (((match(elements_chain, '(^|;)label(\\.|$|;|:)'))))
+    AND ((match(elements_chain, '(^|;)label(\\.|$|;|:)')))
   '
 ---
 # name: TestEventQuery.test_element.1
@@ -126,7 +126,7 @@
     AND event = 'event_name'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
-    AND (0 = 192)
+    AND (0 = 191)
   '
 ---
 # name: TestEventQuery.test_entity_filtered_by_cohort

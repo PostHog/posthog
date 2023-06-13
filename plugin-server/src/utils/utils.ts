@@ -1,3 +1,4 @@
+import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
 import { createPool } from 'generic-pool'
@@ -598,4 +599,19 @@ export function stalenessCheck(hub: Hub | undefined, stalenessSeconds: number): 
         lastActivity: hub?.lastActivity ? new Date(hub.lastActivity).toISOString() : null,
         lastActivityType: hub?.lastActivityType,
     }
+}
+
+/** Get a value from a properties object by its path. This allows accessing nested properties. */
+export function getPropertyValueByPath(properties: Properties, [firstKey, ...nestedKeys]: string[]): any {
+    if (firstKey === undefined) {
+        throw new Error('No path to property was provided')
+    }
+    let value = properties[firstKey]
+    for (const key of nestedKeys) {
+        if (value === undefined) {
+            return undefined
+        }
+        value = value[key]
+    }
+    return value
 }

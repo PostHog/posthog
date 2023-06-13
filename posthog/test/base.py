@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
+import freezegun
 
 import pytest
 import sqlparse
@@ -49,6 +50,11 @@ from posthog.models.session_replay_event.sql import (
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.test.assert_faster_than import assert_faster_than
+
+# Make sure freezegun ignores our utils class that times functions
+freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])  # type: ignore
+
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
@@ -65,6 +71,29 @@ def _setup_test_data(klass):
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
         klass.organization_membership = klass.user.organization_memberships.get()
+
+
+class FuzzyInt(int):
+    """
+    Some query count assertions vary depending on the order of tests in the run because values are cached and so their related query doesn't always run.
+
+    For the purposes of testing query counts we don't care about that variation
+    """
+
+    lowest: int
+    highest: int
+
+    def __new__(cls, lowest, highest):
+        obj = super(FuzzyInt, cls).__new__(cls, highest)
+        obj.lowest = lowest
+        obj.highest = highest
+        return obj
+
+    def __eq__(self, other):
+        return self.lowest <= other <= self.highest
+
+    def __repr__(self):
+        return "[%d..%d]" % (self.lowest, self.highest)
 
 
 class ErrorResponsesMixin:
@@ -211,6 +240,11 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         stripped_response1 = stripResponse(response1, remove=remove)
         stripped_response2 = stripResponse(response2, remove=remove)
         self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+
+    @contextmanager
+    def assertFasterThan(self, duration_ms: float):
+        with assert_faster_than(duration_ms):
+            yield
 
     def is_cloud(self, value: bool):
         TEST_clear_cloud_cache()

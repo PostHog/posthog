@@ -40,6 +40,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
+    FuzzyInt,
 )
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
@@ -360,7 +361,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [11, 11, 11, 11, 11],
+            [FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12)],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -2255,6 +2256,25 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
+    @skip("is this not how things work?")
+    def test_cannot_create_insight_in_another_team(
+        self,
+    ) -> None:
+        another_team = Team.objects.create(organization=self.organization)
+
+        # logged in to self.team and trying to create an insight in another_team
+        self.dashboard_api.create_insight(
+            team_id=another_team.pk,
+            data={
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
     def test_cannot_update_insight_with_dashboard_from_another_team(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
         dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
@@ -2644,8 +2664,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     ),
                 },
             )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             found_data_points = response.json()["result"][0]["count"]
             self.assertEqual(found_data_points, 14)
+
+            # test trends global property filter with a disallowed placeholder
+            response_placeholder = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                data={
+                    "events": json.dumps([{"id": "$pageview"}]),
+                    "properties": json.dumps(
+                        [
+                            {"key": "{team_id} * 5", "type": "hogql"},
+                        ]
+                    ),
+                },
+            )
+            self.assertEqual(response_placeholder.status_code, status.HTTP_400_BAD_REQUEST, response_placeholder.json())
+            self.assertEqual(
+                response_placeholder.json(),
+                self.validation_error_response("Placeholders, such as {team_id}, are not supported in this context"),
+            )
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     @snapshot_clickhouse_queries

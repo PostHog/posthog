@@ -1,4 +1,6 @@
-import { NodeViewProps } from '@tiptap/core'
+import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule, nodePasteRule } from '@tiptap/core'
+import posthog from 'posthog-js'
+import { NodeType } from '@tiptap/pm/model'
 
 export function useJsonNodeState(props: NodeViewProps, key: string): [any, (value: any) => void] {
     let value = props.node.attrs[key]
@@ -21,4 +23,24 @@ export function createUrlRegex(path: string, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')
 
     return new RegExp(origin + path, 'ig')
+}
+
+export function reportNotebookNodeCreation(nodeType: string): void {
+    posthog.capture('notebook node created', { type: nodeType })
+}
+
+export function posthogNodePasteRule(options: {
+    find: string
+    type: NodeType
+    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
+}): PasteRule {
+    return nodePasteRule({
+        find: createUrlRegex(options.find),
+        type: options.type,
+        getAttributes: (match) => {
+            const attrs = options.getAttributes(match)
+            posthog.capture('notebook node pasted', { node_type: options.type.name })
+            return attrs
+        },
+    })
 }

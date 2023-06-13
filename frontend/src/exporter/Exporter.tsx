@@ -11,11 +11,15 @@ import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { SharingAccessTokenContext } from 'scenes/insights/insightLogic'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { exporterViewLogic } from './exporterViewLogic'
 
 export function Exporter(props: ExportedData): JSX.Element {
-    const { type, dashboard, insight, accessToken, ...exportOptions } = props
-    const { whitelabel } = exportOptions
+    // NOTE: Mounting the logic is important as it is used by sub-logics
+    const { exportedData } = useValues(exporterViewLogic(props))
+    const { type, dashboard, insight, recording, accessToken, ...exportOptions } = exportedData
+    const { whitelabel, showInspector = false } = exportOptions
 
     const { currentTeam } = useValues(teamLogic)
     const { ref: elementRef, height, width } = useResizeObserver()
@@ -29,8 +33,9 @@ export function Exporter(props: ExportedData): JSX.Element {
     return (
         <div
             className={clsx('Exporter', {
-                'Export--insight': !!insight,
-                'Export--dashboard': !!dashboard,
+                'Exporter--insight': !!insight,
+                'Exporter--dashboard': !!dashboard,
+                'Exporter--recording': !!recording,
             })}
             ref={elementRef}
         >
@@ -62,19 +67,25 @@ export function Exporter(props: ExportedData): JSX.Element {
                     </>
                 ) : null
             ) : null}
-            <SharingAccessTokenContext.Provider value={accessToken}>
-                {insight ? (
-                    <ExportedInsight type={type} insight={insight} exportOptions={exportOptions} />
-                ) : dashboard ? (
-                    <Dashboard
-                        id={String(dashboard.id)}
-                        dashboard={dashboard}
-                        placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
-                    />
-                ) : (
-                    <h1 className="text-center p-4">Something went wrong...</h1>
-                )}
-            </SharingAccessTokenContext.Provider>
+            {insight ? (
+                <ExportedInsight type={type} insight={insight} exportOptions={exportOptions} />
+            ) : dashboard ? (
+                <Dashboard
+                    id={String(dashboard.id)}
+                    dashboard={dashboard}
+                    placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
+                />
+            ) : recording ? (
+                <SessionRecordingPlayer
+                    playerKey="exporter"
+                    sessionRecordingId={recording.id}
+                    mode={SessionRecordingPlayerMode.Sharing}
+                    autoPlay={false}
+                    noInspector={!showInspector}
+                />
+            ) : (
+                <h1 className="text-center p-4">Something went wrong...</h1>
+            )}
             {!whitelabel && dashboard && (
                 <div className="text-center pb-4">
                     {type === ExportType.Image ? <FriendlyLogo className="text-lg" /> : null}

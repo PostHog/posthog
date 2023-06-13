@@ -41,6 +41,9 @@ import {
     NewEarlyAccessFeatureType,
     SessionRecordingSnapshotResponse,
     Survey,
+    NotebookType,
+    DashboardTemplateListParams,
+    PropertyDefinitionType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -55,18 +58,23 @@ import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
 import { decompressSync, strFromU8 } from 'fflate'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { encodeParams } from 'kea-router'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
 export interface PaginatedResponse<T> {
     results: T[]
-    next?: string
-    previous?: string
-    missing_persons?: number
+    next?: string | null
+    previous?: string | null
 }
 
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
-    total_count: number
+    count: number
+}
+
+export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
+    total_count: number // FIXME: This is non-standard naming, DRF uses `count` and we should use that consistently
 }
 
 export interface ApiMethodOptions {
@@ -287,6 +295,10 @@ class ApiRequest {
             .addPathComponent(String(playlistId))
     }
 
+    public recordingSharing(id: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.recording(id, teamId).addPathComponent('sharing')
+    }
+
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboards')
@@ -463,6 +475,15 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
     }
 
+    // Notebooks
+    public notebooks(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('notebooks')
+    }
+
+    public notebook(id: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebooks(teamId).addPathComponent(id)
+    }
+
     // Request finalization
 
     public async get(options?: ApiMethodOptions): Promise<any> {
@@ -495,6 +516,23 @@ const normalizeUrl = (url: string): string => {
         url = url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
     }
     return url
+}
+
+const prepareUrl = (url: string): string => {
+    let output = normalizeUrl(url)
+
+    const exporterContext = getCurrentExporterData()
+
+    if (exporterContext && exporterContext.accessToken) {
+        output =
+            output +
+            (output.indexOf('?') === -1 ? '?' : '&') +
+            encodeParams({
+                sharing_access_token: exporterContext.accessToken,
+            })
+    }
+
+    return output
 }
 
 const PROJECT_ID_REGEX = /\/api\/projects\/(\w+)(?:$|[/?#])/
@@ -546,7 +584,7 @@ const api = {
             activityLogProps: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<CountedPaginatedResponse<ActivityLogItem>> {
+        ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
             const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
@@ -720,6 +758,7 @@ const api = {
             excluded_properties?: string[]
             properties?: string[]
             filter_by_event_names?: boolean
+            type?: PropertyDefinitionType
             limit?: number
             offset?: number
             teamId?: TeamType['id']
@@ -747,7 +786,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            type?: 'event' | 'person' | 'group'
+            type?: PropertyDefinitionType
             group_type_index?: number
         }): string {
             return new ApiRequest()
@@ -815,8 +854,8 @@ const api = {
     },
 
     dashboardTemplates: {
-        async list(): Promise<PaginatedResponse<DashboardTemplateType>> {
-            return await new ApiRequest().dashboardTemplates().get()
+        async list(params: DashboardTemplateListParams = {}): Promise<PaginatedResponse<DashboardTemplateType>> {
+            return await new ApiRequest().dashboardTemplates().withQueryString(toParams(params)).get()
         },
 
         async get(dashboardTemplateId: DashboardTemplateType['id']): Promise<DashboardTemplateType> {
@@ -939,7 +978,7 @@ const api = {
                     },
                 })
         },
-        async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
+        async list(params: PersonListParams = {}): Promise<CountedPaginatedResponse<PersonType>> {
             return await new ApiRequest().persons().withQueryString(toParams(params)).get()
         },
         determineListUrl(params: PersonListParams = {}): string {
@@ -951,14 +990,18 @@ const api = {
         async get({
             dashboardId,
             insightId,
+            recordingId,
         }: {
             dashboardId?: DashboardType['id']
             insightId?: InsightModel['id']
+            recordingId?: SessionRecordingType['id']
         }): Promise<SharingConfigurationType | null> {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
                 : insightId
                 ? new ApiRequest().insightSharing(insightId).get()
+                : recordingId
+                ? new ApiRequest().recordingSharing(recordingId).get()
                 : null
         },
 
@@ -966,9 +1009,11 @@ const api = {
             {
                 dashboardId,
                 insightId,
+                recordingId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: InsightModel['id']
+                recordingId?: SessionRecordingType['id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
@@ -976,6 +1021,8 @@ const api = {
                 ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
                 : insightId
                 ? new ApiRequest().insightSharing(insightId).update({ data })
+                : recordingId
+                ? new ApiRequest().recordingSharing(recordingId).update({ data })
                 : null
         },
     },
@@ -1123,6 +1170,27 @@ const api = {
         },
     },
 
+    notebooks: {
+        async get(notebookId: NotebookType['short_id']): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).get()
+        },
+        async update(
+            notebookId: NotebookType['short_id'],
+            data: Pick<NotebookType, 'version' | 'content' | 'title'>
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).update({ data })
+        },
+        async list(): Promise<PaginatedResponse<NotebookType>> {
+            return await new ApiRequest().notebooks().get()
+        },
+        async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
+            return await new ApiRequest().notebooks().create({ data })
+        },
+        async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).delete()
+        },
+    },
+
     earlyAccessFeatures: {
         async get(featureId: EarlyAccessFeatureType['id']): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeature(featureId).get()
@@ -1141,9 +1209,6 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
-        },
-        async promote(featureId: EarlyAccessFeatureType['id']): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
-            return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
         },
     },
 
@@ -1294,7 +1359,7 @@ const api = {
     },
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
         const startTime = new Date().getTime()
@@ -1313,7 +1378,7 @@ const api = {
     },
 
     async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
@@ -1344,7 +1409,7 @@ const api = {
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
@@ -1370,7 +1435,7 @@ const api = {
     },
 
     async delete(url: string): Promise<any> {
-        url = normalizeUrl(url)
+        url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const startTime = new Date().getTime()
         const response = await fetch(url, {

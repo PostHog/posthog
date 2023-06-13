@@ -68,6 +68,12 @@ const MiniFilters: SharedListMiniFilter[] = [
         tooltip: 'Autocapture events such as clicks and inputs',
     },
     {
+        tab: SessionRecordingPlayerTab.EVENTS,
+        key: 'events-exceptions',
+        name: 'Exceptions',
+        tooltip: 'Exception events from PostHog or its Sentry integration',
+    },
+    {
         tab: SessionRecordingPlayerTab.CONSOLE,
         key: 'console-all',
         name: 'All',
@@ -167,7 +173,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
-        setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         toggleAutoplayDirection: true,
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
@@ -194,12 +199,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
-            },
-        ],
-        isFullScreen: [
-            false,
-            {
-                setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
             },
         ],
         autoplayDirection: [

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
-import api from 'lib/api'
+import { decodeParams, router } from 'kea-router'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
 import {
     PersonPropertyFilter,
@@ -23,12 +23,6 @@ import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-export interface PersonPaginatedResponse {
-    next: string | null
-    previous: string | null
-    results: PersonType[]
-}
-
 export interface PersonsLogicProps {
     cohort?: number | 'new'
     syncWithUrl?: boolean
@@ -39,12 +33,6 @@ export interface PersonsLogicProps {
 export const personsLogic = kea<personsLogicType>({
     props: {} as PersonsLogicProps,
     key: (props) => {
-        if (!props.fixedProperties && !props.cohort && !props.syncWithUrl) {
-            throw new Error(
-                `personsLogic must be initialized with props.cohort or props.syncWithUrl or props.fixedProperties`
-            )
-        }
-
         if (props.fixedProperties) {
             return JSON.stringify(props.fixedProperties)
         }
@@ -253,22 +241,33 @@ export const personsLogic = kea<personsLogicType>({
     }),
     loaders: ({ values, actions, props }) => ({
         persons: [
-            { next: null, previous: null, results: [] } as PersonPaginatedResponse,
+            { next: null, previous: null, count: 0, results: [], offset: 0 } as CountedPaginatedResponse<PersonType> & {
+                offset: number
+            },
             {
                 loadPersons: async ({ url }) => {
+                    let result: CountedPaginatedResponse<PersonType> & { offset: number }
                     if (!url) {
-                        const newFilters = { ...values.listFilters }
+                        const newFilters: PersonListParams = { ...values.listFilters }
                         newFilters.properties = [
                             ...(values.listFilters.properties || []),
                             ...values.hiddenListProperties,
                         ]
-                        if (props.cohort) {
-                            url = `api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`
-                        } else {
-                            return api.persons.list(newFilters)
+                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                            newFilters.include_total = true // The total count is slow, but needed for infinite loading
                         }
+                        if (props.cohort) {
+                            result = {
+                                ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
+                                offset: 0,
+                            }
+                        } else {
+                            result = { ...(await api.persons.list(newFilters)), offset: 0 }
+                        }
+                    } else {
+                        result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) }
                     }
-                    return await api.get(url)
+                    return result
                 },
             },
         ],

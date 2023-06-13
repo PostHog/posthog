@@ -33,9 +33,15 @@ class Notifications(TypedDict, total=False):
 
 NOTIFICATION_DEFAULTS: Notifications = {"plugin_disabled": True}
 
+# We don't ned the following attributes in most cases, so we defer them by default
+DEFERED_ATTRS = ["requested_password_reset_at"]
+
 
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
+
+    def get_queryset(self):
+        return super().get_queryset().defer(*DEFERED_ATTRS)
 
     model: Type["User"]
 
@@ -129,6 +135,9 @@ class User(AbstractUser, UUIDClassicModel):
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
+    is_email_verified: models.BooleanField = models.BooleanField(null=True, blank=True)
+    requested_password_reset_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    has_seen_product_intro_for: models.JSONField = models.JSONField(null=True, blank=True)
 
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
@@ -138,7 +147,6 @@ class User(AbstractUser, UUIDClassicModel):
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
-    is_email_verified: models.BooleanField = models.BooleanField(null=True, blank=True)
     # DEPRECATED
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
 
@@ -239,7 +247,6 @@ class User(AbstractUser, UUIDClassicModel):
                 self.save()
 
     def get_analytics_metadata(self):
-
         team_member_count_all: int = (
             OrganizationMembership.objects.filter(organization__in=self.organizations.all())
             .values("user_id")
@@ -275,6 +282,7 @@ class User(AbstractUser, UUIDClassicModel):
             "instance_url": SITE_URL,
             "instance_tag": INSTANCE_TAG,
             "is_email_verified": self.is_email_verified,
+            "has_seen_product_intro_for": self.has_seen_product_intro_for,
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

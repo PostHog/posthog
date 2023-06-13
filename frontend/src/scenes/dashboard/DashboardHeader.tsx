@@ -96,6 +96,7 @@ export function DashboardHeader(): JSX.Element | null {
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
+                        title="Dashboard Permissions"
                         isOpen={dashboardMode === DashboardMode.Sharing}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}

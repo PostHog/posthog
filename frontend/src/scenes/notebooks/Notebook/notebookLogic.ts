@@ -1,37 +1,53 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-
+import {
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
-import { notebooksListLogic } from './notebooksListLogic'
-import { NotebookListItemType, NotebookSyncStatus, NotebookType } from '~/types'
-import { delay } from 'lib/utils'
+import { notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { NotebookSyncStatus, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
 import { JSONContent, Editor } from './utils'
+import api from 'lib/api'
+import posthog from 'posthog-js'
+import { downloadFile, slugify } from 'lib/utils'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
+import { lemonToast } from '@posthog/lemon-ui'
 
 const SYNC_DELAY = 1000
 
 export type NotebookLogicProps = {
-    id: string | number
+    shortId: string
 }
 
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
-    key(({ id }) => id),
+    key(({ shortId }) => shortId),
     connect({
-        values: [notebooksListLogic, ['localNotebooks', 'scratchpadNotebook']],
+        values: [notebooksListLogic, ['scratchpadNotebook', 'notebookTemplates']],
         actions: [notebooksListLogic, ['receiveNotebookUpdate']],
     }),
     actions({
         setEditorRef: (editor: Editor) => ({ editor }),
-        addNodeToNotebook: (type: NotebookNodeType, props: Record<string, any>) => ({ type, props }),
         onEditorUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
+        clearLocalContent: true,
         setReady: true,
         loadNotebook: true,
-        saveNotebook: (notebook: Partial<NotebookType>) => ({ notebook }),
+        saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        exportJSON: true,
     }),
     reducers({
         localContent: [
@@ -39,29 +55,9 @@ export const notebookLogic = kea<notebookLogicType>([
             { persist: true },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
-                loadNotebookSuccess: (state, { notebook }) => {
-                    if (state === notebook?.content) {
-                        return null
-                    }
-                    return state
-                },
-                saveNotebookSuccess: (state, { notebook }) => {
-                    if (state === notebook?.content) {
-                        return null
-                    }
-                    return state
-                },
+                clearLocalContent: () => null,
             },
         ],
-        mockRemoteContent: [
-            null as JSONContent | null,
-            { persist: true },
-            {
-                loadNotebookSuccess: (_, { notebook }) => notebook.content,
-                saveNotebookSuccess: (_, { notebook }) => notebook?.content ?? null,
-            },
-        ],
-
         editor: [
             null as Editor | null,
             {
@@ -76,29 +72,31 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         notebook: [
             undefined as NotebookType | undefined,
             {
                 loadNotebook: async () => {
                     // NOTE: This is all hacky and temporary until we have a backend
-                    // TODO: Add a "revision" counter to handle updates for now
-                    let found: NotebookListItemType | undefined
+                    let response: NotebookType | undefined
 
-                    if (props.id === 'scratchpad') {
-                        found = values.scratchpadNotebook
+                    if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
+                        response = {
+                            ...values.scratchpadNotebook,
+                            content: {},
+                            version: 0,
+                        }
+                    } else if (props.shortId.startsWith('template-')) {
+                        response = values.notebookTemplates.find((template) => template.short_id === props.shortId)
+                        if (response) {
+                            response.is_template = true
+                        }
                     } else {
-                        await delay(1000)
-                        found = values.localNotebooks.find((x) => x.short_id === props.id)
+                        response = await api.notebooks.get(props.shortId)
                     }
 
-                    if (!found) {
+                    if (!response) {
                         throw new Error('Notebook not found')
-                    }
-
-                    const response = {
-                        ...found,
-                        content: values.mockRemoteContent,
                     }
 
                     if (!values.notebook) {
@@ -111,20 +109,53 @@ export const notebookLogic = kea<notebookLogicType>([
 
                 saveNotebook: async ({ notebook }) => {
                     if (!values.notebook) {
+                        return values.notebook
+                    }
+
+                    const response = await api.notebooks.update(values.notebook.short_id, {
+                        version: values.notebook.version,
+                        content: notebook.content,
+                        title: notebook.title,
+                    })
+
+                    // If the object is identical then no edits were made, so we can safely clear the local changes
+                    if (notebook.content === values.localContent) {
+                        actions.clearLocalContent()
+                    }
+
+                    return response
+                },
+            },
+        ],
+
+        newNotebook: [
+            undefined as NotebookType | undefined,
+            {
+                duplicateNotebook: async () => {
+                    if (!values.notebook) {
                         return
                     }
-                    await delay(1000)
 
-                    return {
-                        ...values.notebook,
-                        ...notebook,
-                    }
+                    const response = await api.notebooks.create({
+                        content: values.notebook.content,
+                        title: values.notebook.title,
+                    })
+
+                    posthog.capture(`notebook duplicated`, {
+                        short_id: response.short_id,
+                    })
+
+                    lemonToast.success('Notebook created from template!')
+                    router.actions.push(urls.notebookEdit(response.short_id))
+
+                    return response
                 },
             },
         ],
     })),
     selectors({
-        isLocalOnly: [() => [(_, props) => props], (props): boolean => props.id === 'scratchpad'],
+        shortId: [() => [(_, props) => props], (props): string => props.shortId],
+        isLocalOnly: [() => [(_, props) => props], (props): boolean => props.shortId === 'scratchpad'],
         content: [
             (s) => [s.notebook, s.localContent],
             (notebook, localContent): JSONContent | undefined => {
@@ -140,9 +171,20 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
+        isEmpty: [
+            (s) => [s.editor, s.content],
+            (editor): boolean => {
+                return editor?.isEmpty ?? false
+            },
+        ],
+
         syncStatus: [
             (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
             (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus | undefined => {
+                if (notebook?.is_template) {
+                    return 'synced'
+                }
+
                 if (isLocalOnly) {
                     return 'local'
                 }
@@ -158,25 +200,23 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => ({
-        addNodeToNotebook: ({ type, props }) => {
-            if (!values.editor) {
-                return
+    sharedListeners(({ values, actions }) => ({
+        onNotebookChange: () => {
+            // Keep the list logic up to date with any changes
+            if (values.notebook && values.notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
+                actions.receiveNotebookUpdate(values.notebook)
             }
-
-            values.editor
-                .chain()
-                .focus()
-                .insertContent({
-                    type,
-                    attrs: props,
-                })
-                .run()
         },
-
+    })),
+    listeners(({ values, actions, sharedListeners }) => ({
         setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
-            if (!values.isLocalOnly) {
+
+            posthog.capture('notebook content changed', {
+                short_id: values.notebook?.short_id,
+            })
+
+            if (!values.isLocalOnly && values.content && !values.notebookLoading) {
                 actions.saveNotebook({
                     content: values.content,
                     title: values.title,
@@ -188,23 +228,27 @@ export const notebookLogic = kea<notebookLogicType>([
             if (!values.editor || !values.notebook) {
                 return
             }
-
             const jsonContent = values.editor.getJSON()
-            // TODO: We might want a more efficient comparison here
-            if (JSON.stringify(jsonContent) !== JSON.stringify(values.content)) {
-                actions.setLocalContent(jsonContent)
-            }
+            actions.setLocalContent(jsonContent)
         },
 
-        saveNotebookSuccess: ({ notebook }) => {
-            if (notebook) {
-                actions.receiveNotebookUpdate(notebook)
-            }
+        saveNotebookSuccess: sharedListeners.onNotebookChange,
+        loadNotebookSuccess: sharedListeners.onNotebookChange,
+
+        exportJSON: () => {
+            const file = new File(
+                [JSON.stringify(values.editor?.getJSON())],
+                `${slugify(values.title ?? 'untitled')}.ph-notebook.json`,
+                { type: 'application/json' }
+            )
+
+            downloadFile(file)
         },
     })),
 
     afterMount(({ actions }) => {
         actions.loadNotebook()
+        // Gives a chance for the notebook to appear before we actually render the content
         setTimeout(() => {
             actions.setReady()
         }, 500)

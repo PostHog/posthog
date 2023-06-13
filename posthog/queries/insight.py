@@ -6,10 +6,13 @@ from posthog.types import FilterType
 
 
 # Wrapper around sync_execute, adding query tags for insights performance
-def insight_sync_execute(query, args=None, *, query_type: str, filter: Optional["FilterType"] = None, **kwargs):
+def insight_sync_execute(
+    query, args=None, *, team_id: int, query_type: str, filter: Optional["FilterType"] = None, **kwargs
+):
+    tag_queries(team_id=team_id)
     _tag_query(query, query_type, filter)
 
-    return sync_execute(query, args=args, **kwargs)
+    return sync_execute(query, args=args, team_id=team_id, **kwargs)
 
 
 # Wrapper around `query_with_columns`
@@ -19,11 +22,12 @@ def insight_query_with_columns(
     *,
     query_type: str,
     filter: Optional["FilterType"] = None,
+    team_id: int,
     **kwargs,
 ):
     _tag_query(query, query_type, filter)
 
-    return query_with_columns(query, args=args, **kwargs)
+    return query_with_columns(query, args=args, team_id=team_id, **kwargs)
 
 
 def _tag_query(query, query_type, filter: Optional["FilterType"]):

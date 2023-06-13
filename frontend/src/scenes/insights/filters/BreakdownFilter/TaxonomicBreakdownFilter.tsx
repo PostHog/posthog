@@ -1,7 +1,7 @@
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { BreakdownFilter } from '~/queries/schema'
-import { ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
+import { ChartDisplayType, FilterType, InsightType, PropertyFilterType, TrendsFilterType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
@@ -54,7 +54,16 @@ export function TaxonomicBreakdownFilterComponent({
 
     const tags = !hasBreakdown
         ? []
-        : breakdownArray.map((breakdown) => <BreakdownTag key={breakdown} breakdown={breakdown} isTrends={isTrends} />)
+        : breakdownArray.map((breakdown) => (
+              <BreakdownTag
+                  key={breakdown}
+                  breakdown={breakdown}
+                  breakdownType={
+                      (breakdownFilter?.breakdown_type as PropertyFilterType | undefined) ?? PropertyFilterType.Event
+                  }
+                  isTrends={isTrends}
+              />
+          ))
 
     return (
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>

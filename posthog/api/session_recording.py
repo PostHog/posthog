@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 import json
 from typing import Any, List, Type, cast
 
-import structlog
 from dateutil import parser
 import requests
 from django.db.models import Count, Prefetch
@@ -18,13 +17,18 @@ from sentry_sdk import capture_exception
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Filter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    SharingTokenPermission,
+    TeamMemberAccessPermission,
+)
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
@@ -36,8 +40,6 @@ from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
-
-logger = structlog.get_logger(__name__)
 
 
 def snapshots_response(data: Any) -> Any:
@@ -97,6 +99,15 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
         ]
 
 
+class SessionRecordingSharedSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="session_id", read_only=True)
+    recording_duration = serializers.IntegerField(source="duration", read_only=True)
+
+    class Meta:
+        model = SessionRecording
+        fields = ["id", "recording_duration", "start_time", "end_time"]
+
+
 class SessionRecordingPropertiesSerializer(serializers.Serializer):
     session_id = serializers.CharField()
     properties = serializers.DictField(required=False)
@@ -121,8 +132,30 @@ class SessionRecordingSnapshotsSerializer(serializers.Serializer):
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
+    authentication_classes = StructuredViewSetMixin.authentication_classes + [SharingAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    serializer_class = SessionRecordingSerializer
+
+    sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
+
+    def get_permissions(self):
+        if hasattr(self.request, "sharing_configuration"):
+            return [permission() for permission in [SharingTokenPermission]]
+        return super().get_permissions()
+
+    def get_serializer_class(self) -> Type[serializers.Serializer]:
+        if hasattr(self.request, "sharing_configuration"):
+            return SessionRecordingSharedSerializer
+        else:
+            return SessionRecordingSerializer
+
+    def get_object(self):
+        team = self.team
+        session_id = self.kwargs["pk"]
+        obj = SessionRecording.get_or_build(session_id=session_id, team=team)
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     def get_object(self) -> SessionRecording:
         recording = SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
@@ -141,7 +174,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             list_recordings(filter, request, context=self.get_serializer_context(), v2=use_v2_list, v3=use_v3_list)
         )
 
-    # Returns meta data about the recording
+    # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
 
@@ -159,19 +192,24 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         recording.load_person()
 
-        save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
-        recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
+        if not request.user.is_anonymous:
+            save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
+            recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
 
-        serializer = SessionRecordingSerializer(recording, context=self.get_serializer_context())
+        serializer = self.get_serializer(recording)
 
         return Response(serializer.data)
 
-    def delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
         recording.deleted = True
         recording.save()
 
-        return Response({"success": True})
+        return Response({"success": True}, status=204)
 
     def _snapshots_v2(self, request: request.Request):
         """
@@ -363,16 +401,20 @@ def list_recordings(
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
 
         # TODO: once person on events is deployed, we can remove the check for hogql properties https://github.com/PostHog/posthog/pull/14458#discussion_r1135780372
-        session_recording_list_instance: Type[SessionRecordingList] = (
-            SessionRecordingListFromReplaySummary
-            if can_use_v3
-            else SessionRecordingListV2
-            if can_use_v2
-            else SessionRecordingList
-        )
-        (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
-            filter=filter, team=team
-        ).run()
+        if can_use_v3:
+            # check separately here to help mypy see that SessionRecordingListFromReplaySummary
+            # is its own thing even though it is still stuck with inheritance until we can collapse
+            # the number of listing mechanisms
+            (ch_session_recordings, more_recordings_available) = SessionRecordingListFromReplaySummary(
+                filter=filter, team=team
+            ).run()
+        else:
+            session_recording_list_instance: Type[SessionRecordingList] = (
+                SessionRecordingListV2 if can_use_v2 else SessionRecordingList
+            )
+            (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
+                filter=filter, team=team
+            ).run()
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
 

@@ -40,10 +40,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: null,
         KAFKA_SASL_PASSWORD: null,
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
-        KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 5_242_880,
-        KAFKA_CONSUMPTION_MAX_WAIT_MS: 500, // Down from the 5s default for kafkajs
+        KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
+        KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
+        KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: 500, // Timeout when a partition read fails (possibly because empty)
+        KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: 500, // Timeout on reads from the prefetch buffer before running consumer loops
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+        KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
         KAFKA_PRODUCER_WAIT_FOR_ACK: true, // Turning it off can lead to dropped data
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
@@ -59,9 +62,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
         INGESTION_CONCURRENCY: 10,
+        INGESTION_BATCH_SIZE: 500,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
+        SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
         STATSD_HOST: null,
         STATSD_PORT: 8125,
         STATSD_PREFIX: 'plugin-server.',

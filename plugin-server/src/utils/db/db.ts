@@ -140,6 +140,7 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'Connection terminated unexpectedly',
     'ECONNREFUSED',
     'ETIMEDOUT',
+    'query_wait_timeout', // Waiting on PG bouncer to give us a slot
 ]
 
 /** The recommended way of accessing the database. */
