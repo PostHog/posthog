@@ -244,21 +244,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnsExprAsterisk.
-    def visitColumnsExprAsterisk(self, ctx:HogQLParser.ColumnsExprAsteriskContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnsExprSubquery.
-    def visitColumnsExprSubquery(self, ctx:HogQLParser.ColumnsExprSubqueryContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnsExprColumn.
-    def visitColumnsExprColumn(self, ctx:HogQLParser.ColumnsExprColumnContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprTernaryOp.
     def visitColumnExprTernaryOp(self, ctx:HogQLParser.ColumnExprTernaryOpContext):
         return self.visitChildren(ctx)
