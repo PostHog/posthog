@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
+import { AvailableFeature, DashboardBasicType, DashboardMode, DashboardType } from '~/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
@@ -24,10 +24,29 @@ import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 
-export function DashboardsTable(): JSX.Element {
+export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { dashboards, filters } = useValues(dashboardsLogic)
+
+    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} filters={filters} />
+}
+
+interface DashboardsTableProps {
+    dashboards: DashboardBasicType[]
+    filters: DashboardsFilters
+    dashboardsLoading: boolean
+    extraActions?: JSX.Element | JSX.Element[]
+    hideActions?: boolean
+}
+
+export function DashboardsTable({
+    dashboards,
+    dashboardsLoading,
+    filters,
+    extraActions,
+    hideActions,
+}: DashboardsTableProps): JSX.Element {
+    const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { setFilters } = useActions(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -105,75 +124,81 @@ export function DashboardsTable(): JSX.Element {
             : []),
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-        {
-            width: 0,
-            render: function RenderActions(_, { id, name }: DashboardType) {
-                return (
-                    <More
-                        overlay={
-                            <>
-                                <LemonButton
-                                    status="stealth"
-                                    to={urls.dashboard(id)}
-                                    onClick={() => {
-                                        dashboardLogic({ id }).mount()
-                                        dashboardLogic({ id }).actions.setDashboardMode(
-                                            null,
-                                            DashboardEventSource.DashboardsList
-                                        )
-                                    }}
-                                    fullWidth
-                                >
-                                    View
-                                </LemonButton>
-                                <LemonButton
-                                    status="stealth"
-                                    to={urls.dashboard(id)}
-                                    onClick={() => {
-                                        dashboardLogic({ id }).mount()
-                                        dashboardLogic({ id }).actions.setDashboardMode(
-                                            DashboardMode.Edit,
-                                            DashboardEventSource.DashboardsList
-                                        )
-                                    }}
-                                    fullWidth
-                                >
-                                    Edit
-                                </LemonButton>
-                                <LemonButton
-                                    status="stealth"
-                                    onClick={() => {
-                                        showDuplicateDashboardModal(id, name)
-                                    }}
-                                    fullWidth
-                                >
-                                    Duplicate
-                                </LemonButton>
-                                <LemonDivider />
-                                <LemonRow icon={<IconCottage className="text-warning" />} fullWidth status="warning">
-                                    <span className="text-muted">
-                                        Change the default dashboard
-                                        <br />
-                                        from the <Link to={urls.projectHomepage()}>project home page</Link>.
-                                    </span>
-                                </LemonRow>
+        hideActions
+            ? {}
+            : {
+                  width: 0,
+                  render: function RenderActions(_, { id, name }: DashboardType) {
+                      return (
+                          <More
+                              overlay={
+                                  <>
+                                      <LemonButton
+                                          status="stealth"
+                                          to={urls.dashboard(id)}
+                                          onClick={() => {
+                                              dashboardLogic({ id }).mount()
+                                              dashboardLogic({ id }).actions.setDashboardMode(
+                                                  null,
+                                                  DashboardEventSource.DashboardsList
+                                              )
+                                          }}
+                                          fullWidth
+                                      >
+                                          View
+                                      </LemonButton>
+                                      <LemonButton
+                                          status="stealth"
+                                          to={urls.dashboard(id)}
+                                          onClick={() => {
+                                              dashboardLogic({ id }).mount()
+                                              dashboardLogic({ id }).actions.setDashboardMode(
+                                                  DashboardMode.Edit,
+                                                  DashboardEventSource.DashboardsList
+                                              )
+                                          }}
+                                          fullWidth
+                                      >
+                                          Edit
+                                      </LemonButton>
+                                      <LemonButton
+                                          status="stealth"
+                                          onClick={() => {
+                                              showDuplicateDashboardModal(id, name)
+                                          }}
+                                          fullWidth
+                                      >
+                                          Duplicate
+                                      </LemonButton>
+                                      <LemonDivider />
+                                      <LemonRow
+                                          icon={<IconCottage className="text-warning" />}
+                                          fullWidth
+                                          status="warning"
+                                      >
+                                          <span className="text-muted">
+                                              Change the default dashboard
+                                              <br />
+                                              from the <Link to={urls.projectHomepage()}>project home page</Link>.
+                                          </span>
+                                      </LemonRow>
 
-                                <LemonDivider />
-                                <LemonButton
-                                    onClick={() => {
-                                        showDeleteDashboardModal(id)
-                                    }}
-                                    fullWidth
-                                    status="danger"
-                                >
-                                    Delete dashboard
-                                </LemonButton>
-                            </>
-                        }
-                    />
-                )
-            },
-        },
+                                      <LemonDivider />
+                                      <LemonButton
+                                          onClick={() => {
+                                              showDeleteDashboardModal(id)
+                                          }}
+                                          fullWidth
+                                          status="danger"
+                                      >
+                                          Delete dashboard
+                                      </LemonButton>
+                                  </>
+                              }
+                          />
+                      )
+                  },
+              },
     ]
 
     return (
@@ -228,6 +253,7 @@ export function DashboardsTable(): JSX.Element {
                             dropdownMatchSelectWidth={false}
                         />
                     </div>
+                    {extraActions}
                 </div>
             </div>
             <LemonTable

@@ -297,7 +297,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
-        setFilters: () => {
+        setFilters: async () => {
             actions.loadEventDefinitions(
                 normalizeEventDefinitionEndpointUrl({
                     url: values.eventDefinitions.current,
