@@ -93,8 +93,10 @@ result = []
 snapshots_by_session_and_window_id = defaultdict(list)
 
 
-def legacy_preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> List[Event]:
-    return _process_windowed_events(events, lambda x: legacy_compress_and_chunk_snapshots(x, chunk_size=512 * 1024))
+def legacy_preprocess_session_recording_events_for_clickhouse(
+    events: List[Event], chunk_size=512 * 1024
+) -> List[Event]:
+    return _process_windowed_events(events, lambda x: legacy_compress_and_chunk_snapshots(x, chunk_size=chunk_size))
 
 
 def legacy_compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> Generator[Event, None, None]:
@@ -213,150 +215,15 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
                 event = new_event([snapshot_data])
                 yield event
 
-            other_size = byte_size_dict(other_snapshots)
-
             # Try and group the rest
             if byte_size_dict(other_snapshots) < max_size_bytes:
                 event = new_event(other_snapshots)
                 yield event
             else:
-                print(other_size, max_size_bytes)
-
                 # If not, send them individually
                 for snapshot_data in other_snapshots:
                     event = new_event([snapshot_data])
                     yield event
-
-
-def compress_replay_events(events: List[Event]) -> List[Event]:
-    return [compress_replay_event(event) for event in events]
-
-
-def compress_replay_event(event: Event) -> Event:
-    """
-    Takes a single incoming event and compresses the snapshot data
-    """
-    snapshot_data = event["properties"]["$snapshot_data"]
-    compressed_data = compress_to_string(json.dumps(snapshot_data))
-    has_full_snapshot = snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot
-    events_summary = get_events_summary_from_snapshot_data([snapshot_data])
-
-    return {
-        **event,
-        "properties": {
-            **event["properties"],
-            "$snapshot_data": {
-                "data": compressed_data,
-                "compression": "gzip-base64",
-                "has_full_snapshot": has_full_snapshot,
-                "events_summary": events_summary,
-            },
-        },
-    }
-
-
-def reduce_replay_events_by_window(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
-    return _process_windowed_events(events, lambda x: reduce_replay_events(x, max_size_bytes))
-
-
-def reduce_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
-    """
-    Now that we have compressed events, we group them based on the max size to reduce the number of events
-    written to Kafka
-    """
-    if len(events) == 0:
-        return []
-
-    session_id = events[0]["properties"]["$session_id"]
-    window_id = events[0]["properties"].get("$window_id")
-
-    def new_event() -> Event:
-        return {
-            **events[0],
-            "properties": {
-                **events[0]["properties"],
-                "$session_id": session_id,
-                "$window_id": window_id,
-                "$snapshot_data": {
-                    "data_items": [],
-                    "compression": "gzip-base64",
-                    "has_full_snapshot": False,
-                    "events_summary": [],
-                },
-            },
-        }
-
-    current_event = None
-
-    for event in events:
-        additional_snapshot_data = event["properties"]["$snapshot_data"]
-
-        if not current_event:
-            current_event = new_event()
-        elif byte_size_dict(current_event) + byte_size_dict(additional_snapshot_data) > max_size_bytes:
-            # If adding the new data would put us over the max size, yield the current event and start a new one
-            yield current_event
-            current_event = new_event()
-
-        # Add the existing data to the base event
-        current_event["properties"]["$snapshot_data"]["data_items"].append(additional_snapshot_data["data"])
-        current_event["properties"]["$snapshot_data"]["events_summary"].extend(
-            additional_snapshot_data["events_summary"]
-        )
-        current_event["properties"]["$snapshot_data"]["has_full_snapshot"] = (
-            current_event["properties"]["$snapshot_data"]["has_full_snapshot"]
-            or additional_snapshot_data["has_full_snapshot"]
-        )
-
-    yield current_event
-
-
-def chunk_replay_events_by_window(events: List[Event], max_size_bytes=512 * 1024) -> List[Event]:
-    return _process_windowed_events(events, lambda x: chunk_replay_events(x, max_size_bytes))
-
-
-def chunk_replay_events(events: List[Event], max_size_bytes=512 * 1024) -> Generator[Event, None, None]:
-    """
-    If any of the events individually sits above the max_size_bytes, we compress and chunk the data into multiple events.
-    Eventually this won't be needed as we'll be able to write larger events to Kafka
-    """
-    for event in events:
-        if byte_size_dict(event) > max_size_bytes:
-            data_items = event["properties"]["$snapshot_data"]["data_items"]
-            events_summary = event["properties"]["$snapshot_data"]["events_summary"]
-            has_full_snapshot = event["properties"]["$snapshot_data"]["has_full_snapshot"]
-            data = data_items[0]
-            # We assume due to the reduce_replay_events function that there will only ever be one event if it is above the threshold
-            if len(data_items) > 1:
-                capture_message(
-                    f"Expected only one snapshot data item but found {len(data_items)} when compressing over threshold!",
-                    level="error",
-                    extra={"data_items": data_items},
-                )
-
-            id = str(utils.UUIDT())
-            chunks = chunk_string(data, max_size_bytes)
-
-            for index, chunk in enumerate(chunks):
-                yield {
-                    **events[0],
-                    "properties": {
-                        **events[0]["properties"],
-                        # If it is the first chunk we include all events
-                        "$snapshot_data": {
-                            "chunk_id": id,
-                            "chunk_index": index,
-                            "chunk_count": len(chunks),
-                            "data": chunk,
-                            "compression": "gzip-base64",
-                            "has_full_snapshot": has_full_snapshot,
-                            # We only store this field on the first chunk as it contains all events, not just this chunk
-                            "events_summary": events_summary if index == 0 else None,
-                        },
-                    },
-                }
-        else:
-            yield event
 
 
 def _process_windowed_events(events: List[Event], fn: Callable[[List[Event], Any], List[Event]]) -> List[Event]:

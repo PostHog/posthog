@@ -31,7 +31,6 @@ from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
     legacy_preprocess_session_recording_events_for_clickhouse,
-    preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
 from posthog.utils import cors_response, get_ip_address
@@ -355,7 +354,8 @@ def get_event(request):
 
                 if random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO:
                     # The new flow is to a separate Kafka topic and doesn't compress but rather groups data as small as possible
-                    alternative_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events)
+                    # alternative_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events)
+                    pass
 
                     # TODO: Send these to a different topic...
 

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import random
 import string
-from typing import List, cast
+from typing import List, Tuple, cast
 from unittest.mock import ANY
 
 import pytest
@@ -14,15 +14,14 @@ from posthog.session_recordings.session_recording_helpers import (
     SnapshotData,
     SnapshotDataTaggedWithWindowId,
     byte_size_dict,
-    chunk_replay_events_by_window,
-    compress_replay_events,
     decompress_chunked_snapshot_data,
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
     get_events_summary_from_snapshot_data,
     is_active_event,
+    legacy_compress_and_chunk_snapshots,
     preprocess_replay_events_for_blob_ingestion,
-    reduce_replay_events_by_window,
+    legacy_preprocess_session_recording_events_for_clickhouse,
     split_replay_events,
 )
 
@@ -37,16 +36,22 @@ def create_activity_data(timestamp: datetime, is_active: bool):
     )
 
 
-def mock_capture_flow(events: List[dict], max_size_bytes=512 * 1024) -> List[dict]:
+def mock_capture_flow(events: List[dict], max_size_bytes=512 * 1024) -> Tuple[List[dict], List[dict]]:
+    """
+    Returns the legacy events and the new flow ones
+    """
     replay_events, other_events = split_replay_events(events)
-    replay_events = preprocess_replay_events_for_blob_ingestion(replay_events, max_size_bytes=max_size_bytes)
+    legacy_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(
+        replay_events, chunk_size=max_size_bytes
+    )
+    new_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events, max_size_bytes=max_size_bytes)
 
-    return replay_events + other_events
+    return (legacy_replay_events + other_events, new_replay_events + other_events)
 
 
 def test_preprocess_with_no_recordings():
     events = [{"event": "$pageview"}, {"event": "$pageleave"}]
-    assert mock_capture_flow(events) == events
+    assert mock_capture_flow(events)[0] == events
 
 
 def test_preprocess_recording_event_groups_snapshots_split_by_session_and_window_id():
@@ -87,7 +92,7 @@ def test_preprocess_recording_event_groups_snapshots_split_by_session_and_window
         },
     ]
 
-    preprocessed = mock_capture_flow(events)
+    preprocessed, _ = mock_capture_flow(events)
     assert preprocessed != events
     assert len(preprocessed) == 3
     expected_session_ids = ["1234", "5678", "5678"]
@@ -98,30 +103,29 @@ def test_preprocess_recording_event_groups_snapshots_split_by_session_and_window
         assert result["properties"]["$session_id"] == expected_session_ids[index]
         assert result["properties"].get("$window_id") == expected_window_ids[index]
         assert result["properties"]["distinct_id"] == "abc123"
-
-        assert len(result["properties"]["$snapshot_data"]["data_items"]) == expected_data_items[index]
+        assert "chunk_id" in result["properties"]["$snapshot_data"]
         assert result["event"] == "$snapshot"
 
     # it does not rechunk already chunked events
-    assert mock_capture_flow(preprocessed) == preprocessed
+    assert mock_capture_flow(preprocessed)[0] == preprocessed
 
 
 def test_compression_and_grouping(raw_snapshot_events, mocker: MockerFixture):
     mocker.patch("posthog.models.utils.UUIDT", return_value="0178495e-8521-0000-8e1c-2652fa57099b")
     mocker.patch("time.time", return_value=0)
 
-    assert list(mock_capture_flow(raw_snapshot_events)) == [
+    assert list(mock_capture_flow(raw_snapshot_events)[0]) == [
         {
             "event": "$snapshot",
             "properties": {
                 "$session_id": "1234",
                 "$window_id": "1",
                 "$snapshot_data": {
+                    "chunk_id": "0178495e-8521-0000-8e1c-2652fa57099b",
+                    "chunk_index": 0,
+                    "chunk_count": 1,
                     "compression": "gzip-base64",
-                    "data_items": [
-                        "H4sIAAAAAAAC//v/r5pBiaGEoZKhgCEVyLJiUGAwYtABkiDRTIZcoGgxkJUIZBVA5Q0ZTBlMGMwYjBkMgNACTEJgLQMA4qp+DFAAAAA=",
-                        "H4sIAAAAAAAC//v/r5pBiaGEoZKhgCEVyLJiUGAwZtABkiDRTIZcoGgxkJUIZBVA5Q0ZTBlMGMyA6gyA0AJMQmAtAwBtJK3GUAAAAA==",
-                    ],
+                    "data": "H4sIAAAAAAAC//v/L5qhmkGJoYShkqGAIRXIsmJQYDBi0AGSINFMhlygaDGQlQhkFUDlDRlMGUwYzBiMGQyA0AJMQmAtWCemicYUmBjLAAABQ+l7pgAAAA==",
                     "has_full_snapshot": True,
                     "events_summary": [
                         {"timestamp": MILLISECOND_TIMESTAMP, "type": 2, "data": {}},
@@ -135,16 +139,13 @@ def test_compression_and_grouping(raw_snapshot_events, mocker: MockerFixture):
 
 
 def test_decompression_results_in_same_data(raw_snapshot_events):
-    # Check the encoded size so that we can choose a chunk size that will result in multiple chunks
-    assert byte_size_dict(compress_replay_events(raw_snapshot_events)[0]) == 371
-
-    assert len(list(mock_capture_flow(raw_snapshot_events, 1000))) == 1
+    assert len(list(mock_capture_flow(raw_snapshot_events, 1000)[0])) == 1
     assert compress_decompress_and_extract(raw_snapshot_events, 1000) == [
         raw_snapshot_events[0]["properties"]["$snapshot_data"],
         raw_snapshot_events[1]["properties"]["$snapshot_data"],
     ]
-    assert len(list(mock_capture_flow(raw_snapshot_events, 400))) == 2
-    assert compress_decompress_and_extract(raw_snapshot_events, 400) == [
+    assert len(list(mock_capture_flow(raw_snapshot_events, 100)[0])) == 2
+    assert compress_decompress_and_extract(raw_snapshot_events, 100) == [
         raw_snapshot_events[0]["properties"]["$snapshot_data"],
         raw_snapshot_events[1]["properties"]["$snapshot_data"],
     ]
@@ -188,7 +189,7 @@ def test_large_full_snapshot_is_separated(raw_snapshot_events, mocker: MockerFix
             },
         },
     ]
-    assert list(mock_capture_flow(events, max_size_bytes=2000)) == [
+    assert list(mock_capture_flow(events, max_size_bytes=2000)[0]) == [
         {
             "event": "$snapshot",
             "properties": {
@@ -196,9 +197,7 @@ def test_large_full_snapshot_is_separated(raw_snapshot_events, mocker: MockerFix
                 "$window_id": "1",
                 "$snapshot_data": {
                     "compression": "gzip-base64",
-                    "data_items": [
-                        ANY,
-                    ],
+                    "data": ANY,
                     "has_full_snapshot": True,
                     "events_summary": [
                         {"timestamp": 123, "type": 2, "data": {}},
@@ -214,7 +213,7 @@ def test_large_full_snapshot_is_separated(raw_snapshot_events, mocker: MockerFix
                 "$window_id": "1",
                 "$snapshot_data": {
                     "compression": "gzip-base64",
-                    "data_items": [
+                    "data": [
                         ANY,
                         ANY,
                     ],
@@ -262,7 +261,7 @@ def test_large_non_full_snapshots_are_separated(raw_snapshot_events, mocker: Moc
             },
         },
     ]
-    assert list(mock_capture_flow(events, max_size_bytes=2000)) == [
+    assert list(mock_capture_flow(events, max_size_bytes=2000)[0]) == [
         {
             "event": "$snapshot",
             "properties": {
@@ -303,12 +302,12 @@ def test_large_non_full_snapshots_are_separated(raw_snapshot_events, mocker: Moc
 
 
 def test_has_full_snapshot_property(raw_snapshot_events):
-    compressed = list(mock_capture_flow(raw_snapshot_events))
+    compressed = list(mock_capture_flow(raw_snapshot_events)[0])
     assert len(compressed) == 1
     assert compressed[0]["properties"]["$snapshot_data"]["has_full_snapshot"]
 
     raw_snapshot_events[0]["properties"]["$snapshot_data"]["type"] = 0
-    compressed = list(mock_capture_flow(raw_snapshot_events))
+    compressed = list(mock_capture_flow(raw_snapshot_events)[0])
     assert len(compressed) == 1
     assert not compressed[0]["properties"]["$snapshot_data"]["has_full_snapshot"]
 
@@ -331,7 +330,7 @@ def test_decompress_uncompressed_events_returns_unmodified_events(raw_snapshot_e
 def test_decompress_ignores_if_not_enough_chunks(raw_snapshot_events):
     raw_snapshot_data = [event["properties"]["$snapshot_data"] for event in raw_snapshot_events]
     snapshot_data_list = [
-        event["properties"]["$snapshot_data"] for event in mock_capture_flow(raw_snapshot_events, 100)
+        event["properties"]["$snapshot_data"] for event in mock_capture_flow(raw_snapshot_events, 100)[0]
     ]
     window_id = "abc123"
     snapshot_list = []
@@ -358,7 +357,7 @@ def test_decompress_ignores_if_not_enough_chunks(raw_snapshot_events):
 def test_decompress_deduplicates_if_duplicate_chunks(raw_snapshot_events):
     raw_snapshot_data = [event["properties"]["$snapshot_data"] for event in raw_snapshot_events]
     snapshot_data_list = [
-        event["properties"]["$snapshot_data"] for event in mock_capture_flow(raw_snapshot_events, 10)
+        event["properties"]["$snapshot_data"] for event in mock_capture_flow(raw_snapshot_events, 10)[0]
     ]  # makes 12 chunks
     # take the first four chunks twice, then the remainder, and then again the first four chunks twice from snapshot_data_list
     snapshot_data_list = (
@@ -379,7 +378,7 @@ def test_decompress_deduplicates_if_duplicate_chunks(raw_snapshot_events):
 
 def test_decompress_ignores_if_too_few_chunks_even_after_deduplication(raw_snapshot_events):
     snapshot_data_list = [
-        event["properties"]["$snapshot_data"] for event in mock_capture_flow(raw_snapshot_events, 20)
+        event["properties"]["$snapshot_data"] for event in mock_capture_flow(raw_snapshot_events, 20)[0]
     ]  # makes 12 chunks
 
     assert len(snapshot_data_list) == 12
@@ -788,11 +787,11 @@ def chunked_and_compressed_snapshot_events():
             },
         },
     ]
-    return list(mock_capture_flow(chunk_1_events)) + list(mock_capture_flow(chunk_2_events))
+    return list(mock_capture_flow(chunk_1_events)[0]) + list(mock_capture_flow(chunk_2_events)[0])
 
 
 def compress_decompress_and_extract(events, chunk_size):
-    snapshot_data_list = [event["properties"]["$snapshot_data"] for event in mock_capture_flow(events, chunk_size)]
+    snapshot_data_list = [event["properties"]["$snapshot_data"] for event in mock_capture_flow(events, chunk_size)[0]]
     window_id = "abc123"
     snapshot_list = []
     for snapshot_data in snapshot_data_list:

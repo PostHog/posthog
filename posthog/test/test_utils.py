@@ -353,5 +353,4 @@ class TestFlatten(TestCase):
         assert list(flatten([1, [2, 3], [[4], [5, [6, 7]]]])) == [1, 2, 3, 4, 5, 6, 7]
 
     def test_flatten_single_depth(self):
-        print(list(flatten([1, [2, 3], [[4], [5, [6, 7]]]], max_depth=1)))
         assert list(flatten([1, [2, 3], [[4], [5, [6, 7]]]], max_depth=1)) == [1, 2, 3, [4], [5, [6, 7]]]
