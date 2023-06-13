@@ -146,7 +146,7 @@ export class SessionRecordingBlobIngester {
             return statusWarn('invalid_json', { error })
         }
 
-        if (event.event !== '$snapshot') {
+        if (event.event !== '$snapshot_items' || !event.properties?.$snapshot_items?.length) {
             status.debug('🙈', 'Received non-snapshot message, ignoring')
             return
         }
@@ -184,28 +184,6 @@ export class SessionRecordingBlobIngester {
             return
         }
 
-        const $snapshot_data = event.properties?.$snapshot_data
-
-        if ('chunk_index' in $snapshot_data) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'chunked_data',
-                })
-                .inc()
-            return
-        }
-
-        if (!('data_items' in $snapshot_data)) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'no_data_items',
-                })
-                .inc()
-            return
-        }
-
         const recordingMessage: IncomingRecordingMessage = {
             metadata: {
                 partition: message.partition,
@@ -218,12 +196,7 @@ export class SessionRecordingBlobIngester {
             distinct_id: event.distinct_id,
             session_id: event.properties?.$session_id,
             window_id: event.properties?.$window_id,
-
-            // Properties data
-            data_items: $snapshot_data.data_items,
-            compression: $snapshot_data.compression,
-            has_full_snapshot: $snapshot_data.has_full_snapshot,
-            events_summary: $snapshot_data.events_summary,
+            events: event.properties.$snapshot_items,
         }
 
         const consumeSpan = span?.startChild({

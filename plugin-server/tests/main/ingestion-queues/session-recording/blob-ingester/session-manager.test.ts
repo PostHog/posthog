@@ -62,16 +62,12 @@ describe('session-manager', () => {
     })
 
     it('adds a message', async () => {
-        const payload = { simple: 'data' }
         const timestamp = DateTime.now().toMillis() - 10000
-        const event = createIncomingRecordingMessage(
-            {
-                metadata: {
-                    timestamp: timestamp,
-                } as any,
-            },
-            payload
-        )
+        const event = createIncomingRecordingMessage({
+            metadata: {
+                timestamp: timestamp,
+            } as any,
+        })
 
         await sessionManager.add(event)
 
@@ -80,11 +76,11 @@ describe('session-manager', () => {
             oldestKafkaTimestamp: timestamp,
             file: expect.any(String),
             id: expect.any(String),
-            size: 61, // The size of the event payload - this may change when test data changes
+            size: 4139, // The size of the event payload - this may change when test data changes
             offsets: [1],
             eventsRange: {
-                firstTimestamp: 1679568043305,
-                lastTimestamp: 1679568043305,
+                firstTimestamp: 1679568314158,
+                lastTimestamp: 1679568314158,
             },
         })
 
@@ -96,22 +92,17 @@ describe('session-manager', () => {
         const flushThreshold = 2500 // any value here...
         const now = DateTime.now()
 
-        const payload = { simple: 'data' }
-        const event = createIncomingRecordingMessage(
-            {
-                metadata: {
-                    timestamp: now
-                        .minus({
-                            milliseconds: flushThreshold - 10, // less than the threshold
-                        })
-                        .toMillis(),
-                } as any,
-            },
-            payload
-        )
+        const event = createIncomingRecordingMessage({
+            metadata: {
+                timestamp: now
+                    .minus({
+                        milliseconds: flushThreshold - 10, // less than the threshold
+                    })
+                    .toMillis(),
+            } as any,
+        })
 
         await sessionManager.add(event)
-
         await sessionManager.flushIfSessionBufferIsOld(now.toMillis(), flushThreshold)
 
         // as a proxy for flush having been called or not
@@ -123,37 +114,30 @@ describe('session-manager', () => {
         const firstTimestamp = 1679568043305
         const lastTimestamp = 1679568043305 + 4000
 
-        const payload = { simple: 'data' }
-        const eventOne = createIncomingRecordingMessage(
-            {
-                events_summary: [
-                    {
-                        timestamp: firstTimestamp,
-                        type: 4,
-                        data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
-                    },
-                ],
-                metadata: {
-                    timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
-                } as any,
-            },
-            payload
-        )
-        const eventTwo = createIncomingRecordingMessage(
-            {
-                events_summary: [
-                    {
-                        timestamp: lastTimestamp,
-                        type: 4,
-                        data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
-                    },
-                ],
-                metadata: {
-                    timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
-                } as any,
-            },
-            payload
-        )
+        const eventOne = createIncomingRecordingMessage({
+            events: [
+                {
+                    timestamp: firstTimestamp,
+                    type: 4,
+                    data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
+                },
+            ],
+            metadata: {
+                timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
+            } as any,
+        })
+        const eventTwo = createIncomingRecordingMessage({
+            events: [
+                {
+                    timestamp: lastTimestamp,
+                    type: 4,
+                    data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
+                },
+            ],
+            metadata: {
+                timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
+            } as any,
+        })
 
         await sessionManager.add(eventOne)
         await sessionManager.add(eventTwo)

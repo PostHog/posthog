@@ -39,11 +39,6 @@ export const gaugeS3LinesWritten = new Gauge({
 
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
-interface EventsRange {
-    firstTimestamp: number
-    lastTimestamp: number
-}
-
 // The buffer is a list of messages grouped
 type SessionBuffer = {
     id: string
@@ -52,7 +47,10 @@ type SessionBuffer = {
     size: number
     file: string
     offsets: number[]
-    eventsRange: EventsRange | null
+    eventsRange: {
+        firstTimestamp: number
+        lastTimestamp: number
+    } | null
 }
 
 export class SessionManager {
@@ -71,8 +69,6 @@ export class SessionManager {
         private readonly onFinish: (offsetsToRemove: number[]) => void
     ) {
         this.buffer = this.createBuffer()
-
-        // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
     private logContext = (): Record<string, any> => {
@@ -305,47 +301,11 @@ export class SessionManager {
             throw error
         }
     }
-
-    public async destroy(): Promise<void> {
-        this.destroying = true
-        if (this.inProgressUpload !== null) {
-            await this.inProgressUpload.abort()
-            this.inProgressUpload = null
-        }
-
-        const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
-            .filter((x): x is string => x !== undefined)
-            .map((x) =>
-                this.deleteFile(x, 'on destroy').catch((error) => {
-                    captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
-                    throw error
-                })
-            )
-        await Promise.allSettled(filePromises)
-    }
-
-    private getEventRangeForMessage(message: IncomingRecordingMessage): [number | null, number | null] {
-        try {
-            if (!message.events_summary || !message.events_summary.length) {
-                return [null, null]
-            }
-
-            return [
-                message.events_summary[0].timestamp,
-                message.events_summary[message.events_summary.length - 1].timestamp,
-            ]
-        } catch (e) {
-            captureException(e, { tags: { team_id: this.teamId, session_id: this.sessionId }, extra: { message } })
-            return [null, null]
-        }
-    }
-
     private setEventsRangeFrom(message: IncomingRecordingMessage) {
-        const [start, end] = this.getEventRangeForMessage(message)
+        const start = message.events.at(0)?.timestamp
+        const end = message.events.at(-1)?.timestamp
 
-        if (start === null) {
-            // if we don't have a start, then we can't have an end,
-            // and we can't set new values for range
+        if (!start || !end) {
             captureMessage(
                 "blob_ingester_session_manager: can't set events range from message without events summary",
                 {
@@ -363,5 +323,23 @@ export class SessionManager {
         const lastTimestamp = Math.max(end || start, this.buffer.eventsRange?.lastTimestamp || -Infinity)
 
         this.buffer.eventsRange = { firstTimestamp, lastTimestamp }
+    }
+
+    public async destroy(): Promise<void> {
+        this.destroying = true
+        if (this.inProgressUpload !== null) {
+            await this.inProgressUpload.abort()
+            this.inProgressUpload = null
+        }
+
+        const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
+            .filter((x): x is string => x !== undefined)
+            .map((x) =>
+                this.deleteFile(x, 'on destroy').catch((error) => {
+                    captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
+                    throw error
+                })
+            )
+        await Promise.allSettled(filePromises)
     }
 }
