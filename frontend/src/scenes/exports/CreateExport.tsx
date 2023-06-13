@@ -62,6 +62,7 @@ export function CreateS3Export(): JSX.Element {
     const accessKeyIdRef = useRef<HTMLInputElement>(null)
     const secretAccessKeyRef = useRef<HTMLInputElement>(null)
     const intervalRef = useRef<'hour' | 'day' | null>(null)
+    const [regionState, setRegionState] = useState<{ value: string | null }>({ value: null })
 
     const { createExport, loading, error } = useCreateExport()
 
@@ -73,8 +74,10 @@ export function CreateS3Export(): JSX.Element {
             !regionRef.current ||
             !accessKeyIdRef.current ||
             !secretAccessKeyRef.current ||
-            !intervalRef.current
+            !intervalRef.current ||
+            !regionState.value
         ) {
+            // TODO: This should just fail and report back to the user.
             console.warn('Missing ref')
         }
 
@@ -82,10 +85,10 @@ export function CreateS3Export(): JSX.Element {
         const name = nameRef.current?.value ?? ''
         const bucket = bucketRef.current?.value ?? ''
         const prefix = prefixRef.current?.value ?? ''
-        const region = regionRef.current ?? ''
         const accessKeyId = accessKeyIdRef.current?.value ?? ''
         const secretAccessKey = secretAccessKeyRef.current?.value ?? ''
         const interval = intervalRef.current ?? ''
+        const region = regionState.value ?? ''
 
         const exportData = {
             name,
@@ -150,6 +153,9 @@ export function CreateS3Export(): JSX.Element {
                         { value: 'me-south-1', label: 'Middle East (Bahrain)' },
                         { value: 'sa-east-1', label: 'South America (São Paulo)' },
                     ]}
+                    onChange={(region) => {
+                        setRegionState({ value: region })
+                    }}
                 />
             </PureField>
 
