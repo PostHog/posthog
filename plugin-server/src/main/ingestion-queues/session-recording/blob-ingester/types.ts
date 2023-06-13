@@ -13,10 +13,7 @@ export type IncomingRecordingMessage = {
     window_id?: string
 
     // Properties data
-    chunk_id: string
-    chunk_index: number
-    chunk_count: number
-    data: string
+    data_items: string[]
     compression: string
     has_full_snapshot: boolean
     events_summary: {

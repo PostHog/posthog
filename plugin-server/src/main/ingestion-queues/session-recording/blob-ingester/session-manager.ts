@@ -12,7 +12,6 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
-import { PendingChunks } from './pending-chunks'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
@@ -38,14 +37,6 @@ export const gaugeS3LinesWritten = new Gauge({
     help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
 })
 
-export const gaugePendingChunksDropped = new Gauge({
-    name: 'recording_pending_chunks_dropped',
-    help: `Chunks can be duplicated or arrive as expected.
-        When flushing we need to check whether we have all chunks or should drop them.
-        This metric indicates a set of pending chunks were incomplete for too long,
-        were blocking ingestion, and were dropped`,
-})
-
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
 interface EventsRange {
@@ -65,7 +56,6 @@ type SessionBuffer = {
 }
 
 export class SessionManager {
-    chunks: Map<string, PendingChunks> = new Map()
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
     destroying = false
@@ -86,11 +76,6 @@ export class SessionManager {
     }
 
     private logContext = (): Record<string, any> => {
-        const chunkStates: Record<string, any> = {}
-        for (const [key, chunk] of this.chunks.entries()) {
-            chunkStates[key] = chunk.logContext
-        }
-
         return {
             sessionId: this.sessionId,
             partition: this.partition,
@@ -100,7 +85,6 @@ export class SessionManager {
             oldestKafkaTimestampHumanReadable: this.buffer.oldestKafkaTimestamp
                 ? DateTime.fromMillis(this.buffer.oldestKafkaTimestamp).toISO()
                 : undefined,
-            chunkStates,
             bufferCount: this.buffer.count,
         }
     }
@@ -131,17 +115,12 @@ export class SessionManager {
         // TODO: Check that the offset is higher than the lastProcessed
         // If not - ignore it
         // If it is - update lastProcessed and process it
-        if (message.chunk_count === 1) {
-            await this.addToBuffer(message)
-        } else {
-            await this.addToChunks(message)
-        }
-
+        await this.addToBuffer(message)
         await this.flushIfBufferExceedsCapacity()
     }
 
     public get isEmpty(): boolean {
-        return this.buffer.count === 0 && this.chunks.size === 0
+        return this.buffer.count === 0
     }
 
     public async flushIfBufferExceedsCapacity(): Promise<void> {
@@ -188,8 +167,6 @@ export class SessionManager {
         const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
         logContext['bufferAge'] = bufferAge
 
-        this.chunks = this.handleIdleChunks(this.chunks, referenceNow, flushThresholdMillis, logContext)
-
         if (bufferAge >= flushThresholdMillis) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 ...logContext,
@@ -201,37 +178,6 @@ export class SessionManager {
                 ...logContext,
             })
         }
-    }
-
-    handleIdleChunks(
-        chunks: Map<string, PendingChunks>,
-        referenceNow: number,
-        flushThresholdMillis: number,
-        logContext: Record<string, any>
-    ): Map<string, PendingChunks> {
-        const updatedChunks = new Map<string, PendingChunks>()
-
-        for (const [key, pendingChunks] of chunks) {
-            if (pendingChunks.isIdle(referenceNow, flushThresholdMillis)) {
-                // dropping these chunks, don't lose their offsets
-                pendingChunks.chunks.forEach((x) => {
-                    // we want to make sure that the offsets for these messages we're ignoring
-                    // are cleared from the offsetManager so, we add then to the buffer
-                    // even though we're dropping the data
-                    this.buffer.offsets.push(x.metadata.offset)
-                })
-                gaugePendingChunksDropped.inc()
-                status.warn('🚽', `blob_ingester_session_manager dropping pending chunks due to age`, {
-                    ...logContext,
-                    chunkId: key,
-                })
-                continue
-            }
-
-            updatedChunks.set(key, pendingChunks)
-        }
-
-        return updatedChunks
     }
 
     /**
@@ -358,52 +304,6 @@ export class SessionManager {
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
         }
-    }
-
-    /**
-     * Chunked messages arrive over time or as duplicates
-     * and are stored until there is a complete set
-     * Once all chunks are received, the message is added to the buffer
-     */
-    private async addToChunks(message: IncomingRecordingMessage): Promise<void> {
-        // If it is a chunked message we add to the collected chunks
-
-        if (!this.chunks.has(message.chunk_id)) {
-            this.chunks.set(message.chunk_id, new PendingChunks(message))
-        } else {
-            this.chunks.get(message.chunk_id)?.add(message)
-        }
-        const pendingChunks = this.chunks.get(message.chunk_id)
-
-        if (!pendingChunks) {
-            const { data, events_summary, ...messageToLog } = message
-            captureMessage('No pending chunks when that is impossible', {
-                extra: { ...messageToLog },
-                tags: { team_id: this.teamId, session_id: this.sessionId, partition: this.partition },
-            })
-            throw new Error('It is impossible to have no pending chunks here')
-        }
-
-        if (pendingChunks.isComplete) {
-            // If we have all the chunks, we can add the message to the buffer
-            // We want to add all the chunk offsets as well so that they are tracked correctly
-            await this.processChunksToBuffer(pendingChunks)
-            this.chunks.delete(message.chunk_id)
-        }
-    }
-
-    private async processChunksToBuffer(pendingChunks: PendingChunks): Promise<void> {
-        pendingChunks.allChunkOffsets.forEach((offset) => this.buffer.offsets.push(offset))
-
-        const completedChunks = pendingChunks.completedChunks
-
-        await this.addToBuffer({
-            ...completedChunks[0],
-            data: completedChunks
-                .sort((a, b) => a.chunk_index - b.chunk_index)
-                .map((c) => c.data)
-                .join(''),
-        })
     }
 
     public async destroy(): Promise<void> {
