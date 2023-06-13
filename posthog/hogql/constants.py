@@ -689,5 +689,5 @@ class HogQLSettings(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    readonly: Optional[int] = 1
+    readonly: Optional[int] = 0
     max_execution_time: Optional[int] = 60
