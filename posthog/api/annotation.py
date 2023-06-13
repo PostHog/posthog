@@ -3,7 +3,7 @@ from typing import Any, Dict
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from rest_framework import filters, serializers, viewsets
+from rest_framework import filters, serializers, viewsets, pagination
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -64,7 +64,7 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [filters.SearchFilter]
-    default_limit = 500
+    pagination_class = pagination.LimitOffsetPagination(default_limit=1000)
     search_fields = ["content"]
 
     def get_queryset(self) -> QuerySet:

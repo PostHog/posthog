@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
-from rest_framework import serializers, status, viewsets
+from rest_framework import serializers, status, viewsets, pagination
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -37,7 +37,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
-    default_limit = 500
+    pagination_class = pagination.LimitOffsetPagination(default_limit=500)
 
     def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
         team = self.team
