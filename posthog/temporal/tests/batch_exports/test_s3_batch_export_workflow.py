@@ -1,6 +1,8 @@
+import functools
 import json
 from random import randint
 from typing import TypedDict
+from unittest import mock
 from uuid import uuid4
 
 import boto3
@@ -67,6 +69,9 @@ async def insert_events(client: ChClient, events: list[EventValues]):
     )
 
 
+create_test_client = functools.partial(boto3.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+
+
 @pytest.fixture
 def bucket_name() -> str:
     """Name for a test S3 bucket."""
@@ -74,15 +79,13 @@ def bucket_name() -> str:
 
 
 @pytest.fixture
-def s3_client(bucket_name) -> boto3.Client:
+def s3_client(bucket_name):
     """Manage a testing S3 client to interact with a testing S3 bucket.
 
     Yields the test S3 client after creating a testing S3 bucket. Upon resuming, we delete
     the contents and the bucket itself.
     """
-    boto3.Session.client.defaults = (None, None, False, None, settings.OBJECT_STORAGE_ENDPOINT, None, None, None, None)
-
-    s3_client = boto3.client(
+    s3_client = create_test_client(
         "s3",
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
@@ -104,7 +107,7 @@ def s3_client(bucket_name) -> boto3.Client:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment, bucket_name, s3_client):
+async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client, activity_environment):
     """
     Test that the insert_into_s3_activity function puts data into S3. We do not
     assume anything about the Django models, and instead just check that the
@@ -163,7 +166,8 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment, b
     )
 
     with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-        await activity_environment.run(insert_into_s3_activity, insert_inputs)
+        with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+            await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     # Check that the data was written to S3.
     # List the objects in the bucket with the prefix.
@@ -279,13 +283,14 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            await activity_environment.client.execute_workflow(
-                S3BatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+                await activity_environment.client.execute_workflow(
+                    S3BatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
 
         runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
         assert len(runs) == 1
