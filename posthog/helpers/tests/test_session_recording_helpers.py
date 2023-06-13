@@ -222,17 +222,17 @@ def test_decompress_deduplicates_if_duplicate_chunks(raw_snapshot_events):
 def test_decompress_ignores_if_too_few_chunks_even_after_deduplication(raw_snapshot_events):
     snapshot_data_list = [
         event["properties"]["$snapshot_data"] for event in mock_capture_flow(raw_snapshot_events, 20)[0]
-    ]  # makes 12 chunks
+    ]  # makes 6 chunks
 
-    assert len(snapshot_data_list) == 12
+    assert len(snapshot_data_list) == 6
     # take the first four chunks four times, then not quite all the remainder
     # leaves more than 12 chunks in total, but not enough to decompress
     snapshot_data_list = (
-        snapshot_data_list[:4]
-        + snapshot_data_list[:4]
-        + snapshot_data_list[:4]
-        + snapshot_data_list[:4]
-        + snapshot_data_list[8:-1]
+        snapshot_data_list[:2]
+        + snapshot_data_list[:2]
+        + snapshot_data_list[:2]
+        + snapshot_data_list[:2]
+        + snapshot_data_list[4:-1]
     )
 
     window_id = "abc123"
