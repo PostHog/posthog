@@ -44,7 +44,7 @@ class EventQuery(metaclass=ABCMeta):
     _extra_event_properties: List[PropertyName]
     _extra_person_fields: List[ColumnName]
     _person_id_alias: str
-    _session_id_suffix: int
+    _session_id_alias: str
 
     def __init__(
         self,
@@ -81,8 +81,11 @@ class EventQuery(metaclass=ABCMeta):
         # Guards against a ClickHouse bug involving multiple joins against the same table
         # with the same column name. This issue manifests for us with formulas, where on queries A and B we join events against itself
         # and both tables end up having $session_id. Without a formula this is not a problem.
-        has_formula = hasattr(self._filter, "formula") and self._filter.formula is not None
-        self._session_id_suffix = f"_{random.randint(0, 10000000000000000000)}" if has_formula else ""
+        self._session_id_alias = (
+            f"session_id_{random.randint(0, 10000000000000000000)}"
+            if self._filter.formula is not None
+            else "$session_id"
+        )
 
         if override_aggregate_users_by_distinct_id is not None:
             self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id
@@ -204,9 +207,7 @@ class EventQuery(metaclass=ABCMeta):
     def _sessions_query(self) -> SessionQuery:
         if isinstance(self._filter, PropertiesTimelineFilter):
             raise Exception("Properties Timeline never needs sessions query")
-        return SessionQuery(
-            filter=self._filter, team=self._team, session_id_alias=f"$session_id{self._session_id_suffix}"
-        )
+        return SessionQuery(filter=self._filter, team=self._team, session_id_alias=self._session_id_alias)
 
     def _get_sessions_query(self) -> Tuple[str, Dict]:
         if self._should_join_sessions:
@@ -217,7 +218,7 @@ class EventQuery(metaclass=ABCMeta):
                     INNER JOIN (
                         {session_query}
                     ) as {SessionQuery.SESSION_TABLE_ALIAS}
-                    ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id{self._session_id_suffix} = {self.EVENT_TABLE_ALIAS}.$session_id
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}.{self._session_id_alias} = {self.EVENT_TABLE_ALIAS}.$session_id
                 """,
                 session_params,
             )
