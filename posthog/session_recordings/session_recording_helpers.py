@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional
 
 from dateutil.parser import ParserError, parse
-from sentry_sdk.api import capture_exception, capture_message
+from sentry_sdk.api import capture_exception
 
 from posthog.models import utils
 from posthog.models.session_recording.metadata import (
@@ -164,6 +164,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
     def new_event(items: List[dict] = []) -> Event:
         return {
             **events[0],
+            "event": "$snapshot_items",  # New event name to avoid confusion with the old $snapshot event
             "properties": {
                 "distinct_id": distinct_id,
                 "$session_id": session_id,

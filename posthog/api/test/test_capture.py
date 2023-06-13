@@ -1237,7 +1237,7 @@ class TestCapture(BaseTest):
                         "chunk_count": 1,
                         "chunk_id": "fake-uuid",
                         "chunk_index": 0,
-                        "data": compress_to_string(json.dumps(sent_event["properties"]["$snapshot_data"])),
+                        "data": "H4sIAIB3mGAC/42NSwqAQAxD31Fk1m4GUUavIi78ggtR/CxEvLoaPweQQJu2SXoeKRuGmZWBWizBw+GrGipyXfJve+smehZGyh/aRtr+mw2FbqP6LryOmZZOOdPj6/T/1VoiQuWGD4sFq8kRyJlxAaIGxIyyAAAA",
                         "compression": "gzip-base64",
                         "has_full_snapshot": False,
                         "events_summary": [
