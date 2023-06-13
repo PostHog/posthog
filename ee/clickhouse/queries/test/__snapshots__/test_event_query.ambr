@@ -172,7 +172,7 @@
          sessions.$session_id as $session_id
   FROM events e
   INNER JOIN
-    (SELECT $session_id,
+    (SELECT $session_id AS $session_id,
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
      FROM events
      WHERE $session_id != ''
@@ -195,7 +195,7 @@
          sessions.$session_id as $session_id
   FROM events e
   INNER JOIN
-    (SELECT $session_id,
+    (SELECT $session_id AS $session_id,
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
      FROM events
      WHERE $session_id != ''
@@ -333,7 +333,7 @@
          sessions.session_duration as session_duration
   FROM events e
   INNER JOIN
-    (SELECT $session_id,
+    (SELECT $session_id AS $session_id,
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
      FROM events
      WHERE $session_id != ''
