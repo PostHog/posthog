@@ -112,18 +112,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         # Create a multipart upload to S3
         key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
-        # When running locally, we need to use the local minio's endpoint.
-        # However, in production we need to use the AWS endpoint. In this case
-        # we let Boto3 figure out the endpoint based on the region.
-        endpoint_url = (
-            settings.OBJECT_STORAGE_ENDPOINT if "http://localhost:19000" == settings.OBJECT_STORAGE_ENDPOINT else None
-        )
         s3_client = boto3.client(
             "s3",
             region_name=inputs.region,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
-            endpoint_url=endpoint_url,
+            endpoint_url=settings.BATCH_EXPORT_S3_ENDPOINT_URL,
         )
         multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
         upload_id = multipart_response["UploadId"]

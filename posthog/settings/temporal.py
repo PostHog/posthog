@@ -1,4 +1,6 @@
 import os
+from posthog.settings.base_variables import TEST
+
 
 TEMPORAL_NAMESPACE = os.getenv("TEMPORAL_NAMESPACE", "default")
 TEMPORAL_TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "no-sandbox-python-django")
@@ -10,5 +12,7 @@ TEMPORAL_CLIENT_KEY = os.getenv("TEMPORAL_CLIENT_KEY", None)
 TEMPORAL_WORKFLOW_MAX_ATTEMPTS = os.getenv("TEMPORAL_WORKFLOW_MAX_ATTEMPTS", "3")
 
 
+# When testing locally we want to use the minio instance rather than AWS S3
+BATCH_EXPORT_S3_ENDPOINT_URL = os.getenv("BATCH_EXPORT_S3_ENDPOINT_URL", "http://localhost:19000" if TEST else None)
 BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES = 1024 * 1024 * 50  # 50MB
 BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES = 1024 * 1024 * 100  # 100MB

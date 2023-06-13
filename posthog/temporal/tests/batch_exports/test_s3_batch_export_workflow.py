@@ -77,7 +77,7 @@ def setup_module(module):
 
     s3_client = boto3.client(
         "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        endpoint_url=settings.BATCH_EXPORT_S3_ENDPOINT_URL,
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
     )
@@ -92,7 +92,7 @@ def teardown_module(module):
     """
     s3_client = boto3.client(
         "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        endpoint_url=settings.BATCH_EXPORT_S3_ENDPOINT_URL,
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
     )
@@ -173,7 +173,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
     # Check that the data was written to S3.
     s3_client = boto3.client(
         "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        endpoint_url=settings.BATCH_EXPORT_S3_ENDPOINT_URL,
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
     )
