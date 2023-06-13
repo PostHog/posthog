@@ -541,8 +541,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Tuple(exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [])
 
     def visitColumnExprArrayAccess(self, ctx: HogQLParser.ColumnExprArrayAccessContext):
-        object = self.visit(ctx.columnExpr(0))
-        property = self.visit(ctx.columnExpr(1))
+        object: ast.Expr = self.visit(ctx.columnExpr(0))
+        property: ast.Expr = self.visit(ctx.columnExpr(1))
         if isinstance(property, ast.Constant) and property.value == 0:
             raise SyntaxException("SQL indexes start from 1, not 0")
         return ast.ArrayAccess(array=object, property=property)
@@ -679,19 +679,36 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
 
         if len(table) == 0 and len(nested) > 0:
-            if isinstance(nested[0], ast.Expr):
-                return nested[0]
             text = ctx.getText().lower()
             if text == "true":
                 return ast.Constant(value=True)
             if text == "false":
                 return ast.Constant(value=False)
-            return ast.Field(chain=nested)
 
-        return ast.Field(chain=table + nested)
+        chain = table + nested
+        if isinstance(chain[0], int):
+            raise SyntaxException(f"Column access can't start with an integer")
+
+        expr = ast.Field(chain=[chain[0]])
+        for element in chain[1:]:
+            if element == 0:
+                raise SyntaxException("SQL indexes start from 1, not 0")
+            if isinstance(element, str) and isinstance(expr, ast.Field):
+                expr.chain.append(element)
+            elif isinstance(element, int) and isinstance(expr, ast.Field):
+                expr = ast.TupleAccess(tuple=expr, index=element)
+            else:
+                expr = ast.ArrayAccess(array=expr, property=ast.Constant(value=element))
+        return expr
 
     def visitNestedIdentifier(self, ctx: HogQLParser.NestedIdentifierContext):
-        return [self.visit(identifier) for identifier in ctx.identifier()]
+        array = [self.visit(ctx.identifier())]
+        for element in ctx.identifierOrDecimal():
+            if element.identifier():
+                array.append(self.visit(element.identifier()))
+            else:
+                array.append(int(element.DECIMAL_LITERAL().getText()))
+        return array
 
     def visitTableExprIdentifier(self, ctx: HogQLParser.TableExprIdentifierContext):
         chain = self.visit(ctx.tableIdentifier())
@@ -768,9 +785,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         ):
             text = parse_string(text)
         return text
-
-    def visitIdentifierOrNull(self, ctx: HogQLParser.IdentifierOrNullContext):
-        raise NotImplementedException(f"Unsupported node: IdentifierOrNull")
 
     def visitEnumValue(self, ctx: HogQLParser.EnumValueContext):
         raise NotImplementedException(f"Unsupported node: EnumValue")

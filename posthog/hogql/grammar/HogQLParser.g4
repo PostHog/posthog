@@ -174,7 +174,7 @@ withExpr
 // We parse and convert "databaseIdentifier.tableIdentifier.columnIdentifier.nestedIdentifier.*"
 // to just one ast.Field(chain=['a','b','columnIdentifier','on','and','on']).
 columnIdentifier: PLACEHOLDER | ((tableIdentifier DOT)? nestedIdentifier);
-nestedIdentifier: identifier (DOT identifier)*;
+nestedIdentifier: identifier (DOT identifierOrDecimal)*;
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
     | tableFunctionExpr                  # TableExprFunction
@@ -228,5 +228,5 @@ keywordForAlias
     ;
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
-identifierOrNull: identifier | NULL_SQL;  // NULL_SQL can be only 'Null' here.
+identifierOrDecimal: identifier | DECIMAL_LITERAL;
 enumValue: STRING_LITERAL EQ_SINGLE numberLiteral;

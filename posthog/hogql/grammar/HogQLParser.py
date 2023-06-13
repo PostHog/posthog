@@ -329,7 +329,7 @@ def serializedATN():
         5,199,0,0,803,804,3,96,48,0,804,805,5,209,0,0,805,807,1,0,0,0,806,
         803,1,0,0,0,806,807,1,0,0,0,807,808,1,0,0,0,808,810,3,90,45,0,809,
         802,1,0,0,0,809,806,1,0,0,0,810,89,1,0,0,0,811,816,3,118,59,0,812,
-        813,5,209,0,0,813,815,3,118,59,0,814,812,1,0,0,0,815,818,1,0,0,0,
+        813,5,209,0,0,813,815,3,120,60,0,814,812,1,0,0,0,815,818,1,0,0,0,
         816,814,1,0,0,0,816,817,1,0,0,0,817,91,1,0,0,0,818,816,1,0,0,0,819,
         820,6,46,-1,0,820,827,3,96,48,0,821,827,3,94,47,0,822,823,5,218,
         0,0,823,824,3,2,1,0,824,825,5,228,0,0,825,827,1,0,0,0,826,819,1,
@@ -360,7 +360,7 @@ def serializedATN():
         0,900,903,5,193,0,0,901,903,3,114,57,0,902,900,1,0,0,0,902,901,1,
         0,0,0,903,117,1,0,0,0,904,908,5,193,0,0,905,908,3,110,55,0,906,908,
         3,112,56,0,907,904,1,0,0,0,907,905,1,0,0,0,907,906,1,0,0,0,908,119,
-        1,0,0,0,909,912,3,118,59,0,910,912,5,115,0,0,911,909,1,0,0,0,911,
+        1,0,0,0,909,912,3,118,59,0,910,912,5,196,0,0,911,909,1,0,0,0,911,
         910,1,0,0,0,912,121,1,0,0,0,913,914,5,198,0,0,914,915,5,211,0,0,
         915,916,3,106,53,0,916,123,1,0,0,0,117,126,136,144,147,151,154,158,
         161,164,167,170,174,178,181,184,187,190,193,202,208,229,246,265,
@@ -542,7 +542,7 @@ class HogQLParser ( Parser ):
     RULE_keywordForAlias = 57
     RULE_alias = 58
     RULE_identifier = 59
-    RULE_identifierOrNull = 60
+    RULE_identifierOrDecimal = 60
     RULE_enumValue = 61
 
     ruleNames =  [ "select", "selectUnionStmt", "selectStmtWithParens", 
@@ -561,7 +561,7 @@ class HogQLParser ( Parser ):
                    "tableFunctionExpr", "tableIdentifier", "tableArgList", 
                    "tableArgExpr", "databaseIdentifier", "floatingLiteral", 
                    "numberLiteral", "literal", "interval", "keyword", "keywordForAlias", 
-                   "alias", "identifier", "identifierOrNull", "enumValue" ]
+                   "alias", "identifier", "identifierOrDecimal", "enumValue" ]
 
     EOF = Token.EOF
     ADD=1
@@ -6113,11 +6113,8 @@ class HogQLParser ( Parser ):
             super().__init__(parent, invokingState)
             self.parser = parser
 
-        def identifier(self, i:int=None):
-            if i is None:
-                return self.getTypedRuleContexts(HogQLParser.IdentifierContext)
-            else:
-                return self.getTypedRuleContext(HogQLParser.IdentifierContext,i)
+        def identifier(self):
+            return self.getTypedRuleContext(HogQLParser.IdentifierContext,0)
 
 
         def DOT(self, i:int=None):
@@ -6125,6 +6122,13 @@ class HogQLParser ( Parser ):
                 return self.getTokens(HogQLParser.DOT)
             else:
                 return self.getToken(HogQLParser.DOT, i)
+
+        def identifierOrDecimal(self, i:int=None):
+            if i is None:
+                return self.getTypedRuleContexts(HogQLParser.IdentifierOrDecimalContext)
+            else:
+                return self.getTypedRuleContext(HogQLParser.IdentifierOrDecimalContext,i)
+
 
         def getRuleIndex(self):
             return HogQLParser.RULE_nestedIdentifier
@@ -6154,7 +6158,7 @@ class HogQLParser ( Parser ):
                     self.state = 812
                     self.match(HogQLParser.DOT)
                     self.state = 813
-                    self.identifier() 
+                    self.identifierOrDecimal() 
                 self.state = 818
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,101,self._ctx)
@@ -7720,7 +7724,7 @@ class HogQLParser ( Parser ):
         return localctx
 
 
-    class IdentifierOrNullContext(ParserRuleContext):
+    class IdentifierOrDecimalContext(ParserRuleContext):
         __slots__ = 'parser'
 
         def __init__(self, parser, parent:ParserRuleContext=None, invokingState:int=-1):
@@ -7731,25 +7735,25 @@ class HogQLParser ( Parser ):
             return self.getTypedRuleContext(HogQLParser.IdentifierContext,0)
 
 
-        def NULL_SQL(self):
-            return self.getToken(HogQLParser.NULL_SQL, 0)
+        def DECIMAL_LITERAL(self):
+            return self.getToken(HogQLParser.DECIMAL_LITERAL, 0)
 
         def getRuleIndex(self):
-            return HogQLParser.RULE_identifierOrNull
+            return HogQLParser.RULE_identifierOrDecimal
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitIdentifierOrNull" ):
-                return visitor.visitIdentifierOrNull(self)
+            if hasattr( visitor, "visitIdentifierOrDecimal" ):
+                return visitor.visitIdentifierOrDecimal(self)
             else:
                 return visitor.visitChildren(self)
 
 
 
 
-    def identifierOrNull(self):
+    def identifierOrDecimal(self):
 
-        localctx = HogQLParser.IdentifierOrNullContext(self, self._ctx, self.state)
-        self.enterRule(localctx, 120, self.RULE_identifierOrNull)
+        localctx = HogQLParser.IdentifierOrDecimalContext(self, self._ctx, self.state)
+        self.enterRule(localctx, 120, self.RULE_identifierOrDecimal)
         try:
             self.state = 911
             self._errHandler.sync(self)
@@ -7759,10 +7763,10 @@ class HogQLParser ( Parser ):
                 self.state = 909
                 self.identifier()
                 pass
-            elif token in [115]:
+            elif token in [196]:
                 self.enterOuterAlt(localctx, 2)
                 self.state = 910
-                self.match(HogQLParser.NULL_SQL)
+                self.match(HogQLParser.DECIMAL_LITERAL)
                 pass
             else:
                 raise NoViableAltException(self)
