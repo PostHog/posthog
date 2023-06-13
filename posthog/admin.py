@@ -74,7 +74,6 @@ class GroupTypeMappingInline(admin.TabularInline):
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_link", "organization_id")
     search_fields = ("id", "name", "organization__id", "organization__name", "api_token")
-    readonly_fields = ["primary_dashboard", "test_account_filters"]
     exclude = [
         "event_names",
         "event_names_with_usage",
@@ -84,6 +83,7 @@ class TeamAdmin(admin.ModelAdmin):
         "event_properties_numerical",
         "session_recording_retention_period_days",
     ]
+    readonly_fields = ["organization", "primary_dashboard", "test_account_filters"]
     inlines = [GroupTypeMappingInline]
 
     def organization_link(self, team: Team):
