@@ -1070,3 +1070,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(SyntaxException) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
+
+    def test_select_from_numbers_table(self):
+        query = f"SELECT * FROM numbers(4,2)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.columns, ["number"])
+        self.assertEqual(response.results, [tuple(4), tuple(5)])
+
+        query = f"SELECT number FROM numbers(3)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [tuple(0), tuple(1), tuple(2)])
+
+        query = f"SELECT * FROM numbers"
+        with self.assertRaises(SyntaxException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "Yeah can't do that")
