@@ -30,11 +30,8 @@ from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
-    chunk_replay_events_by_window,
-    compress_replay_events,
     legacy_preprocess_session_recording_events_for_clickhouse,
     preprocess_replay_events_for_blob_ingestion,
-    reduce_replay_events_by_window,
     split_replay_events,
 )
 from posthog.utils import cors_response, get_ip_address
