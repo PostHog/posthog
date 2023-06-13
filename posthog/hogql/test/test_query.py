@@ -1073,7 +1073,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_time_window_functions(self):
         query = """
-            SELECT 
+            SELECT
                 tumble(toDateTime('2020-01-01'), toIntervalDay('1')),
                 tumbleStart(toDateTime('2020-01-01'), toIntervalDay('1')),
                 tumbleEnd(toDateTime('2020-01-01'), toIntervalDay('1')),
