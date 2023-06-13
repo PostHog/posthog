@@ -73,7 +73,7 @@ class GroupTypeMappingInline(admin.TabularInline):
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "organization_link", "organization_id")
+    list_display = ("id", "name_link", "organization_link", "organization_id", "created_at", "updated_at")
     search_fields = ("id", "name", "organization__id", "organization__name", "api_token")
     readonly_fields = ["organization", "primary_dashboard", "test_account_filters"]
     inlines = [GroupTypeMappingInline, ActionInline]
@@ -133,6 +133,9 @@ class TeamAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    def name_link(self, team: Team):
+        return format_html('<a href="/admin/posthog/team/{}/change/"><b>{}</b></a>', team.pk, team.name)
 
     def organization_link(self, team: Team):
         return format_html(
