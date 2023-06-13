@@ -2,19 +2,20 @@ import json
 from random import randint
 from typing import TypedDict
 from uuid import uuid4
-import boto3
 
-from aiochclient import ChClient
+import boto3
 import pytest
+from aiochclient import ChClient
 from django.conf import settings
-from django.test import Client as HttpClient, override_settings
+from django.test import Client as HttpClient
+from django.test import override_settings
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
+
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
-
+from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportInputs,
@@ -22,8 +23,6 @@ from posthog.temporal.workflows.s3_batch_export import (
     S3InsertInputs,
     insert_into_s3_activity,
 )
-
-bucket_name = ""
 
 TEST_ROOT_BUCKET = "test-batch-exports"
 
@@ -68,34 +67,30 @@ async def insert_events(client: ChClient, events: list[EventValues]):
     )
 
 
-def setup_module(module):
+@pytest.fixture
+def bucket_name() -> str:
+    """Name for a test S3 bucket."""
+    return f"{TEST_ROOT_BUCKET}-{str(uuid4())}"
+
+
+@pytest.fixture
+def s3_client(bucket_name) -> boto3.Client:
+    """Manage a testing S3 client to interact with a testing S3 bucket.
+
+    Yields the test S3 client after creating a testing S3 bucket. Upon resuming, we delete
+    the contents and the bucket itself.
     """
-    Create a random S3 bucket for testing.
-    """
-    global bucket_name
-    bucket_name = f"{TEST_ROOT_BUCKET}-{str(uuid4())}"
+    boto3.Session.client.defaults = (None, None, False, None, settings.OBJECT_STORAGE_ENDPOINT, None, None, None, None)
 
     s3_client = boto3.client(
         "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
     )
 
     s3_client.create_bucket(Bucket=bucket_name)
 
-
-def teardown_module(module):
-    """
-    Delete the random S3 bucket created for testing. We need to also delete all the
-    objects in the bucket before we can delete the bucket itself.
-    """
-    s3_client = boto3.client(
-        "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-    )
+    yield s3_client
 
     response = s3_client.list_objects_v2(Bucket=bucket_name)
 
@@ -109,7 +104,7 @@ def teardown_module(module):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
+async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment, bucket_name, s3_client):
     """
     Test that the insert_into_s3_activity function puts data into S3. We do not
     assume anything about the Django models, and instead just check that the
@@ -171,13 +166,6 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
         await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     # Check that the data was written to S3.
-    s3_client = boto3.client(
-        "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-    )
-
     # List the objects in the bucket with the prefix.
     objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
 
@@ -210,7 +198,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_with_minio_bucket(client: HttpClient):
+async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client):
     """
     Test that the whole workflow not just the activity works. It should update
     the batch export run status to completed, as well as updating the record
