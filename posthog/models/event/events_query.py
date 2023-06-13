@@ -142,7 +142,10 @@ def run_events_query(
     elif "timestamp" in select_input:
         order_by = [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
     elif len(select) > 0:
-        order_by = [ast.OrderExpr(expr=select[0].expr, order="ASC")]
+        expr = select[0]
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        order_by = [ast.OrderExpr(expr=expr, order="ASC")]
     else:
         order_by = []
 
