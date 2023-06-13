@@ -5,6 +5,7 @@ from uuid import UUID
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import StringJSONDatabaseField
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -361,6 +362,43 @@ class Resolver(CloningVisitor):
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
+        return node
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        node = super().visit_array_access(node)
+
+        if (
+            isinstance(node.array, ast.Field)
+            and isinstance(node.property, ast.Constant)
+            and (isinstance(node.property.value, str) or isinstance(node.property.value, int))
+            and (
+                (isinstance(node.array.type, ast.PropertyType))
+                or (
+                    isinstance(node.array.type, ast.FieldType)
+                    and isinstance(node.array.type.resolve_database_field(), StringJSONDatabaseField)
+                )
+            )
+        ):
+            node.array.chain.append(node.property.value)
+            node.array.type = node.array.type.get_child(node.property.value)
+            return node.array
+
+        return node
+
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        node = super().visit_tuple_access(node)
+
+        if isinstance(node.tuple, ast.Field) and (
+            (isinstance(node.tuple.type, ast.PropertyType))
+            or (
+                isinstance(node.tuple.type, ast.FieldType)
+                and isinstance(node.tuple.type.resolve_database_field(), StringJSONDatabaseField)
+            )
+        ):
+            node.tuple.chain.append(node.index)
+            node.tuple.type = node.tuple.type.get_child(node.index)
+            return node.tuple
+
         return node
 
     def visit_constant(self, node: ast.Constant):

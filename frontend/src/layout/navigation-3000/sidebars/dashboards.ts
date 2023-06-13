@@ -14,6 +14,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { FuseSearchMatch } from './utils'
 
 const fuse = new Fuse<DashboardType>([], {
     keys: [{ name: 'name', weight: 2 }, 'description', 'tags'],
@@ -21,11 +22,6 @@ const fuse = new Fuse<DashboardType>([], {
     ignoreLocation: true,
     includeMatches: true,
 })
-
-export interface SearchMatch {
-    indices: readonly [number, number][]
-    key: string
-}
 
 export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'dashboardsSidebarLogic']),
@@ -137,9 +133,9 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
         ],
         relevantDashboards: [
             (s) => [s.pinSortedDashboards, navigation3000Logic.selectors.searchTerm],
-            (pinSortedDashboards, searchTerm): [DashboardBasicType, SearchMatch[] | null][] => {
+            (pinSortedDashboards, searchTerm): [DashboardBasicType, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
-                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as SearchMatch[]])
+                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return pinSortedDashboards.map((dashboard) => [dashboard, null])
             },
