@@ -83,7 +83,7 @@ class EventQuery(metaclass=ABCMeta):
         # and both tables end up having $session_id. Without a formula this is not a problem.
         self._session_id_alias = (
             f"session_id_{random.randint(0, 10000000000000000000)}"
-            if self._filter.formula is not None
+            if hasattr(self._filter, "formula") and self._filter.formula is not None
             else "$session_id"
         )
 
