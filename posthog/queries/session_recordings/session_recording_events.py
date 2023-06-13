@@ -2,8 +2,6 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, cast
 
-from statshog.defaults.django import statsd
-
 from posthog.client import sync_execute
 from posthog.models import Team
 from posthog.models.session_recording.metadata import (

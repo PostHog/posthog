@@ -2,7 +2,7 @@ import base64
 import gzip
 import json
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional
 
 from dateutil.parser import ParserError, parse
@@ -11,11 +11,9 @@ from sentry_sdk.api import capture_exception, capture_message
 from posthog.models import utils
 from posthog.models.session_recording.metadata import (
     DecompressedRecordingData,
-    RecordingSegment,
     SessionRecordingEventSummary,
     SnapshotData,
     SnapshotDataTaggedWithWindowId,
-    WindowId,
 )
 
 FULL_SNAPSHOT = 2
