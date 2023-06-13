@@ -265,7 +265,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { editPlugin } = useActions(pluginsLogic)
     const [setupModalIsOpen, setSetupModalIsOpen] = useState(false)
-    console.log('surv plugin', surveyPlugin)
+
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
     useEffect(() => {
         if (survey.start_date) {
