@@ -1046,10 +1046,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "properties.obj_array.id[1]",
                 "properties.array_array_str.1.1",
                 "properties.array_array_str[1][1]",
+                "properties.array_obj_array[1]['id'][1]",
+                "properties.array_obj_array_obj[1]['id'][1]['id']",
                 # "properties.array_obj.1.id",
                 # "properties.array_obj[1].id",
                 # "properties.array_obj_array.1.id.1",
-                # "properties.array_obj_array[1]['id'][1]",
                 # "properties.array_obj_array_obj.1.id.1.id",
                 # "properties.array_obj_array_obj[1].id[1].id",
             ]
