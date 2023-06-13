@@ -378,7 +378,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_configure_exception_autocapture_event_dropping(self):
         response = self.client.get("/api/projects/@current/")
-        assert response.json()["autocapture_exceptions_errors_to_ignore"] == []
+        assert response.json()["autocapture_exceptions_errors_to_ignore"] is None
 
         response = self.client.patch(
             "/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": {"wat": "am i"}}
