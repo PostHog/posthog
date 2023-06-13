@@ -24,7 +24,6 @@ from posthog.models import (
     User,
 )
 
-admin.site.register(Person)
 admin.site.register(FeatureFlag)
 
 
@@ -361,3 +360,10 @@ class InstanceSettingAdmin(admin.ModelAdmin):
         "key",
         "value",
     )
+
+
+@admin.register(Person)
+class PersonAdmin(admin.ModelAdmin):
+    list_display = ("id", "distinct_ids", "created_at", "team", "is_user", "is_identified", "version")
+    list_filter = ("created_at", "is_identified", "version")
+    search_fields = ("id",)
