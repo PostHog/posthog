@@ -29,8 +29,8 @@ SELECT_QUERY_TEMPLATE = Template(
     SELECT $fields
     FROM events
     WHERE
-        timestamp >= toDateTime({data_interval_start}, 'UTC')
-        AND timestamp < toDateTime({data_interval_end}, 'UTC')
+        _timestamp >= toDateTime({data_interval_start}, 'UTC')
+        AND _timestamp < toDateTime({data_interval_end}, 'UTC')
         AND team_id = {team_id}
     """
 )
