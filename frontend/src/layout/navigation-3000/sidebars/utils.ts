@@ -1,5 +1,11 @@
 import { SearchMatch } from '../types'
 
+export interface FuseSearchMatch {
+    // kea-typegen has a problem importing Fuse itself, so we have to duplicate this type
+    indices: readonly [number, number][]
+    key: string
+}
+
 /**
  * Return a search match with instances of the search term highlighted in the string.
  * This provides highlighting for server-side search, which does not return data on how the search term was matched.
