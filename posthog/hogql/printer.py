@@ -473,7 +473,7 @@ class _Printer(Visitor):
                     args: List[str] = []
                     for idx, arg in enumerate(node.args):
                         if idx == 0:
-                            if arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
+                            if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
                                 args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
                             else:
                                 args.append(f"toDateTime({self.visit(arg)})")
