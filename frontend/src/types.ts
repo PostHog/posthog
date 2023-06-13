@@ -2119,6 +2119,11 @@ export enum EarlyAccessFeatureStage {
     GeneralAvailability = 'general-availability',
 }
 
+export enum EarlyAccessFeatureTabs {
+    OptedIn = 'opted-in',
+    OptedOut = 'opted-out',
+}
+
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
