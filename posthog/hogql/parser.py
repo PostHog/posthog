@@ -544,7 +544,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         object: ast.Expr = self.visit(ctx.columnExpr(0))
         property: ast.Expr = self.visit(ctx.columnExpr(1))
         if isinstance(property, ast.Constant) and property.value == 0:
-            raise SyntaxException("SQL indexes start from 1, not 0")
+            raise SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]")
         return ast.ArrayAccess(array=object, property=property)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
@@ -590,7 +590,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         tuple = self.visit(ctx.columnExpr())
         index = int(ctx.DECIMAL_LITERAL().getText())
         if index == 0:
-            raise SyntaxException("SQL indexes start from 1, not 0")
+            raise SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]")
         return ast.TupleAccess(tuple=tuple, index=index)
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):
@@ -692,7 +692,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         expr = ast.Field(chain=[chain[0]])
         for element in chain[1:]:
             if element == 0:
-                raise SyntaxException("SQL indexes start from 1, not 0")
+                raise SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]")
             if isinstance(element, str) and isinstance(expr, ast.Field):
                 expr.chain.append(element)
             elif isinstance(element, int) and isinstance(expr, ast.Field):

@@ -665,7 +665,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT [1, 2, 3], [10,11,12][1]",
                 team=self.team,
             )
-            # Following SQL tradition, ClickHouse array indexes start at 1, not 0.
+            # Following SQL tradition, ClickHouse array indexes start at 1, not from zero.
             self.assertEqual(response.results, [([1, 2, 3], 10)])
             self.assertEqual(
                 response.clickhouse,
@@ -1064,9 +1064,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = f"SELECT properties.something[0] FROM events"
         with self.assertRaises(SyntaxException) as e:
             execute_hogql_query(query, team=self.team)
-        self.assertEqual(str(e.exception), "SQL indexes start from 1, not 0")
+        self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
 
         query = f"SELECT properties.something.0 FROM events"
         with self.assertRaises(SyntaxException) as e:
             execute_hogql_query(query, team=self.team)
-        self.assertEqual(str(e.exception), "SQL indexes start from 1, not 0")
+        self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
