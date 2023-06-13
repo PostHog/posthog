@@ -19,18 +19,13 @@ export const autocaptureExceptionsLogic = kea<autocaptureExceptionsLogicType>([
                 setErrorsToIgnoreRules: (_, { newRules }) => newRules,
             },
         ],
-        rulesCharacters: [
-            0,
-            {
-                setErrorsToIgnoreRules: (_, { newRules }) => newRules.length,
-            },
-        ],
     }),
     selectors({
         currentTeamErrorsToIgnoreRules: [
             (s) => [s.currentTeam],
             (currentTeam) => (currentTeam?.autocapture_exceptions_errors_to_ignore || []).join('\n'),
         ],
+        rulesCharacters: [(s) => [s.errorsToIgnoreRules], (errorsToIgnoreRules) => errorsToIgnoreRules.length],
     }),
     listeners(({ actions, values }) => ({
         setErrorsToIgnoreRules: async ({ newRules }, breakpoint) => {
