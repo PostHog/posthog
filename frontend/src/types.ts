@@ -89,6 +89,18 @@ export type AvailableProductFeature = {
     unit?: string | null
 }
 
+export enum ProductKey {
+    COHORTS = 'cohorts',
+    ACTIONS = 'actions',
+    EXPERIMENTS = 'experiments',
+    FEATURE_FLAGS = 'feature_flags',
+    ANNOTATIONS = 'annotations',
+    HISTORY = 'history',
+    INGESTION_WARNINGS = 'ingestion_warnings',
+    PERSONS = 'persons',
+    SURVEYS = 'surveys',
+}
+
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -153,6 +165,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_seen_product_intro_for?: Record<string, boolean>
 }
 
 export interface NotificationSettings {
@@ -749,6 +762,7 @@ export interface PersonListParams {
     search?: string
     cohort?: number
     distinct_id?: string
+    include_total?: boolean // PostHog 3000-only
 }
 
 export interface MatchedRecordingEvent {
@@ -1288,6 +1302,12 @@ export interface DashboardBasicType {
     _highlight?: boolean
 }
 
+export interface DashboardTemplateListParams {
+    scope?: DashboardTemplateScope
+}
+
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+
 export interface DashboardType extends DashboardBasicType {
     tiles: DashboardTile[]
     filters: Record<string, any>
@@ -1304,7 +1324,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
-    scope?: 'team' | 'global'
+    scope?: DashboardTemplateScope
 }
 
 export interface MonacoMarker {
@@ -2088,6 +2108,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     usage_dashboard?: number
+    analytics_dashboards?: number[] | null
 }
 
 export interface FeatureFlagRollbackConditions {

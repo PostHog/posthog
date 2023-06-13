@@ -6,14 +6,13 @@
 <a href='https://posthog.com/contributors'><img src='https://img.shields.io/badge/all_contributors-251-orange.svg?style=flat-square' /></a>
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
   <a href='http://makeapullrequest.com'><img alt='PRs Welcome' src='https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=shields'/></a>
-  <a href='https://posthog.com/slack'><img alt="Join Slack Community" src="https://img.shields.io/badge/slack%20community-join-blue"/></a>
   <img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/posthog/posthog"/>
   <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/posthog/posthog"/>
   <img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed/posthog/posthog"/>
 </p>
 
 <p align="center">
-  <a href="https://posthog.com/docs">Docs</a> - <a href="https://posthog.com/using-posthog">Using PostHog</a> - <a href="https://posthog.com/slack">Support community</a> - <a href="https://posthog.com/roadmap">Roadmap</a> - <a href="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md">Bug report</a>
+  <a href="https://posthog.com/docs">Docs</a> - <a href="https://posthog.com/using-posthog">Using PostHog</a> - <a href="https://posthog.com/roadmap">Roadmap</a> - <a href="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md">Bug report</a>
 </p>
 
 ## PostHog is an open-source suite of product and data tools, built for engineers
@@ -83,13 +82,12 @@ Check out our [tutorials](https://posthog.com/docs/apps) for step-by-step guides
 
 Learn more about getting the most out of PostHog's features in [our product manual](https://posthog.com/using-posthog).
 
-[Ask a question](https://posthog.com/questions) or join our [Slack community](https://posthog.com/slack) to get support.
+[Ask a question](https://posthog.com/questions) to get support.
 
 ## Contributing
 
 We <3 contributions big and small. In priority order (although everything is appreciated) with the most helpful first:
 
-- Give us feedback in our [Slack community](https://posthog.com/slack)
 - Vote on features or get early access to beta functionality in our [roadmap](https://posthog.com/roadmap)
 - Open a PR (see our instructions on [developing PostHog locally](https://posthog.com/handbook/engineering/developing-locally))
 - Submit a [feature request](https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement%2C+feature&template=feature_request.md) or [bug report](https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md)

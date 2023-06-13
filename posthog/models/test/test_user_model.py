@@ -38,6 +38,7 @@ class TestUser(BaseTest):
                     "instance_url": "http://localhost:8000",
                     "instance_tag": "none",
                     "is_email_verified": None,
+                    "has_seen_product_intro_for": None,
                 },
             )
 
@@ -72,5 +73,6 @@ class TestUser(BaseTest):
                     "instance_url": "http://localhost:8000",
                     "instance_tag": "none",
                     "is_email_verified": None,
+                    "has_seen_product_intro_for": None,
                 },
             )
