@@ -972,8 +972,8 @@ export interface SessionRecordingType {
     start_url?: string
     /** Count of number of playlists this recording is pinned to. **/
     pinned_count?: number
-    /** Where this recording information was loaded from (S3 or Clickhouse) */
-    storage?: string
+    /** Where this recording information was loaded from  */
+    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {
