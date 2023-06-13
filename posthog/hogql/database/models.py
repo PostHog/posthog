@@ -18,11 +18,19 @@ class IntegerDatabaseField(DatabaseField):
     pass
 
 
+class FloatDatabaseField(DatabaseField):
+    pass
+
+
 class StringDatabaseField(DatabaseField):
     pass
 
 
 class StringJSONDatabaseField(DatabaseField):
+    pass
+
+
+class DateDatabaseField(DatabaseField):
     pass
 
 

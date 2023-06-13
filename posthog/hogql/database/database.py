@@ -13,6 +13,8 @@ from posthog.hogql.database.models import (
     LazyJoin,
     VirtualTable,
     Table,
+    DateDatabaseField,
+    FloatDatabaseField,
 )
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
@@ -91,10 +93,14 @@ def serialize_database(database: Database) -> dict:
             elif isinstance(field, DatabaseField):
                 if isinstance(field, IntegerDatabaseField):
                     fields.append({"key": field_key, "type": "integer"})
+                elif isinstance(field, FloatDatabaseField):
+                    fields.append({"key": field_key, "type": "float"})
                 elif isinstance(field, StringDatabaseField):
                     fields.append({"key": field_key, "type": "string"})
                 elif isinstance(field, DateTimeDatabaseField):
                     fields.append({"key": field_key, "type": "datetime"})
+                elif isinstance(field, DateDatabaseField):
+                    fields.append({"key": field_key, "type": "date"})
                 elif isinstance(field, BooleanDatabaseField):
                     fields.append({"key": field_key, "type": "boolean"})
                 elif isinstance(field, StringJSONDatabaseField):
