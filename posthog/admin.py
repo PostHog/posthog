@@ -60,6 +60,14 @@ class PluginAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
 
+class GroupTypeMappingInline(admin.TabularInline):
+    extra = 0
+    model = GroupTypeMapping
+    fields = ("group_type_index", "group_type", "name_singular", "name_plural")
+    readonly_fields = fields
+    classes = ("collapse",)
+
+
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_link", "organization_id")
@@ -74,6 +82,7 @@ class TeamAdmin(admin.ModelAdmin):
         "event_properties_numerical",
         "session_recording_retention_period_days",
     ]
+    inlines = [GroupTypeMappingInline]
 
     def organization_link(self, team: Team):
         return format_html(
