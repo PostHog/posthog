@@ -1214,10 +1214,7 @@ const api = {
         async delete(surveyId: Survey['id']): Promise<void> {
             await new ApiRequest().survey(surveyId).delete()
         },
-        async update(
-            surveyId: Survey['id'],
-            data: Pick<Survey, 'name' | 'description' | 'linked_flag' | 'start_date' | 'end_date'>
-        ): Promise<Survey> {
+        async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
         },
     },

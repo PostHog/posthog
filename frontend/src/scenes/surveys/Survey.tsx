@@ -43,7 +43,8 @@ export function Survey({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, isEditingSurvey, propertySelectErrors } = useValues(surveyLogic)
+    const { survey, surveyLoading, isEditingSurvey, propertySelectErrors, targetingFlagFilters } =
+        useValues(surveyLogic)
     const { loadSurvey, editingSurvey, updateTargetingFlagFilters, removeConditionSet, addConditionSet } =
         useActions(surveyLogic)
 
@@ -146,10 +147,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </Field>
                     <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                     <PureField label="User properties">
-                        {(id === 'new'
-                            ? survey.targeting_flag_filters?.groups || []
-                            : survey.targeting_flag?.filters?.groups || []
-                        ).map((group, index) => (
+                        {(targetingFlagFilters?.groups || []).map((group, index) => (
                             <>
                                 {index > 0 && <div className="text-primary-alt font-semibold text-xs ml-2">OR</div>}
                                 <div className="border rounded p-4">
@@ -482,7 +480,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                               <h2>{surveyCompletedCount}</h2>
                                           </div> */}
                                               </div>
-                                              <LemonDivider />
                                               {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}
                                           </div>
                                       ),
