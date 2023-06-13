@@ -41,6 +41,7 @@ import {
     NewEarlyAccessFeatureType,
     Survey,
     NotebookType,
+    DashboardTemplateListParams,
     PropertyDefinitionType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
@@ -851,8 +852,8 @@ const api = {
     },
 
     dashboardTemplates: {
-        async list(): Promise<PaginatedResponse<DashboardTemplateType>> {
-            return await new ApiRequest().dashboardTemplates().get()
+        async list(params: DashboardTemplateListParams = {}): Promise<PaginatedResponse<DashboardTemplateType>> {
+            return await new ApiRequest().dashboardTemplates().withQueryString(toParams(params)).get()
         },
 
         async get(dashboardTemplateId: DashboardTemplateType['id']): Promise<DashboardTemplateType> {
