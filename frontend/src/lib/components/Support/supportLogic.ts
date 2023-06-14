@@ -17,7 +17,7 @@ function getSessionReplayLink(): string {
         Math.floor((new Date().getTime() - (posthog?.sessionManager?._sessionStartTimestamp || 0)) / 1000) - LOOK_BACK,
         0
     )
-    const link = `https://go/session/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
+    const link = `http://go/session/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
     return `Session: ${link}`
 }
 
@@ -25,7 +25,7 @@ function getDjangoAdminLink(user: UserType | null, cloudRegion: Region | undefin
     if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/admin${cloudRegion}/${user.email}`
+    const link = `http://go/admin${cloudRegion}/?q=${user.email}`
     return `Admin: ${link}`
 }
 
@@ -33,7 +33,7 @@ function getSentryLink(user: UserType | null, cloudRegion: Region | undefined): 
     if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/sentry${cloudRegion}/${user.team?.id}`
+    const link = `http://go/sentry${cloudRegion}/?q=${user.team?.id}`
     return `Sentry: ${link}`
 }
 
