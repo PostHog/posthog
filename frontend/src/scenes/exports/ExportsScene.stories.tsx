@@ -22,6 +22,7 @@ const createExportServiceHandlers = (): any => {
                     aws_secret_access_key: '',
                 },
             },
+            paused: false,
             interval: 'hour',
             status: 'RUNNING',
             created_at: '2021-09-01T00:00:00.000000Z',
