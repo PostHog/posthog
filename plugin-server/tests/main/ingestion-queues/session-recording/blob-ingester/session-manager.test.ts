@@ -164,15 +164,11 @@ describe('session-manager', () => {
         const aDayInMilliseconds = 24 * 60 * 60 * 1000
         const now = DateTime.now()
 
-        const payload = { simple: 'data' }
-        const event = createIncomingRecordingMessage(
-            {
-                metadata: {
-                    timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
-                } as any,
-            },
-            payload
-        )
+        const event = createIncomingRecordingMessage({
+            metadata: {
+                timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
+            } as any,
+        })
 
         await sessionManager.add(event)
 
@@ -203,7 +199,9 @@ describe('session-manager', () => {
 
     it('flushes messages and whilst collecting new ones', async () => {
         const event = createIncomingRecordingMessage()
-        const event2 = createIncomingRecordingMessage({}, { second: 'event' })
+        const event2 = createIncomingRecordingMessage({
+            events: [{ timestamp: 1234, type: 4, data: { href: 'http://localhost:3001/' } }],
+        })
         await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
 
@@ -226,7 +224,7 @@ describe('session-manager', () => {
         const lastCall = (appendFile as jest.Mock).mock.calls[1]
         expect(lastCall).toEqual([
             sessionManager.buffer.file,
-            '{"window_id":"window_id_1","data":"[{\\"second\\":\\"event\\"}]"}\n',
+            '{"window_id":"window_id_1","data":[{"timestamp":1234,"type":4,"data":{"href":"http://localhost:3001/"}}]}\n',
             'utf-8',
         ])
     })

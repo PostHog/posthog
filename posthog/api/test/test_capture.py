@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Union, cast
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import quote
-from django.test import override_settings
 import lzstring
 import pytest
 import structlog
@@ -34,7 +33,7 @@ from posthog.api.capture import (
 )
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
-from posthog.kafka_client.client import KafkaProducer, SessionRecordingKafkaProducer, sessionRecordingKafkaProducer
+from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
@@ -1179,39 +1178,6 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_performance_events_go_to_session_recording_events_topic(self, kafka_produce):
-        # `$performance_events` are not normal analytics events but rather
-        # displayed along side session recordings. They are sent to the
-        # `KAFKA_SESSION_RECORDING_EVENTS` topic to isolate them from causing
-        # any issues with normal analytics events.
-        session_id = "abc123"
-        window_id = "def456"
-        distinct_id = "ghi789"
-
-        event = {
-            "event": "$performance_event",
-            "properties": {
-                "$session_id": session_id,
-                "$window_id": window_id,
-                "distinct_id": distinct_id,
-            },
-            "offset": 1993,
-        }
-
-        response = self.client.post(
-            "/e/",
-            data={"batch": [event], "api_key": self.team.api_token},
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-
-        kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
-        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
-        key = kafka_produce.call_args_list[0][1]["key"]
-        self.assertEqual(key, None)
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:
         session_id = "some_session_id"
         self._send_session_recording_event(session_id=session_id)
@@ -1337,7 +1303,6 @@ class TestCapture(BaseTest):
 
             default_kafka_producer_mock.assert_called()
             session_recording_producer_mock.assert_not_called()
-            print(kafka_produce.call_args_list)
             assert len(kafka_produce.call_args_list) == 1
             assert json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])["event"] == "$snapshot"
 
