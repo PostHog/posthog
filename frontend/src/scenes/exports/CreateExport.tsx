@@ -105,7 +105,7 @@ export function CreateS3Export(): JSX.Element {
             },
             interval: interval || 'hour',
         } as const
-        console.error({ exportData })
+
         // Create the export.
         createExport(currentTeamId, exportData).then(() => {
             // Navigate back to the exports list.
