@@ -134,6 +134,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
             "inject_web_apps",
+            "extra_settings",
         )
         read_only_fields = (
             "id",

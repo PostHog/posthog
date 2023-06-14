@@ -61,7 +61,10 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._expr("[1, avg()]"), ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
         )
-        self.assertEqual(self._expr("properties['value']"), ast.Field(chain=["properties", "value"]))
+        self.assertEqual(
+            self._expr("properties['value']"),
+            ast.ArrayAccess(array=ast.Field(chain=["properties"]), property=ast.Constant(value="value")),
+        )
         self.assertEqual(
             self._expr("properties[(select 'value')]"),
             ast.ArrayAccess(

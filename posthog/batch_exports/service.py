@@ -138,6 +138,9 @@ def backfill_export(batch_export_id: str, start_at: dt.datetime | None = None, e
         end_at: Up to when to backfill. If this is not defined, then we will backfill up to this
             BatchExportSchedule's created_at.
     """
+    if start_at is None or end_at is None:
+        raise ValidationError("start_at and end_at must be defined for backfilling")
+
     batch_export = BatchExport.objects.get(id=batch_export_id)
     if start_at is None or end_at is None:
         raise ValidationError("start_at and end_at must be defined for backfilling")

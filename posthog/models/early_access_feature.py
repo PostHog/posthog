@@ -9,6 +9,7 @@ class EarlyAccessFeature(UUIDModel):
         ALPHA = "alpha", "alpha"
         BETA = "beta", "beta"
         GENERAL_AVAILABILITY = "general-availability", "general availability"
+        ARCHIVED = "archived", "archived"
 
     team: models.ForeignKey = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, related_name="features", related_query_name="feature"
