@@ -21,19 +21,19 @@ function getSessionReplayLink(): string {
     return `Session: ${link}`
 }
 
-function getDjangoAdminLink(user: UserType | null): string {
-    if (!user) {
+function getDjangoAdminLink(user: UserType | null, cloudRegion: Region | undefined): string {
+    if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/admin${cloud}/${user.email}`
+    const link = `http://go/admin${cloudRegion}/${user.email}`
     return `Admin: ${link}`
 }
 
-function getSentryLink(user: UserType | null, cloud: 'EU' | 'US'): string {
-    if (!user) {
+function getSentryLink(user: UserType | null, cloudRegion: Region | undefined): string {
+    if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/sentry${cloud}/${user.team?.id}`
+    const link = `http://go/sentry${cloudRegion}/${user.team?.id}`
     return `Sentry: ${link}`
 }
 
@@ -199,7 +199,7 @@ export const supportLogic = kea<supportLogicType>([
                 ' (' +
                 zendesk_ticket_uuid +
                 ')'
-            const cloud = preflightLogic.values.preflight?.region === Region.EU ? 'EU' : 'US'
+            const cloudRegion = preflightLogic.values.preflight?.region
             const payload = {
                 request: {
                     requester: { name: name, email: email },
@@ -214,9 +214,9 @@ export const supportLogic = kea<supportLogicType>([
                             '\n' +
                             getSessionReplayLink() +
                             '\n' +
-                            getDjangoAdminLink(userLogic.values.user) +
+                            getDjangoAdminLink(userLogic.values.user, cloudRegion) +
                             '\n' +
-                            getSentryLink(userLogic.values.user, cloud)
+                            getSentryLink(userLogic.values.user, cloudRegion)
                         ).trim(),
                     },
                 },
