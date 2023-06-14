@@ -35,6 +35,7 @@ class EventValues(TypedDict):
     uuid: str
     event: str
     timestamp: str
+    _timestamp: str
     person_id: str
     team_id: int
     properties: str
@@ -48,6 +49,7 @@ async def insert_events(client: ChClient, events: list[EventValues]):
             uuid,
             event,
             timestamp,
+            _timestamp,
             person_id,
             team_id,
             properties
@@ -59,6 +61,7 @@ async def insert_events(client: ChClient, events: list[EventValues]):
                 event["uuid"],
                 event["event"],
                 event["timestamp"],
+                event["_timestamp"],
                 event["person_id"],
                 event["team_id"],
                 event["properties"],
@@ -135,6 +138,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
             "uuid": str(uuid4()),
             "event": "test",
             "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "_timestamp": f"2023-04-20 14:30:00",
             "person_id": str(uuid4()),
             "team_id": team_id,
             "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
@@ -190,6 +194,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
             "uuid": event["uuid"],
             "event": event["event"],
             "timestamp": event["timestamp"],
+            "_timestamp": event["_timestamp"],
             "properties": event["properties"],
             "person_id": event["person_id"],
             "team_id": int(event["team_id"]),
@@ -247,6 +252,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             "uuid": str(uuid4()),
             "event": "test",
             "timestamp": "2023-04-20 14:30:00.000000",
+            "_timestamp": "2023-04-20 14:30:00",
             "person_id": str(uuid4()),
             "team_id": team.pk,
             "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
@@ -255,6 +261,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             "uuid": str(uuid4()),
             "event": "test",
             "timestamp": "2023-04-25 14:30:00.000000",
+            "_timestamp": "2023-04-25 14:30:00",
             "person_id": str(uuid4()),
             "team_id": team.pk,
             "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
