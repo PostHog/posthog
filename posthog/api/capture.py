@@ -385,7 +385,7 @@ def get_event(request):
                     random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO
                     and settings.SESSION_RECORDING_KAFKA_HOSTS
                 ):
-                    # The new flow we only enable if the the dedicated kafka is enabled
+                    # The new flow we only enable if the dedicated kafka is enabled
                     processed_replay_events += preprocess_replay_events_for_blob_ingestion(replay_events)
 
             events = processed_replay_events + other_events
