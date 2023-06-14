@@ -429,6 +429,36 @@
               "key": "version",
               "type": "integer"
           }
+      ],
+      "aapl_stock": [
+          {
+              "key": "Date",
+              "type": "date"
+          },
+          {
+              "key": "Open",
+              "type": "float"
+          },
+          {
+              "key": "High",
+              "type": "float"
+          },
+          {
+              "key": "Low",
+              "type": "float"
+          },
+          {
+              "key": "Close",
+              "type": "float"
+          },
+          {
+              "key": "Volume",
+              "type": "float"
+          },
+          {
+              "key": "OpenInt",
+              "type": "integer"
+          }
       ]
   }
   '
@@ -857,6 +887,36 @@
           },
           {
               "key": "version",
+              "type": "integer"
+          }
+      ],
+      "aapl_stock": [
+          {
+              "key": "Date",
+              "type": "date"
+          },
+          {
+              "key": "Open",
+              "type": "float"
+          },
+          {
+              "key": "High",
+              "type": "float"
+          },
+          {
+              "key": "Low",
+              "type": "float"
+          },
+          {
+              "key": "Close",
+              "type": "float"
+          },
+          {
+              "key": "Volume",
+              "type": "float"
+          },
+          {
+              "key": "OpenInt",
               "type": "integer"
           }
       ]

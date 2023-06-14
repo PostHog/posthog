@@ -3,17 +3,17 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.test.base import BaseTest
-from posthog.hogql.database.test.tables import AAPLStockTable
+from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 
 
 class TestS3Table(BaseTest):
     def _init_database(self):
         self.database = create_hogql_database(self.team.pk)
-        self.database.aapl_stock = AAPLStockTable.copy()
+        self.database.aapl_stock = create_aapl_stock_s3_table()
         self.context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=self.database)
 
     def _select(self, query: str, dialect: str = "clickhouse") -> str:
-        return print_ast(parse_select(query), self.context, dialect)
+        return print_ast(parse_select(query), self.context, dialect=dialect)
 
     def test_s3_table_select(self):
         self._init_database()
