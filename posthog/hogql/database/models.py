@@ -59,10 +59,6 @@ class Table(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    def add_team_id_guard(self) -> bool:
-        """Does this table require a WHERE team_id={team_id} clause?"""
-        return True
-
     def has_field(self, name: str) -> bool:
         return hasattr(self, name)
 
@@ -132,10 +128,7 @@ class VirtualTable(Table):
 
 class FunctionCallTable(Table):
     """
-    A table that returns a function call, e.g. numbers(...) or s3(...).
+    A table that returns a function call, e.g. numbers(...) or s3(...). The team_id guard is NOT added for these.
     """
 
     name: str
-
-    def add_team_id_guard(self) -> bool:
-        return False

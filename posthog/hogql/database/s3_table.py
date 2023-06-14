@@ -9,9 +9,6 @@ class S3Table(FunctionCallTable):
     fields: Dict[str, DatabaseField]
     format: str = "CSVWithNames"
 
-    def add_team_id_guard(self) -> bool:
-        return False
-
     def always_alias(self) -> bool:
         return True
 

@@ -14,7 +14,7 @@ from posthog.hogql.constants import (
     ADD_TIMEZONE_TO_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table
+from posthog.hogql.database.models import Table, FunctionCallTable
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import (
@@ -242,8 +242,9 @@ class _Printer(Visitor):
             if not isinstance(table_type, ast.TableType):
                 raise HogQLException(f"Invalid table type {type(table_type).__name__} in join_expr")
 
-            # :IMPORTANT: This assures a "team_id" where clause is present on every selected table
-            if self.dialect == "clickhouse" and table_type.table.add_team_id_guard():
+            # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
+            # Skip function call tables like numbers(), s3(), etc.
+            if self.dialect == "clickhouse" and not isinstance(table_type.table, FunctionCallTable):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
             # if isinstance(table_type.table, TableFunction):
