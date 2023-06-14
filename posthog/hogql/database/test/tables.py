@@ -2,7 +2,7 @@ from posthog.hogql.database.models import DateDatabaseField, IntegerDatabaseFiel
 from posthog.hogql.database.s3_table import S3Table
 
 AAPLStockTable = S3Table(
-    alias="aapl_stock",
+    name="aapl_stock",
     url="https://s3.eu-west-3.amazonaws.com/datasets-documentation/aapl_stock.csv",
     format="CSVWithNames",
     fields={

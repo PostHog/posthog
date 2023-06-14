@@ -1,11 +1,10 @@
 from typing import Dict
 
-from posthog.hogql.database.models import Table, DatabaseField
+from posthog.hogql.database.models import FunctionCallTable, DatabaseField
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 
-class S3Table(Table):
-    alias: str
+class S3Table(FunctionCallTable):
     url: str
     fields: Dict[str, DatabaseField]
     format: str = "CSVWithNames"
@@ -25,7 +24,7 @@ class S3Table(Table):
         raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
 
     def to_printed_hogql(self):
-        return escape_hogql_identifier(self.alias)
+        return escape_hogql_identifier(self.name)
 
     def to_printed_clickhouse(self, context):
         escaped_url = context.add_value(self.url)

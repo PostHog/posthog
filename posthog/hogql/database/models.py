@@ -9,7 +9,9 @@ if TYPE_CHECKING:
 
 
 class DatabaseField(BaseModel):
-    """Base class for a field in a database table."""
+    """
+    Base class for a field in a database table.
+    """
 
     class Config:
         extra = Extra.forbid
@@ -46,6 +48,13 @@ class BooleanDatabaseField(DatabaseField):
     pass
 
 
+class FieldTraverser(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    chain: List[str]
+
+
 class Table(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -53,10 +62,6 @@ class Table(BaseModel):
     def add_team_id_guard(self) -> bool:
         """Does this table require a WHERE team_id={team_id} clause?"""
         return True
-
-    def always_alias(self) -> bool:
-        """Must we always `AS alias` this table? Useful when the table returns an expression."""
-        return False
 
     def has_field(self, name: str) -> bool:
         return hasattr(self, name)
@@ -105,6 +110,10 @@ class LazyJoin(BaseModel):
 
 
 class LazyTable(Table):
+    """
+    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain])`
+    """
+
     class Config:
         extra = Extra.forbid
 
@@ -113,12 +122,20 @@ class LazyTable(Table):
 
 
 class VirtualTable(Table):
+    """
+    A nested table that reuses the parent for storage. E.g. events.person.* fields with PoE enabled.
+    """
+
     class Config:
         extra = Extra.forbid
 
 
-class FieldTraverser(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class FunctionCallTable(Table):
+    """
+    A table that returns a function call, e.g. numbers(...) or s3(...).
+    """
 
-    chain: List[str]
+    name: str
+
+    def add_team_id_guard(self) -> bool:
+        return False

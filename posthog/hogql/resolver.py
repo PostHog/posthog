@@ -5,7 +5,7 @@ from uuid import UUID
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import StringJSONDatabaseField
+from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -198,13 +198,14 @@ class Resolver(CloningVisitor):
 
             if self.database.has_table(table_name):
                 database_table = self.database.get_table(table_name)
-                if isinstance(database_table, ast.LazyTable):
+                if isinstance(database_table, LazyTable):
                     node_table_type = ast.LazyTableType(table=database_table)
                 else:
                     node_table_type = ast.TableType(table=database_table)
 
-                must_use_alias = database_table.always_alias() or table_alias != table_name
-                if must_use_alias:
+                # Always alias function calls. This way `select table.* from table` is replaced with
+                # `select table.* from something() as table`, insetad of `select something().* from something()`
+                if isinstance(database_table, FunctionCallTable) or table_alias != table_name:
                     node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
                 else:
                     node_type = node_table_type
@@ -218,8 +219,8 @@ class Resolver(CloningVisitor):
                 node.next_join = self.visit(node.next_join)
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
-                if must_use_alias:
-                    node.alias = table_alias
+                if isinstance(node_type, ast.TableAliasType):
+                    node.alias = node_type.alias
                 return node
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
