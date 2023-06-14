@@ -34,6 +34,7 @@ from posthog.api.capture import (
 )
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
+from posthog.kafka_client.client import KafkaProducer, SessionRecordingKafkaProducer, sessionRecordingKafkaProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
@@ -1285,29 +1286,60 @@ class TestCapture(BaseTest):
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
         self.assertGreater(topic_counter[KAFKA_SESSION_RECORDING_EVENTS], 1)
 
-    @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
-    @patch("posthog.kafka_client.client.KafkaProducer")
-    @override_settings(SESSION_RECORDING_KAFKA_HOSTS=["kafka://another-server:9092"])
+    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
+    @patch("posthog.api.capture.KafkaProducer")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_can_redirect_session_recordings_to_alternative_kafka(
-        self, default_kafka_producer_mock: MagicMock, session_recording_producer_mock: MagicMock
+        self,
+        kafka_produce: MagicMock,
+        default_kafka_producer_mock: MagicMock,
+        session_recording_producer_mock: MagicMock,
     ) -> None:
-        data = [random.choice(string.ascii_letters) for _ in range(100)]
-        self._send_session_recording_event(event_data=data)
 
-        default_kafka_producer_mock.assert_not_called()
-        session_recording_producer_mock.assert_called()
+        with self.settings(
+            SESSION_RECORDING_KAFKA_HOSTS=["kafka://another-server:9092"],
+            REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1,
+        ):
+            default_kafka_producer_mock.return_value = KafkaProducer()
+            session_recording_producer_mock.return_value = sessionRecordingKafkaProducer()
 
-    @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
-    @patch("posthog.kafka_client.client.KafkaProducer")
-    def test_uses_default_producer_for_session_recordings_when_alternative_is_not_configured(
-        self, default_kafka_producer_mock: MagicMock, session_recording_producer_mock: MagicMock
+            data = "example"
+            self._send_session_recording_event(event_data=data)
+            default_kafka_producer_mock.assert_called()
+            session_recording_producer_mock.assert_called()
+
+            data_sent_to_default_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
+            assert data_sent_to_default_kafka["event"] == "$snapshot"
+            assert data_sent_to_default_kafka["properties"]["$snapshot_data"]["chunk_count"] == 1
+
+            data_sent_to_recording_kafka = json.loads(kafka_produce.call_args_list[1][1]["data"]["data"])
+            assert data_sent_to_recording_kafka["event"] == "$snapshot_items"
+            assert len(data_sent_to_recording_kafka["properties"]["$snapshot_items"]) == 1
+
+    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
+    @patch("posthog.api.capture.KafkaProducer")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_uses_does_not_produce_if_session_recording_kafka_unavailable(
+        self,
+        kafka_produce: MagicMock,
+        default_kafka_producer_mock: MagicMock,
+        session_recording_producer_mock: MagicMock,
     ) -> None:
-        with self.settings(SESSION_RECORDING_KAFKA_HOSTS=None):
-            data = [random.choice(string.ascii_letters) for _ in range(100)]
+        with self.settings(
+            SESSION_RECORDING_KAFKA_HOSTS=None,
+            REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1,
+        ):
+            default_kafka_producer_mock.return_value = KafkaProducer()
+            session_recording_producer_mock.return_value = sessionRecordingKafkaProducer()
+
+            data = "example"
             self._send_session_recording_event(event_data=data)
 
             default_kafka_producer_mock.assert_called()
             session_recording_producer_mock.assert_not_called()
+            print(kafka_produce.call_args_list)
+            assert len(kafka_produce.call_args_list) == 1
+            assert json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])["event"] == "$snapshot"
 
     def test_get_distinct_id_non_json_properties(self) -> None:
         with self.assertRaises(ValueError):
