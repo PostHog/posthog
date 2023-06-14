@@ -250,7 +250,7 @@ class _Printer(Visitor):
                     sql = table_type.table.to_printed_hogql(self.context)
                 join_strings.append(sql)
                 identifier = self._print_identifier(table_type.table.alias)
-                if identifier != sql:
+                if identifier != sql and not isinstance(node.type, ast.TableAliasType):
                     join_strings.append("AS")
                     join_strings.append(identifier)
             else:

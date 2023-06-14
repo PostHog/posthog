@@ -26,3 +26,15 @@ class TestS3Table(BaseTest):
             clickhouse,
             "SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM s3(%(hogql_val_0)s, %(hogql_val_1)s) AS aapl_stock LIMIT 10",
         )
+
+    def test_s3_table_select_with_alias(self):
+        self._init_database()
+
+        hogql = self._select(query="SELECT High, Low FROM aapl_stock AS a LIMIT 10", dialect="hogql")
+        self.assertEqual(hogql, "SELECT High, Low FROM aapl_stock AS a LIMIT 10")
+
+        clickhouse = self._select(query="SELECT High, Low FROM aapl_stock AS a LIMIT 10", dialect="clickhouse")
+        self.assertEqual(
+            clickhouse,
+            "SELECT a.High, a.Low FROM s3(%(hogql_val_0)s, %(hogql_val_1)s) AS a LIMIT 10",
+        )
