@@ -386,7 +386,7 @@ def get_event(request):
                     # The new flow we only enable if the the dedicated kafka is enabled
                     processed_replay_events += preprocess_replay_events_for_blob_ingestion(replay_events)
 
-                events = processed_replay_events + other_events
+            events = processed_replay_events + other_events
 
         except ValueError as e:
             return cors_response(

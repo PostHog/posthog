@@ -1178,6 +1178,39 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_performance_events_go_to_session_recording_events_topic(self, kafka_produce):
+        # `$performance_events` are not normal analytics events but rather
+        # displayed along side session recordings. They are sent to the
+        # `KAFKA_SESSION_RECORDING_EVENTS` topic to isolate them from causing
+        # any issues with normal analytics events.
+        session_id = "abc123"
+        window_id = "def456"
+        distinct_id = "ghi789"
+
+        event = {
+            "event": "$performance_event",
+            "properties": {
+                "$session_id": session_id,
+                "$window_id": window_id,
+                "distinct_id": distinct_id,
+            },
+            "offset": 1993,
+        }
+
+        response = self.client.post(
+            "/e/",
+            data={"batch": [event], "api_key": self.team.api_token},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
+        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
+        key = kafka_produce.call_args_list[0][1]["key"]
+        self.assertEqual(key, None)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:
         session_id = "some_session_id"
         self._send_session_recording_event(session_id=session_id)
@@ -1275,6 +1308,13 @@ class TestCapture(BaseTest):
 
             default_kafka_producer_mock.assert_called()
             session_recording_producer_mock.assert_not_called()
+
+    def test_get_distinct_id_non_json_properties(self) -> None:
+        with self.assertRaises(ValueError):
+            get_distinct_id({"properties": "str"})
+
+        with self.assertRaises(ValueError):
+            get_distinct_id({"properties": 123})
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_can_override_attributes_important_in_replicator_exports(self, kafka_produce):

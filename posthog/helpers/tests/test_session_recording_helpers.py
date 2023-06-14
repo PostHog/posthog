@@ -2,7 +2,7 @@ import json
 import random
 import string
 from datetime import datetime
-from typing import List, Tuple, cast
+from typing import Any, List, Tuple, cast
 
 import pytest
 from pytest_mock import MockerFixture
@@ -695,7 +695,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
         "something": "small",
     }
 
-    events = [
+    events: List[Any] = [
         {
             "event": "$snapshot",
             "properties": {
@@ -730,7 +730,6 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
 
     assert [event["properties"]["$snapshot_bytes"] for event in events] == [106, 1072, 159]
 
-    print("before!")
     assert list(mock_capture_flow(events, max_size_bytes=106 + 1072 + 50)[1]) == [
         {
             "event": "$snapshot_items",
