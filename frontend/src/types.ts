@@ -2005,7 +2005,7 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
-    conditions: { url: string; selector: string } | null
+    conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
     questions: SurveyQuestion[]
     created_at: string

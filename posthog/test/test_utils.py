@@ -17,6 +17,7 @@ from posthog.test.base import BaseTest
 from posthog.utils import (
     PotentialSecurityProblemException,
     absolute_uri,
+    flatten,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
     get_compare_period_dates,
@@ -345,3 +346,11 @@ class TestShouldRefresh(TestCase):
             date_to_delta_mapping=None,
             interval="day",
         ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 23, 59, 59, 999999))
+
+
+class TestFlatten(TestCase):
+    def test_flatten_lots_of_depth(self):
+        assert list(flatten([1, [2, 3], [[4], [5, [6, 7]]]])) == [1, 2, 3, 4, 5, 6, 7]
+
+    def test_flatten_single_depth(self):
+        assert list(flatten([1, [2, 3], [[4], [5, [6, 7]]]], max_depth=1)) == [1, 2, 3, [4], [5, [6, 7]]]
