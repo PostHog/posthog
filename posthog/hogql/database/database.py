@@ -15,6 +15,7 @@ from posthog.hogql.database.models import (
     Table,
     DateDatabaseField,
     FloatDatabaseField,
+    FunctionCallTable,
 )
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
@@ -88,31 +89,39 @@ def serialize_database(database: Database) -> dict:
     tables: Dict[str, List[Dict[str, Any]]] = {}
 
     for table_key in database.__fields__.keys():
-        fields: List[Dict[str, Any]] = []
+        field_input: Dict[str, Any] = {}
         table = getattr(database, table_key, None)
-        for field_key in table.__fields__.keys() if table else []:
-            field = getattr(table, field_key, None)
+        if isinstance(table, FunctionCallTable):
+            field_input.update(table.get_asterisk())
+        elif isinstance(table, Table):
+            for field in table.__fields__.keys():
+                field_input[field] = getattr(table, field, None)
+
+        field_output: List[Dict[str, Any]] = []
+        for field_key, field in field_input.items():
             if field_key == "team_id":
                 pass
             elif isinstance(field, DatabaseField):
                 if isinstance(field, IntegerDatabaseField):
-                    fields.append({"key": field_key, "type": "integer"})
+                    field_output.append({"key": field_key, "type": "integer"})
                 elif isinstance(field, FloatDatabaseField):
-                    fields.append({"key": field_key, "type": "float"})
+                    field_output.append({"key": field_key, "type": "float"})
                 elif isinstance(field, StringDatabaseField):
-                    fields.append({"key": field_key, "type": "string"})
+                    field_output.append({"key": field_key, "type": "string"})
                 elif isinstance(field, DateTimeDatabaseField):
-                    fields.append({"key": field_key, "type": "datetime"})
+                    field_output.append({"key": field_key, "type": "datetime"})
                 elif isinstance(field, DateDatabaseField):
-                    fields.append({"key": field_key, "type": "date"})
+                    field_output.append({"key": field_key, "type": "date"})
                 elif isinstance(field, BooleanDatabaseField):
-                    fields.append({"key": field_key, "type": "boolean"})
+                    field_output.append({"key": field_key, "type": "boolean"})
                 elif isinstance(field, StringJSONDatabaseField):
-                    fields.append({"key": field_key, "type": "json"})
+                    field_output.append({"key": field_key, "type": "json"})
             elif isinstance(field, LazyJoin):
-                fields.append({"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()})
+                field_output.append(
+                    {"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()}
+                )
             elif isinstance(field, VirtualTable):
-                fields.append(
+                field_output.append(
                     {
                         "key": field_key,
                         "type": "virtual_table",
@@ -121,7 +130,7 @@ def serialize_database(database: Database) -> dict:
                     }
                 )
             elif isinstance(field, FieldTraverser):
-                fields.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
-        tables[table_key] = fields
+                field_output.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+        tables[table_key] = field_output
 
     return tables
