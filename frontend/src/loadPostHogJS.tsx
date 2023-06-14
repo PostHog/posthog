@@ -17,6 +17,12 @@ const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig
 }
 
 export function loadPostHogJS(): void {
+    if ((window as any).Cypress) {
+        // E2E testing key
+        window.JS_POSTHOG_API_KEY = 'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'
+        window.JS_POSTHOG_HOST = 'https://app.posthog.com'
+    }
+
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(
             window.JS_POSTHOG_API_KEY,
