@@ -9,9 +9,6 @@ class S3Table(FunctionCallTable):
     fields: Dict[str, DatabaseField]
     format: str = "CSVWithNames"
 
-    def always_alias(self) -> bool:
-        return True
-
     def has_field(self, name: str) -> bool:
         return name in self.fields
 
