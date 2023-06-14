@@ -538,6 +538,7 @@ HOGQL_AGGREGATIONS = {
     "argMinIf": 3,
     "argMax": 2,
     "argMaxIf": 3,
+    "argMinMerge": 1,
     "avgWeighted": 2,
     "avgWeightedIf": 3,
     # "topK": 1,
