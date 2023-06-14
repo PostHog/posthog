@@ -14,7 +14,7 @@ from posthog.hogql.constants import (
     ADD_TIMEZONE_TO_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table, TableFunction
+from posthog.hogql.database.models import Table
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import (
@@ -235,7 +235,6 @@ class _Printer(Visitor):
             join_strings.append(node.join_type)
 
         if isinstance(node.type, ast.TableAliasType) or isinstance(node.type, ast.TableType):
-            # Unrwap alias
             table_type = node.type
             while isinstance(table_type, ast.TableAliasType):
                 table_type = table_type.table_type
@@ -243,27 +242,18 @@ class _Printer(Visitor):
             if not isinstance(table_type, ast.TableType):
                 raise HogQLException(f"Invalid table type {type(table_type).__name__} in join_expr")
 
-            if isinstance(table_type.table, TableFunction):
-                if self.dialect == "clickhouse":
-                    sql = table_type.table.to_printed_clickhouse(self.context)
-                else:
-                    sql = table_type.table.to_printed_hogql(self.context)
-                join_strings.append(sql)
-                identifier = self._print_identifier(table_type.table.alias)
-                if identifier != sql and not isinstance(node.type, ast.TableAliasType):
-                    join_strings.append("AS")
-                    join_strings.append(identifier)
+            # :IMPORTANT: This assures a "team_id" where clause is present on every selected table
+            if self.dialect == "clickhouse" and table_type.table.add_team_id_guard():
+                extra_where = team_id_guard_for_table(node.type, self.context)
+
+            # if isinstance(table_type.table, TableFunction):
+            if self.dialect == "clickhouse":
+                sql = table_type.table.to_printed_clickhouse(self.context)
             else:
-                if self.dialect == "clickhouse":
-                    # :IMPORTANT: This assures a "team_id" where clause is present on every selected table
-                    extra_where = team_id_guard_for_table(node.type, self.context)
+                sql = table_type.table.to_printed_hogql()
+            join_strings.append(sql)
 
-                    table_name = table_type.table.clickhouse_table()
-                else:
-                    table_name = table_type.table.hogql_table()
-                join_strings.append(self._print_identifier(table_name))
-
-            if isinstance(node.type, ast.TableAliasType) and node.alias is not None:
+            if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
         elif isinstance(node.type, ast.SelectQueryType):
@@ -277,7 +267,7 @@ class _Printer(Visitor):
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
         elif isinstance(node.type, ast.LazyTableType) and self.dialect == "hogql":
-            join_strings.append(self._print_identifier(node.type.table.hogql_table()))
+            join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
 
         else:
             raise HogQLException("Only selecting from a table or a subquery is supported")
@@ -522,17 +512,10 @@ class _Printer(Visitor):
         return f"{inside} AS {self._print_identifier(node.alias)}"
 
     def visit_table_type(self, type: ast.TableType):
-        if isinstance(type.table, TableFunction):
-            if self.dialect == "clickhouse":
-                return self._print_identifier(type.table.alias)
-            else:
-                return self._print_identifier(type.table.alias)
-
+        if self.dialect == "clickhouse":
+            return type.table.to_printed_clickhouse(self.context)
         else:
-            if self.dialect == "clickhouse":
-                return self._print_identifier(type.table.clickhouse_table())
-            else:
-                return self._print_identifier(type.table.hogql_table())
+            return type.table.to_printed_hogql()
 
     def visit_table_alias_type(self, type: ast.TableAliasType):
         return self._print_identifier(type.alias)
@@ -619,9 +602,9 @@ class _Printer(Visitor):
         materialized_property_sql: Optional[str] = None
         if isinstance(table, ast.TableType):
             if self.dialect == "clickhouse":
-                table_name = table.table.clickhouse_table()
+                table_name = table.table.to_printed_clickhouse(self.context)
             else:
-                table_name = table.table.hogql_table()
+                table_name = table.table.to_printed_hogql()
             if field is None:
                 raise HogQLException(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)

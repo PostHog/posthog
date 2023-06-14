@@ -50,6 +50,14 @@ class Table(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    def add_team_id_guard(self) -> bool:
+        """Does this table require a WHERE team_id={team_id} clause?"""
+        return True
+
+    def always_alias(self) -> bool:
+        """Must we always `AS alias` this table? Useful when the table returns an expression."""
+        return False
+
     def has_field(self, name: str) -> bool:
         return hasattr(self, name)
 
@@ -58,11 +66,11 @@ class Table(BaseModel):
             return getattr(self, name)
         raise HogQLException(f'Field "{name}" not found on table {self.__class__.__name__}')
 
-    def clickhouse_table(self):
-        raise NotImplementedException("Table.clickhouse_table not overridden")
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        raise NotImplementedException("Table.to_printed_clickhouse not overridden")
 
-    def hogql_table(self):
-        raise NotImplementedException("Table.hogql_table not overridden")
+    def to_printed_hogql(self) -> str:
+        raise NotImplementedException("Table.to_printed_hogql not overridden")
 
     def avoid_asterisk_fields(self) -> List[str]:
         return []
@@ -107,28 +115,6 @@ class LazyTable(Table):
 class VirtualTable(Table):
     class Config:
         extra = Extra.forbid
-
-
-class TableFunction(Table):
-    alias: str
-
-    class Config:
-        extra = Extra.forbid
-
-    def has_field(self, name: str) -> bool:
-        raise NotImplementedException("TableFunction.has_field not overridden")
-
-    def get_field(self, name: str) -> DatabaseField:
-        raise NotImplementedException("TableFunction.get_field not overridden")
-
-    def to_printed_hogql(self, context: "HogQLContext"):
-        raise NotImplementedException("TableFunction.to_printed_hogql not overridden")
-
-    def to_printed_clickhouse(self, context: "HogQLContext"):
-        raise NotImplementedException("TableFunction.to_printed_clickhouse not overridden")
-
-    def get_asterisk(self) -> Dict[str, DatabaseField]:
-        raise NotImplementedException("Table.get_asterisk not supported")
 
 
 class FieldTraverser(BaseModel):

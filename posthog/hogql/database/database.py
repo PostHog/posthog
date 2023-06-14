@@ -110,13 +110,13 @@ def serialize_database(database: Database) -> dict:
                 elif isinstance(field, StringJSONDatabaseField):
                     fields.append({"key": field_key, "type": "json"})
             elif isinstance(field, LazyJoin):
-                fields.append({"key": field_key, "type": "lazy_table", "table": field.join_table.hogql_table()})
+                fields.append({"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()})
             elif isinstance(field, VirtualTable):
                 fields.append(
                     {
                         "key": field_key,
                         "type": "virtual_table",
-                        "table": field.hogql_table(),
+                        "table": field.to_printed_hogql(),
                         "fields": list(field.__fields__.keys()),
                     }
                 )

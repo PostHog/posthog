@@ -1,13 +1,20 @@
 from typing import Dict
 
-from posthog.hogql.database.models import TableFunction, DatabaseField
+from posthog.hogql.database.models import Table, DatabaseField
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 
-class S3Table(TableFunction):
+class S3Table(Table):
+    alias: str
     url: str
     fields: Dict[str, DatabaseField]
     format: str = "CSVWithNames"
+
+    def add_team_id_guard(self) -> bool:
+        return False
+
+    def always_alias(self) -> bool:
+        return True
 
     def has_field(self, name: str) -> bool:
         return name in self.fields
@@ -17,7 +24,7 @@ class S3Table(TableFunction):
             return self.fields[name]
         raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
 
-    def to_printed_hogql(self, context):
+    def to_printed_hogql(self):
         return escape_hogql_identifier(self.alias)
 
     def to_printed_clickhouse(self, context):

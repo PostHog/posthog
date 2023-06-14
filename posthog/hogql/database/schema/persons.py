@@ -48,10 +48,10 @@ class RawPersonsTable(Table):
     is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "raw_persons"
 
 
@@ -65,8 +65,8 @@ class PersonsTable(LazyTable):
     def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_persons_table(requested_fields)
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "persons"

@@ -203,10 +203,11 @@ class Resolver(CloningVisitor):
                 else:
                     node_table_type = ast.TableType(table=database_table)
 
-                if table_alias == table_name:
-                    node_type = node_table_type
-                else:
+                must_use_alias = database_table.always_alias() or table_alias != table_name
+                if must_use_alias:
                     node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
+                else:
+                    node_type = node_table_type
                 scope.tables[table_alias] = node_type
 
                 # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
@@ -217,6 +218,8 @@ class Resolver(CloningVisitor):
                 node.next_join = self.visit(node.next_join)
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
+                if must_use_alias:
+                    node.alias = table_alias
                 return node
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
