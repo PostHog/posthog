@@ -96,7 +96,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
         activeTab: [
-            EarlyAccessFeatureTabs.OptedIn,
+            EarlyAccessFeatureTabs.OptedIn as EarlyAccessFeatureTabs,
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
             },
