@@ -1108,7 +1108,7 @@ class TestCapture(BaseTest):
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
@@ -1119,7 +1119,7 @@ class TestCapture(BaseTest):
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
@@ -1134,7 +1134,7 @@ class TestCapture(BaseTest):
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"],
             "X-Requested-With,Content-Type,traceparent,request-id,request-context",
@@ -1146,7 +1146,7 @@ class TestCapture(BaseTest):
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"],
             "X-Requested-With,Content-Type,traceparent,request-id,request-context",
