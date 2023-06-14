@@ -93,7 +93,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                     <Tooltip
                         title={
                             <>
-                                Can<strong>{person.is_identified ? ' not' : ''}</strong> be used as `$anon_distinct_id`
+                                {person.is_identified ? <strong>Cannot</strong> : 'Can'} be used as `$anon_distinct_id`
                                 or `alias_id`, click for more info.
                             </>
                         }
