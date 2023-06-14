@@ -71,13 +71,15 @@ def contains_queries_in_order(queries: list[str], *queries_to_find: str):
     """Check if a list of queries contains a list of queries in order."""
     # We use a deque to pop the queries we find off the list of queries to
     # find, so that we can check that they are in order.
+    # Note that we use regexes to match the queries, so we can more specifically
+    # target the queries we want to find.
     queries_to_find_deque = deque(queries_to_find)
     for query in queries:
         if not queries_to_find_deque:
             # We've found all the queries we need to find.
             return True
-        if queries_to_find_deque[0] in query:
-            # We found the next query we need to find.
+        if re.match(queries_to_find_deque[0], query):
+            # We found the query we were looking for, so pop it off the deque.
             queries_to_find_deque.popleft()
     return not queries_to_find_deque
 
@@ -280,8 +282,8 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                     'CREATE TABLE IF NOT EXISTS "PostHog"."test"."events"',
                     # NOTE: we check that we at least have two PUT queries to
                     # ensure we hit the multi file upload code path
-                    "PUT file://",
-                    "PUT file://",
+                    'PUT file://.* @%"events"',
+                    'PUT file://.* @%"events"',
                     'COPY INTO "events"',
                 )
 

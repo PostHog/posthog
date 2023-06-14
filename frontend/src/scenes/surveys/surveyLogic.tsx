@@ -10,6 +10,7 @@ import {
     Breadcrumb,
     FeatureFlagFilters,
     FeatureFlagGroupType,
+    PluginType,
     Survey,
     SurveyQuestionType,
     SurveyType,
@@ -18,6 +19,8 @@ import type { surveyLogicType } from './surveyLogicType'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { PluginInstallationType } from 'scenes/plugins/types'
 
 export interface NewSurvey
     extends Pick<
@@ -88,7 +91,8 @@ export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        actions: [surveysLogic, ['loadSurveys']],
+        actions: [surveysLogic, ['loadSurveys'], pluginsLogic, ['installPlugin']],
+        values: [pluginsLogic, ['installedPlugins']],
     })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
@@ -96,7 +100,9 @@ export const surveyLogic = kea<surveyLogicType>([
         updateTargetingFlagFilters: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
         addConditionSet: true,
         removeConditionSet: (index: number) => ({ index }),
+        setInstallingPlugin: (installing: boolean) => ({ installing }),
         launchSurvey: true,
+        installSurveyPlugin: true,
         stopSurvey: true,
         archiveSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
@@ -130,20 +136,28 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
             }
         },
-        createSurveySuccess: async ({ survey }) => {
+        createSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
             router.actions.replace(urls.survey(survey.id))
         },
-        updateSurveySuccess: async ({ survey }) => {
+        updateSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} updated</>)
             actions.editingSurvey(false)
             actions.loadSurveys()
         },
-        launchSurveySuccess: async ({ survey }) => {
+        launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
             actions.setDataTableQuery(getSurveyDataQuery(survey.name))
             actions.loadSurveys()
+        },
+        installSurveyPlugin: async (_, breakpoint) => {
+            actions.setInstallingPlugin(true)
+            const installPl = async (): Promise<void> =>
+                actions.installPlugin('https://github.com/PostHog/feature-surveys', PluginInstallationType.Repository)
+            await installPl()
+            await breakpoint(600)
+            actions.setInstallingPlugin(false)
         },
         stopSurvey: async () => {
             const endDate = dayjs()
@@ -199,6 +213,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 setDataTableQuery: (_, { query }) => query,
             },
         ],
+        installingPlugin: [
+            false,
+            {
+                setInstallingPlugin: (_, { installing }) => installing,
+            },
+        ],
     }),
     selectors({
         isSurveyRunning: [
@@ -231,6 +251,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
                 ...(survey?.name ? [{ name: survey.name }] : []),
             ],
+        ],
+        surveyPlugin: [
+            (s) => [s.installedPlugins],
+            (installedPlugins: PluginType[]): PluginType | undefined => {
+                // TODO: add more sturdy check for the survey plugin
+                return installedPlugins.find((plugin) => plugin.name === 'Surveys app')
+            },
         ],
     }),
     forms(({ actions, props, values }) => ({

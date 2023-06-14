@@ -35,7 +35,6 @@ from posthog.api.capture import (
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
-from posthog.session_recordings.session_recording_helpers import compress_to_string
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
     KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
@@ -1158,16 +1157,6 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_recording_data_sent_to_kafka(self, kafka_produce) -> None:
-        session_id = "some_session_id"
-        self._send_session_recording_event(session_id=session_id)
-        self.assertEqual(kafka_produce.call_count, 1)
-        kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
-        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
-        key = kafka_produce.call_args_list[0][1]["key"]
-        self.assertEqual(key, session_id)
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_performance_events_go_to_session_recording_events_topic(self, kafka_produce):
         # `$performance_events` are not normal analytics events but rather
         # displayed along side session recordings. They are sent to the
@@ -1200,10 +1189,20 @@ class TestCapture(BaseTest):
         key = kafka_produce.call_args_list[0][1]["key"]
         self.assertEqual(key, None)
 
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:
+        session_id = "some_session_id"
+        self._send_session_recording_event(session_id=session_id)
+        self.assertEqual(kafka_produce.call_count, 1)
+        kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
+        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
+        key = kafka_produce.call_args_list[0][1]["key"]
+        self.assertEqual(key, session_id)
+
     @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     @freeze_time("2021-05-10")
-    def test_recording_data_is_compressed_and_transformed_before_sent_to_kafka(self, kafka_produce, _) -> None:
+    def test_legacy_recording_ingestion_compression_and_transformation(self, kafka_produce, _) -> None:
         self.maxDiff = None
         timestamp = 1658516991883
         session_id = "fake-session-id"
@@ -1213,7 +1212,7 @@ class TestCapture(BaseTest):
         snapshot_type = 8
         event_data = {"foo": "bar"}
         with self.settings(REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1):
-            sent_event = self._send_session_recording_event(
+            self._send_session_recording_event(
                 timestamp=timestamp,
                 snapshot_source=snapshot_source,
                 snapshot_type=snapshot_type,
@@ -1234,7 +1233,10 @@ class TestCapture(BaseTest):
                 "event": "$snapshot",
                 "properties": {
                     "$snapshot_data": {
-                        "data_items": [compress_to_string(json.dumps(sent_event["properties"]["$snapshot_data"]))],
+                        "chunk_count": 1,
+                        "chunk_id": "fake-uuid",
+                        "chunk_index": 0,
+                        "data": "H4sIAIB3mGAC/42NSwqAQAxD31Fk1m4GUUavIi78ggtR/CxEvLoaPweQQJu2SXoeKRuGmZWBWizBw+GrGipyXfJve+smehZGyh/aRtr+mw2FbqP6LryOmZZOOdPj6/T/1VoiQuWGD4sFq8kRyJlxAaIGxIyyAAAA",
                         "compression": "gzip-base64",
                         "has_full_snapshot": False,
                         "events_summary": [
@@ -1253,21 +1255,21 @@ class TestCapture(BaseTest):
             },
         )
 
-    def test_get_distinct_id_non_json_properties(self) -> None:
-        with self.assertRaises(ValueError):
-            get_distinct_id({"properties": "str"})
-
-        with self.assertRaises(ValueError):
-            get_distinct_id({"properties": 123})
-
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_large_recording_data_is_split_into_multiple_messages(self, kafka_produce) -> None:
+    def test_legacy_recording_ingestion_large_is_split_into_multiple_messages(self, kafka_produce) -> None:
         data = [
             random.choice(string.ascii_letters) for _ in range(700 * 1024)
         ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
         self._send_session_recording_event(event_data=data)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
         self.assertGreater(topic_counter[KAFKA_SESSION_RECORDING_EVENTS], 1)
+
+    def test_get_distinct_id_non_json_properties(self) -> None:
+        with self.assertRaises(ValueError):
+            get_distinct_id({"properties": "str"})
+
+        with self.assertRaises(ValueError):
+            get_distinct_id({"properties": 123})
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_can_override_attributes_important_in_replicator_exports(self, kafka_produce):
