@@ -135,7 +135,7 @@ export const useCreateExport = (): {
 export const useExportAction = (
     teamId: number,
     exportId: string,
-    action: string
+    action: 'pause' | 'unpause'
 ): {
     executeExportAction: () => Promise<void>
     loading: boolean
