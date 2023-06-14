@@ -3,7 +3,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { SidebarCategory, ExtendedListItem } from '../types'
+import { SidebarCategory, BasicListItem } from '../types'
 import type { dashboardsSidebarLogicType } from './dashboardsType'
 import Fuse from 'fuse.js'
 import { DashboardBasicType, DashboardType } from '~/types'
@@ -119,7 +119,7 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                                         name: newName,
                                     })
                                 },
-                            } as ExtendedListItem)
+                            } as BasicListItem)
                     ),
                     loading: dashboardsLoading,
                 } as SidebarCategory,

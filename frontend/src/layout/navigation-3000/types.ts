@@ -11,13 +11,13 @@ export interface SidebarLogic extends Logic {
          * Tuple for an item inside an accordion, the first element being the accordion key.
          * Otherwise a primitive (string or number key). Null if no item is active.
          */
-        activeListItemKey: string | number | [string, string | number] | null
+        activeListItemKey?: string | number | [string, string | number] | null
         /** If this selector returns true, the searchTerm value will be debounced. */
         debounceSearch?: boolean
     }
     selectors: {
         contents: (state: any, props?: any) => SidebarLogic['values']['contents']
-        activeListItemKey: (state: any, props?: any) => SidebarLogic['values']['activeListItemKey']
+        activeListItemKey?: (state: any, props?: any) => SidebarLogic['values']['activeListItemKey']
         debounceSearch?: (state: any, props?: any) => SidebarLogic['values']['debounceSearch']
     }
 }
