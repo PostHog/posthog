@@ -1,9 +1,11 @@
 import datetime as dt
+import gzip
 import json
+import os
 import tempfile
 from dataclasses import dataclass
 from string import Template
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Literal
 
 import boto3
 from django.conf import settings
@@ -57,6 +59,7 @@ class S3InsertInputs:
     data_interval_end: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
+    compression: Literal["gzip", "none"] = "none"
 
 
 @activity.defn
@@ -117,6 +120,10 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         # Create a multipart upload to S3
         key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
+
+        if inputs.compression == "gzip":
+            key += ".gz"
+
         s3_client = boto3.client(
             "s3",
             region_name=inputs.region,
@@ -161,7 +168,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             },
         )
 
-        with tempfile.NamedTemporaryFile() as local_results_file:
+        local_results_file = create_temporary_file(compression=inputs.compression)
+        try:
             while True:
                 try:
                     result = await results_iterator.__anext__()
@@ -173,7 +181,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                 # Write the results to a local file
                 local_results_file.write(json.dumps(result).encode("utf-8"))
-                local_results_file.write("\n".encode("utf-8"))
+                local_results_file.write(b"\n")
 
                 # Write results to S3 when the file reaches 50MB and reset the
                 # file, or if there is nothing else to write.
@@ -183,36 +191,45 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 ):
                     activity.logger.info("Uploading part %s", part_number)
 
-                    local_results_file.seek(0)
-                    response = s3_client.upload_part(
-                        Bucket=inputs.bucket_name,
-                        Key=key,
-                        PartNumber=part_number,
-                        UploadId=upload_id,
-                        Body=local_results_file,
-                    )
+                    local_results_file.close()
+                    with open(local_results_file.name, "rb") as raw_file:
+                        response = s3_client.upload_part(
+                            Bucket=inputs.bucket_name,
+                            Key=key,
+                            PartNumber=part_number,
+                            UploadId=upload_id,
+                            Body=raw_file,
+                        )
 
                     # Record the ETag for the part
                     parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
 
                     part_number += 1
 
-                    # Reset the file
-                    local_results_file.seek(0)
-                    local_results_file.truncate()
+                    # Delete the temporary file
+                    os.remove(local_results_file.name)
+                    # And create a new one
+                    local_results_file = create_temporary_file(compression=inputs.compression)
 
             # Upload the last part
-            local_results_file.seek(0)
-            response = s3_client.upload_part(
-                Bucket=inputs.bucket_name,
-                Key=key,
-                PartNumber=part_number,
-                UploadId=upload_id,
-                Body=local_results_file,
-            )
+            local_results_file.close()
+            with open(local_results_file.name, "rb") as raw_file:
+                response = s3_client.upload_part(
+                    Bucket=inputs.bucket_name,
+                    Key=key,
+                    PartNumber=part_number,
+                    UploadId=upload_id,
+                    Body=raw_file,
+                )
+
+            # Delete the temporary file
+            os.remove(local_results_file.name)
 
             # Record the ETag for the last part
             parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+
+        finally:
+            local_results_file.close()
 
         # Complete the multipart upload
         s3_client.complete_multipart_upload(
@@ -221,6 +238,15 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             UploadId=upload_id,
             MultipartUpload={"Parts": parts},
         )
+
+
+def create_temporary_file(compression: Literal["none", "gzip"]):
+    """Create a temporary file with a random name."""
+    temp_file = tempfile.NamedTemporaryFile(delete=False)
+    if compression == "gzip":
+        return gzip.open(temp_file.name, "wb")
+    else:
+        return temp_file
 
 
 @workflow.defn(name="s3-export")

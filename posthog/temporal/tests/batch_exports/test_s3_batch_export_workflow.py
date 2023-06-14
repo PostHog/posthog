@@ -1,4 +1,5 @@
 import functools
+import gzip
 import json
 from random import randint
 from typing import Literal, TypedDict
@@ -220,6 +221,104 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
     assert key
     object = s3_client.get_object(Bucket=bucket_name, Key=key)
     data = object["Body"].read()
+
+    # Check that the data is correct.
+    json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
+    # Pull out the fields we inserted only
+
+    json_data.sort(key=lambda x: x["timestamp"])
+
+    # Remove team_id, _timestamp from events
+    expected_events = [{k: v for k, v in event.items() if k not in ["team_id", "_timestamp"]} for event in events]
+
+    # First check one event, the first one, so that we can get a nice diff if
+    # the included data is different.
+    assert json_data[0] == expected_events[0]
+    assert json_data == expected_events
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_s3_export_workflow_with_gzip_compression(bucket_name, s3_client, activity_environment):
+    """
+    You can optionally specify gzip compression for the export.
+    """
+    data_interval_start = "2023-04-20 14:00:00"
+    data_interval_end = "2023-04-25 15:00:00"
+
+    # Generate a random team id integer. There's still a chance of a collision,
+    # but it's very small.
+    team_id = randint(1, 1000000)
+
+    client = ChClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+    # Create enough events to ensure we span more than 5MB, the smallest
+    # multipart chunk size for multipart uploads to S3.
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "_timestamp": "2023-04-20 14:30:00",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "distinct_id": str(uuid4()),
+            "person_id": str(uuid4()),
+            "person_properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "team_id": team_id,
+            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "elements_chain": json.dumps([{"tag_name": "button", "text": "Click me!"}]),
+        }
+        # NOTE: we have to do a lot here, otherwise we do not trigger a
+        # multipart upload, and the minimum part chunk size is 5MB.
+        for i in range(1)
+    ]
+
+    # Insert some data into the `sharded_events` table.
+    await insert_events(
+        client=client,
+        events=events,
+    )
+
+    # Make a random string to prefix the S3 keys with. This allows us to ensure
+    # isolation of the test, and also to check that the data is being written.
+    prefix = str(uuid4())
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix=prefix,
+        team_id=team_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        compression="gzip",
+    )
+
+    with override_settings(
+        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    ):  # 5MB, the minimum for Multipart uploads
+        with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+            await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+    # Check that the data was written to S3.
+    # List the objects in the bucket with the prefix.
+    objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+
+    # Check that there is only one object.
+    assert len(objects.get("Contents", [])) == 1
+
+    # Get the object.
+    key = objects["Contents"][0].get("Key")
+    assert key
+    object = s3_client.get_object(Bucket=bucket_name, Key=key)
+    compressed_data = object["Body"].read()
+    data = gzip.decompress(compressed_data)
 
     # Check that the data is correct.
     json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
