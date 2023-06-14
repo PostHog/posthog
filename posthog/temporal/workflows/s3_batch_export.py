@@ -134,7 +134,23 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         parts: List[CompletedPartTypeDef] = []
         part_number = 1
         results_iterator = client.iterate(
-            query_template.safe_substitute(fields="*"),
+            query_template.safe_substitute(
+                fields="""
+                uuid,
+                timestamp,
+                created_at,
+                event,
+                properties,
+
+                -- Point in time identity fields
+                distinct_id,
+                person_id,
+                person_properties,
+
+                -- Autocapture fields
+                elements_chain
+            """
+            ),
             json=True,
             params={
                 "aws_access_key_id": inputs.aws_access_key_id,
