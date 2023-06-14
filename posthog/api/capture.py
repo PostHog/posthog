@@ -164,7 +164,10 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
         if event_name in SESSION_RECORDING_DEDICATED_KAFKA_EVENTS:
-            producer = sessionRecordingKafkaProducer() or KafkaProducer()
+            producer = sessionRecordingKafkaProducer()
+
+            if not producer:
+                raise Exception("Session recording kafka producer not available")
         else:
             producer = KafkaProducer()
         future = producer.produce(topic=kafka_topic, data=data, key=partition_key)

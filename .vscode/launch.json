@@ -68,6 +68,7 @@
                 "DEBUG": "1",
                 "CLICKHOUSE_SECURE": "False",
                 "KAFKA_URL": "kafka://localhost",
+                "SESSION_RECORDING_KAFKA_URL": "kafka://localhost",
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",

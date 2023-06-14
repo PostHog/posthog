@@ -165,7 +165,7 @@ _parse_kafka_hosts = lambda kafka_url: ",".join(urlparse(host).netloc for host i
 KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka:9092")
 KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
 
-SESSION_RECORDING_KAFKA_URL = os.getenv("SESSION_RECORDING_KAFKA_URL", "kafka://kafka:9092")
+SESSION_RECORDING_KAFKA_URL = os.getenv("SESSION_RECORDING_KAFKA_URL", "")
 SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(SESSION_RECORDING_KAFKA_URL)
 
 # To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
