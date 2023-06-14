@@ -573,7 +573,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 resolver: {
                     icon: IconRecording,
                     display: 'Debug: Copy the session recording link to clipboard',
-                    executor: async () => {
+                    executor: () => {
                         const LOOK_BACK = 30
                         const recordingStartTime = Math.max(
                             Math.floor(
@@ -581,7 +581,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                             ) - LOOK_BACK,
                             0
                         )
-                        await copyToClipboard(
+                        void copyToClipboard(
                             `${window.location.origin}/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`,
                             'Current session recording link to clipboard'
                         )
@@ -605,8 +605,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                   icon: IconCalculate,
                                   display: `= ${result}`,
                                   guarantee: true,
-                                  executor: async () => {
-                                      await copyToClipboard(result.toString(), 'calculation result')
+                                  executor: () => {
+                                      void copyToClipboard(result.toString(), 'calculation result')
                                   },
                               }
                     } catch {
