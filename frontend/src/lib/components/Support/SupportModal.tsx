@@ -45,6 +45,9 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
     const { setSendSupportRequestValue, closeSupportForm } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
 
+    if (!preflightLogic.values.preflight?.cloud) {
+        return <></>
+    }
     const dropRef = useRef<HTMLDivElement>(null)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
