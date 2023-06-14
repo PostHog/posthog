@@ -23,7 +23,10 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     click_count Int64,
     keypress_count Int64,
     mouse_activity_count Int64,
-    active_milliseconds Int64
+    active_milliseconds Int64,
+    console_log_count Int64,
+    console_warn_count Int64,
+    console_error_count Int64
 ) ENGINE = {engine}
 """
 
@@ -44,10 +47,12 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     click_count SimpleAggregateFunction(sum, Int64),
     keypress_count SimpleAggregateFunction(sum, Int64),
     mouse_activity_count SimpleAggregateFunction(sum, Int64),
-    active_milliseconds SimpleAggregateFunction(sum, Int64)
+    active_milliseconds SimpleAggregateFunction(sum, Int64),
+    console_log_count SimpleAggregateFunction(sum, Int64),
+    console_warn_count SimpleAggregateFunction(sum, Int64),
+    console_error_count SimpleAggregateFunction(sum, Int64)
 ) ENGINE = {engine}
 """
-
 
 SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE = lambda: AggregatingMergeTree(
     "session_replay_events", replication_scheme=ReplicationScheme.SHARDED
@@ -82,6 +87,7 @@ KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: KAFKA_SESSION_REPLAY_EVENTS_TABL
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS),
 )
 
+
 SESSION_REPLAY_EVENTS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
@@ -104,7 +110,10 @@ argMinState(first_url, first_timestamp) as first_url,
 sum(click_count) as click_count,
 sum(keypress_count) as keypress_count,
 sum(mouse_activity_count) as mouse_activity_count,
-sum(active_milliseconds) as active_milliseconds
+sum(active_milliseconds) as active_milliseconds,
+sum(console_log_count) as console_log_count,
+sum(console_warn_count) as console_warn_count,
+sum(console_error_count) as console_error_count
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
@@ -122,6 +131,7 @@ WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_B
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
 )
+
 
 # This table is responsible for reading from session_replay_events on a cluster setting
 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(

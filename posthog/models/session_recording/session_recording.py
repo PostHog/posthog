@@ -57,10 +57,8 @@ class SessionRecording(UUIDModel):
             return True
 
         if self.object_storage_path:
-            self.load_object_data()
-
-            if not self._metadata:
-                return False
+            # Nothing todo as we have all the metadata in the model
+            pass
         else:
             # Try to load from Clickhouse
             metadata = SessionRecordingEvents(
@@ -111,12 +109,6 @@ class SessionRecording(UUIDModel):
         if not data:
             return
 
-        self._metadata = {  # type: ignore
-            "distinct_id": data["distinct_id"],
-            "start_and_end_times_by_window_id": data["start_and_end_times_by_window_id"],
-            "segments": data["segments"],
-        }
-
         self._snapshots = {
             "has_next": False,
             "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
@@ -132,16 +124,8 @@ class SessionRecording(UUIDModel):
         return self._snapshots["has_next"] if self._snapshots else False
 
     @property
-    def segments(self):
-        return self._metadata["segments"] if self._metadata else None
-
-    @property
-    def start_and_end_times_by_window_id(self):
-        return self._metadata["start_and_end_times_by_window_id"] if self._metadata else None
-
-    @property
     def storage(self):
-        return "object_storage" if self.object_storage_path else "clickhouse"
+        return "object_storage_lts" if self.object_storage_path else "clickhouse"
 
     def load_person(self) -> Optional[Person]:
         if self.person:

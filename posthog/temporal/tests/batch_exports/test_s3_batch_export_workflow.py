@@ -1,20 +1,26 @@
+import functools
 import json
 from random import randint
-from typing import TypedDict
+from typing import Literal, TypedDict
+from unittest import mock
 from uuid import uuid4
-import boto3
 
-from aiochclient import ChClient
+import boto3
 import pytest
+from aiochclient import ChClient
 from django.conf import settings
-from django.test import Client as HttpClient, override_settings
+from django.test import Client as HttpClient
+from django.test import override_settings
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
+from ee.clickhouse.materialized_columns.columns import materialize
+
+from asgiref.sync import sync_to_async
+
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
-
+from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportInputs,
@@ -23,20 +29,26 @@ from posthog.temporal.workflows.s3_batch_export import (
     insert_into_s3_activity,
 )
 
-bucket_name = ""
-
 TEST_ROOT_BUCKET = "test-batch-exports"
 
 
-class EventValues(TypedDict):
-    """Events to be inserted for testing."""
-
-    uuid: str
-    event: str
-    timestamp: str
-    person_id: str
-    team_id: int
-    properties: str
+"""Events to be inserted for testing."""
+EventValues = TypedDict(
+    "EventValues",
+    {
+        "uuid": str,
+        "event": str,
+        "_timestamp": str,
+        "timestamp": str,
+        "created_at": str,
+        "distinct_id": str,
+        "person_id": str,
+        "person_properties": str,
+        "team_id": int,
+        "properties": str,
+        "elements_chain": str,
+    },
+)
 
 
 async def insert_events(client: ChClient, events: list[EventValues]):
@@ -47,9 +59,15 @@ async def insert_events(client: ChClient, events: list[EventValues]):
             uuid,
             event,
             timestamp,
+            _timestamp,
             person_id,
             team_id,
-            properties
+            properties,
+            elements_chain,
+
+            distinct_id,
+            created_at,
+            person_properties
         )
         VALUES
         """,
@@ -58,9 +76,14 @@ async def insert_events(client: ChClient, events: list[EventValues]):
                 event["uuid"],
                 event["event"],
                 event["timestamp"],
+                event["_timestamp"],
                 event["person_id"],
                 event["team_id"],
                 event["properties"],
+                event["elements_chain"],
+                event["distinct_id"],
+                event["created_at"],
+                event["person_properties"],
             )
             for event in events
         ],
@@ -68,34 +91,31 @@ async def insert_events(client: ChClient, events: list[EventValues]):
     )
 
 
-def setup_module(module):
-    """
-    Create a random S3 bucket for testing.
-    """
-    global bucket_name
-    bucket_name = f"{TEST_ROOT_BUCKET}-{str(uuid4())}"
+create_test_client = functools.partial(boto3.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
-    s3_client = boto3.client(
+
+@pytest.fixture
+def bucket_name() -> str:
+    """Name for a test S3 bucket."""
+    return f"{TEST_ROOT_BUCKET}-{str(uuid4())}"
+
+
+@pytest.fixture
+def s3_client(bucket_name):
+    """Manage a testing S3 client to interact with a testing S3 bucket.
+
+    Yields the test S3 client after creating a testing S3 bucket. Upon resuming, we delete
+    the contents and the bucket itself.
+    """
+    s3_client = create_test_client(
         "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
     )
 
     s3_client.create_bucket(Bucket=bucket_name)
 
-
-def teardown_module(module):
-    """
-    Delete the random S3 bucket created for testing. We need to also delete all the
-    objects in the bucket before we can delete the bucket itself.
-    """
-    s3_client = boto3.client(
-        "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-    )
+    yield s3_client
 
     response = s3_client.list_objects_v2(Bucket=bucket_name)
 
@@ -107,9 +127,15 @@ def teardown_module(module):
     s3_client.delete_bucket(Bucket=bucket_name)
 
 
+@sync_to_async
+def amaterialize(table: Literal["events", "person", "groups"], column: str):
+    """Materialize a column in a table."""
+    return materialize(table, column)
+
+
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
+async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client, activity_environment):
     """
     Test that the insert_into_s3_activity function puts data into S3. We do not
     assume anything about the Django models, and instead just check that the
@@ -130,16 +156,25 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
         database=settings.CLICKHOUSE_DATABASE,
     )
 
+    # Add a materialized column such that we can verify that it is NOT included
+    # in the export.
+    await amaterialize("events", "$browser")
+
     # Create enough events to ensure we span more than 5MB, the smallest
     # multipart chunk size for multipart uploads to S3.
     events: list[EventValues] = [
         {
             "uuid": str(uuid4()),
             "event": "test",
+            "_timestamp": "2023-04-20 14:30:00",
             "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "distinct_id": str(uuid4()),
             "person_id": str(uuid4()),
+            "person_properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
             "team_id": team_id,
             "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "elements_chain": json.dumps([{"tag_name": "button", "text": "Click me!"}]),
         }
         # NOTE: we have to do a lot here, otherwise we do not trigger a
         # multipart upload, and the minimum part chunk size is 5MB.
@@ -167,17 +202,13 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
         aws_secret_access_key="object_storage_root_password",
     )
 
-    with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-        await activity_environment.run(insert_into_s3_activity, insert_inputs)
+    with override_settings(
+        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    ):  # 5MB, the minimum for Multipart uploads
+        with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+            await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     # Check that the data was written to S3.
-    s3_client = boto3.client(
-        "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-    )
-
     # List the objects in the bucket with the prefix.
     objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
 
@@ -193,24 +224,21 @@ async def test_insert_into_s3_activity_puts_data_into_s3(activity_environment):
     # Check that the data is correct.
     json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
     # Pull out the fields we inserted only
-    json_data = [
-        {
-            "uuid": event["uuid"],
-            "event": event["event"],
-            "timestamp": event["timestamp"],
-            "properties": event["properties"],
-            "person_id": event["person_id"],
-            "team_id": int(event["team_id"]),
-        }
-        for event in json_data
-    ]
+
     json_data.sort(key=lambda x: x["timestamp"])
-    assert json_data == events
+
+    # Remove team_id, _timestamp from events
+    expected_events = [{k: v for k, v in event.items() if k not in ["team_id", "_timestamp"]} for event in events]
+
+    # First check one event, the first one, so that we can get a nice diff if
+    # the included data is different.
+    assert json_data[0] == expected_events[0]
+    assert json_data == expected_events
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_with_minio_bucket(client: HttpClient):
+async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client):
     """
     Test that the whole workflow not just the activity works. It should update
     the batch export run status to completed, as well as updating the record
@@ -255,17 +283,27 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient):
             "uuid": str(uuid4()),
             "event": "test",
             "timestamp": "2023-04-20 14:30:00.000000",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "_timestamp": "2023-04-20 14:30:00",
             "person_id": str(uuid4()),
+            "person_properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
             "team_id": team.pk,
             "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "distinct_id": str(uuid4()),
+            "elements_chain": json.dumps([{"tag_name": "button", "text": "Click me!"}]),
         },
         {
             "uuid": str(uuid4()),
             "event": "test",
             "timestamp": "2023-04-25 14:30:00.000000",
+            "created_at": "2023-04-25 14:30:00.000000",
+            "_timestamp": "2023-04-25 14:30:00",
             "person_id": str(uuid4()),
+            "person_properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
             "team_id": team.pk,
             "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "distinct_id": str(uuid4()),
+            "elements_chain": json.dumps([{"tag_name": "button", "text": "Click me!"}]),
         },
     ]
 
@@ -291,13 +329,14 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient):
             activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            await activity_environment.client.execute_workflow(
-                S3BatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+                await activity_environment.client.execute_workflow(
+                    S3BatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
 
         runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
         assert len(runs) == 1
