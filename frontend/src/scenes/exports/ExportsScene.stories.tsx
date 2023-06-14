@@ -16,7 +16,7 @@ export default {
         },
         viewMode: 'story',
     },
-    decorators: [mswDecorator(createExportServiceHandlers())],
+    decorators: [mswDecorator(createExportServiceHandlers().handlers)],
 } as Meta
 
 export const Exports: Story = () => {
