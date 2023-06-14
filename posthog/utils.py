@@ -336,8 +336,9 @@ def render_template(
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
-
-    if settings.SELF_CAPTURE:
+        context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
+        context["js_posthog_host"] = "https://app.posthog.com"
+    elif settings.SELF_CAPTURE:
         api_token = get_self_capture_api_token(request)
 
         if api_token:
