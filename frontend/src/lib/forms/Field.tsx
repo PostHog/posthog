@@ -21,6 +21,8 @@ export type PureFieldProps = {
     onClick?: () => void
     /** Flex the field as a row rather than columns */
     inline?: boolean
+    /** The id of the input this field is for */
+    htmlFor?: string
 }
 
 /** A "Pure" field - used when you want the Field styles without the Kea form functionality */
@@ -29,6 +31,7 @@ export const PureField = ({
     info,
     error,
     help,
+    htmlFor,
     showOptional,
     onExplanationClick,
     className,
@@ -49,6 +52,7 @@ export const PureField = ({
                     className={clsx({
                         'cursor-pointer': !!onClick,
                     })}
+                    htmlFor={htmlFor}
                 >
                     {label}
                 </LemonLabel>

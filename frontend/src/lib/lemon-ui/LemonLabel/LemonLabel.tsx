@@ -10,6 +10,7 @@ export interface LemonLabelProps
     infoLink?: LinkProps['to']
     showOptional?: boolean
     onExplanationClick?: () => void
+    htmlFor?: string
 }
 
 export function LemonLabel({
@@ -19,10 +20,11 @@ export function LemonLabel({
     showOptional,
     onExplanationClick,
     infoLink,
+    htmlFor,
     ...props
 }: LemonLabelProps): JSX.Element {
     return (
-        <label className={clsx('LemonLabel', className)} {...props}>
+        <label className={clsx('LemonLabel', className)} htmlFor={htmlFor} {...props}>
             {children}
 
             {showOptional ? <span className="LemonLabel__extra">(optional)</span> : null}

@@ -7,6 +7,7 @@ from freezegun import freeze_time
 
 from posthog import datetime
 from posthog.hogql import ast
+from posthog.hogql.errors import SyntaxException
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
@@ -664,7 +665,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT [1, 2, 3], [10,11,12][1]",
                 team=self.team,
             )
-            # Following SQL tradition, ClickHouse array indexes start at 1, not 0.
+            # Following SQL tradition, ClickHouse array indexes start at 1, not from zero.
             self.assertEqual(response.results, [([1, 2, 3], 10)])
             self.assertEqual(
                 response.clickhouse,
@@ -1017,3 +1018,55 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2) AS final ORDER BY final.col_a ASC LIMIT 100 "
                 f"SETTINGS readonly=1, max_execution_time=60",
             )
+
+    def test_property_access_with_arrays(self):
+        with freeze_time("2020-01-10"):
+            random_uuid = str(UUIDT())
+            _create_person(team=self.team, distinct_ids=[f"P{random_uuid}"], is_identified=True)
+            _create_event(
+                distinct_id=f"P{random_uuid}",
+                event="big event",
+                team=self.team,
+                properties={
+                    "string": random_uuid,
+                    "array_str": [random_uuid],
+                    "obj_array": {"id": [random_uuid]},
+                    "array_array_str": [[random_uuid]],
+                    "array_obj": [{"id": random_uuid}],
+                    "array_obj_array": [{"id": [random_uuid]}],
+                    "array_obj_array_obj": [{"id": [{"id": random_uuid}]}],
+                },
+            )
+            flush_persons_and_events()
+
+            alternatives = [
+                "properties.string",
+                "properties.array_str.1",
+                "properties.array_str[1]",
+                "properties.obj_array.id.1",
+                "properties.obj_array.id[1]",
+                "properties.array_array_str.1.1",
+                "properties.array_array_str[1][1]",
+                "properties.array_obj_array.1.id.1",
+                "properties.array_obj_array[1]['id'][1]",
+                "properties.array_obj_array_obj.1.id.1.id",
+                "properties.array_obj_array_obj[1].id[1].id",
+                "properties.array_obj_array_obj[1]['id'][1]['id']",
+                "properties.array_obj.1.id",
+                "properties.array_obj[1].id",
+            ]
+            columns = ",".join(alternatives)
+            query = f"SELECT {columns} FROM events WHERE properties.string = '{random_uuid}'"
+            response = execute_hogql_query(query, team=self.team)
+            self.assertEqual(response.results[0], tuple(map(lambda x: random_uuid, alternatives)))
+
+    def test_property_access_with_arrays_zero_index_error(self):
+        query = f"SELECT properties.something[0] FROM events"
+        with self.assertRaises(SyntaxException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
+
+        query = f"SELECT properties.something.0 FROM events"
+        with self.assertRaises(SyntaxException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")

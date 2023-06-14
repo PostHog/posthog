@@ -5,6 +5,7 @@ import {
     BreakdownType,
     CohortType,
     EntityFilter,
+    EntityTypes,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -27,6 +28,10 @@ import { isEventsNode } from '~/queries/utils'
 import { urls } from 'scenes/urls'
 import { examples } from '~/queries/examples'
 
+export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
+    return filter !== null && filter.type === EntityTypes.EVENTS && filter.id === null && !filter.name
+}
+
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
     isCustom = true
@@ -37,7 +42,7 @@ export const getDisplayNameFromEntityFilter = (
     if (name && name in keyMapping.event) {
         name = keyMapping.event[name].label
     }
-    if (filter?.type === 'events' && filter.id === null) {
+    if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
     }
 
