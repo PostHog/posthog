@@ -25,6 +25,9 @@ export type AccessoryInfo = {
     topOffset?: number
 }
 
+export const baseSpritePath = `/static/hedgehog/sprites`
+export const baseSpriteAccessoriesPath = `${baseSpritePath}/accessories`
+
 export const standardAnimations: { [key: string]: SpriteInfo } = {
     stop: {
         img: 'wave',

@@ -14,6 +14,8 @@ import {
     standardAccessories,
     AccessoryInfo,
     accessoryGroups,
+    baseSpritePath,
+    baseSpriteAccessoriesPath,
 } from './sprites/sprites'
 import { FlaggedFeature } from '../FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -287,13 +289,14 @@ export class HedgehogActor {
     render({ onClick }: { onClick: () => void }): JSX.Element {
         const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
         const imgExt = this.darkMode ? 'dark.png' : 'png'
-        const basePath = `/static/hedgehog/sprites`
         const preloadContent =
             Object.values(this.animations)
-                .map((x) => `url(${basePath}/${x.img}.${imgExt})`)
+                .map((x) => `url(${baseSpritePath}/${x.img}.${imgExt})`)
                 .join(' ') +
             ' ' +
-            this.accessories.map((accessory) => `url(${basePath}/accessories/${accessory.img}.${imgExt})`).join(' ')
+            this.accessories
+                .map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.${imgExt})`)
+                .join(' ')
 
         return (
             <div
@@ -338,7 +341,7 @@ export class HedgehogActor {
                         imageRendering: 'pixelated',
                         width: SPRITE_SIZE,
                         height: SPRITE_SIZE,
-                        backgroundImage: `url(${basePath}/${this.animation.img}.${imgExt})`,
+                        backgroundImage: `url(${baseSpritePath}/${this.animation.img}.${imgExt})`,
                         backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
                             Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
                         }px`,
@@ -355,25 +358,10 @@ export class HedgehogActor {
                             imageRendering: 'pixelated',
                             width: SPRITE_SIZE,
                             height: SPRITE_SIZE,
-                            backgroundImage: `url(${basePath}/accessories/${accessory.img}.${imgExt})`,
+                            backgroundImage: `url(${baseSpriteAccessoriesPath}/${accessory.img}.${imgExt})`,
                             transform: accessoryPosition
                                 ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
                                 : undefined,
-                        }}
-                    />
-                ))}
-
-                {/* We need to preload the images to avoid flashing on the first animation
-                    The images are small and this is the best way I could find...  */}
-                {Object.keys(this.animations).map((x) => (
-                    <div
-                        key={x}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            position: 'absolute',
-                            width: 1, // This needs to be 1 as browsers are clever enough to realise the image isn't visible...
-                            height: 1,
-                            backgroundImage: `url(${this.animations[x].img})`,
                         }}
                     />
                 ))}
