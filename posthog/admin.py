@@ -17,6 +17,7 @@ from posthog.models import (
     Organization,
     OrganizationMembership,
     Person,
+    PersonDistinctId,
     Plugin,
     PluginAttachment,
     PluginConfig,
@@ -367,3 +368,10 @@ class PersonAdmin(admin.ModelAdmin):
     list_display = ("id", "distinct_ids", "created_at", "team", "is_user", "is_identified", "version")
     list_filter = ("created_at", "is_identified", "version")
     search_fields = ("id",)
+
+
+@admin.register(PersonDistinctId)
+class PersonDistinctIdAdmin(admin.ModelAdmin):
+    list_display = ("id", "team", "distinct_id", "version")
+    list_filter = ("version",)
+    search_fields = ("id", "distinct_id")
