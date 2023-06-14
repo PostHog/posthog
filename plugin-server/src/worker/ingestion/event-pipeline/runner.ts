@@ -91,6 +91,10 @@ export class EventPipelineRunner {
                 throw error
             }
             silentFailuresEventsPipeline.inc()
+            Sentry.captureException(error, {
+                tags: { location: 'runEventPipeline' },
+                extra: { originalEvent: this.originalEvent },
+            })
 
             return { lastStep: error.step, args: [], error: error.message }
         }
