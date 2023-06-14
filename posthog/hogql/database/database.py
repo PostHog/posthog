@@ -52,6 +52,7 @@ class Database(BaseModel):
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
 
+    # TODO: This table was made to test reads from s3. Remove it once data warehouse launches!
     aapl_stock: S3Table = create_aapl_stock_s3_table()
 
     def __init__(self, timezone: Optional[str]):
@@ -89,6 +90,10 @@ def serialize_database(database: Database) -> dict:
     tables: Dict[str, List[Dict[str, Any]]] = {}
 
     for table_key in database.__fields__.keys():
+        # TODO: This table was made to test reads from s3. Remove it once data warehouse launches!
+        if table_key == "aapl_stock":
+            continue
+
         field_input: Dict[str, Any] = {}
         table = getattr(database, table_key, None)
         if isinstance(table, FunctionCallTable):
