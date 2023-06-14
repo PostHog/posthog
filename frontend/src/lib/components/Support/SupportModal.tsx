@@ -46,6 +46,9 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
     const { objectStorageAvailable } = useValues(preflightLogic)
 
     if (!preflightLogic.values.preflight?.cloud) {
+        if (isSupportFormOpen) {
+            lemonToast.error(`Support tickets are only supported on PostHog cloud`)
+        }
         return <></>
     }
     const dropRef = useRef<HTMLDivElement>(null)
