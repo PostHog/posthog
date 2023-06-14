@@ -9,7 +9,7 @@ import { ConfiguredLimiter, LoggingLimiter, WarningLimiter } from '../../../util
 import { EventPipelineResult } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
-import { IngestionConsumer } from '../kafka-queue'
+import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
 import { IngestionOverflowMode } from './each-batch-ingestion'
 import {
@@ -41,18 +41,18 @@ type IngestResult = {
  */
 export async function eachBatchLegacyIngestion(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
-    queue: IngestionConsumer,
+    queue: KafkaJSIngestionConsumer,
     overflowMode: IngestionOverflowMode
 ): Promise<void> {
-    async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<IngestResult> {
+    async function eachMessage(event: PipelineEvent, queue: KafkaJSIngestionConsumer): Promise<IngestResult> {
         return ingestEvent(queue.pluginsServer, queue.workerMethods, event)
     }
 
     const batchStartTimer = new Date()
     const metricKey = 'ingestion'
-    const loggingKey = `each_batch_parallel_ingestion`
+    const loggingKey = `each_batch_legacy_ingestion`
 
-    const transaction = Sentry.startTransaction({ name: `eachBatchParallelIngestion` }, { topic: queue.topic })
+    const transaction = Sentry.startTransaction({ name: `eachBatchLegacyIngestion` }, { topic: queue.topic })
 
     try {
         /**
@@ -210,7 +210,7 @@ function computeKey(pluginEvent: PipelineEvent): string {
     return `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
 }
 
-async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: KafkaMessage[]) {
+async function emitToOverflow(queue: KafkaJSIngestionConsumer, kafkaMessages: KafkaMessage[]) {
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.queueMessage(
