@@ -20,7 +20,10 @@ INSERT INTO sharded_session_replay_events (
     click_count,
     keypress_count,
     mouse_activity_count,
-    active_milliseconds
+    active_milliseconds,
+    console_log_count,
+    console_warn_count,
+    console_error_count
 )
 SELECT
     %(session_id)s,
@@ -32,7 +35,10 @@ SELECT
     %(click_count)s,
     %(keypress_count)s,
     %(mouse_activity_count)s,
-    %(active_milliseconds)s
+    %(active_milliseconds)s,
+    %(console_log_count)s,
+    %(console_warn_count)s,
+    %(console_error_count)s
 """
 
 
@@ -97,6 +103,9 @@ def produce_replay_summary(
     keypress_count: Optional[int] = None,
     mouse_activity_count: Optional[int] = None,
     active_milliseconds: Optional[float] = None,
+    console_log_count: Optional[int] = None,
+    console_warn_count: Optional[int] = None,
+    console_error_count: Optional[int] = None,
 ):
 
     first_timestamp = _sensible_first_timestamp(first_timestamp, last_timestamp)
@@ -113,6 +122,9 @@ def produce_replay_summary(
         "keypress_count": keypress_count or 0,
         "mouse_activity_count": mouse_activity_count or 0,
         "active_milliseconds": active_milliseconds or 0,
+        "console_log_count": console_log_count or 0,
+        "console_warn_count": console_warn_count or 0,
+        "console_error_count": console_error_count or 0,
     }
     p = ClickhouseProducer()
     # because this is in a test it will write directly using SQL not really with Kafka
