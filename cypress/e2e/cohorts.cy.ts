@@ -7,6 +7,8 @@ describe('Cohorts', () => {
         // load an empty page
         cy.get('h1').should('contain', 'Cohorts')
         cy.title().should('equal', 'Cohorts • PostHog')
+        cy.get('h2').should('contain', 'Create your first cohort')
+        cy.get('[data-attr="product-introduction-docs-link"]').should('contain', 'Learn more about Cohorts')
 
         // go to create a new cohort
         cy.get('[data-attr="create-cohort"]').click()
@@ -34,6 +36,7 @@ describe('Cohorts', () => {
         // back to cohorts
         cy.clickNavMenu('cohorts')
         cy.get('tbody').contains('Test Cohort')
+        cy.get('h2').should('not.have.text', 'Create your first cohort')
 
         it('Cohorts new and list', () => {
             cy.get('[data-row-key]').first().click()

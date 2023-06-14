@@ -18,8 +18,12 @@ class BatchExportDestination(UUIDModel):
         """Enumeration of supported destinations for PostHog BatchExports."""
 
         S3 = "S3"
+        SNOWFLAKE = "Snowflake"
 
-    secret_fields = {Destination.S3: {"aws_access_key_id", "aws_secret_access_key"}}
+    secret_fields = {
+        "S3": {"aws_access_key_id", "aws_secret_access_key"},
+        "Snowflake": set("password"),
+    }
 
     type: models.CharField = models.CharField(
         choices=Destination.choices, max_length=64, help_text="A choice of supported BatchExportDestination types."

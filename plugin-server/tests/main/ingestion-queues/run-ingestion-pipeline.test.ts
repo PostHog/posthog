@@ -45,7 +45,7 @@ describe('workerTasks.runEventPipeline()', () => {
         const organizationId = await createOrganization(hub.postgres)
         const teamId = await createTeam(hub.postgres, organizationId)
 
-        jest.spyOn(hub.db.postgres, 'query').mockImplementationOnce(() => {
+        jest.spyOn(hub.db.postgres, 'query').mockImplementation(() => {
             return Promise.reject(new Error(errorMessage))
         })
 

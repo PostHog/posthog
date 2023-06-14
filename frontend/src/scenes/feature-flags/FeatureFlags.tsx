@@ -3,7 +3,7 @@ import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AvailableFeature, FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { AvailableFeature, FeatureFlagGroupType, FeatureFlagType, ProductKey } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -24,7 +24,7 @@ import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
@@ -49,10 +49,13 @@ export function OverViewTab({
     const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters, shouldShowEmptyState } =
         useValues(flagLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportEmptyStateShown } = useActions(eventUsageLogic)
+    const shouldShowProductIntroduction =
+        !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS] &&
+        !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
     useEffect(() => {
         if (shouldShowEmptyState) {
@@ -231,113 +234,121 @@ export function OverViewTab({
         },
     ]
 
-    return shouldShowEmptyState && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
-        <ProductEmptyState
-            productName="Feature flags"
-            thingName="feature flag"
-            description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
-            docsURL="https://posthog.com/docs/feature-flags/manual"
-            action={() => router.actions.push(urls.featureFlag('new'))}
-        />
-    ) : (
+    return (
         <>
-            <div>
-                <div className="flex justify-between mb-4">
-                    <LemonInput
-                        type="search"
-                        placeholder={searchPlaceholder || ''}
-                        onChange={setSearchTerm}
-                        value={searchTerm || ''}
+            {(shouldShowEmptyState || shouldShowProductIntroduction) &&
+                featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' && (
+                    <ProductIntroduction
+                        productName="Feature flags"
+                        productKey={ProductKey.FEATURE_FLAGS}
+                        thingName="feature flag"
+                        description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
+                        docsURL="https://posthog.com/docs/feature-flags/manual"
+                        action={() => router.actions.push(urls.featureFlag('new'))}
+                        isEmpty={shouldShowEmptyState}
                     />
-                    <div className="flex items-center gap-2">
-                        {hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
-                            <>
+                )}{' '}
+            {(!shouldShowEmptyState || featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] !== 'test') && (
+                <>
+                    <div>
+                        <div className="flex justify-between mb-4">
+                            <LemonInput
+                                type="search"
+                                placeholder={searchPlaceholder || ''}
+                                onChange={setSearchTerm}
+                                value={searchTerm || ''}
+                            />
+                            <div className="flex items-center gap-2">
+                                {hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
+                                    <>
+                                        <span>
+                                            <b>Type</b>
+                                        </span>
+                                        <LemonSelect
+                                            onChange={(type) => {
+                                                if (type) {
+                                                    if (type === 'all') {
+                                                        if (filters) {
+                                                            const { type, ...restFilters } = filters
+                                                            setFeatureFlagsFilters(restFilters, true)
+                                                        }
+                                                    } else {
+                                                        setFeatureFlagsFilters({ type })
+                                                    }
+                                                }
+                                            }}
+                                            options={[
+                                                { label: 'All', value: 'all' },
+                                                { label: 'Boolean', value: 'boolean' },
+                                                { label: 'Multiple variants', value: 'multivariant' },
+                                                { label: 'Experiment', value: 'experiment' },
+                                            ]}
+                                            value="all"
+                                        />
+                                    </>
+                                )}
                                 <span>
-                                    <b>Type</b>
+                                    <b>Status</b>
                                 </span>
                                 <LemonSelect
-                                    onChange={(type) => {
-                                        if (type) {
-                                            if (type === 'all') {
+                                    onChange={(status) => {
+                                        if (status) {
+                                            if (status === 'all') {
                                                 if (filters) {
-                                                    const { type, ...restFilters } = filters
+                                                    const { active, ...restFilters } = filters
                                                     setFeatureFlagsFilters(restFilters, true)
                                                 }
                                             } else {
-                                                setFeatureFlagsFilters({ type })
+                                                setFeatureFlagsFilters({ active: status })
                                             }
                                         }
                                     }}
                                     options={[
                                         { label: 'All', value: 'all' },
-                                        { label: 'Boolean', value: 'boolean' },
-                                        { label: 'Multiple variants', value: 'multivariant' },
-                                        { label: 'Experiment', value: 'experiment' },
+                                        { label: 'Enabled', value: 'true' },
+                                        { label: 'Disabled', value: 'false' },
                                     ]}
                                     value="all"
                                 />
-                            </>
-                        )}
-                        <span>
-                            <b>Status</b>
-                        </span>
-                        <LemonSelect
-                            onChange={(status) => {
-                                if (status) {
-                                    if (status === 'all') {
-                                        if (filters) {
-                                            const { active, ...restFilters } = filters
-                                            setFeatureFlagsFilters(restFilters, true)
+                                <span className="ml-1">
+                                    <b>Created by</b>
+                                </span>
+                                <LemonSelect
+                                    onChange={(user) => {
+                                        if (user) {
+                                            if (user === 'any') {
+                                                if (filters) {
+                                                    const { created_by, ...restFilters } = filters
+                                                    setFeatureFlagsFilters(restFilters, true)
+                                                }
+                                            } else {
+                                                setFeatureFlagsFilters({ created_by: user })
+                                            }
                                         }
-                                    } else {
-                                        setFeatureFlagsFilters({ active: status })
-                                    }
-                                }
-                            }}
-                            options={[
-                                { label: 'All', value: 'all' },
-                                { label: 'Enabled', value: 'true' },
-                                { label: 'Disabled', value: 'false' },
-                            ]}
-                            value="all"
-                        />
-                        <span className="ml-1">
-                            <b>Created by</b>
-                        </span>
-                        <LemonSelect
-                            onChange={(user) => {
-                                if (user) {
-                                    if (user === 'any') {
-                                        if (filters) {
-                                            const { created_by, ...restFilters } = filters
-                                            setFeatureFlagsFilters(restFilters, true)
-                                        }
-                                    } else {
-                                        setFeatureFlagsFilters({ created_by: user })
-                                    }
-                                }
-                            }}
-                            options={uniqueCreators}
-                            value="any"
-                        />
+                                    }}
+                                    options={uniqueCreators}
+                                    value="any"
+                                />
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <LemonTable
-                dataSource={searchedFeatureFlags}
-                columns={columns}
-                rowKey="key"
-                defaultSorting={{
-                    columnKey: 'created_at',
-                    order: -1,
-                }}
-                noSortingCancellation
-                loading={featureFlagsLoading}
-                pagination={{ pageSize: 100 }}
-                nouns={nouns}
-                data-attr="feature-flag-table"
-                emptyState="No results. Create a new flag?"
-            />
+                    <LemonTable
+                        dataSource={searchedFeatureFlags}
+                        columns={columns}
+                        rowKey="key"
+                        defaultSorting={{
+                            columnKey: 'created_at',
+                            order: -1,
+                        }}
+                        noSortingCancellation
+                        loading={featureFlagsLoading}
+                        pagination={{ pageSize: 100 }}
+                        nouns={nouns}
+                        data-attr="feature-flag-table"
+                        emptyState="No results. Create a new flag?"
+                    />
+                </>
+            )}
         </>
     )
 }

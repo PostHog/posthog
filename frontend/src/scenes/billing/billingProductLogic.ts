@@ -1,8 +1,8 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
-import { billingLogic } from '../billingLogic'
+import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
-import { convertAmountToUsage } from '../billing-utils'
+import { convertAmountToUsage } from './billing-utils'
 
 const DEFAULT_BILLING_LIMIT = 500
 

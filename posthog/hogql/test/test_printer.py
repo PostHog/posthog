@@ -158,16 +158,14 @@ class TestPrinter(BaseTest):
         )
         # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
         self.assertEqual(
-            self._expr("properties.0", HogQLContext(team_id=self.team.pk), "hogql"),
-            "properties.0",
+            self._expr("properties.1", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.1",
         )
         self.assertEqual(
-            self._expr("properties.`0`", HogQLContext(team_id=self.team.pk), "hogql"),
-            "properties.`0`",
+            self._expr("properties.`1`", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.`1`",
         )
-        self._assert_expr_error(
-            "properties.'no strings'", "mismatched input ''no strings'' expecting DECIMAL_LITERAL", "hogql"
-        )
+        self._assert_expr_error("properties.'no strings'", "no viable alternative at input '.'no strings'", "hogql")
 
     def test_hogql_properties_json(self):
         context = HogQLContext(team_id=self.team.pk)
@@ -251,6 +249,8 @@ class TestPrinter(BaseTest):
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
+        self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array[1]")
+        self._assert_expr_error("properties.id.0", "SQL indexes start from one, not from zero. E.g: array[1]")
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_expr_parse_errors_poe_on(self):
@@ -263,14 +263,12 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("person", "Can't select a table when a column is expected: person")
 
     def test_expr_syntax_errors(self):
-        self._assert_expr_error("(", "Syntax error at line 1, column 1: no viable alternative at input '('")
-        self._assert_expr_error("())", "Syntax error at line 1, column 1: no viable alternative at input '()'")
-        self._assert_expr_error(
-            "select query from events", "Syntax error at line 1, column 13: mismatched input 'from' expecting <EOF>"
-        )
+        self._assert_expr_error("(", "no viable alternative at input '('")
+        self._assert_expr_error("())", "no viable alternative at input '()'")
+        self._assert_expr_error("select query from events", "mismatched input 'from' expecting <EOF>")
         self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
-        self._assert_expr_error("1;2", "Syntax error at line 1, column 1: mismatched input ';' expecting <EOF>")
-        self._assert_expr_error("b.a(bla)", "Syntax error at line 1, column 3: mismatched input '(' expecting '.'")
+        self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
+        self._assert_expr_error("b.a(bla)", "mismatched input '(' expecting '.'")
 
     def test_logic(self):
         self.assertEqual(
@@ -609,4 +607,16 @@ class TestPrinter(BaseTest):
                 "SELECT distinct_id, min(timestamp) over win1 as timestamp FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
             ),
             f"SELECT events.distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT 10000",
+        )
+
+    def test_nullish_concat(self):
+        self.assertEqual(
+            self._expr("concat(null, 'a', 3, toString(4), toString(NULL))"),
+            f"concat('', %(hogql_val_0)s, toString(3), toString(4), '')",
+        )
+
+    def test_concat_pipes(self):
+        self.assertEqual(
+            self._expr("'a' || 'b' || 3 || timestamp"),
+            f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
         )
