@@ -126,8 +126,8 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
         $active_feature_flags,
     } = event.properties
     return (
-        <div className={'flex flex-col space-y-2 pr-4'}>
-            <h1 className={'mb-0'}>{$exception_message}</h1>
+        <div className={'flex flex-col space-y-2 pr-4 pb-2'}>
+            <h1 className={'mb-0 text-xl'}>{$exception_message}</h1>
             <div className={'flex flex-row gap-2 flex-wrap'}>
                 <LemonTag type={'caution'}>{$exception_type}</LemonTag>
                 <TitledSnack title={'synthetic'} value={$exception_synthetic ? 'true' : 'false'} />
