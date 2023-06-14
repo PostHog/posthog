@@ -2,7 +2,7 @@ import json
 import random
 import string
 from datetime import datetime
-from typing import List, Tuple, cast
+from typing import Any, List, Tuple, cast
 
 import pytest
 from pytest_mock import MockerFixture
@@ -695,7 +695,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
         "something": "small",
     }
 
-    events = [
+    events: List[Any] = [
         {
             "event": "$snapshot",
             "properties": {
