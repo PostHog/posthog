@@ -29,10 +29,11 @@ SELECT_QUERY_TEMPLATE = Template(
     SELECT $fields
     FROM events
     WHERE
-        -- This 'timestamp' check is a heuristic to exploit the sort key.
-        -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the timestamp field used for batch exports.
+        -- These 'timestamp' checks are a heuristic to exploit the sort key.
+        -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
         -- As a side-effect, this heuristic will discard historical loads older than 2 days.
         timestamp >= toDateTime({data_interval_start}, 'UTC') - INTERVAL 2 DAY
+        AND timestamp < toDateTime({data_interval_end}, 'UTC') + INTERVAL 1 DAY
         AND _timestamp >= toDateTime({data_interval_start}, 'UTC')
         AND _timestamp < toDateTime({data_interval_end}, 'UTC')
         AND team_id = {team_id}
