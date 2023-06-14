@@ -241,13 +241,13 @@ class UserAdmin(DjangoUserAdmin):
         (_("Toolbar authentication"), {"fields": ("temporary_token",)}),
     )
     add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),)
-    list_display = ("email", "first_name", "last_name", "current_organization", "is_staff")
+    list_display = ("email", "first_name", "last_name", "organization_link", "is_staff")
     list_filter = ("is_staff", "is_active", "groups")
     search_fields = ("email", "first_name", "last_name")
     readonly_fields = ["current_organization"]
     ordering = ("email",)
 
-    def current_organization(self, user: User):
+    def organization_link(self, user: User):
         if not user.organization:
             return "None"
 
