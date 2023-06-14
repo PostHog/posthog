@@ -30,10 +30,7 @@ from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
-    chunk_replay_events_by_window,
-    compress_replay_events,
     legacy_preprocess_session_recording_events_for_clickhouse,
-    reduce_replay_events_by_window,
     split_replay_events,
 )
 from posthog.utils import cors_response, get_ip_address
@@ -83,12 +80,6 @@ TOKEN_SHAPE_INVALID_COUNTER = Counter(
 REPLAY_INGESTION_COUNTER = Counter(
     "capture_replay_ingestion_total",
     "Events processed for replay ingestion.",
-    labelnames=["method"],
-)
-
-REPLAY_INGESTION_BATCH_COMPRESSION_RATIO_COUNTER = Counter(
-    "capture_replay_ingestion_batch_compression_ratio",
-    "Indicates how well we turned X batch events into Y kafka events.",
     labelnames=["method"],
 )
 
@@ -355,35 +346,20 @@ def get_event(request):
 
         try:
             replay_events, other_events = split_replay_events(events)
-            original_replay_events_count = len(replay_events)
-            method = "new" if random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO else "old"
+            processed_replay_events = replay_events
 
-            if original_replay_events_count > 0:
-                if method == "new":
-                    replay_events = compress_replay_events(replay_events)
+            if len(replay_events) > 0:
+                # Legacy solution stays in place
+                processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
 
-                    # NOTE: Legacy flow -> reducing based on the max_size for Kafka and compressing
-                    replay_events = reduce_replay_events_by_window(
-                        replay_events, max_size_bytes=settings.REPLAY_EVENT_MAX_SIZE
-                    )  # 512Kb
-                    replay_events = chunk_replay_events_by_window(
-                        replay_events, max_size_bytes=settings.REPLAY_EVENT_MAX_SIZE
-                    )
+                if random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO:
+                    # The new flow is to a separate Kafka topic and doesn't compress but rather groups data as small as possible
+                    # alternative_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events)
+                    pass
 
-                    # NOTE: New flow -> TODO: Set this up with a separate kafka write
-                    # new_flow_replay_events = reduce_replay_events_by_window(
-                    #     replay_events, max_size=1024 * 1024 * 8
-                    # )  # 8MB for the new flow
+                    # TODO: Send these to a different topic...
 
-                else:
-                    replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
-
-                REPLAY_INGESTION_COUNTER.labels(method=method).inc()
-                REPLAY_INGESTION_BATCH_COMPRESSION_RATIO_HISTOGRAM.labels(method=method).observe(
-                    len(replay_events) / original_replay_events_count
-                )
-
-            events = replay_events + other_events
+            events = processed_replay_events + other_events
 
         except ValueError as e:
             return cors_response(

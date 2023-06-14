@@ -29,8 +29,13 @@ SELECT_QUERY_TEMPLATE = Template(
     SELECT $fields
     FROM events
     WHERE
-        timestamp >= toDateTime({data_interval_start}, 'UTC')
-        AND timestamp < toDateTime({data_interval_end}, 'UTC')
+        -- These 'timestamp' checks are a heuristic to exploit the sort key.
+        -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
+        -- As a side-effect, this heuristic will discard historical loads older than 2 days.
+        timestamp >= toDateTime({data_interval_start}, 'UTC') - INTERVAL 2 DAY
+        AND timestamp < toDateTime({data_interval_end}, 'UTC') + INTERVAL 1 DAY
+        AND _timestamp >= toDateTime({data_interval_start}, 'UTC')
+        AND _timestamp < toDateTime({data_interval_end}, 'UTC')
         AND team_id = {team_id}
     """
 )
@@ -129,7 +134,23 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         parts: List[CompletedPartTypeDef] = []
         part_number = 1
         results_iterator = client.iterate(
-            query_template.safe_substitute(fields="*"),
+            query_template.safe_substitute(
+                fields="""
+                uuid,
+                timestamp,
+                created_at,
+                event,
+                properties,
+
+                -- Point in time identity fields
+                distinct_id,
+                person_id,
+                person_properties,
+
+                -- Autocapture fields
+                elements_chain
+            """
+            ),
             json=True,
             params={
                 "aws_access_key_id": inputs.aws_access_key_id,
