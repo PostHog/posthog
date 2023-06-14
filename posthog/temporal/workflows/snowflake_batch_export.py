@@ -188,7 +188,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         # Flush the file to make sure everything is written
                         local_results_file.flush()
                         cursor.execute(
-                            f"PUT file://{local_results_file.name} @%{inputs.table_name}",
+                            f"""
+                            PUT file://{local_results_file.name} @%"{inputs.table_name}"
+                            """
                         )
 
                         # Delete the temporary file and create a new one
