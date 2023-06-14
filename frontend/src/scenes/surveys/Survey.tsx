@@ -18,7 +18,7 @@ import {
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { FilterLogicalOperator, Survey, SurveyQuestion, SurveyType } from '~/types'
+import { FilterLogicalOperator, SurveyQuestion, SurveyType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { IconCancel, IconDelete, IconErrorOutline, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/lemon-ui/icons'
