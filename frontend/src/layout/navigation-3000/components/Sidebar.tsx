@@ -31,7 +31,7 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
         isSearchShown,
     } = useValues(navigation3000Logic({ inputElement: inputElementRef.current }))
     const { beginResize, setIsSearchShown } = useActions(navigation3000Logic({ inputElement: inputElementRef.current }))
-    const { contents } = useValues(navbarItem.pointer)
+    const { contents } = useValues(navbarItem.logic)
 
     const title =
         contents.length !== 1 || contents[0].title === navbarItem.label
@@ -70,11 +70,11 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
                         tooltipPlacement="bottom"
                     />
                 </div>
-                {navbarItem?.pointer && isSearchShown && (
-                    <SidebarSearchBar activeSidebarLogic={navbarItem.pointer} inputElementRef={inputElementRef} />
+                {navbarItem?.logic && isSearchShown && (
+                    <SidebarSearchBar activeSidebarLogic={navbarItem.logic} inputElementRef={inputElementRef} />
                 )}
                 <div className="Sidebar3000__lists">
-                    {navbarItem?.pointer && <SidebarContent activeSidebarLogic={navbarItem.pointer} />}
+                    {navbarItem?.logic && <SidebarContent activeSidebarLogic={navbarItem.logic} />}
                 </div>
                 {!isSidebarKeyboardShortcutAcknowledged && <SidebarKeyboardShortcut />}
             </div>

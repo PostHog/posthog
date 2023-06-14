@@ -61,6 +61,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -131,6 +132,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -251,7 +253,7 @@
           OR "posthog_annotation"."team_id" = 2)
          AND NOT "posthog_annotation"."deleted")
   ORDER BY "posthog_annotation"."date_marker" DESC
-  LIMIT 100 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  LIMIT 1000 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
   '
 ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.15
@@ -443,6 +445,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -563,6 +566,6 @@
           OR "posthog_annotation"."team_id" = 2)
          AND NOT "posthog_annotation"."deleted")
   ORDER BY "posthog_annotation"."date_marker" DESC
-  LIMIT 100 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  LIMIT 1000 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
   '
 ---

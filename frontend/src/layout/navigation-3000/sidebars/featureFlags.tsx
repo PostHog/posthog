@@ -14,6 +14,7 @@ import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { navigation3000Logic } from '../navigationLogic'
+import { FuseSearchMatch } from './utils'
 
 const fuse = new Fuse<FeatureFlagType>([], {
     // Note: For feature flags `name` is the description field
@@ -22,11 +23,6 @@ const fuse = new Fuse<FeatureFlagType>([], {
     ignoreLocation: true,
     includeMatches: true,
 })
-
-export interface SearchMatch {
-    indices: readonly [number, number][]
-    key: string
-}
 
 export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'featureFlagsSidebarLogic']),
@@ -157,9 +153,9 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
         ],
         relevantFeatureFlags: [
             (s) => [s.featureFlags, navigation3000Logic.selectors.searchTerm],
-            (featureFlags, searchTerm): [FeatureFlagType, SearchMatch[] | null][] => {
+            (featureFlags, searchTerm): [FeatureFlagType, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
-                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as SearchMatch[]])
+                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return featureFlags.map((featureFlag) => [featureFlag, null])
             },
