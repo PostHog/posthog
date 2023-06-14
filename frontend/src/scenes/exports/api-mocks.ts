@@ -18,6 +18,7 @@ export const createExportServiceHandlers = (): { exports: { [id: number]: BatchE
             },
             interval: 'hour',
             status: 'RUNNING',
+            paused: false,
             created_at: '2021-09-01T00:00:00.000000Z',
             last_updated_at: '2021-09-01T00:00:00.000000Z',
         },
@@ -64,6 +65,7 @@ export const createExportServiceHandlers = (): { exports: { [id: number]: BatchE
                     id: id,
                     team_id: 1,
                     status: 'RUNNING',
+                    paused: false,
                     created_at: new Date().toISOString(),
                     last_updated_at: new Date().toISOString(),
                 }
