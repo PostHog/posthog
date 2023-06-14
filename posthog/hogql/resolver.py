@@ -203,9 +203,9 @@ class Resolver(CloningVisitor):
                 else:
                     node_table_type = ast.TableType(table=database_table)
 
-                # Always alias function calls. This way `select table.* from table` is replaced with
-                # `select table.* from something() as table`, insetad of `select something().* from something()`
-                if isinstance(database_table, FunctionCallTable) or table_alias != table_name:
+                # Always add an alias for function call tables. This way `select table.* from table` is replaced with
+                # `select table.* from something() as table`, and not with `select something().* from something()`.
+                if table_alias != table_name or isinstance(database_table, FunctionCallTable):
                     node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
                 else:
                     node_type = node_table_type
@@ -219,8 +219,11 @@ class Resolver(CloningVisitor):
                 node.next_join = self.visit(node.next_join)
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
-                if isinstance(node_type, ast.TableAliasType):
+
+                # In case we had a function call table, and had to add an alias where none was present, mark it here
+                if isinstance(node_type, ast.TableAliasType) and node.alias is None:
                     node.alias = node_type.alias
+
                 return node
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')

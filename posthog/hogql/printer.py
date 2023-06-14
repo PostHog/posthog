@@ -247,7 +247,6 @@ class _Printer(Visitor):
             if self.dialect == "clickhouse" and not isinstance(table_type.table, FunctionCallTable):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
-            # if isinstance(table_type.table, TableFunction):
             if self.dialect == "clickhouse":
                 sql = table_type.table.to_printed_clickhouse(self.context)
             else:
