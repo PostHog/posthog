@@ -24,7 +24,11 @@ from token_bucket import Limiter, MemoryStorage
 
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.exceptions import generate_exception_response
-from posthog.kafka_client.client import KafkaProducer, SessionRecordingKafkaProducer, sessionRecordingKafkaProducer
+from posthog.kafka_client.client import (
+    _KafkaProducer,
+    KafkaProducer,
+    sessionRecordingKafkaProducer,
+)
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
@@ -165,11 +169,6 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     try:
         if event_name in SESSION_RECORDING_DEDICATED_KAFKA_EVENTS:
             producer = sessionRecordingKafkaProducer()
-
-            if not producer:
-                raise Exception("Session recording kafka producer not available")
-
-            producer = cast(SessionRecordingKafkaProducer, producer)
         else:
             producer = KafkaProducer()
         future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
