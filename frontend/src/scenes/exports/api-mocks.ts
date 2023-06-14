@@ -1,6 +1,6 @@
 import { BatchExport, BatchExportData, BatchExportsResponse } from './api'
 
-export const createExportServiceHandlers = (): any => {
+export const createExportServiceHandlers = (): { exports: { [id: number]: BatchExport }; handlers: any } => {
     const exports: { [id: number]: BatchExport } = {
         1: {
             id: 'asdf',

@@ -81,7 +81,7 @@ describe('CreateExport', () => {
         await waitFor(() => {
             // Filter the exports object values to find an export with the name
             // we specified in the form.
-            const [export_] = Object.values(exports).filter((export_) => export_.name === name)
+            const [export_] = Object.values(exports).filter((export_: any) => export_.name === name)
 
             // Validate that the export has the correct values
             expect(export_).toEqual(
