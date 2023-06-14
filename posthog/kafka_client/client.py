@@ -189,6 +189,8 @@ def sessionRecordingKafkaProducer() -> Optional[_KafkaProducer]:
             max_message_bytes=settings.SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES,
         )
 
+    return None
+
 
 def build_kafka_consumer(
     topic: Optional[str],
