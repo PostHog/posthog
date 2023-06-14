@@ -320,7 +320,7 @@ def render_template(
 
     template = get_template(template_name)
 
-    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
+    context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
     context["impersonated_session"] = is_impersonated_session(request)
     context["self_capture"] = settings.SELF_CAPTURE
 
