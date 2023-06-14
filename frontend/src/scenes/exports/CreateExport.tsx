@@ -30,10 +30,13 @@ export function CreateExport(): JSX.Element {
     const [exportType, setExportType] = useState<'S3' | 'Snowflake'>('S3')
 
     return (
-        <div>
+        // a form for inputting the config for an export, using aria labels to
+        // make it accessible.
+        <form aria-label="Create Export">
             <h1>Create Export</h1>
-            <PureField label="Type">
+            <PureField htmlFor="type" label="Type">
                 <LemonSelect
+                    id="type"
                     options={[
                         { value: 'S3', label: 'S3' },
                         { value: 'Snowflake', label: 'Snowflake' },
@@ -44,7 +47,7 @@ export function CreateExport(): JSX.Element {
             </PureField>
             {exportType === 'S3' && <CreateS3Export />}
             {exportType === 'Snowflake' && <CreateSnowflakeExport />}
-        </div>
+        </form>
     )
 }
 
@@ -112,16 +115,17 @@ export function CreateS3Export(): JSX.Element {
 
     return (
         <div>
-            <PureField label="Name">
-                <LemonInput placeholder="My export" ref={nameRef} />
+            <PureField label="Name" htmlFor="name">
+                <LemonInput id="name" placeholder="My export" ref={nameRef} />
             </PureField>
 
-            <PureField label="Bucket">
-                <LemonInput placeholder="my-bucket" ref={bucketRef} />
+            <PureField label="Bucket" htmlFor="bucket">
+                <LemonInput id="bucket" placeholder="my-bucket" ref={bucketRef} />
             </PureField>
 
-            <PureField label="Region">
+            <PureField label="Region" htmlFor="region">
                 <LemonSelect
+                    id="region"
                     onSelect={(value) => {
                         regionRef.current = value
                     }}
@@ -153,20 +157,26 @@ export function CreateS3Export(): JSX.Element {
                 />
             </PureField>
 
-            <PureField label="Key prefix">
-                <LemonInput placeholder="posthog-events/" ref={prefixRef} />
+            <PureField htmlFor="prefix" label="Key prefix">
+                <LemonInput id="prefix" placeholder="posthog-events/" ref={prefixRef} />
             </PureField>
 
-            <PureField label="AWS Access Key ID">
-                <LemonInput placeholder="my-access-key-id" ref={accessKeyIdRef} />
+            <PureField htmlFor="aws-access-key-id" label="AWS Access Key ID">
+                <LemonInput id="aws-access-key-id" placeholder="my-access-key-id" ref={accessKeyIdRef} />
             </PureField>
 
-            <PureField label="AWS Secret Access Key">
-                <LemonInput placeholder="my-secret-access-key" type="password" ref={secretAccessKeyRef} />
+            <PureField htmlFor="aws-secret-access-key" label="AWS Secret Access Key">
+                <LemonInput
+                    id="aws-secret-access-key"
+                    placeholder="my-secret-access-key"
+                    type="password"
+                    ref={secretAccessKeyRef}
+                />
             </PureField>
 
-            <PureField label="Frequency">
+            <PureField htmlFor="frequency" label="Frequency">
                 <LemonSelect
+                    id="frequency"
                     onSelect={(value: 'hour' | 'day') => {
                         intervalRef.current = value
                     }}
