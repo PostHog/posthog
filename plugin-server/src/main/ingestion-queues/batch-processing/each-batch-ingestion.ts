@@ -1,6 +1,5 @@
 import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
-import { Counter, exponentialBuckets, Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
@@ -12,20 +11,15 @@ import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
+import {
+    ingestionParallelism,
+    ingestionParallelismPotential,
+    kafkaBatchOffsetCommitted,
+    kafkaBatchStart,
+} from './metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
-
-// The following two counters can be used to see how often we start,
-// but fail to commit offsets, which can cause duplicate events
-const kafkaBatchStart = new Counter({
-    name: 'ingestion_kafka_batch_start',
-    help: 'Number of times we have started working on a kafka batch',
-})
-const kafkaBatchOffsetCommitted = new Counter({
-    name: 'ingestion_kafka_batch_committed_offsets',
-    help: 'Number of times we have committed kafka offsets',
-})
 
 export enum IngestionOverflowMode {
     Disabled,
@@ -299,17 +293,3 @@ function countAndLogEvents(): void {
         messageLogDate = now
     }
 }
-
-const ingestionParallelism = new Histogram({
-    name: 'ingestion_batch_parallelism',
-    help: 'Processing parallelism per ingestion consumer batch',
-    labelNames: ['overflow_mode'],
-    buckets: exponentialBuckets(1, 2, 7), // Up to 64
-})
-
-const ingestionParallelismPotential = new Histogram({
-    name: 'ingestion_batch_parallelism_potential',
-    help: 'Number of eligible parts per ingestion consumer batch',
-    labelNames: ['overflow_mode'],
-    buckets: exponentialBuckets(1, 2, 7), // Up to 64
-})
