@@ -2120,6 +2120,7 @@ export enum EarlyAccessFeatureStage {
     Alpha = 'alpha',
     Beta = 'beta',
     GeneralAvailability = 'general-availability',
+    Archived = 'archived',
 }
 
 export interface EarlyAccessFeatureType {
