@@ -1102,26 +1102,24 @@ class TestCapture(BaseTest):
         )
 
     def test_sentry_tracing_headers(self):
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/e/?ip=1&_=1651741927805",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
 
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/decide/",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
@@ -1130,27 +1128,25 @@ class TestCapture(BaseTest):
         # Azure App Insights sends the same tracing headers as Sentry
         # _and_ a request-context header
 
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/e/?ip=1&_=1651741927805",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"],
             "X-Requested-With,Content-Type,traceparent,request-id,request-context",
         )
 
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/decide/",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"],
             "X-Requested-With,Content-Type,traceparent,request-id,request-context",
