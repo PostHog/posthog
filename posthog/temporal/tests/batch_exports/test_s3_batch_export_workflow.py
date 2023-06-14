@@ -187,6 +187,58 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         events=events,
     )
 
+    # Insert some events before the hour and after the hour, as well as some
+    # events from another team to ensure that we only export the events from
+    # the team that the batch export is for.
+    other_team_id = team_id + 1
+    await insert_events(
+        client=client,
+        events=[
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 13:30:00",
+                "_timestamp": "2023-04-20 13:30:00",
+                "created_at": "2023-04-20 13:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": team_id,
+                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "person_properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "elements_chain": json.dumps([{"tag_name": "button", "text": "Click me!"}]),
+            },
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 15:30:00",
+                "_timestamp": "2023-04-20 13:30:00",
+                "created_at": "2023-04-20 13:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": team_id,
+                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "person_properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "elements_chain": json.dumps([{"tag_name": "button", "text": "Click me!"}]),
+            },
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 14:30:00",
+                "_timestamp": "2023-04-20 14:30:00",
+                "created_at": "2023-04-20 14:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": other_team_id,
+                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "person_properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "elements_chain": json.dumps([{"tag_name": "button", "text": "Click me!"}]),
+            },
+        ],
+    )
+
     # Make a random string to prefix the S3 keys with. This allows us to ensure
     # isolation of the test, and also to check that the data is being written.
     prefix = str(uuid4())
