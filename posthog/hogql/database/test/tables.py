@@ -3,7 +3,7 @@ from posthog.hogql.database.s3_table import S3Table
 
 AAPLStockTable = S3Table(
     alias="aapl_stock",
-    url="https://datasets-documentation.s3.eu-west-3.amazonaws.com/aapl_stock.csv",
+    url="https://s3.eu-west-3.amazonaws.com/datasets-documentation/aapl_stock.csv",
     format="CSVWithNames",
     fields={
         "Date": DateDatabaseField(name="Date"),
