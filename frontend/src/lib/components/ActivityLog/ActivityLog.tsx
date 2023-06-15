@@ -8,6 +8,7 @@ import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import clsx from 'clsx'
 import { ProductEmptyState } from '../ProductEmptyState/ProductEmptyState'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export interface ActivityLogProps {
     scope: ActivityScope
@@ -100,6 +101,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
                     {humanizedActivity.map((logItem, index) => (
                         <ActivityLogRow key={index} logItem={logItem} showExtendedDescription={true} />
                     ))}
+                    <LemonDivider />
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
                 </>
             ) : (

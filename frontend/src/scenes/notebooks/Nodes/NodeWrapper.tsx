@@ -108,7 +108,10 @@ export function NodeWrapper({
                         </div>
                         <div
                             ref={contentRef}
-                            className={clsx('relative z-0 overflow-hidden min-h-40', resizeable && 'resize-y')}
+                            className={clsx(
+                                'flex flex-col relative z-0 overflow-hidden min-h-40',
+                                resizeable && 'resize-y'
+                            )}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ height }}
                             onMouseDown={onResizeStart}

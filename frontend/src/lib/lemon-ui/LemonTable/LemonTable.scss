@@ -43,6 +43,7 @@
         border-left: none;
         border-right: none;
         border-bottom: none;
+        border-radius: 0;
     }
     .row-name {
         display: flex;
@@ -178,4 +179,9 @@
     align-items: center;
     justify-content: space-between;
     line-height: 1.5;
+}
+
+.LemonTable__footer {
+    border-top: 1px solid var(--border);
+    cursor: default;
 }

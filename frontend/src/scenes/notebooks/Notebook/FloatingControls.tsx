@@ -8,7 +8,6 @@ import { isCurrentNodeEmpty } from './utils'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
-import { InsightVizNode } from '~/queries/schema'
 
 export function FloatingControls(): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
