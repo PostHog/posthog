@@ -6,8 +6,6 @@ import eventList from './__mocks__/eventList.json'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
-import { useActions } from 'kea'
-import { eventsTableLogic, EventsTableLogicProps } from './eventsTableLogic'
 
 export default {
     title: 'Scenes-App/Events',
@@ -27,13 +25,9 @@ export default {
     },
 } as Meta
 
-export const LiveEvents = (): JSX.Element => {
-    const { setPollingActive } = useActions(
-        eventsTableLogic({ key: 'EventsTable', sceneUrl: urls.events() } as EventsTableLogicProps)
-    )
+export const EventExplorer = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.events())
-        setPollingActive(false) // Disable polling so that the story is static
     }, [])
 
     return <App />
