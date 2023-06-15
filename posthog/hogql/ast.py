@@ -18,6 +18,8 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
     BooleanDatabaseField,
+    DateDatabaseField,
+    FloatDatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -294,12 +296,16 @@ class FieldType(Type):
         database_field = self.resolve_database_field()
         if isinstance(database_field, IntegerDatabaseField):
             return IntegerType()
+        elif isinstance(database_field, FloatDatabaseField):
+            return FloatType()
         elif isinstance(database_field, StringDatabaseField):
             return StringType()
         elif isinstance(database_field, BooleanDatabaseField):
             return BooleanType()
         elif isinstance(database_field, DateTimeDatabaseField):
             return DateTimeType()
+        elif isinstance(database_field, DateDatabaseField):
+            return DateType()
         return UnknownType()
 
     def get_child(self, name: str | int) -> Type:
