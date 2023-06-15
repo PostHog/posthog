@@ -81,6 +81,9 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 },
 
                 receiveNotebookUpdate: ({ notebook }) => {
+                    if (notebook.is_template) {
+                        return values.notebooks
+                    }
                     return values.notebooks.filter((n) => n.short_id !== notebook.short_id).concat([notebook])
                 },
             },

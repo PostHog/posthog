@@ -89,9 +89,6 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     } else if (props.shortId.startsWith('template-')) {
                         response = values.notebookTemplates.find((template) => template.short_id === props.shortId)
-                        if (response) {
-                            response.is_template = true
-                        }
                     } else {
                         response = await api.notebooks.get(props.shortId)
                     }

@@ -13,7 +13,7 @@ const TEMPLATE_USERS: Record<string, UserBasicType> = {
 export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
     {
         short_id: 'template-introduction',
-        title: 'Introducing Notebooks',
+        title: 'Introducing Notebooks! 🥳',
         created_at: '2023-06-02T00:00:00Z',
         last_modified_at: '2023-06-02T00:00:00Z',
         created_by: TEMPLATE_USERS['ben'],
@@ -250,4 +250,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
             ],
         },
     },
-]
+].map((template) => ({
+    ...template,
+    is_template: true,
+}))
