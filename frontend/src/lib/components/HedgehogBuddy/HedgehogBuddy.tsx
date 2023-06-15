@@ -291,7 +291,7 @@ export class HedgehogActor {
         const imgExt = this.darkMode ? 'dark.png' : 'png'
         const preloadContent =
             Object.values(this.animations)
-                .map((x) => `url(${baseSpritePath}/${x.img}.${imgExt})`)
+                .map((x) => `url(${baseSpritePath()}/${x.img}.${imgExt})`)
                 .join(' ') +
             ' ' +
             this.accessories
@@ -341,7 +341,7 @@ export class HedgehogActor {
                         imageRendering: 'pixelated',
                         width: SPRITE_SIZE,
                         height: SPRITE_SIZE,
-                        backgroundImage: `url(${baseSpritePath}/${this.animation.img}.${imgExt})`,
+                        backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.${imgExt})`,
                         backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
                             Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
                         }px`,
