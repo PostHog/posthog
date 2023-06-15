@@ -100,10 +100,9 @@ def serialize_database(database: Database) -> dict:
         field_input: Dict[str, Any] = {}
         table = getattr(database, table_key, None)
         if isinstance(table, FunctionCallTable):
-            field_input.update(table.get_asterisk())
+            field_input = table.get_asterisk()
         elif isinstance(table, Table):
-            for field in table.fields.keys():
-                field_input[field] = getattr(table, field, None)
+            field_input = table.fields
 
         field_output: List[Dict[str, Any]] = []
         for field_key, field in field_input.items():
