@@ -162,6 +162,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 },
             )
 
+            # Write results to a local file before uploading to Snowflake in
+            # batchers.
+            # TODO: We have refactored the S3 export to use a similar pattern
+            # but with a better structure(?) Refactor this to use the same
+            # structure and perhaps even the same code(?)
             local_results_file = tempfile.NamedTemporaryFile()
             try:
                 while True:
