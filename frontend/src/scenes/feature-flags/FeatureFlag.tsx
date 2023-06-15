@@ -78,6 +78,7 @@ import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { PostHogFeature } from 'posthog-js/react'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -539,7 +540,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             }
                                             key="analysis"
                                         >
-                                            <AnalysisTab id={id} featureFlag={featureFlag} />
+                                            <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
+                                                <AnalysisTab id={id} featureFlag={featureFlag} />
+                                            </PostHogFeature>
                                         </Tabs.TabPane>
                                     )}
 

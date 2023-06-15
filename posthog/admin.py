@@ -13,6 +13,7 @@ from posthog.models import (
     ActionStep,
     Element,
     FeatureFlag,
+    GroupTypeMapping,
     Insight,
     InstanceSetting,
     Organization,
@@ -59,6 +60,16 @@ class PluginAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
 
+class GroupTypeMappingInline(admin.TabularInline):
+    extra = 0
+    model = GroupTypeMapping
+    fields = ("group_type_index", "group_type", "name_singular", "name_plural")
+    readonly_fields = fields
+    classes = ("collapse",)
+    max_num = 5
+    min_num = 5
+
+
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_link", "organization_id")
@@ -73,6 +84,7 @@ class TeamAdmin(admin.ModelAdmin):
         "event_properties_numerical",
         "session_recording_retention_period_days",
     ]
+    inlines = [GroupTypeMappingInline]
 
     def organization_link(self, team: Team):
         return format_html(
@@ -235,8 +247,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
         "plugins_access_level",
-        "billing_plan",
-        "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
         "usage",
@@ -245,8 +255,6 @@ class OrganizationAdmin(admin.ModelAdmin):
     readonly_fields = [
         "created_at",
         "updated_at",
-        "billing_plan",
-        "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
         "usage",
@@ -258,7 +266,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         "plugins_access_level",
         "members_count",
         "first_member",
-        "organization_billing_link",
         "billing_link_v2",
     )
 
@@ -269,14 +276,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         user = organization.members.order_by("id").first()
         return format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
 
-    def organization_billing_link(self, organization: Organization) -> str:
-        return format_html(
-            '<a href="/admin/multi_tenancy/organizationbilling/{}/change/">Billing →</a>', organization.pk
-        )
-
     def billing_link_v2(self, organization: Organization) -> str:
-        if not organization.has_billing_v2_setup:
-            return ""
         url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
         return format_html(f'<a href="{url}">Billing V2 →</a>')
 

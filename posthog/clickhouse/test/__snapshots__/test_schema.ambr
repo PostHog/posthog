@@ -332,7 +332,10 @@
       click_count Int64,
       keypress_count Int64,
       mouse_activity_count Int64,
-      active_milliseconds Int64
+      active_milliseconds Int64,
+      console_log_count Int64,
+      console_warn_count Int64,
+      console_error_count Int64
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -913,7 +916,10 @@
       click_count Int64,
       keypress_count Int64,
       mouse_activity_count Int64,
-      active_milliseconds Int64
+      active_milliseconds Int64,
+      console_log_count Int64,
+      console_warn_count Int64,
+      console_error_count Int64
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -1330,7 +1336,10 @@
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
-      active_milliseconds SimpleAggregateFunction(sum, Int64)
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '
@@ -1359,7 +1368,10 @@
   sum(click_count) as click_count,
   sum(keypress_count) as keypress_count,
   sum(mouse_activity_count) as mouse_activity_count,
-  sum(active_milliseconds) as active_milliseconds
+  sum(active_milliseconds) as active_milliseconds,
+  sum(console_log_count) as console_log_count,
+  sum(console_warn_count) as console_warn_count,
+  sum(console_error_count) as console_error_count
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -1586,7 +1598,10 @@
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
-      active_milliseconds SimpleAggregateFunction(sum, Int64)
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -2200,7 +2215,10 @@
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
-      active_milliseconds SimpleAggregateFunction(sum, Int64)
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
