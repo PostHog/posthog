@@ -102,8 +102,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                         },
                                         {
                                             label: 'Copy flag key',
-                                            onClick: () => {
-                                                copyToClipboard(featureFlag.key, 'feature flag key')
+                                            onClick: async () => {
+                                                await copyToClipboard(featureFlag.key, 'feature flag key')
                                             },
                                         },
                                         {

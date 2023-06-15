@@ -538,6 +538,7 @@ HOGQL_AGGREGATIONS = {
     "argMinIf": 3,
     "argMax": 2,
     "argMaxIf": 3,
+    "argMinMerge": 1,
     "avgWeighted": 2,
     "avgWeightedIf": 3,
     # "topK": 1,
@@ -689,5 +690,5 @@ class HogQLSettings(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    readonly: Optional[int] = 1
+    readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60

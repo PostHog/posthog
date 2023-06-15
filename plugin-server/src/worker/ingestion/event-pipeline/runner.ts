@@ -91,10 +91,12 @@ export class EventPipelineRunner {
                 throw error
             }
             silentFailuresEventsPipeline.inc()
-            Sentry.captureException(error, {
-                tags: { location: 'runEventPipeline' },
-                extra: { originalEvent: this.originalEvent },
-            })
+            if (!(error instanceof StepError)) {
+                Sentry.captureException(error, {
+                    tags: { pipeline_step: 'outside' },
+                    extra: { originalEvent: this.originalEvent },
+                })
+            }
 
             return { lastStep: error.step, args: [], error: error.message }
         }
@@ -204,8 +206,8 @@ export class EventPipelineRunner {
     private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
         status.error('🔔', 'step_failed', { currentStepName, err })
         Sentry.captureException(err, {
-            tags: { team_id: teamId },
-            extra: { currentStepName, currentArgs, originalEvent: this.originalEvent },
+            tags: { team_id: teamId, pipeline_step: currentStepName },
+            extra: { currentArgs, originalEvent: this.originalEvent },
         })
 
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })

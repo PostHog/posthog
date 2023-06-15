@@ -24,13 +24,17 @@ from token_bucket import Limiter, MemoryStorage
 
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.exceptions import generate_exception_response
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.client import (
+    KafkaProducer,
+    sessionRecordingKafkaProducer,
+)
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
     legacy_preprocess_session_recording_events_for_clickhouse,
+    preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
 from posthog.utils import cors_response, get_ip_address
@@ -51,7 +55,9 @@ LOG_RATE_LIMITER = Limiter(
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
-SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
+SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
+SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event") + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
+
 
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
@@ -63,6 +69,12 @@ EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_dropped_over_quota",
     "Events dropped by capture due to quota-limiting, per resource_type and token.",
     labelnames=[LABEL_RESOURCE_TYPE, "token"],
+)
+
+PERFORMANCE_EVENTS_DROPPED_COUNTER = Counter(
+    "capture_events_dropped_performance_events",
+    "We no longer send performance events legitimately, let's drop them and count how many we drop.",
+    labelnames=["token"],
 )
 
 PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
@@ -142,9 +154,8 @@ def build_kafka_event_data(
 
 
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
-    # To allow for different quality of service on session recordings and
-    # `$performance_event` and other events, we push to a different topic.
-    # TODO: split `$performance_event` out to it's own topic.
+    # To allow for different quality of service on session recordings
+    # and other events, we push to a different topic.
     kafka_topic = (
         KAFKA_SESSION_RECORDING_EVENTS
         if event_name in SESSION_RECORDING_EVENT_NAMES
@@ -155,7 +166,11 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        future = KafkaProducer().produce(topic=kafka_topic, data=data, key=partition_key)
+        if event_name in SESSION_RECORDING_DEDICATED_KAFKA_EVENTS:
+            producer = sessionRecordingKafkaProducer()
+        else:
+            producer = KafkaProducer()
+        future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception as e:
@@ -235,6 +250,13 @@ def get_distinct_id(data: Dict[str, Any]) -> str:
         statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
         raise ValueError('Event field "distinct_id" should not be blank!')
     return str(raw_value)[0:200]
+
+
+def drop_performance_events(token: str, events: List[Any]) -> List[Any]:
+    cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
+    dropped_event_count = len(events) - len(cleaned_list)
+    PERFORMANCE_EVENTS_DROPPED_COUNTER.labels(token=token).inc(dropped_event_count)
+    return cleaned_list
 
 
 def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
@@ -339,6 +361,11 @@ def get_event(request):
             events = [data]
 
         try:
+            events = drop_performance_events(token, events)
+        except Exception as e:
+            capture_exception(e)
+
+        try:
             events = drop_events_over_quota(token, events)
         except Exception as e:
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
@@ -352,12 +379,12 @@ def get_event(request):
                 # Legacy solution stays in place
                 processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
 
-                if random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO:
-                    # The new flow is to a separate Kafka topic and doesn't compress but rather groups data as small as possible
-                    # alternative_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events)
-                    pass
-
-                    # TODO: Send these to a different topic...
+                if (
+                    random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO
+                    and settings.SESSION_RECORDING_KAFKA_HOSTS
+                ):
+                    # The new flow we only enable if the dedicated kafka is enabled
+                    processed_replay_events += preprocess_replay_events_for_blob_ingestion(replay_events)
 
             events = processed_replay_events + other_events
 
