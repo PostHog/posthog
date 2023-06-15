@@ -22,6 +22,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
+    event_timestamp_in_past: 'An event was sent more than 7 years in the past',
     ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
 }
 
@@ -90,6 +91,27 @@ const WARNING_TYPE_RENDERER = {
         return (
             <>
                 The event timestamp computed too far in the future, so the capture time was used instead. Event values:
+                <ul>
+                    <li>Computed timestamp: {details.result}</li>
+                    {details.timestamp ? <li>Client provided timestamp: {details.timestamp}</li> : ''}
+                    {details.sentAt ? <li>Client provided sent_at: {details.sentAt}</li> : ''}
+                    {details.offset ? <li>Client provided time offset: {details.offset}</li> : ''}
+                    <li>PostHog server capture time: {details.now}</li>
+                </ul>
+            </>
+        )
+    },
+    event_timestamp_in_past: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            timestamp: string
+            sentAt: string
+            offset: string
+            now: string
+            result: string
+        }
+        return (
+            <>
+                The event timestamp computed too far in the past, so the capture time was used instead. Event values:
                 <ul>
                     <li>Computed timestamp: {details.result}</li>
                     {details.timestamp ? <li>Client provided timestamp: {details.timestamp}</li> : ''}
