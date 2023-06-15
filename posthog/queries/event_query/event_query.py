@@ -82,7 +82,7 @@ class EventQuery(metaclass=ABCMeta):
         # and both tables end up having $session_id. Without a formula this is not a problem.]
         self._session_id_alias = (
             f"session_id_{self._entity.index}"
-            if hasattr(self, "_entity") and getattr(self._filter, "formula", None)
+            if hasattr(self, "_entity") and getattr(self._filter, "formula", None)  # type: ignore
             else "$session_id"
         )
 
