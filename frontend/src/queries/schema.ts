@@ -253,6 +253,8 @@ export interface PersonsNode extends DataNode {
 
 export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 
+export type SupportedColumnFormat = 'sparkline' | null
+
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
@@ -268,6 +270,8 @@ export interface DataTableNode extends Node {
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
     hiddenColumns?: HogQLExpression[]
+    /** Format to be applied to column if supplied */
+    columnFormats?: Record<string, SupportedColumnFormat>
     /** Show with most visual options enabled. Used in scenes. */
     full?: boolean
     /** Include an event filter above the table (EventsNode only) */

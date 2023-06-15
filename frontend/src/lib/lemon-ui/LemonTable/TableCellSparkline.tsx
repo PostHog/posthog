@@ -6,7 +6,7 @@ import { offset } from '@floating-ui/react'
 import './TableCellSparkline.scss'
 
 export interface SparklineDataset {
-    dates: string[]
+    dates?: string[]
     data: number[]
 }
 
@@ -27,7 +27,7 @@ export function TableCellSparkline({ dataset }: { dataset: SparklineDataset }): 
             chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
                 type: 'bar',
                 data: {
-                    labels: dataset.dates,
+                    labels: dataset.dates || dataset.data.map(() => ''),
                     datasets: [
                         {
                             data: dataset.data,
@@ -59,13 +59,10 @@ export function TableCellSparkline({ dataset }: { dataset: SparklineDataset }): 
                                     setPopoverContent(null)
                                     return
                                 }
-
                                 const datapoint = tooltip.dataPoints[0]
-                                setPopoverContent(
-                                    <>
-                                        {datapoint.label}: {datapoint.formattedValue}
-                                    </>
-                                )
+                                const tooltipLabel = datapoint.label ? `${datapoint.label}: ` : ''
+                                const tooltipContent = `${tooltipLabel} ${datapoint.formattedValue}`
+                                setPopoverContent(<>{tooltipContent}</>)
                                 setPopoverOffset(tooltip.x)
                             },
                         },

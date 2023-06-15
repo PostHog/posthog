@@ -15,6 +15,7 @@ import ReactJson from 'react-json-view'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 
 export function renderColumn(
     key: string,
@@ -31,6 +32,11 @@ export function renderColumn(
     } else if (value === null) {
         return <span className="italic text-muted">NULL</span>
     } else if (isHogQLQuery(query.source)) {
+        let format = query.columnFormats?.[key]
+        // a bare hogql query has no way to specify the format, so we take the last part of the column alias as a guide
+        if (!format && key.endsWith('_sparkline')) {
+            format = 'sparkline'
+        }
         if (typeof value === 'string') {
             try {
                 if (value.startsWith('{') && value.endsWith('}')) {
@@ -43,6 +49,9 @@ export function renderColumn(
                     )
                 }
                 if (value.startsWith('[') && value.endsWith(']')) {
+                    if (format === 'sparkline') {
+                        return <TableCellSparkline dataset={{ data: JSON.parse(value) }} />
+                    }
                     return (
                         <ReactJson
                             src={JSON.parse(value)}
@@ -58,6 +67,9 @@ export function renderColumn(
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
+                if (format === 'sparkline') {
+                    return <TableCellSparkline dataset={{ data: value }} />
+                }
                 return <ReactJson src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
             return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

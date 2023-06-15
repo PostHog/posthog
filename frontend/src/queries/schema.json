@@ -279,6 +279,13 @@
                     "description": "Can the user click on column headers to sort the table? (default: true)",
                     "type": "boolean"
                 },
+                "columnFormats": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/SupportedColumnFormat"
+                    },
+                    "description": "Format to be applied to column if supplied",
+                    "type": "object"
+                },
                 "columns": {
                     "description": "Columns shown in the table, unless the `source` provides them.",
                     "items": {
@@ -1916,6 +1923,10 @@
             },
             "required": ["kind", "series"],
             "type": "object"
+        },
+        "SupportedColumnFormat": {
+            "enum": ["sparkline", null],
+            "type": ["string", "null"]
         },
         "TimeToSeeDataSessionsQuery": {
             "additionalProperties": false,
