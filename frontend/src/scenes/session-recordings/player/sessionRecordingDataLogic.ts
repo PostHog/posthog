@@ -430,7 +430,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         const snapshots: RecordingSnapshot[] = jsonLines.flatMap((l) => {
                             try {
                                 const snapshotLine = JSON.parse(l)
-                                const snapshotData = JSON.parse(snapshotLine['data'])
+                                const snapshotData = snapshotLine['data']
 
                                 return snapshotData.map((d: any) => ({
                                     windowId: snapshotLine['window_id'],

@@ -688,6 +688,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
 
 export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
 
+export type FilterableLogLevel = 'log' | 'warn' | 'error'
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
@@ -697,6 +698,7 @@ export interface RecordingFilters {
     offset?: number
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationTypeFilter
+    console_logs?: FilterableLogLevel[]
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -2005,7 +2007,7 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
-    conditions: { url: string; selector: string } | null
+    conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
     questions: SurveyQuestion[]
     created_at: string
@@ -2117,6 +2119,7 @@ export enum EarlyAccessFeatureStage {
     Alpha = 'alpha',
     Beta = 'beta',
     GeneralAvailability = 'general-availability',
+    Archived = 'archived',
 }
 
 export enum EarlyAccessFeatureTabs {

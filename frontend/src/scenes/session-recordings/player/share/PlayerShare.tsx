@@ -27,7 +27,7 @@ export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element 
                 fullWidth
                 center
                 sideIcon={<IconCopy />}
-                onClick={() => copyToClipboard(url, 'recording link')}
+                onClick={async () => await copyToClipboard(url, 'recording link')}
                 title={url}
             >
                 <span className="truncate">{url}</span>

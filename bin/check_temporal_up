@@ -2,15 +2,22 @@
 
 set -e
 
-# Wait for up to 120 seconds for Temporal to be ready
+# Wait for Temporal to be ready
 SECONDS=0
-TIMEOUT=120
+TIMEOUT=180
 
-# Check Temporal
+# Check Temporal by just checking that the port is open
 while true; do
-    curl -s -o /dev/null -I 'http://localhost:7233/' && break || echo 'Checking Temporal status...' && sleep 1
-    if [ $SECONDS -gt $TIMEOUT ]; then
-        echo "Timeout waiting for Temporal to be ready"
+    if nc -z localhost 7233; then
+        echo "Temporal is up!"
+        exit 0
+    fi
+    
+    if [ $SECONDS -ge $TIMEOUT ]; then
+        echo "Timed out waiting for Temporal to be ready"
         exit 1
     fi
+    
+    echo "Waiting for Temporal to be ready"
+    sleep 1
 done

@@ -41,7 +41,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
-        releaseBeta: true,
+        updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
     }),
@@ -123,11 +123,11 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             }
             actions.editFeature(false)
         },
-        releaseBeta: async () => {
+        updateStage: async ({ stage }) => {
             'id' in values.earlyAccessFeature &&
                 (await api.earlyAccessFeatures.update(props.id, {
                     ...values.earlyAccessFeature,
-                    stage: EarlyAccessFeatureStage.Beta,
+                    stage: stage,
                 }))
             actions.loadEarlyAccessFeature()
             actions.loadEarlyAccessFeatures()
