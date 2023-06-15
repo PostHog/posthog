@@ -104,6 +104,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyEdited',
                 'reportSurveyArchived',
                 'reportSurveyStopped',
+                'reportSurveyViewed',
             ],
         ],
         values: [pluginsLogic, ['installedPlugins']],
