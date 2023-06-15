@@ -44,6 +44,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                 {
                     key: 'feature-flags',
                     title: 'Feature Flags',
+                    loading: featureFlagsLoading,
                     items: relevantFeatureFlags.map(([featureFlag, matches]) => {
                         if (!featureFlag.id) {
                             throw new Error('Feature flag ID should never be missing in the sidebar')
@@ -135,7 +136,6 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                             status: 'danger',
                                         },
                                     ],
-                                    loading: featureFlagsLoading,
                                 },
                             ],
                         } as ExtendedListItem

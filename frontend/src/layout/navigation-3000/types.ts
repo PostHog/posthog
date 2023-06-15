@@ -88,7 +88,7 @@ export interface BasicListItem {
          * Optional marker color.
          * @default 'muted'
          */
-        status?: 'muted' | 'success' | 'warning' | 'danger'
+        status?: 'muted' | 'success' | 'warning' | 'danger' | 'completion'
     }
     /** If search is on, this should be present to convey why this item is included in results. */
     searchMatch?: SearchMatch | null

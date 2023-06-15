@@ -48,6 +48,7 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                 {
                     key: 'dashboards',
                     title: 'Dashboards',
+                    loading: dashboardsLoading,
                     items: relevantDashboards.map(
                         ([dashboard, matches]) =>
                             ({
@@ -121,7 +122,6 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                                 },
                             } as ExtendedListItem)
                     ),
-                    loading: dashboardsLoading,
                 } as SidebarCategory,
             ],
         ],
