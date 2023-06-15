@@ -207,8 +207,13 @@ export class EventPipelineRunner {
             // for a reason that we control and that is transient.
             return true
         }
-        // TODO: Blacklist via env of errors we're going to put into DLQ instead of taking Kafka lag
-        return false
+        if (
+            process.env.DROP_EVENTS_FOR_ERRORS === '*' ||
+            process.env.DROP_EVENTS_FOR_ERRORS?.split(',').some((event) => err.message.startsWith(event))
+        ) {
+            false
+        }
+        return true
     }
 
     private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {

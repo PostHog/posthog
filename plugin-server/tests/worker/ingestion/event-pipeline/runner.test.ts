@@ -165,7 +165,7 @@ describe('EventPipelineRunner', () => {
             it('runs and increments metrics', async () => {
                 jest.mocked(prepareEventStep).mockRejectedValue(error)
 
-                await runner.runEventPipeline(pipelineEvent)
+                await expect(runner.runEventPipeline(pipelineEvent)).rejects.toThrow('testError')
 
                 expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                     step: 'populateTeamDataStep',
@@ -185,7 +185,7 @@ describe('EventPipelineRunner', () => {
             it('emits failures to dead letter queue until createEvent', async () => {
                 jest.mocked(prepareEventStep).mockRejectedValue(error)
 
-                await runner.runEventPipeline(pipelineEvent)
+                await expect(runner.runEventPipeline(pipelineEvent)).rejects.toThrow('testError')
 
                 expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledTimes(1)
                 expect(JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].messages[0].value)).toMatchObject({
