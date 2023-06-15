@@ -39,11 +39,8 @@
     }
     .PaginationControl {
         height: var(--row-base-height);
-        margin: 0;
-        border-left: none;
-        border-right: none;
-        border-bottom: none;
-        border-radius: 0;
+        padding: 0.5rem;
+        border-top: 1px solid var(--border);
     }
     .row-name {
         display: flex;
