@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Extra
 
 from posthog.hogql.errors import HogQLException, NotImplementedException
@@ -60,18 +60,15 @@ class FieldTraverser(FieldOrTable):
 
 
 class Table(FieldOrTable):
-    fields: Dict[str, Union[DatabaseField, "Table"]]
+    fields: Dict[str, FieldOrTable]
 
     class Config:
         extra = Extra.forbid
 
-    def get_fields(self):
-        return getattr(self, "fields", {})
-
     def has_field(self, name: str) -> bool:
-        return name in getattr(self, "fields", {})
+        return name in self.fields
 
-    def get_field(self, name: str) -> DatabaseField:
+    def get_field(self, name: str) -> FieldOrTable:
         if self.has_field(name):
             return self.fields[name]
         raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
