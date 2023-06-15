@@ -113,7 +113,7 @@ class SessionReplayEventsTable(LazyTable):
     def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_session_replay_events_table(requested_fields)
 
-    def to_printed_clickhouse(self):
+    def to_printed_clickhouse(self, context):
         return "session_replay_events"
 
     def to_printed_hogql(self):
