@@ -9,18 +9,10 @@ from kafka.producer.future import FutureProduceResult, FutureRecordMetadata, Rec
 from kafka.structs import TopicPartition
 from statshog.defaults.django import statsd
 from structlog import get_logger
-
+from django.conf import settings
 from posthog.client import sync_execute
 from posthog.kafka_client import helper
-from posthog.settings import (
-    KAFKA_BASE64_KEYS,
-    KAFKA_HOSTS,
-    KAFKA_SASL_MECHANISM,
-    KAFKA_SASL_PASSWORD,
-    KAFKA_SASL_USER,
-    KAFKA_SECURITY_PROTOCOL,
-    TEST,
-)
+
 from posthog.utils import SingletonDecorator
 
 KAFKA_PRODUCER_RETRIES = 5
@@ -89,26 +81,45 @@ class _KafkaSecurityProtocol(str, Enum):
 
 
 def _sasl_params():
-    if KAFKA_SECURITY_PROTOCOL in [_KafkaSecurityProtocol.SASL_PLAINTEXT, _KafkaSecurityProtocol.SASL_SSL]:
+    if settings.KAFKA_SECURITY_PROTOCOL in [_KafkaSecurityProtocol.SASL_PLAINTEXT, _KafkaSecurityProtocol.SASL_SSL]:
         return {
-            "sasl_mechanism": KAFKA_SASL_MECHANISM,
-            "sasl_plain_username": KAFKA_SASL_USER,
-            "sasl_plain_password": KAFKA_SASL_PASSWORD,
+            "sasl_mechanism": settings.KAFKA_SASL_MECHANISM,
+            "sasl_plain_username": settings.KAFKA_SASL_USER,
+            "sasl_plain_password": settings.KAFKA_SASL_PASSWORD,
         }
     return {}
 
 
 class _KafkaProducer:
-    def __init__(self, test=TEST):
+    def __init__(
+        self,
+        test=settings.TEST,
+        # the default producer uses these defaulted environment variables,
+        # but the session recording producer needs to override them
+        kafka_base64_keys=None,
+        kafka_hosts=None,
+        kafka_security_protocol=None,
+        max_message_bytes=None,
+        compression_type=None,
+    ):
+        if kafka_security_protocol is None:
+            kafka_security_protocol = settings.KAFKA_SECURITY_PROTOCOL
+        if kafka_hosts is None:
+            kafka_hosts = settings.KAFKA_HOSTS
+        if kafka_base64_keys is None:
+            kafka_base64_keys = settings.KAFKA_BASE64_KEYS
+
         if test:
             self.producer = KafkaProducerForTests()
-        elif KAFKA_BASE64_KEYS:
+        elif kafka_base64_keys:
             self.producer = helper.get_kafka_producer(retries=KAFKA_PRODUCER_RETRIES, value_serializer=lambda d: d)
         else:
             self.producer = KP(
                 retries=KAFKA_PRODUCER_RETRIES,
-                bootstrap_servers=KAFKA_HOSTS,
-                security_protocol=KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
+                bootstrap_servers=kafka_hosts,
+                security_protocol=kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+                compression_type=compression_type,
+                **{"max.message.bytes": max_message_bytes} if max_message_bytes else {},
                 **_sasl_params(),
             )
 
@@ -161,7 +172,7 @@ def can_connect():
     every 10 seconds.
     """
     try:
-        _KafkaProducer(test=TEST)
+        _KafkaProducer(test=settings.TEST)
     except kafka.errors.KafkaError:
         logger.debug("kafka_connection_failure", exc_info=True)
         return False
@@ -169,13 +180,25 @@ def can_connect():
 
 
 KafkaProducer = SingletonDecorator(_KafkaProducer)
+SessionRecordingKafkaProducer = SingletonDecorator(_KafkaProducer)
+
+
+def sessionRecordingKafkaProducer() -> _KafkaProducer:
+    if not settings.SESSION_RECORDING_KAFKA_HOSTS:
+        raise Exception("Session recording kafka producer not available")
+
+    return SessionRecordingKafkaProducer(
+        kafka_hosts=settings.SESSION_RECORDING_KAFKA_HOSTS,
+        kafka_security_protocol=settings.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
+        max_message_bytes=settings.SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES,
+    )
 
 
 def build_kafka_consumer(
     topic: Optional[str],
     value_deserializer=lambda v: json.loads(v.decode("utf-8")),
     auto_offset_reset="latest",
-    test=TEST,
+    test=settings.TEST,
     group_id=None,
     consumer_timeout_ms=float("inf"),
 ):
@@ -183,7 +206,7 @@ def build_kafka_consumer(
         consumer = KafkaConsumerForTests(
             topic=topic, auto_offset_reset=auto_offset_reset, max=10, consumer_timeout_ms=consumer_timeout_ms
         )
-    elif KAFKA_BASE64_KEYS:
+    elif settings.KAFKA_BASE64_KEYS:
         consumer = helper.get_kafka_consumer(
             topic=topic,
             auto_offset_reset=auto_offset_reset,
@@ -193,12 +216,12 @@ def build_kafka_consumer(
         )
     else:
         consumer = KC(
-            bootstrap_servers=KAFKA_HOSTS,
+            bootstrap_servers=settings.KAFKA_HOSTS,
             auto_offset_reset=auto_offset_reset,
             value_deserializer=value_deserializer,
             group_id=group_id,
             consumer_timeout_ms=consumer_timeout_ms,
-            security_protocol=KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
+            security_protocol=settings.KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
             **_sasl_params(),
         )
         if topic:
@@ -211,7 +234,7 @@ class ClickhouseProducer:
     producer: Optional[_KafkaProducer]
 
     def __init__(self):
-        self.producer = KafkaProducer() if not TEST else None
+        self.producer = KafkaProducer() if not settings.TEST else None
 
     def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
         if self.producer is not None:  # TODO: this should be not sync and

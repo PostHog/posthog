@@ -17,6 +17,7 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
+from posthog.temporal.workflows.batch_exports import get_results_iterator, get_rows_count
 from posthog.temporal.workflows.clickhouse import get_client
 
 
@@ -73,21 +74,12 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        data_interval_start_ch = dt.datetime.fromisoformat(inputs.data_interval_start).strftime("%Y-%m-%d %H:%M:%S")
-        data_interval_end_ch = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d %H:%M:%S")
-        row = await client.fetchrow(
-            SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count"),
-            params={
-                "team_id": inputs.team_id,
-                "data_interval_start": data_interval_start_ch,
-                "data_interval_end": data_interval_end_ch,
-            },
+        count = await get_rows_count(
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=inputs.data_interval_start,
+            interval_end=inputs.data_interval_end,
         )
-
-        if row is None:
-            raise ValueError(f"Unexpected result from ClickHouse: {row}")
-
-        count = row["count"]
 
         if count == 0:
             activity.logger.info(
@@ -98,10 +90,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             return
 
         activity.logger.info("BatchExporting %s rows to S3", count)
-
-        query_template = Template(SELECT_QUERY_TEMPLATE.template)
-
-        activity.logger.debug(query_template.template)
 
         conn = snowflake.connector.connect(
             user=inputs.user,
@@ -152,14 +140,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 """
             )
 
-            results_iterator = client.iterate(
-                query_template.safe_substitute(fields="*"),
-                json=True,
-                params={
-                    "team_id": inputs.team_id,
-                    "data_interval_start": data_interval_start_ch,
-                    "data_interval_end": data_interval_end_ch,
-                },
+            results_iterator = get_results_iterator(
+                client=client,
+                team_id=inputs.team_id,
+                interval_start=inputs.data_interval_start,
+                interval_end=inputs.data_interval_end,
             )
 
             local_results_file = tempfile.NamedTemporaryFile()
