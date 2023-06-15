@@ -101,6 +101,15 @@ class SessionReplayEventsTable(LazyTable):
     console_warn_count: IntegerDatabaseField = IntegerDatabaseField(name="console_warn_count")
     console_error_count: IntegerDatabaseField = IntegerDatabaseField(name="console_error_count")
 
+    pdi: LazyJoin = LazyJoin(
+        from_field="distinct_id",
+        join_table=PersonDistinctIdTable(),
+        join_function=join_with_person_distinct_ids_table,
+    )
+
+    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
+    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
+
     def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_session_replay_events_table(requested_fields)
 
