@@ -113,7 +113,7 @@ export function Surveys(): JSX.Element {
                                         const statusColors = {
                                             running: 'success',
                                             draft: 'default',
-                                            complete: 'purple',
+                                            complete: 'completion',
                                         }
                                         const status = getSurveyStatus(survey)
                                         return (
