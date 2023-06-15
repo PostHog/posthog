@@ -548,7 +548,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                                         Option 2: Create your own custom survey UI with
                                                                         our headless API
                                                                     </span>
-                                                                    <Link to="/docs/features/surveys">
+                                                                    <Link
+                                                                        to="https://posthog.com/docs/surveys/manual"
+                                                                        target="_blank"
+                                                                    >
                                                                         See documentation
                                                                     </Link>
                                                                 </div>
