@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import './NotebookSideBar.scss'
 import { Notebook } from './Notebook'
-import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
+import { MIN_NOTEBOOK_SIDEBAR_WIDTH, notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconFullScreen, IconChevronRight } from 'lib/lemon-ui/icons'
-import { CSSTransition } from 'react-transition-group'
 import { useEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -54,26 +53,21 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
         <>
             {clonedChild}
             <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                <CSSTransition
-                    in={notebookSideBarShown}
-                    timeout={0} // Disabled this for now until we can agree on style / performance
-                    mountOnEnter
-                    unmountOnExit
-                    classNames="NotebookSidebar-"
+                <div
+                    ref={ref}
+                    className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={
+                        !fullScreen
+                            ? {
+                                  width: notebookSideBarShown ? desiredWidth : 0,
+                                  minWidth: notebookSideBarShown ? MIN_NOTEBOOK_SIDEBAR_WIDTH : 0,
+                              }
+                            : {}
+                    }
                 >
-                    <div
-                        ref={ref}
-                        className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={
-                            !fullScreen
-                                ? {
-                                      width: desiredWidth,
-                                  }
-                                : {}
-                        }
-                    >
-                        <Resizer onResize={onResize} />
+                    <Resizer onResize={onResize} />
+                    {notebookSideBarShown && (
                         <div className="NotebookSidebar__content">
                             <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
                                 <span className="flex items-center gap-1 text-primary-alt">
@@ -113,8 +107,8 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                 />
                             </div>
                         </div>
-                    </div>
-                </CSSTransition>
+                    )}
+                </div>
             </FlaggedFeature>
         </>
     )
