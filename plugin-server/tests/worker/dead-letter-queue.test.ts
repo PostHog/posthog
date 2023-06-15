@@ -59,9 +59,12 @@ describe('events dead letter queue', () => {
     })
 
     test('events get sent to dead letter queue on error', async () => {
-        await expect(workerTasks.runEventPipeline(hub, { event: createEvent() })).rejects.toThrow(
-            'database unavailable'
-        )
+        const ingestResponse1 = await workerTasks.runEventPipeline(hub, { event: createEvent() })
+        expect(ingestResponse1).toEqual({
+            lastStep: 'prepareEventStep',
+            error: 'database unavailable',
+            args: expect.anything(),
+        })
         expect(generateEventDeadLetterQueueMessage).toHaveBeenCalled()
 
         await delayUntilEventIngested(() => hub.db.fetchDeadLetterQueueEvents(), 1)
