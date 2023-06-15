@@ -141,6 +141,12 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     <span className="text-muted">
                         Choose when the survey appears based on url, selector, and user properties.
                     </span>
+                    <span>
+                        <b>
+                            Warning: If there are no targeting options set, the survey will display on all domains to
+                            everyone.
+                        </b>
+                    </span>
                     <LemonDivider />
                     <Field name="conditions">
                         {({ value, onChange }) => (
