@@ -9,8 +9,6 @@ import { JSONContent, Editor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 const SYNC_DELAY = 1000
