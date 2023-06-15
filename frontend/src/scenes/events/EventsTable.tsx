@@ -547,14 +547,11 @@ export function EventsTable({
                     }
                     footer={
                         hasNext || isLoadingNext ? (
-                            <LemonButton
-                                type="primary"
-                                onClick={fetchNextEvents}
-                                loading={isLoadingNext}
-                                className="my-8 mx-auto"
-                            >
-                                Load more events
-                            </LemonButton>
+                            <div className="m-2 flex items-center">
+                                <LemonButton onClick={fetchNextEvents} loading={isLoadingNext} fullWidth center>
+                                    Load more events
+                                </LemonButton>
+                            </div>
                         ) : null
                     }
                 />
