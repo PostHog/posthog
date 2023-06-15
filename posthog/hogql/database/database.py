@@ -133,7 +133,7 @@ def serialize_database(database: Database) -> dict:
                         "key": field_key,
                         "type": "virtual_table",
                         "table": field.to_printed_hogql(),
-                        "fields": list(field.__fields__.keys()),
+                        "fields": list(field.fields.keys()),
                     }
                 )
             elif isinstance(field, FieldTraverser):
