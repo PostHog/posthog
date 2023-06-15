@@ -21,7 +21,7 @@ class Migration(AsyncMigrationDefinition):
     parameters = {
         "OLDEST_PARTITION_TO_KEEP": ("200001", "ID of the oldest partition to keep", str),
         "NEWEST_PARTITION_TO_KEEP": ("202308", "ID of the newest partition to keep", str),
-        "OPTIMIZE TABLE": (False, "Optimize sharded_events table after moving partitions?", bool),
+        "OPTIMIZE_TABLE": (False, "Optimize sharded_events table after moving partitions?", bool),
     }
 
     service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=22.3.0")]
@@ -33,8 +33,8 @@ class Migration(AsyncMigrationDefinition):
             WHERE
                 table = 'sharded_events'
                 AND (
-                    partition_id < {self.get_parameter("OLDEST_PARTITION_TO_KEEP")}
-                    OR partition_id > {self.get_parameter("NEWEST_PARTITION_TO_KEEP")}
+                    partition < '{self.get_parameter("OLDEST_PARTITION_TO_KEEP")}'
+                    OR partition > '{self.get_parameter("NEWEST_PARTITION_TO_KEEP")}'
                 )
             ORDER BY partition_id
         """
@@ -47,23 +47,27 @@ class Migration(AsyncMigrationDefinition):
         now = datetime.now()
 
         # used to prevent replica name clashes on zookeeper if we need to rollback and run again
-        suffix = f"{now.year}_{now.month}_{now.day}_{now.hour}_{now.minute}"
+        suffix = f"{now.year}_{now.month}_{now.day}_{now.hour}_{now.minute}_{now.second}"
 
         backup_table_name = f"events_backup_0010_move_old_partitions_{suffix}"
+
+        shard = "{shard}"
+        replica = "{replica}"
         operations = [
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
                 CREATE TABLE {backup_table_name}
+                ON CLUSTER 'posthog'
                 AS sharded_events
-                ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{backup_table_name}', '{{replica}}', _timestamp)
+                ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.{backup_table_name}', '{replica}', _timestamp)
                 PARTITION BY toYYYYMM(timestamp)
                 ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
                 SAMPLE BY cityHash64(distinct_id)
                 SETTINGS index_granularity = 8192
                 """,
                 rollback="DROP TABLE IF EXISTS events_backup_0010_move_old_partitions",
-                per_shard=True,
+                per_shard=False,
             ),
         ]
 
@@ -77,6 +81,7 @@ class Migration(AsyncMigrationDefinition):
                     ALTER TABLE sharded_events MOVE PARTITION '{partition}' TO TABLE {backup_table_name}
                     """,
                     per_shard=True,
+                    rollback=None,
                 ),
             )
 
@@ -88,6 +93,7 @@ class Migration(AsyncMigrationDefinition):
                     OPTIMIZE TABLE sharded_events FINAL
                     """,
                     per_shard=True,
+                    rollback=None,
                 ),
             )
 
