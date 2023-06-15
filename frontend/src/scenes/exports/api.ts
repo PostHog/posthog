@@ -210,11 +210,32 @@ export const useExportAction = (
 export const useExport = (
     teamId: number,
     exportId: string
-): { loading: boolean; export_: BatchExport | undefined; error: Error | undefined } => {
+): {
+    loading: boolean
+    export_: BatchExport | undefined
+    error: Error | undefined
+    updateCallback: (signal: AbortSignal | undefined) => void
+} => {
     // Fetches the export details for the given team and export ID.
     const [loading, setLoading] = useState(true)
     const [export_, setExport] = useState<BatchExport>()
     const [error, setError] = useState<Error>()
+
+    const updateCallback = useCallback(
+        (signal: AbortSignal | undefined) => {
+            fetch(`/api/projects/${teamId}/batch_exports/${exportId}`, { signal })
+                .then((res) => res.json())
+                .then((data) => {
+                    setExport(data)
+                    setLoading(false)
+                })
+                .catch((error) => {
+                    setError(error)
+                    setLoading(false)
+                })
+        },
+        [teamId, exportId]
+    )
 
     useEffect(() => {
         const controller = new AbortController()
@@ -223,21 +244,12 @@ export const useExport = (
         setLoading(true)
         setError(undefined)
 
-        fetch(`/api/projects/${teamId}/batch_exports/${exportId}`, { signal })
-            .then((res) => res.json())
-            .then((data) => {
-                setExport(data)
-                setLoading(false)
-            })
-            .catch((error) => {
-                setError(error)
-                setLoading(false)
-            })
+        updateCallback(signal)
 
         return () => controller.abort()
     }, [teamId, exportId])
 
-    return { loading, export_, error }
+    return { loading, export_, error, updateCallback }
 }
 
 export const useExportRuns = (

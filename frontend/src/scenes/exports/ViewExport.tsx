@@ -1,5 +1,9 @@
 import { useValues } from 'kea'
-import { useCurrentTeamId, useExport, useExportRuns } from './api'
+import { useCurrentTeamId, useExport, useExportRuns, BatchExport } from './api'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { ExportActionButtons } from './ExportsList'
 import { router } from 'kea-router'
 
 export const Export = (): JSX.Element => {
@@ -14,7 +18,7 @@ export const Export = (): JSX.Element => {
     }
 
     const { currentTeamId } = useCurrentTeamId()
-    const { loading, export_, error } = useExport(currentTeamId, exportId)
+    const { loading, export_, error, updateCallback } = useExport(currentTeamId, exportId)
 
     // If the export is still undefined and we're loading, show a loading
     // message and placeholder.
@@ -40,7 +44,12 @@ export const Export = (): JSX.Element => {
     // If we have an export, show the export details.
     return (
         <>
-            <h1>Export</h1>
+            <ExportHeader
+                currentTeamId={currentTeamId}
+                export_={export_}
+                loading={loading}
+                updateCallback={updateCallback}
+            />
             <p>
                 <strong>ID:</strong> {export_.id}
             </p>
@@ -57,6 +66,47 @@ export const Export = (): JSX.Element => {
             {loading ? <p>Loading...</p> : null}
 
             <ExportRuns exportId={exportId} />
+        </>
+    )
+}
+
+export interface ExportHeaderProps {
+    currentTeamId: number
+    export_: BatchExport
+    loading: boolean
+    updateCallback: (signal: AbortSignal | undefined) => void
+}
+
+function ExportHeader({ currentTeamId, export_, loading, updateCallback }: ExportHeaderProps): JSX.Element {
+    return (
+        <>
+            <PageHeader
+                title={
+                    <div className="flex items-center gap-2 mb-2">
+                        {export_.name}
+                        <CopyToClipboardInline explicitValue={export_.name} iconStyle={{ color: 'var(--muted-alt)' }} />
+                        <div className="flex">
+                            {export_.paused ? (
+                                <LemonTag type="default" className="uppercase">
+                                    Paused
+                                </LemonTag>
+                            ) : (
+                                <LemonTag type="primary" className="uppercase">
+                                    Running
+                                </LemonTag>
+                            )}
+                        </div>
+                    </div>
+                }
+                buttons={
+                    <ExportActionButtons
+                        currentTeamId={currentTeamId}
+                        export_={export_}
+                        loading={loading}
+                        updateCallback={updateCallback}
+                    />
+                }
+            />
         </>
     )
 }
