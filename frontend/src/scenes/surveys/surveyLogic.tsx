@@ -21,6 +21,7 @@ import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginInstallationType } from 'scenes/plugins/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface NewSurvey
     extends Pick<
@@ -91,7 +92,20 @@ export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        actions: [surveysLogic, ['loadSurveys'], pluginsLogic, ['installPlugin']],
+        actions: [
+            surveysLogic,
+            ['loadSurveys'],
+            pluginsLogic,
+            ['installPlugin'],
+            eventUsageLogic,
+            [
+                'reportSurveyCreated',
+                'reportSurveyLaunched',
+                'reportSurveyEdited',
+                'reportSurveyArchived',
+                'reportSurveyStopped',
+            ],
+        ],
         values: [pluginsLogic, ['installedPlugins']],
     })),
     actions({
@@ -125,6 +139,9 @@ export const surveyLogic = kea<surveyLogicType>([
                 const startDate = dayjs()
                 return await api.surveys.update(props.id, { start_date: startDate.toISOString() })
             },
+            stopSurvey: async () => {
+                return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+            },
         },
     })),
     listeners(({ actions }) => ({
@@ -135,21 +152,25 @@ export const surveyLogic = kea<surveyLogicType>([
             if (survey.targeting_flag?.filters?.groups) {
                 actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
             }
+            actions.reportSurveyViewed(survey)
         },
         createSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
             router.actions.replace(urls.survey(survey.id))
+            actions.reportSurveyCreated(survey)
         },
         updateSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} updated</>)
             actions.editingSurvey(false)
+            actions.reportSurveyEdited(survey)
             actions.loadSurveys()
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
             actions.setDataTableQuery(getSurveyDataQuery(survey.name))
             actions.loadSurveys()
+            actions.reportSurveyLaunched(survey)
         },
         installSurveyPlugin: async (_, breakpoint) => {
             actions.setInstallingPlugin(true)
@@ -159,9 +180,9 @@ export const surveyLogic = kea<surveyLogicType>([
             await breakpoint(600)
             actions.setInstallingPlugin(false)
         },
-        stopSurvey: async () => {
-            const endDate = dayjs()
-            actions.updateSurvey({ end_date: endDate.toISOString() })
+        stopSurveySuccess: ({ survey }) => {
+            actions.loadSurveys()
+            actions.reportSurveyStopped(survey)
         },
         archiveSurvey: async () => {
             actions.updateSurvey({ archived: true })
