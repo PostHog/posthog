@@ -165,7 +165,7 @@
             count(*) as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id AS $session_id,
+       (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE $session_id != ''
@@ -206,7 +206,7 @@
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      INNER JOIN
-       (SELECT $session_id AS $session_id,
+       (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE $session_id != ''
@@ -247,7 +247,7 @@
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      INNER JOIN
-       (SELECT $session_id AS $session_id,
+       (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE $session_id != ''
