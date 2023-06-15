@@ -4,7 +4,7 @@ import re
 import time
 from datetime import datetime
 from random import random
-from typing import Any, Dict, Iterator, List, Optional, Tuple, cast
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import structlog
 from dateutil import parser
@@ -25,7 +25,6 @@ from token_bucket import Limiter, MemoryStorage
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.exceptions import generate_exception_response
 from posthog.kafka_client.client import (
-    _KafkaProducer,
     KafkaProducer,
     sessionRecordingKafkaProducer,
 )

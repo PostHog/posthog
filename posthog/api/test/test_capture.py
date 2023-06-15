@@ -1296,7 +1296,7 @@ class TestCapture(BaseTest):
             REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1,
         ):
             default_kafka_producer_mock.return_value = KafkaProducer()
-            session_recording_producer_mock.return_value = sessionRecordingKafkaProducer()
+            session_recording_producer_mock.side_effect = Exception("Kafka not available")
 
             data = "example"
             self._send_session_recording_event(event_data=data)
