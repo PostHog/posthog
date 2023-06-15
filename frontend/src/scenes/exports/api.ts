@@ -27,7 +27,7 @@ export const useExports = (
     teamId: number
 ): {
     exportsState: UseExportsReturnType
-    updateCallback: () => Promise<void>
+    updateCallback: (signal: AbortSignal | undefined) => void
 } => {
     // Returns a list of exports for the given team. While we are fetching the
     // list, we return a loading: true as part of the state. On component
@@ -42,7 +42,7 @@ export const useExports = (
     })
 
     const updateCallback = useCallback(
-        (signal) => {
+        (signal: AbortSignal | undefined) => {
             fetch(`/api/projects/${teamId}/batch_exports/`, { signal })
                 .then((response) => response.json() as Promise<BatchExportsResponse>)
                 .then((data) => {

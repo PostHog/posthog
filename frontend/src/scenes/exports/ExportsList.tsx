@@ -140,7 +140,7 @@ export function Exports(): JSX.Element {
                                         onClick={() => {
                                             deleteExport().then(() => {
                                                 if (deleteError === null) {
-                                                    updateCallback()
+                                                    updateCallback(undefined)
                                                     lemonToast['success'](
                                                         <>
                                                             <b>{export_.name}</b> has been deleted
