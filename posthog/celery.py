@@ -89,20 +89,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # PostHog Cloud cron jobs
     if is_cloud():
-        # TODO EC this should be triggered only for instances that haven't been migrated to the new billing
-        # Calculate billing usage for the day every day at midnight UTC
-        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
         # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
         # Every 30 minutes, send decide request counts to the main posthog instance
         sender.add_periodic_task(crontab(minute="*/30"), calculate_decide_usage.s(), name="calculate decide usage")
 
-    # if is_cloud() or settings.DEMO:
-    # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
-    # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
-    # TODO: Re-enable when we've upgraded ClickHouse and can use lightweight deletes
-    # sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
+    if is_cloud() or settings.DEMO:
+        # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
+        # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
+        sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
@@ -149,19 +145,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
         sender.add_periodic_task(get_crontab("0 6 * * *"), count_teams_with_no_property_query_count.s())
 
-    # TODO: Re-enable when we've upgraded ClickHouse and can use lightweight deletes
-    # if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
-    #     sender.add_periodic_task(
-    #         clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
-    #     )
+    if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
+        sender.add_periodic_task(
+            clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
+        )
 
-    # TODO: Re-enable when we've upgraded ClickHouse and can use lightweight deletes
-    # if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
-    #     sender.add_periodic_task(
-    #         clear_clickhouse_deleted_person_crontab,
-    #         clear_clickhouse_deleted_person.s(),
-    #         name="clickhouse clear deleted person data",
-    #     )
+    if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
+        sender.add_periodic_task(
+            clear_clickhouse_deleted_person_crontab,
+            clear_clickhouse_deleted_person.s(),
+            name="clickhouse clear deleted person data",
+        )
 
     if settings.EE_AVAILABLE:
         sender.add_periodic_task(
@@ -739,16 +733,6 @@ def count_teams_with_no_property_query_count():
             )
         except Exception as exc:
             logger.error("calculate_event_property_usage.count_teams_failed", exc=exc, exc_info=True)
-
-
-@app.task(ignore_result=True)
-def calculate_billing_daily_usage():
-    try:
-        from multi_tenancy.tasks import compute_daily_usage_for_organizations  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        compute_daily_usage_for_organizations()
 
 
 @app.task(ignore_result=True)

@@ -3,7 +3,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useActions, useValues } from 'kea'
 import { IconLock } from 'lib/lemon-ui/icons'
 import { hedgehogbuddyLogic } from '../hedgehogbuddyLogic'
-import { AccessoryInfo } from '../sprites/sprites'
+import { AccessoryInfo, baseSpriteAccessoriesPath } from '../sprites/sprites'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export type HedgehogBuddyAccessoryProps = {
     accessory: AccessoryInfo
@@ -13,6 +14,7 @@ export type HedgehogBuddyAccessoryProps = {
 export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBuddyAccessoryProps): JSX.Element {
     const { accessories, availableAccessories } = useValues(hedgehogbuddyLogic)
     const { addAccessory, removeAccessory } = useActions(hedgehogbuddyLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const isUnlocked = availableAccessories.includes(accessoryKey)
 
@@ -23,6 +25,8 @@ export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBudd
             removeAccessory(accessory)
         }
     }
+
+    const imgExt = isDarkModeOn ? 'dark.png' : 'png'
 
     return (
         <LemonButton
@@ -40,7 +44,7 @@ export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBudd
             {!isUnlocked && <IconLock className=" absolute right-0 top-0 rounded" />}
             <div className="relative w-8 h-8 overflow-hidden">
                 <img
-                    src={accessory.img}
+                    src={`${baseSpriteAccessoriesPath}/${accessory.img}.${imgExt}`}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         position: 'absolute',

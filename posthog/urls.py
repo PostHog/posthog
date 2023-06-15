@@ -2,14 +2,15 @@ from typing import Any, Callable, List, Optional, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.contrib import admin
 from django.http import HttpRequest, HttpResponse, HttpResponseServerError
+from django.template import loader
 from django.urls import URLPattern, include, path, re_path
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
-from django.template import loader
+
 from posthog.api import (
     api_not_found,
     authentication,
@@ -27,12 +28,10 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from sentry_sdk import last_event_id
 from posthog.api.decide import hostname_in_allowed_url_list
-from posthog.api.prompt import prompt_webhook
 from posthog.api.early_access_feature import early_access_features
+from posthog.api.prompt import prompt_webhook
 from posthog.api.survey import surveys
-from posthog.cloud_utils import is_cloud
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 
@@ -54,22 +53,6 @@ else:
         project_dashboards_router=project_dashboards_router,
         project_feature_flags_router=project_feature_flags_router,
     )
-
-
-try:
-    # See https://github.com/PostHog/posthog-cloud/blob/master/multi_tenancy/router.py
-    from multi_tenancy.router import extend_api_router as extend_api_router_cloud  # noqa
-except ImportError:
-    pass
-else:
-    extend_api_router_cloud(router, organizations_router=organizations_router, projects_router=projects_router)
-
-# The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
-admin_urlpatterns = (
-    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
-    if is_cloud() or settings.DEMO or settings.DEBUG
-    else []
-)
 
 
 @requires_csrf_token
@@ -140,8 +123,6 @@ urlpatterns = [
     opt_slash_path("_preflight", preflight_check),
     # ee
     *ee_urlpatterns,
-    # admin
-    *admin_urlpatterns,
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),

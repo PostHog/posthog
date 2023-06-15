@@ -38,10 +38,10 @@ class RawCohortPeople(Table):
         from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
     )
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "cohortpeople"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "cohort_people"
 
 
@@ -57,8 +57,8 @@ class CohortPeople(LazyTable):
     def lazy_select(self, requested_fields: Dict[str, Any]):
         return select_from_cohort_people_table(requested_fields)
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "cohortpeople"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "cohort_people"

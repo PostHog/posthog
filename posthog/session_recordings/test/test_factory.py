@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from uuid import uuid4
 
 import structlog
@@ -11,11 +11,8 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENT
 from posthog.models.session_recording_event.sql import INSERT_SESSION_RECORDING_EVENT_SQL
 from posthog.session_recordings.session_recording_helpers import (
     RRWEB_MAP_EVENT_TYPE,
-    chunk_replay_events_by_window,
-    compress_replay_events,
-    reduce_replay_events_by_window,
+    legacy_preprocess_session_recording_events_for_clickhouse,
 )
-from posthog.test.assert_faster_than import assert_faster_than
 from posthog.utils import cast_timestamp_or_now
 
 logger = structlog.get_logger(__name__)
@@ -52,15 +49,6 @@ def _insert_session_recording_event(
         sync_execute(INSERT_SESSION_RECORDING_EVENT_SQL(), data, settings={"max_query_size": MAX_INSERT_LENGTH})
 
     return str(uuid)
-
-
-def legacy_compress_and_chunk_snapshots(events: List[Any], chunk_size=512 * 1024):
-    with assert_faster_than(20):
-        replay_events = compress_replay_events(events)
-        replay_events = reduce_replay_events_by_window(replay_events, max_size_bytes=chunk_size)
-        replay_events = chunk_replay_events_by_window(replay_events, max_size_bytes=chunk_size)
-
-        return replay_events
 
 
 def create_session_recording_events(
@@ -101,7 +89,7 @@ def create_session_recording_events(
 
     event_ids = []
 
-    for event in legacy_compress_and_chunk_snapshots(mock_events, chunk_size=chunk_size):
+    for event in legacy_preprocess_session_recording_events_for_clickhouse(mock_events, chunk_size=chunk_size):
         event_ids.append(
             _insert_session_recording_event(
                 team_id=team_id,

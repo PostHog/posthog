@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,7 +19,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
     connect(() => ({
         values: [
             savedInsightsLogic,
-            ['insights', 'insightsLoading'],
+            ['insights', 'insightsLoading', 'paramsFromFilters'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
             navigation3000Logic,
@@ -135,6 +135,13 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
         ],
         // kea-typegen doesn't like selectors without deps, so searchTerm is just for appearances
         debounceSearch: [(s) => [s.searchTerm], () => true],
+    })),
+    listeners(({ values, cache }) => ({
+        loadInsights: () => {
+            if (!values.paramsFromFilters.offset) {
+                cache.requestedInsights.length = 0
+            }
+        },
     })),
     subscriptions(({ actions }) => ({
         searchTerm: (searchTerm) => {
