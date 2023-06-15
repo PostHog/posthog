@@ -1,5 +1,5 @@
 from datetime import timezone, datetime, date
-from typing import Optional, Dict
+from typing import Optional, Dict, cast
 
 from django.test import override_settings
 from uuid import UUID
@@ -9,6 +9,7 @@ from freezegun import freeze_time
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -345,7 +346,7 @@ class TestResolver(BaseTest):
                         table_type=ast.LazyJoinType(
                             table_type=pdi_table_type,
                             field="person",
-                            lazy_join=self.database.person_distinct_ids.person,
+                            lazy_join=self.database.person_distinct_ids.fields.get("person"),
                         ),
                     ),
                 ),
@@ -363,7 +364,7 @@ class TestResolver(BaseTest):
                         name="id",
                         table_type=ast.LazyJoinType(
                             table_type=pdi_table_type,
-                            lazy_join=self.database.person_distinct_ids.person,
+                            lazy_join=self.database.person_distinct_ids.fields.get("person"),
                             field="person",
                         ),
                     ),
@@ -392,7 +393,9 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(
                         name="person_id",
                         table_type=ast.LazyJoinType(
-                            table_type=events_table_type, field="pdi", lazy_join=self.database.events.pdi
+                            table_type=events_table_type,
+                            field="pdi",
+                            lazy_join=cast(LazyJoin, self.database.events.fields.get("pdi")),
                         ),
                     ),
                 ),
@@ -410,7 +413,7 @@ class TestResolver(BaseTest):
                         name="person_id",
                         table_type=ast.LazyJoinType(
                             table_type=events_table_type,
-                            lazy_join=self.database.events.pdi,
+                            lazy_join=cast(LazyJoin, self.database.events.fields.get("pdi")),
                             field="pdi",
                         ),
                     ),
@@ -440,7 +443,9 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(
                         name="person_id",
                         table_type=ast.LazyJoinType(
-                            table_type=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
+                            table_type=events_table_alias_type,
+                            field="pdi",
+                            lazy_join=cast(LazyJoin, self.database.events.fields.get("pdi")),
                         ),
                     ),
                 ),
@@ -459,7 +464,7 @@ class TestResolver(BaseTest):
                         name="person_id",
                         table_type=ast.LazyJoinType(
                             table_type=events_table_alias_type,
-                            lazy_join=self.database.events.pdi,
+                            lazy_join=cast(LazyJoin, self.database.events.fields.get("pdi")),
                             field="pdi",
                         ),
                     ),
@@ -489,10 +494,15 @@ class TestResolver(BaseTest):
                         name="id",
                         table_type=ast.LazyJoinType(
                             table_type=ast.LazyJoinType(
-                                table_type=events_table_type, field="pdi", lazy_join=self.database.events.pdi
+                                table_type=events_table_type,
+                                field="pdi",
+                                lazy_join=cast(LazyJoin, self.database.events.fields.get("pdi")),
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.join_table.person,
+                            lazy_join=cast(
+                                LazyJoin,
+                                cast(LazyJoin, self.database.events.fields.get("pdi")).join_table.fields.get("person"),
+                            ),
                         ),
                     ),
                 ),
@@ -510,10 +520,15 @@ class TestResolver(BaseTest):
                         name="id",
                         table_type=ast.LazyJoinType(
                             table_type=ast.LazyJoinType(
-                                table_type=events_table_type, field="pdi", lazy_join=self.database.events.pdi
+                                table_type=events_table_type,
+                                field="pdi",
+                                lazy_join=cast(LazyJoin, self.database.events.fields.get("pdi")),
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.join_table.person,
+                            lazy_join=cast(
+                                LazyJoin,
+                                cast(LazyJoin, self.database.events.fields.get("pdi")).join_table.fields.get("person"),
+                            ),
                         ),
                     ),
                 },
@@ -543,10 +558,15 @@ class TestResolver(BaseTest):
                         name="id",
                         table_type=ast.LazyJoinType(
                             table_type=ast.LazyJoinType(
-                                table_type=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
+                                table_type=events_table_alias_type,
+                                field="pdi",
+                                lazy_join=cast(LazyJoin, self.database.events.fields.get("pdi")),
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.join_table.person,
+                            lazy_join=cast(
+                                LazyJoin,
+                                cast(LazyJoin, self.database.events.fields.get("pdi")).join_table.fields.get("person"),
+                            ),
                         ),
                     ),
                 ),
@@ -565,10 +585,15 @@ class TestResolver(BaseTest):
                         name="id",
                         table_type=ast.LazyJoinType(
                             table_type=ast.LazyJoinType(
-                                table_type=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
+                                table_type=events_table_alias_type,
+                                field="pdi",
+                                lazy_join=cast(LazyJoin, self.database.events.fields.get("pdi")),
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.join_table.person,
+                            lazy_join=cast(
+                                LazyJoin,
+                                cast(LazyJoin, self.database.events.fields.get("pdi")).join_table.fields.get("person"),
+                            ),
                         ),
                     ),
                 },
@@ -596,7 +621,7 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(
                         name="id",
                         table_type=ast.VirtualTableType(
-                            table_type=events_table_type, field="poe", virtual_table=self.database.events.poe
+                            table_type=events_table_type, field="poe", virtual_table=self.database.events.fields["poe"]
                         ),
                     ),
                 ),
@@ -613,7 +638,9 @@ class TestResolver(BaseTest):
                     "id": ast.FieldType(
                         name="id",
                         table_type=ast.VirtualTableType(
-                            table_type=events_table_type, field="poe", virtual_table=self.database.events.poe
+                            table_type=events_table_type,
+                            field="poe",
+                            virtual_table=self.database.events.fields.get("poe"),
                         ),
                     ),
                 },
