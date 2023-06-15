@@ -11,10 +11,9 @@ import {
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
-import { EventDetails } from 'scenes/events'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
@@ -25,7 +24,6 @@ import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { isEventsQuery, isHogQlAggregation, isHogQLQuery, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
@@ -38,10 +36,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
-import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { LemonDataGrid } from 'lib/components/LemonDataGrid/LemonDataGrid'
 
 interface DataTableProps {
     query: DataTableNode
@@ -71,13 +68,13 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     const {
         response,
         responseLoading,
-        responseError,
-        queryCancelled,
+        // responseError,
+        // queryCancelled,
         canLoadNextData,
         canLoadNewData,
-        nextDataLoading,
-        newDataLoading,
-        highlightedRows,
+        // nextDataLoading,
+        // newDataLoading,
+        // highlightedRows,
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key, context }
@@ -388,9 +385,9 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             <OpenEditorButton query={query} />
                         </div>
                     ) : null}
-                    <LemonTable
+                    <LemonDataGrid
                         className="DataTable"
-                        loading={responseLoading && !nextDataLoading && !newDataLoading}
+                        // loading={responseLoading && !nextDataLoading && !newDataLoading}
                         columns={lemonColumns}
                         key={
                             [...(columnsInResponse ?? []), ...columnsInQuery].join(
@@ -398,86 +395,86 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             ) /* Bust the LemonTable cache when columns change */
                         }
                         dataSource={(dataTableRows ?? []) as DataTableRow[]}
-                        rowKey={({ result }: DataTableRow, rowIndex) => {
-                            if (result) {
-                                if (isEventsQuery(query.source)) {
-                                    if (columnsInResponse?.includes('*')) {
-                                        return result[columnsInResponse.indexOf('*')].uuid
-                                    } else if (columnsInResponse?.includes('uuid')) {
-                                        return result[columnsInResponse.indexOf('uuid')]
-                                    } else if (columnsInResponse?.includes('id')) {
-                                        return result[columnsInResponse.indexOf('id')]
-                                    }
-                                }
-                                return (
-                                    (result && 'uuid' in result ? (result as any).uuid : null) ??
-                                    (result && 'id' in result ? (result as any).id : null) ??
-                                    JSON.stringify(result ?? rowIndex)
-                                )
-                            }
-                            return rowIndex
-                        }}
-                        sorting={null}
-                        useURLForSorting={false}
-                        emptyState={
-                            responseError ? (
-                                isHogQLQuery(query.source) || isEventsQuery(query.source) ? (
-                                    <InsightErrorState
-                                        excludeDetail
-                                        title={
-                                            queryCancelled
-                                                ? 'The query was cancelled'
-                                                : response && 'error' in response
-                                                ? (response as any).error
-                                                : responseError
-                                        }
-                                    />
-                                ) : (
-                                    <InsightErrorState />
-                                )
-                            ) : (
-                                <InsightEmptyState
-                                    heading={context?.emptyStateHeading}
-                                    detail={context?.emptyStateDetail}
-                                />
-                            )
-                        }
-                        expandable={
-                            expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
-                                ? {
-                                      expandedRowRender: function renderExpand({ result }) {
-                                          if (isEventsQuery(query.source) && Array.isArray(result)) {
-                                              return (
-                                                  <EventDetails
-                                                      event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                      useReactJsonView
-                                                  />
-                                              )
-                                          }
-                                          if (result && !Array.isArray(result)) {
-                                              return <EventDetails event={result as EventType} useReactJsonView />
-                                          }
-                                      },
-                                      rowExpandable: ({ result }) => !!result,
-                                      noIndent: true,
-                                      expandedRowClassName: ({ result }) => {
-                                          const record = Array.isArray(result) ? result[0] : result
-                                          return record && record['event'] === '$exception'
-                                              ? 'border border-danger-dark bg-danger-highlight'
-                                              : null
-                                      },
-                                  }
-                                : undefined
-                        }
-                        rowClassName={({ result, label }) =>
-                            clsx('DataTable__row', {
-                                'DataTable__row--highlight_once': result && highlightedRows.has(result),
-                                'DataTable__row--category_row': !!label,
-                                'border border-danger-dark bg-danger-highlight':
-                                    result && result[0] && result[0]['event'] === '$exception',
-                                [`row-type-${result?.[0]?.event}`]: result && result[0] && result[0]['event'],
-                            })
-                        }
+                        // rowKey={({ result }: DataTableRow, rowIndex) => {
+                        //     if (result) {
+                        //         if (isEventsQuery(query.source)) {
+                        //             if (columnsInResponse?.includes('*')) {
+                        //                 return result[columnsInResponse.indexOf('*')].uuid
+                        //             } else if (columnsInResponse?.includes('uuid')) {
+                        //                 return result[columnsInResponse.indexOf('uuid')]
+                        //             } else if (columnsInResponse?.includes('id')) {
+                        //                 return result[columnsInResponse.indexOf('id')]
+                        //             }
+                        //         }
+                        //         return (
+                        //             (result && 'uuid' in result ? (result as any).uuid : null) ??
+                        //             (result && 'id' in result ? (result as any).id : null) ??
+                        //             JSON.stringify(result ?? rowIndex)
+                        //         )
+                        //     }
+                        //     return rowIndex
+                        // }}
+                        // sorting={null}
+                        // useURLForSorting={false}
+                        // emptyState={
+                        //     responseError ? (
+                        //         isHogQLQuery(query.source) || isEventsQuery(query.source) ? (
+                        //             <InsightErrorState
+                        //                 excludeDetail
+                        //                 title={
+                        //                     queryCancelled
+                        //                         ? 'The query was cancelled'
+                        //                         : response && 'error' in response
+                        //                         ? (response as any).error
+                        //                         : responseError
+                        //                 }
+                        //             />
+                        //         ) : (
+                        //             <InsightErrorState />
+                        //         )
+                        //     ) : (
+                        //         <InsightEmptyState
+                        //             heading={context?.emptyStateHeading}
+                        //             detail={context?.emptyStateDetail}
+                        //         />
+                        //     )
+                        // }
+                        // expandable={
+                        //     expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
+                        //         ? {
+                        //               expandedRowRender: function renderExpand({ result }) {
+                        //                   if (isEventsQuery(query.source) && Array.isArray(result)) {
+                        //                       return (
+                        //                           <EventDetails
+                        //                               event={result[columnsInResponse.indexOf('*')] ?? {}}
+                        //                               useReactJsonView
+                        //                           />
+                        //                       )
+                        //                   }
+                        //                   if (result && !Array.isArray(result)) {
+                        //                       return <EventDetails event={result as EventType} useReactJsonView />
+                        //                   }
+                        //               },
+                        //               rowExpandable: ({ result }) => !!result,
+                        //               noIndent: true,
+                        //               expandedRowClassName: ({ result }) => {
+                        //                   const record = Array.isArray(result) ? result[0] : result
+                        //                   return record && record['event'] === '$exception'
+                        //                       ? 'border border-danger-dark bg-danger-highlight'
+                        //                       : null
+                        //               },
+                        //           }
+                        //         : undefined
+                        // }
+                        // rowClassName={({ result, label }) =>
+                        //     clsx('DataTable__row', {
+                        //         'DataTable__row--highlight_once': result && highlightedRows.has(result),
+                        //         'DataTable__row--category_row': !!label,
+                        //         'border border-danger-dark bg-danger-highlight':
+                        //             result && result[0] && result[0]['event'] === '$exception',
+                        //         [`row-type-${result?.[0]?.event}`]: result && result[0] && result[0]['event'],
+                        //     })
+                        // }
                     />
                     {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && (
                         <LoadNext query={query.source} />

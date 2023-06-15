@@ -1,5 +1,4 @@
 import * as React from 'react'
-import { LemonTableColumn } from 'lib/components/LemonTable'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { MultiGrid } from './MultiGrid'
@@ -7,6 +6,7 @@ import { GridCellRenderer } from 'react-virtualized/dist/es/Grid'
 import { ReactNode, useEffect, useMemo, useRef } from 'react'
 import clsx from 'clsx'
 import './LemonDataGrid.scss'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 
 interface LemonDataGridProps<T extends Record<string, any>> {
     columns: LemonTableColumn<T, keyof T | undefined>[]
