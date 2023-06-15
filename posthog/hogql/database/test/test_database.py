@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+from unittest.mock import patch
 import pytest
 from django.test import override_settings
 
@@ -25,13 +26,14 @@ class TestDatabase(BaseTest):
             serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
             assert json.dumps(serialized_database, indent=4) == self.snapshot
 
+    @patch("posthog.hogql.query.sync_execute", return_value=(None, None))
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_database_with_warehouse_tables(self):
+    def test_database_with_warehouse_tables(self, patch_execute):
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
         DataWarehouseTable.objects.create(
-            name="whatever", team=self.team, columns={"id": "String"}, credential=credential
+            name="whatever", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
         )
         create_hogql_database(team_id=self.team.pk)
 
@@ -41,5 +43,5 @@ class TestDatabase(BaseTest):
         )
         self.assertEqual(
             response.clickhouse,
-            f"SELECT event FROM events WHERE and(equals(events.team_id, {self.team.id}), equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s)) GROUP BY events.event LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
+            f"SELECT whatever.id FROM s3Cluster('posthog', %(hogql_val_0)s, %(hogql_val_2)s, %(hogql_val_3)s, %(hogql_val_1)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
         )

@@ -31,7 +31,7 @@ class S3Table(FunctionCallTable):
             escaped_access_secret = context.add_value(self.access_secret)
 
             return (
-                f"s3Cluster('posthog', {escaped_url}, {escaped_format}, {escaped_access_key}, {escaped_access_secret})"
+                f"s3Cluster('posthog', {escaped_url}, {escaped_access_key}, {escaped_access_secret}, {escaped_format})"
             )
         return f"s3Cluster('posthog', {escaped_url}, {escaped_format})"
 

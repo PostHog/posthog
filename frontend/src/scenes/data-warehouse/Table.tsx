@@ -88,9 +88,9 @@ export function TableForm({ id }: { id: string }): JSX.Element {
                 <div className="text-muted mb-4">
                     You can use <strong>*</strong> to select multiple files.
                 </div>
-                <Field name="type" label="Type" className="w-max">
+                <Field name="format" label="File format" className="w-max">
                     <LemonSelect
-                        data-attr="table-type"
+                        data-attr="table-format"
                         options={[
                             { label: 'Parquet (recommended)', value: 'Parquet' },
                             { label: 'CSV', value: 'CSV' },

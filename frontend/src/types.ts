@@ -99,6 +99,7 @@ export enum ProductKey {
     INGESTION_WARNINGS = 'ingestion_warnings',
     PERSONS = 'persons',
     SURVEYS = 'surveys',
+    DATA_WAREHOUSE = 'data_warehouse',
 }
 
 export enum LicensePlan {
@@ -2947,6 +2948,7 @@ export interface DataWarehouseTable {
     /** UUID */
     id: string
     name: string
+    format: string
     url_pattern: string
     credential: DataWarehouseCredential
 }

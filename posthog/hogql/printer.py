@@ -36,9 +36,6 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
     if not context.team_id:
         raise HogQLException("context.team_id not found")
 
-    import ipdb
-
-    ipdb.set_trace()
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
@@ -189,9 +186,6 @@ class _Printer(Visitor):
         group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
         having = self.visit(node.having) if node.having else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
-        import ipdb
-
-        ipdb.set_trace()
 
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",

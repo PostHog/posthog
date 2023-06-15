@@ -1,16 +1,14 @@
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { surveysLogic } from './tablesLogic'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { useState } from 'react'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { ProductKey } from '~/types'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -24,9 +22,7 @@ export enum SurveysTabs {
 }
 
 export function Surveys(): JSX.Element {
-    const { surveys, surveysLoading } = useValues(surveysLogic)
-    const [tab, setSurveyTab] = useState(SurveysTabs.All)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
 
     return (
         <div className="mt-10">
@@ -49,26 +45,19 @@ export function Surveys(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <LemonTabs
-                activeKey={tab}
-                onChange={(newTab) => setSurveyTab(newTab)}
-                tabs={[
-                    { key: SurveysTabs.All, label: 'All surveys' },
-                    { key: SurveysTabs.Archived, label: 'Archived surveys' },
-                ]}
-            />
-            {!surveysLoading && surveys.length === 0 && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
-                <ProductEmptyState
+            {!user?.has_seen_product_intro_for?.[ProductKey.DATA_WAREHOUSE] && (
+                <ProductIntroduction
                     productName={'Data Warehouse'}
-                    thingName={'data-warehouse'}
+                    thingName={'data warehouse table'}
                     description={
-                        'Bring your production database, revenue data, CRM contacts and any other data into PostHog.'
+                        'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
                     }
                     action={() => router.actions.push(urls.dataWarehouseTable('new'))}
+                    isEmpty={true}
+                    productKey={ProductKey.DATA_WAREHOUSE}
                 />
-            ) : (
-                <DatabaseTables />
             )}
+            <DatabaseTables />
         </div>
     )
 }

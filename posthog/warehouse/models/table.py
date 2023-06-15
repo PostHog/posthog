@@ -1,41 +1,48 @@
 from posthog.models.utils import UUIDModel, CreatedMetaFields, sane_repr, DeletedMetaFields
-from posthog.hogql.parser import parse_expr
 from posthog.errors import wrap_query_error
 from django.db import models
 from posthog.models.team import Team
 from posthog.client import sync_execute
 from .credential import DataWarehouseCredential
-from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql.database.models import (
     StringDatabaseField,
     IntegerDatabaseField,
     DateTimeDatabaseField,
+    StringJSONDatabaseField,
 )
 from posthog.hogql.database.s3_table import S3Table
-from pydantic import create_model
 
 ClickhouseHogqlMapping = {
     "String": StringDatabaseField,
     "DateTime64": DateTimeDatabaseField,
     "DateTime32": DateTimeDatabaseField,
+    "UInt8": IntegerDatabaseField,
+    "UInt16": IntegerDatabaseField,
     "UInt32": IntegerDatabaseField,
     "UInt64": IntegerDatabaseField,
+    "Float8": IntegerDatabaseField,
+    "Float16": IntegerDatabaseField,
+    "Float32": IntegerDatabaseField,
+    "Float64": IntegerDatabaseField,
     "Int32": IntegerDatabaseField,
     "Int64": IntegerDatabaseField,
+    "Tuple": StringJSONDatabaseField,
+    "Array": StringJSONDatabaseField,
+    "Map": StringJSONDatabaseField,
 }
 
 ExtractErrors = {
-    "The AWS Access Key Id you provided does not exit": "The Access Key you provided does not exit",
+    "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
 }
 
 
 class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
-    class TableType(models.TextChoices):
+    class TableFormat(models.TextChoices):
         CSV = "csv", "CSV"
         Parquet = "Parquet", "Parquet"
 
     name: models.CharField = models.CharField(max_length=128)
-    type: models.CharField = models.CharField(max_length=128, choices=TableType.choices)
+    format: models.CharField = models.CharField(max_length=128, choices=TableFormat.choices)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
 
     url_pattern: models.CharField = models.CharField(max_length=500)
@@ -54,20 +61,17 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             result = sync_execute(
                 """DESCRIBE TABLE (
                 SELECT * FROM
-                    s3Cluster('posthog', %(url_pattern)s, %(access_key)s, %(access_secret)s, %(type)s)
+                    s3Cluster('posthog', %(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)
                 LIMIT 1
             )""",
                 {
                     "url_pattern": self.url_pattern,
                     "access_key": self.credential.access_key,
                     "access_secret": self.credential.access_secret,
-                    "type": self.type,
+                    "format": self.format,
                 },
             )
         except Exception as err:
-            import ipdb
-
-            ipdb.set_trace()
             self._safe_expose_ch_error(err)
         return {item[0]: item[1] for item in result}
 
@@ -81,31 +85,16 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 type = type.replace("Nullable(", "")[:-1]
             type = type.partition("(")[0]
             type = ClickhouseHogqlMapping[type]
-            fields[column] = type(name="column")
-        params = {
-            "url_pattern": self.url_pattern,
-            "access_key": self.credential.access_key,
-            "access_secret": self.credential.access_secret,
-            "type": self.type,
-        }
-        name = self.name
+            fields[column] = type(name=column)
 
-        class TableWithOverride(S3Table):
-            def print_hogql_table(self):
-                return name
-
-            def clickhouse_table(self):
-                return name
-
-            def lazy_select(self, requested_fields):
-                return parse_expr(
-                    substitute_params(
-                        "s3Cluster('posthog', %(url_pattern)s, %(access_key)s, %(access_secret)s, %(type)s)", params
-                    )
-                )
-
-        new_model = create_model("{}Table".format(self.name), __base__=TableWithOverride, **fields)()
-        return new_model
+        return S3Table(
+            name=self.name,
+            url=self.url_pattern,
+            format=self.format,
+            access_key=self.credential.access_key,
+            access_secret=self.credential.access_secret,
+            fields=fields,
+        )
 
     def _safe_expose_ch_error(self, err):
         err = wrap_query_error(err)

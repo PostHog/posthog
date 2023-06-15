@@ -29,7 +29,7 @@ class TableSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseTable
-        fields = ["id", "name", "type", "created_by", "created_at", "url_pattern", "credential"]
+        fields = ["id", "name", "format", "created_by", "created_at", "url_pattern", "credential"]
         read_only_fields = [
             "id",
             "created_by",

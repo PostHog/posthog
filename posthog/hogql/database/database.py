@@ -18,7 +18,6 @@ from posthog.hogql.database.models import (
     FloatDatabaseField,
     FunctionCallTable,
 )
-from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -28,7 +27,6 @@ from posthog.hogql.database.schema.person_overrides import PersonOverridesTable,
 from posthog.hogql.database.schema.session_recording_events import SessionRecordingEvents
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
-from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import HogQLException
 from posthog.utils import PersonOnEventsMode
 
@@ -55,9 +53,6 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
-
-    # TODO: This table was made to test reads from s3. Remove it once data warehouse launches!
-    aapl_stock: S3Table = create_aapl_stock_s3_table()
 
     def __init__(self, timezone: Optional[str]):
         super().__init__()
@@ -129,10 +124,6 @@ def serialize_database(database: Database) -> dict:
     tables: Dict[str, List[Dict[str, Any]]] = {}
 
     for table_key in database.__fields__.keys():
-        # TODO: This table was made to test reads from s3. Remove it once data warehouse launches!
-        if table_key == "aapl_stock":
-            continue
-
         field_input: Dict[str, Any] = {}
         table = getattr(database, table_key, None)
         if isinstance(table, FunctionCallTable):

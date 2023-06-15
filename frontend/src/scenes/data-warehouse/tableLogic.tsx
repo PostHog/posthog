@@ -17,11 +17,12 @@ export interface TableLogicProps {
     id: string | 'new'
 }
 
-export type NewTable = Pick<DataWarehouseTable, 'name' | 'url_pattern' | 'credential'>
+export type NewTable = Pick<DataWarehouseTable, 'name' | 'url_pattern' | 'credential' | 'format'>
 
 const NEW_TABLE: NewTable = {
     name: '',
     url_pattern: '',
+    format: null,
     credential: {
         access_key: '',
         access_secret: '',
@@ -68,8 +69,8 @@ export const tableLogic = kea<surveyLogicType>([
         },
     })),
     listeners(({ actions }) => ({
-        createTableSuccess: async ({ survey }) => {
-            lemonToast.success(<>Table {survey.name} created</>)
+        createTableSuccess: async ({ table }) => {
+            lemonToast.success(<>Table {table.name} created</>)
             actions.loadTables()
             router.actions.replace(urls.survey(survey.id))
         },
@@ -108,12 +109,12 @@ export const tableLogic = kea<surveyLogicType>([
     forms(({ actions, props }) => ({
         table: {
             defaults: { ...NEW_TABLE } as DataWarehouseTable,
-            errors: ({ name, url_pattern, access_key, access_secret, type }) => ({
+            errors: ({ name, url_pattern, access_key, access_secret, format }) => ({
                 name: !name && 'Please enter a name.',
                 url_pattern: !url_pattern && 'Please enter a url pattern.',
                 access_secret: !access_secret && 'Please enter an access secret.',
                 access_key: !access_key && 'Please enter an access key.',
-                type: !type && 'Please enter an access key.',
+                format: !format && 'Please enter the format of your files.',
             }),
             submit: async (surveyPayload) => {
                 if (props.id && props.id !== 'new') {

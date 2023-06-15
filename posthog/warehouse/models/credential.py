@@ -4,10 +4,6 @@ from posthog.models.team import Team
 
 
 class DataWarehouseCredential(CreatedMetaFields, UUIDModel):
-    class TableType(models.TextChoices):
-        CSV = "csv", "CSV"
-        Parquet = "Parquet", "Parquet"
-
     access_key: models.CharField = models.CharField(max_length=500)
     access_secret: models.CharField = models.CharField(max_length=500)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)

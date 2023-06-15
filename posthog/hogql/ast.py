@@ -95,9 +95,6 @@ class BaseTableType(Type):
             return AsteriskType(table_type=self)
         if self.has_child(name):
             field = self.resolve_database_table().get_field(name)
-            import ipdb
-
-            ipdb.set_trace()
             if isinstance(field, LazyJoin):
                 return LazyJoinType(table_type=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):
