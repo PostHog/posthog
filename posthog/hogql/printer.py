@@ -6,6 +6,7 @@ from typing import List, Literal, Optional, Union, cast
 
 
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.constants import (
     CLICKHOUSE_FUNCTIONS,
     HOGQL_AGGREGATIONS,
@@ -14,7 +15,7 @@ from posthog.hogql.constants import (
     ADD_TIMEZONE_TO_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table
+from posthog.hogql.database.models import Table, FunctionCallTable
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import (
@@ -96,15 +97,15 @@ class _Printer(Visitor):
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[List[ast.AST]] = None,
+        stack: Optional[List[AST]] = None,
         settings: Optional[HogQLSettings] = None,
     ):
         self.context = context
         self.dialect = dialect
-        self.stack: List[ast.AST] = stack or []  # Keep track of all traversed nodes.
+        self.stack: List[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
 
-    def visit(self, node: ast.AST):
+    def visit(self, node: AST):
         self.stack.append(node)
         response = super().visit(node)
         self.stack.pop()
@@ -234,35 +235,27 @@ class _Printer(Visitor):
         if node.join_type is not None:
             join_strings.append(node.join_type)
 
-        if isinstance(node.type, ast.TableAliasType):
-            table_type = node.type.table_type
-            if table_type is None:
-                raise HogQLException(f"Table alias {node.type.alias} does not resolve!")
+        if isinstance(node.type, ast.TableAliasType) or isinstance(node.type, ast.TableType):
+            table_type = node.type
+            while isinstance(table_type, ast.TableAliasType):
+                table_type = table_type.table_type
+
             if not isinstance(table_type, ast.TableType):
-                raise HogQLException(f"Table alias {node.type.alias} does not resolve to a table!")
+                raise HogQLException(f"Invalid table type {type(table_type).__name__} in join_expr")
+
+            # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
+            # Skip function call tables like numbers(), s3(), etc.
+            if self.dialect == "clickhouse" and not isinstance(table_type.table, FunctionCallTable):
+                extra_where = team_id_guard_for_table(node.type, self.context)
 
             if self.dialect == "clickhouse":
-                table_name = table_type.table.clickhouse_table()
+                sql = table_type.table.to_printed_clickhouse(self.context)
             else:
-                table_name = table_type.table.hogql_table()
-            join_strings.append(self._print_identifier(table_name))
+                sql = table_type.table.to_printed_hogql()
+            join_strings.append(sql)
 
-            if node.alias is not None:
+            if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
-
-            if self.dialect == "clickhouse":
-                # TODO: do this in a separate pass before printing, along with person joins and other transforms
-                extra_where = team_id_guard_for_table(node.type, self.context)
-
-        elif isinstance(node.type, ast.TableType):
-            if self.dialect == "clickhouse":
-                join_strings.append(self._print_identifier(node.type.table.clickhouse_table()))
-            else:
-                join_strings.append(self._print_identifier(node.type.table.hogql_table()))
-
-            if self.dialect == "clickhouse":
-                # TODO: do this in a separate pass before printing, along with person joins and other transforms
-                extra_where = team_id_guard_for_table(node.type, self.context)
 
         elif isinstance(node.type, ast.SelectQueryType):
             join_strings.append(self.visit(node.table))
@@ -274,11 +267,15 @@ class _Printer(Visitor):
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
-        elif isinstance(node.type, ast.LazyTableType) and self.dialect == "hogql":
-            join_strings.append(self._print_identifier(node.type.table.hogql_table()))
-
+        elif isinstance(node.type, ast.LazyTableType):
+            if self.dialect == "hogql":
+                join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
+            else:
+                raise HogQLException(f"Unexpected LazyTableType for: {node.type.table.to_printed_hogql()}")
         else:
-            raise HogQLException("Only selecting from a table or a subquery is supported")
+            raise HogQLException(
+                f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
+            )
 
         if node.table_final:
             join_strings.append("FINAL")
@@ -389,9 +386,7 @@ class _Printer(Visitor):
             isinstance(node.value, str) or isinstance(node.value, list) or isinstance(node.value, tuple)
         ):
             # inline the string in hogql, but use %(hogql_val_0)s in clickhouse
-            key = f"hogql_val_{len(self.context.values)}"
-            self.context.values[key] = node.value
-            return f"%({key})s"
+            return self.context.add_value(node.value)
         else:
             return self._print_escaped_string(node.value)
 
@@ -523,9 +518,9 @@ class _Printer(Visitor):
 
     def visit_table_type(self, type: ast.TableType):
         if self.dialect == "clickhouse":
-            return self._print_identifier(type.table.clickhouse_table())
+            return type.table.to_printed_clickhouse(self.context)
         else:
-            return self._print_identifier(type.table.hogql_table())
+            return type.table.to_printed_hogql()
 
     def visit_table_alias_type(self, type: ast.TableAliasType):
         return self._print_identifier(type.alias)
@@ -612,9 +607,9 @@ class _Printer(Visitor):
         materialized_property_sql: Optional[str] = None
         if isinstance(table, ast.TableType):
             if self.dialect == "clickhouse":
-                table_name = table.table.clickhouse_table()
+                table_name = table.table.to_printed_clickhouse(self.context)
             else:
-                table_name = table.table.hogql_table()
+                table_name = table.table.to_printed_hogql()
             if field is None:
                 raise HogQLException(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
@@ -691,7 +686,7 @@ class _Printer(Visitor):
     def visit_field_traverser_type(self, type: ast.FieldTraverserType):
         raise HogQLException("Unexpected ast.FieldTraverserType. This should have been resolved.")
 
-    def visit_unknown(self, node: ast.AST):
+    def visit_unknown(self, node: AST):
         raise HogQLException(f"Unknown AST node {type(node).__name__}")
 
     def visit_window_expr(self, node: ast.WindowExpr):

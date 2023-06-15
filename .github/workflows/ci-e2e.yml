@@ -153,6 +153,7 @@ jobs:
                   REDIS_URL=redis://localhost
                   DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
                   KAFKA_URL=kafka://kafka:9092
+                  SESSION_RECORDING_KAFKA_URL=kafka://kafka:9092
                   DISABLE_SECURE_SSL_REDIRECT=1
                   SECURE_COOKIES=0
                   OPT_OUT_CAPTURE=1

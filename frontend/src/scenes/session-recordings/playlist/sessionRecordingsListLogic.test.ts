@@ -1,4 +1,9 @@
-import { sessionRecordingsListLogic, RECORDINGS_LIMIT, DEFAULT_RECORDING_FILTERS } from './sessionRecordingsListLogic'
+import {
+    sessionRecordingsListLogic,
+    RECORDINGS_LIMIT,
+    DEFAULT_RECORDING_FILTERS,
+    defaultRecordingDurationFilter,
+} from './sessionRecordingsListLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
@@ -377,7 +382,25 @@ describe('sessionRecordingsListLogic', () => {
                     },
                 })
         })
+
+        it('reads filters from the URL and defaults the duration filter', async () => {
+            router.actions.push('/replay', {
+                filters: {
+                    actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                },
+            })
+
+            await expectLogic(logic)
+                .toDispatchActions(['replaceFilters'])
+                .toMatchValues({
+                    filters: {
+                        actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                        session_recording_duration: defaultRecordingDurationFilter,
+                    },
+                })
+        })
     })
+
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsListLogic({

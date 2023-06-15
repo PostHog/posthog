@@ -581,7 +581,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                             ) - LOOK_BACK,
                             0
                         )
-                        copyToClipboard(
+                        void copyToClipboard(
                             `${window.location.origin}/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`,
                             'Current session recording link to clipboard'
                         )
@@ -606,7 +606,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                   display: `= ${result}`,
                                   guarantee: true,
                                   executor: () => {
-                                      copyToClipboard(result.toString(), 'calculation result')
+                                      void copyToClipboard(result.toString(), 'calculation result')
                                   },
                               }
                     } catch {
