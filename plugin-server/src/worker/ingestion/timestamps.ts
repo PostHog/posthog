@@ -7,6 +7,7 @@ import { status } from '../../utils/status'
 type IngestionWarningCallback = (type: string, details: Record<string, any>) => void
 
 const FutureEventHoursCutoffMillis = 23 * 3600 * 1000 // 23 hours
+const PastEventHoursCutoffMillis = 365.25 * 24 * 3600 * 1000 // 7 years, our retention
 
 export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): DateTime {
     const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
@@ -93,6 +94,26 @@ function handleTimestamp(
     // We will also 'fix' the date to be now()
     if (nowDiff > FutureEventHoursCutoffMillis) {
         callback?.('event_timestamp_in_future', {
+            timestamp: data['timestamp'] ?? '',
+            sentAt: data['sent_at'] ?? '',
+            offset: data['offset'] ?? '',
+            now: data['now'],
+            result: parsedTs.toISO(),
+            eventUuid: data['uuid'],
+            eventName: data['event'],
+        })
+
+        parsedTs = now
+    }
+
+    // Events too far in the past would indicate an instrumentation bug, lets' ingest them
+    // but publish an integration warning to help diagnose such issues.
+    // We will also 'fix' the date to be now()
+    //
+    // We do want to accept events for previous years for migrations & backfills, but anything
+    // beyond our official retention should be considered suspicious.
+    if (nowDiff < PastEventHoursCutoffMillis) {
+        callback?.('event_timestamp_in_past', {
             timestamp: data['timestamp'] ?? '',
             sentAt: data['sent_at'] ?? '',
             offset: data['offset'] ?? '',
