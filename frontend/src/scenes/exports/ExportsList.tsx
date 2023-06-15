@@ -107,11 +107,7 @@ export function Exports(): JSX.Element {
 
                             const { deleteExport, error: deleteError } = useDeleteExport(currentTeamId, export_.id)
 
-                            const {
-                                deleteExport,
-                                deleting,
-                                error: deleteError,
-                            } = useDeleteExport(currentTeamId, export_.id)
+                            const { deleteExport, _, error: deleteError } = useDeleteExport(currentTeamId, export_.id)
 
                             return (
                                 <div className={clsx('flex flex-wrap gap-2')}>
