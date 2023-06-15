@@ -358,7 +358,7 @@
         --sidebar-list-item-marker-offset: var(--sidebar-list-item-ribbon-width);
         &::before {
             width: var(--sidebar-list-item-ribbon-width);
-            height: calc(100% + 1px);
+            height: 100%;
             background: var(--sidebar-list-item-status-color);
         }
     }

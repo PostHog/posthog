@@ -7,7 +7,6 @@ module.exports = {
     theme: {
         colors: {
             'primary-highlight': '#e8edff',
-            'primary-extralight': '#d2dbff',
             'primary-light': '#345cff',
             primary: '#1d4aff',
             'primary-dark': '#1330a6',
@@ -37,7 +36,7 @@ module.exports = {
             light: 'rgba(255, 255, 255, 0.878)',
             border: 'rgba(0, 0, 0, 0.15)',
             'border-light': 'rgba(0, 0, 0, 0.08)',
-            'border-dark': 'rgba(0, 0, 0, 0.24)',
+            'border-bold': 'rgba(0, 0, 0, 0.24)',
             'border-active': 'rgba(0, 0, 0, 0.36)',
         },
         extend: {

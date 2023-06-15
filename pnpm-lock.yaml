@@ -439,8 +439,8 @@ devDependencies:
     specifier: ^1.7.2
     version: 1.7.4
   '@types/react-syntax-highlighter':
-    specifier: ^11.0.4
-    version: 11.0.5
+    specifier: ^15.5.7
+    version: 15.5.7
   '@types/testing-library__jest-dom':
     specifier: ^5.14.5
     version: 5.14.5
@@ -5640,8 +5640,8 @@ packages:
       '@types/react': 16.14.34
     dev: true
 
-  /@types/react-syntax-highlighter@11.0.5:
-    resolution: {integrity: sha512-VIOi9i2Oj5XsmWWoB72p3KlZoEbdRAcechJa8Ztebw7bDl2YmR+odxIqhtJGp1q2EozHs02US+gzxJ9nuf56qg==}
+  /@types/react-syntax-highlighter@15.5.7:
+    resolution: {integrity: sha512-bo5fEO5toQeyCp0zVHBeggclqf5SQ/Z5blfFmjwO5dkMVGPgmiwZsJh9nu/Bo5L7IHTuGWrja6LxJVE2uB5ZrQ==}
     dependencies:
       '@types/react': 16.14.34
     dev: true

@@ -12,7 +12,7 @@
     width: 100%;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background-color: var(--white);
+    background-color: #fff;
 
     &--no-border {
         border: none;
@@ -41,7 +41,7 @@
         right: 0px;
         bottom: 0px;
         overflow-y: auto;
-        background-color: var(--white);
+        background-color: #fff;
         z-index: var(--z-modal);
         border: none;
         border-radius: 0px;
