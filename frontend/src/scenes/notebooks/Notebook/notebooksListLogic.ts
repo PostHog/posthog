@@ -79,6 +79,8 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                         callback: actions.loadNotebooks,
                     })
 
+                    notebookSidebarLogic.findMounted()?.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id)
+
                     return values.notebooks.filter((n) => n.short_id !== shortId)
                 },
 

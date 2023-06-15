@@ -32,7 +32,7 @@ export function NodeWrapper({
     node,
     updateAttributes,
 }: NodeWrapperProps): JSX.Element {
-    const { ready, shortId } = useValues(notebookLogic)
+    const { shortId } = useValues(notebookLogic)
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
 
@@ -76,7 +76,7 @@ export function NodeWrapper({
             })}
         >
             <ErrorBoundary>
-                {!ready || !inView ? (
+                {!inView ? (
                     <>
                         <div className="h-4" /> {/* Placeholder for the drag handle */}
                         <div style={{ height: heightEstimate }}>

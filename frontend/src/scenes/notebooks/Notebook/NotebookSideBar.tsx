@@ -90,7 +90,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                         status="primary-alt"
                                         icon={<IconLink />}
                                         tooltip="Go to Notebook"
-                                        tooltipPlacement="bottom"
+                                        tooltipPlacement="left"
                                     />
 
                                     <NotebookExpandButton status="primary-alt" size="small" />
@@ -102,7 +102,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                         active={fullScreen}
                                         icon={<IconFullScreen />}
                                         tooltip="Toggle full screen"
-                                        tooltipPlacement="bottom"
+                                        tooltipPlacement="left"
                                     />
 
                                     <LemonButton
@@ -111,7 +111,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                         status="primary-alt"
                                         icon={<IconChevronRight />}
                                         tooltip="Hide Notebook Sidebar"
-                                        tooltipPlacement="bottom"
+                                        tooltipPlacement="left"
                                     />
                                 </span>
                             </header>

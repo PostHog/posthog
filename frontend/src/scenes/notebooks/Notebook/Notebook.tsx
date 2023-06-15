@@ -38,11 +38,16 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading, isEmpty } = useValues(logic)
-    const { setEditorRef, onEditorUpdate, duplicateNotebook } = useActions(logic)
-
+    const { setEditorRef, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
+
+    useEffect(() => {
+        if (!notebook && !notebookLoading) {
+            loadNotebook()
+        }
+    }, [])
 
     // Whenever our content changes, we want to ignore the next update (which is caused by the editor itself)
     const ignoreUpdateRef = useRef(true)

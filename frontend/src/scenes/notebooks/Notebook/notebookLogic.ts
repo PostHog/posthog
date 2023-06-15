@@ -1,16 +1,4 @@
-import {
-    actions,
-    afterMount,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-    sharedListeners,
-} from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
@@ -247,12 +235,4 @@ export const notebookLogic = kea<notebookLogicType>([
             values.editor?.chain().focus().insertContent({ type: node, attrs: properties }).run()
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadNotebook()
-        // Gives a chance for the notebook to appear before we actually render the content
-        setTimeout(() => {
-            actions.setReady()
-        }, 500)
-    }),
 ])
