@@ -4,7 +4,7 @@ import './NotebookSideBar.scss'
 import { Notebook } from './Notebook'
 import { MIN_NOTEBOOK_SIDEBAR_WIDTH, notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconFullScreen, IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { useEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -15,6 +15,7 @@ import { notebooksListLogic } from './notebooksListLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { notebookLogic } from './notebookLogic'
+import { urls } from 'scenes/urls'
 
 export function NotebookSideBar({ children }: { children: React.ReactElement<any> }): JSX.Element {
     const { notebookSideBarShown, fullScreen, selectedNotebook, desiredWidth } = useValues(notebookSidebarLogic)
@@ -80,6 +81,18 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                 <span className="flex items-center gap-1 px-1">
                                     {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
+                                    <LemonButton
+                                        size="small"
+                                        to={urls.notebook(selectedNotebook)}
+                                        onClick={() => {
+                                            setNotebookSideBarShown(false)
+                                        }}
+                                        status="primary-alt"
+                                        icon={<IconLink />}
+                                        tooltip="Go to Notebook"
+                                        tooltipPlacement="bottom"
+                                    />
+
                                     <NotebookExpandButton status="primary-alt" size="small" />
 
                                     <LemonButton
@@ -88,6 +101,8 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                         status="primary-alt"
                                         active={fullScreen}
                                         icon={<IconFullScreen />}
+                                        tooltip="Toggle full screen"
+                                        tooltipPlacement="bottom"
                                     />
 
                                     <LemonButton
@@ -95,6 +110,8 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                         onClick={() => setNotebookSideBarShown(false)}
                                         status="primary-alt"
                                         icon={<IconChevronRight />}
+                                        tooltip="Hide Notebook Sidebar"
+                                        tooltipPlacement="bottom"
                                     />
                                 </span>
                             </header>

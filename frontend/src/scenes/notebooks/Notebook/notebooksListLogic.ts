@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookType } from '~/types'
@@ -12,6 +12,7 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
+import { notebookSidebarLogic } from './notebookSidebarLogic'
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<NotebookListItemType> {}
@@ -27,10 +28,11 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
-        createNotebook: (redirect = false) => ({ redirect }),
+        createNotebook: (redirect = true) => ({ redirect }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
+        handleNewNotebook: (notebook: NotebookListItemType) => ({ notebook }),
     }),
     connect({
         values: [teamLogic, ['currentTeamId']],
@@ -60,7 +62,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                     const notebook = await api.notebooks.create()
 
                     if (redirect) {
-                        router.actions.push(urls.notebookEdit(notebook.short_id))
+                        actions.handleNewNotebook(notebook)
                     }
 
                     posthog.capture(`notebook created`, {
@@ -95,6 +97,18 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
             },
         ],
     })),
+    listeners(({}) => ({
+        handleNewNotebook: ({ notebook }) => {
+            const sidebarLogic = notebookSidebarLogic.findMounted()
+
+            if (sidebarLogic?.values.notebookSideBarShown) {
+                sidebarLogic?.actions.selectNotebook(notebook.short_id)
+            } else {
+                router.actions.push(urls.notebookEdit(notebook.short_id))
+            }
+        },
+    })),
+
     selectors({
         fuse: [
             (s) => [s.notebooks],
