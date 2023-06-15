@@ -7,6 +7,8 @@ import { RefObject } from 'react'
 import posthog from 'posthog-js'
 import { subscriptions } from 'kea-subscriptions'
 
+const MIN_WIDTH = 600
+
 export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookSidebarLogic']),
     actions({
@@ -85,11 +87,16 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
                 cache.originalWidth = values.elementRef.current.getBoundingClientRect().width
             }
 
+            if (window.innerWidth - desiredX < MIN_WIDTH / 2) {
+                actions.setNotebookSideBarShown(false)
+                return
+            }
+
             if (finished) {
                 cache.originalWidth = undefined
-                actions.setDesiredWidth(values.elementRef.current.getBoundingClientRect().width)
+                actions.setDesiredWidth(Math.max(MIN_WIDTH, values.elementRef.current.getBoundingClientRect().width))
             } else {
-                actions.setDesiredWidth(cache.originalWidth - (desiredX - originX))
+                actions.setDesiredWidth(Math.max(MIN_WIDTH, cache.originalWidth - (desiredX - originX)))
             }
         },
     })),
