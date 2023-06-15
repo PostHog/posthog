@@ -4,6 +4,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { offset } from '@floating-ui/react'
 
 import './TableCellSparkline.scss'
+import { getColorVar } from 'lib/colors'
 
 export function TableCellSparkline({ labels, data }: { labels?: string[]; data: number[] }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -29,7 +30,7 @@ export function TableCellSparkline({ labels, data }: { labels?: string[]; data: 
                         {
                             data: data,
                             minBarLength: 3,
-                            hoverBackgroundColor: 'brand-blue',
+                            hoverBackgroundColor: getColorVar('primary'),
                         },
                     ],
                 },
