@@ -286,6 +286,8 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
     # First check one event, the first one, so that we can get a nice diff if
     # the included data is different.
     assert json_data[0] == expected_events[0]
+    assert json_data[-1] == expected_events[-1]
+    assert len(json_data) == len(expected_events)
     assert json_data == expected_events
 
 

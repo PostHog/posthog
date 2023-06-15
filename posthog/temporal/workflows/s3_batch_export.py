@@ -1,11 +1,11 @@
+import contextlib
 import datetime as dt
 import gzip
 import json
-import os
 import tempfile
 from dataclasses import dataclass
 from string import Template
-from typing import TYPE_CHECKING, List, Literal
+from typing import TYPE_CHECKING, BinaryIO, Generator, List, Literal, Tuple, Union
 
 import boto3
 from django.conf import settings
@@ -168,68 +168,59 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             },
         )
 
-        local_results_file = create_temporary_file(compression=inputs.compression)
-        try:
-            while True:
+        # Loop through the results using the iterator, write them to a local
+        # file, and upload the file to S3 when it reaches 50MB in size.
+        while True:
+            with create_temporary_file(compression=inputs.compression) as (reader, writer):
                 try:
-                    result = await results_iterator.__anext__()
+                    while True:
+                        result = await anext(results_iterator)
+
+                        if not result:
+                            continue
+
+                        # Write the results to a local file
+                        writer.write(json.dumps(result).encode("utf-8"))
+                        writer.write(b"\n")
+
+                        # Write results to S3 when the file reaches 50MB and
+                        # reset the file, or if there is nothing else to write.
+                        # TODO: verify what tell actually gives us here by way
+                        # of is it the compressed or uncompressed size. We want
+                        # the compressed size.
+                        if writer.tell() and writer.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
+                            activity.logger.info("Uploading part %s", part_number)
+
+                            writer.close()
+                            response = s3_client.upload_part(
+                                Bucket=inputs.bucket_name,
+                                Key=key,
+                                PartNumber=part_number,
+                                UploadId=upload_id,
+                                Body=reader,
+                            )
+
+                            # Record the ETag for the part
+                            parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+                            part_number += 1
+
+                            break
+
                 except StopAsyncIteration:
-                    break
+                    # Upload the last part
+                    writer.close()
+                    response = s3_client.upload_part(
+                        Bucket=inputs.bucket_name,
+                        Key=key,
+                        PartNumber=part_number,
+                        UploadId=upload_id,
+                        Body=reader,
+                    )
 
-                if not result:
-                    break
-
-                # Write the results to a local file
-                local_results_file.write(json.dumps(result).encode("utf-8"))
-                local_results_file.write(b"\n")
-
-                # Write results to S3 when the file reaches 50MB and reset the
-                # file, or if there is nothing else to write.
-                if (
-                    local_results_file.tell()
-                    and local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES
-                ):
-                    activity.logger.info("Uploading part %s", part_number)
-
-                    local_results_file.close()
-                    with open(local_results_file.name, "rb") as raw_file:
-                        response = s3_client.upload_part(
-                            Bucket=inputs.bucket_name,
-                            Key=key,
-                            PartNumber=part_number,
-                            UploadId=upload_id,
-                            Body=raw_file,
-                        )
-
-                    # Record the ETag for the part
+                    # Record the ETag for the last part
                     parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
 
-                    part_number += 1
-
-                    # Delete the temporary file
-                    os.remove(local_results_file.name)
-                    # And create a new one
-                    local_results_file = create_temporary_file(compression=inputs.compression)
-
-            # Upload the last part
-            local_results_file.close()
-            with open(local_results_file.name, "rb") as raw_file:
-                response = s3_client.upload_part(
-                    Bucket=inputs.bucket_name,
-                    Key=key,
-                    PartNumber=part_number,
-                    UploadId=upload_id,
-                    Body=raw_file,
-                )
-
-            # Delete the temporary file
-            os.remove(local_results_file.name)
-
-            # Record the ETag for the last part
-            parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
-
-        finally:
-            local_results_file.close()
+                    break
 
         # Complete the multipart upload
         s3_client.complete_multipart_upload(
@@ -240,13 +231,30 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         )
 
 
-def create_temporary_file(compression: Literal["none", "gzip"]):
-    """Create a temporary file with a random name."""
-    temp_file = tempfile.NamedTemporaryFile(delete=False)
-    if compression == "gzip":
-        return gzip.open(temp_file.name, "wb")
-    else:
-        return temp_file
+@contextlib.contextmanager
+def create_temporary_file(
+    compression: Literal["none", "gzip"]
+) -> Generator[Tuple[tempfile._TemporaryFileWrapper, Union[BinaryIO, gzip.GzipFile]], None, None]:
+    """
+    Create a temporary file with a random name. We support specifying
+    compression as gzip, which will return a writer that will gzip the
+    contents of the file.
+
+    We always return the reader and writer, even if compression is none.
+
+    NOTE: when using gzip, we must call `close` on the writer before reading. If
+    we don't, the gzip file will be corrupted.
+
+    TODO: Make the return type narrower? I couldn't figure out a nice unified
+    type to use here.
+    """
+    with tempfile.NamedTemporaryFile("rb") as temp_file:
+        if compression == "gzip":
+            with gzip.open(temp_file.name, "wb") as gzip_file:
+                yield temp_file, gzip_file
+        else:
+            with open(temp_file.name, "wb") as file_writer:
+                yield temp_file, file_writer
 
 
 @workflow.defn(name="s3-export")
