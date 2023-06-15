@@ -195,6 +195,7 @@ function Pages(): JSX.Element {
                             identifier={Scene.Surveys}
                             title={'Surveys'}
                             to={urls.surveys()}
+                            highlight="beta"
                         />
                     )}
 
