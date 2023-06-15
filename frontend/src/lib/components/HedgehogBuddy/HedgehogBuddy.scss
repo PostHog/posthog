@@ -5,6 +5,7 @@
     margin: 0;
 
     &:after {
+        // Hack for preloading images
         position: absolute;
         width: 0;
         height: 0;
