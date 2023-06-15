@@ -6,6 +6,7 @@ from typing import List, Literal, Optional, Union, cast
 
 
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.constants import (
     CLICKHOUSE_FUNCTIONS,
     HOGQL_AGGREGATIONS,
@@ -96,15 +97,15 @@ class _Printer(Visitor):
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[List[ast.AST]] = None,
+        stack: Optional[List[AST]] = None,
         settings: Optional[HogQLSettings] = None,
     ):
         self.context = context
         self.dialect = dialect
-        self.stack: List[ast.AST] = stack or []  # Keep track of all traversed nodes.
+        self.stack: List[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
 
-    def visit(self, node: ast.AST):
+    def visit(self, node: AST):
         self.stack.append(node)
         response = super().visit(node)
         self.stack.pop()
@@ -685,7 +686,7 @@ class _Printer(Visitor):
     def visit_field_traverser_type(self, type: ast.FieldTraverserType):
         raise HogQLException("Unexpected ast.FieldTraverserType. This should have been resolved.")
 
-    def visit_unknown(self, node: ast.AST):
+    def visit_unknown(self, node: AST):
         raise HogQLException(f"Unknown AST node {type(node).__name__}")
 
     def visit_window_expr(self, node: ast.WindowExpr):
