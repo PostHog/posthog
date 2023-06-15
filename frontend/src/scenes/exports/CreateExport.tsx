@@ -65,6 +65,7 @@ export function CreateS3Export(): JSX.Element {
     const accessKeyIdRef = useRef<HTMLInputElement>(null)
     const secretAccessKeyRef = useRef<HTMLInputElement>(null)
     const intervalRef = useRef<'hour' | 'day' | null>(null)
+    const compressionRef = useRef<'gzip' | 'none' | null>(null)
 
     const { createExport, loading, error } = useCreateExport()
 
@@ -76,7 +77,8 @@ export function CreateS3Export(): JSX.Element {
             !regionRef.current ||
             !accessKeyIdRef.current ||
             !secretAccessKeyRef.current ||
-            !intervalRef.current
+            !intervalRef.current ||
+            !compressionRef.current
         ) {
             console.warn('Missing ref')
         }
@@ -89,6 +91,7 @@ export function CreateS3Export(): JSX.Element {
         const accessKeyId = accessKeyIdRef.current?.value ?? ''
         const secretAccessKey = secretAccessKeyRef.current?.value ?? ''
         const interval = intervalRef.current ?? ''
+        const compression = compressionRef.current ?? ''
 
         const exportData = {
             name,
@@ -101,6 +104,7 @@ export function CreateS3Export(): JSX.Element {
                     batch_window_size: 3600,
                     aws_access_key_id: accessKeyId,
                     aws_secret_access_key: secretAccessKey,
+                    compression: compression,
                 },
             },
             interval: interval || 'hour',
@@ -159,6 +163,19 @@ export function CreateS3Export(): JSX.Element {
 
             <PureField htmlFor="prefix" label="Key prefix">
                 <LemonInput id="prefix" placeholder="posthog-events/" ref={prefixRef} />
+            </PureField>
+
+            <PureField htmlFor="compression" label="Compression">
+                <LemonSelect
+                    id="compression"
+                    onSelect={(value: 'none' | 'gzip') => {
+                        compressionRef.current = value
+                    }}
+                    options={[
+                        { value: 'none', label: 'None' },
+                        { value: 'gzip', label: 'GZIP' },
+                    ]}
+                />
             </PureField>
 
             <PureField htmlFor="aws-access-key-id" label="AWS Access Key ID">
