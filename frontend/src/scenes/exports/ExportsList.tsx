@@ -2,11 +2,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from '../urls'
 import { LemonButton } from '../../lib/lemon-ui/LemonButton'
 import { LemonTag } from '../../lib/lemon-ui/LemonTag/LemonTag'
-import { IconPlay, IconPause } from 'lib/lemon-ui/icons'
-import { useCurrentTeamId, useExports, useExportAction } from './api'
+import { IconPlay, IconPause, IconDelete } from 'lib/lemon-ui/icons'
+import { useCurrentTeamId, useExports, useExportAction, useDeleteExport } from './api'
 import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
+import { useCallback } from 'react'
 
 export const scene: SceneExport = {
     component: Exports,
@@ -91,7 +92,7 @@ export function Exports(): JSX.Element {
                     },
                     {
                         title: 'Actions',
-                        render: function Render(_, export_) {
+                        render: function Render(_, export_, index) {
                             const {
                                 executeExportAction: pauseExport,
                                 loading: pausing,
@@ -102,6 +103,16 @@ export function Exports(): JSX.Element {
                                 loading: resuming,
                                 error: resumeError,
                             } = useExportAction(currentTeamId, export_.id, 'unpause')
+
+                            const deleteCallback = useCallback(() => {
+                                exports.pop(index)
+                            })
+
+                            const { deleteExport, deleting, _ } = useDeleteExport(
+                                currentTeamId,
+                                export_.id,
+                                deleteCallback
+                            )
 
                             return (
                                 <div className={clsx('flex flex-wrap')}>
@@ -124,6 +135,18 @@ export function Exports(): JSX.Element {
                                         icon={export_.paused ? <IconPlay /> : <IconPause />}
                                         tooltip={export_.paused ? 'Resume this BatchExport' : 'Pause this BatchExport'}
                                         loading={pausing || resuming}
+                                        disabled={deleting}
+                                    />
+                                    <LemonButton
+                                        status="primary"
+                                        type="secondary"
+                                        onClick={() => {
+                                            deleteExport()
+                                        }}
+                                        icon={<IconDelete />}
+                                        tooltip="Permanently delete this BatchExport"
+                                        loading={deleting}
+                                        disabled={pausing || resuming}
                                     />
                                 </div>
                             )

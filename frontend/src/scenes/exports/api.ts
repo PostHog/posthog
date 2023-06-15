@@ -132,6 +132,40 @@ export const useCreateExport = (): {
     return { createExport, ...state }
 }
 
+export const useDeleteExport = (
+    teamId: number,
+    exportId: string,
+    deleteCallback: () => Promise<void>
+): {
+    deleteExport: (teamId: number, exportData: BatchExportData) => Promise<void>
+    deleting: boolean
+    error: Error | null
+} => {
+    // Return a callback that can be used to delete an export. We also include
+    // the deleting state and error. We take a callback to update any state after delete.
+    const [state, setState] = useState<{ deleting: boolean; error: Error | null }>({
+        deleting: false,
+        error: null,
+    })
+
+    const deleteExport = useCallback(() => {
+        setState({ deleting: true, error: null })
+        return api.delete(`/api/projects/${teamId}/batch_exports/${exportId}`).then((response) => {
+            if (response.ok) {
+                setState({ deleting: false, error: null })
+                deleteCallback()
+            } else {
+                // TODO: parse the error response.
+                const error = new Error(response.statusText)
+                setState({ deleting: false, error: error })
+                throw error
+            }
+        })
+    }, [teamId, exportId])
+
+    return { deleteExport, ...state }
+}
+
 export const useExportAction = (
     teamId: number,
     exportId: string,
