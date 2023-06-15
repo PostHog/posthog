@@ -190,9 +190,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                                 type="info"
                                 className="my-4"
                                 action={{
-                                    onClick: () => {
-                                        duplicateNotebook()
-                                    },
+                                    onClick: duplicateNotebook,
                                     children: 'Create notebook',
                                 }}
                             >
@@ -201,7 +199,13 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                         )}
 
                         {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
-                            <LemonBanner type="info" dismissKey="notebook-sidebar-scratchpad" className="my-4">
+                            <LemonBanner
+                                type="info"
+                                action={{
+                                    children: 'Convert to Notebook',
+                                    onClick: duplicateNotebook,
+                                }}
+                            >
                                 This is your scratchpad. It is only visible to you and is persisted only in this
                                 browser. It's a great place to gather ideas before turning into a saved Notebook!
                             </LemonBanner>

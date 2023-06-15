@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookType } from '~/types'
@@ -24,6 +24,16 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     created_by: null,
 }
 
+export const handleNotebookCreation = (notebook: NotebookListItemType): void => {
+    const sidebarLogic = notebookSidebarLogic.findMounted()
+
+    if (sidebarLogic?.values.notebookSideBarShown) {
+        sidebarLogic?.actions.selectNotebook(notebook.short_id)
+    } else {
+        router.actions.push(urls.notebookEdit(notebook.short_id))
+    }
+}
+
 export const notebooksListLogic = kea<notebooksListLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
     actions({
@@ -32,7 +42,6 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
-        handleNewNotebook: (notebook: NotebookListItemType) => ({ notebook }),
     }),
     connect({
         values: [teamLogic, ['currentTeamId']],
@@ -62,7 +71,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                     const notebook = await api.notebooks.create()
 
                     if (redirect) {
-                        actions.handleNewNotebook(notebook)
+                        handleNotebookCreation(notebook)
                     }
 
                     posthog.capture(`notebook created`, {
@@ -98,17 +107,6 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 // In the future we can load these from remote
             },
         ],
-    })),
-    listeners(({}) => ({
-        handleNewNotebook: ({ notebook }) => {
-            const sidebarLogic = notebookSidebarLogic.findMounted()
-
-            if (sidebarLogic?.values.notebookSideBarShown) {
-                sidebarLogic?.actions.selectNotebook(notebook.short_id)
-            } else {
-                router.actions.push(urls.notebookEdit(notebook.short_id))
-            }
-        },
     })),
 
     selectors({
