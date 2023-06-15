@@ -61,7 +61,7 @@ export async function eachBatchLegacyIngestion(
          * and a separate array for single messages, but let's look at profiles before optimizing.
          */
         const prepareSpan = transaction.startChild({ op: 'prepareBatch' })
-        const splitBatch = splitIngestionBatch(batch.messages, overflowMode)
+        const splitBatch = splitKafkaJSIngestionBatch(batch.messages, overflowMode)
         splitBatch.toProcess.sort((a, b) => a.length - b.length)
 
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, {
@@ -224,7 +224,7 @@ async function emitToOverflow(queue: KafkaJSIngestionConsumer, kafkaMessages: Ka
     )
 }
 
-export function splitIngestionBatch(
+export function splitKafkaJSIngestionBatch(
     kafkaMessages: KafkaMessage[],
     overflowMode: IngestionOverflowMode
 ): IngestionSplitBatch {
