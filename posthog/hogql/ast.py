@@ -165,6 +165,8 @@ class SelectQueryType(Type):
     ctes: Dict[str, CTE] = PydanticField(default_factory=dict)
     # all from and join subqueries without aliases
     anonymous_tables: List[Union["SelectQueryType", "SelectUnionQueryType"]] = PydanticField(default_factory=list)
+    # the parent select query, if this is a lambda
+    parent: Optional[Union["SelectQueryType", "SelectUnionQueryType"]] = None
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
