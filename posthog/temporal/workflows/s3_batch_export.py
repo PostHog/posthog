@@ -17,7 +17,10 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.batch_exports import get_results_iterator, get_rows_count
+from posthog.temporal.workflows.batch_exports import (
+    get_results_iterator,
+    get_rows_count,
+)
 from posthog.temporal.workflows.clickhouse import get_client
 
 if TYPE_CHECKING:
@@ -31,6 +34,8 @@ class S3InsertInputs:
     # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
     # to keep track of where credentials are being stored and increases the
     # attach surface for credential leaks.
+
+    # Adding a pointless comment to trigger CI tests.
 
     bucket_name: str
     region: str
