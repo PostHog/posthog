@@ -8,7 +8,6 @@ import { useCurrentTeamId, useExports, useExportAction, useDeleteExport } from '
 import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
-import { useCallback } from 'react'
 
 export const scene: SceneExport = {
     component: Exports,
@@ -108,15 +107,11 @@ export function Exports(): JSX.Element {
 
                             const { deleteExport, error: deleteError } = useDeleteExport(currentTeamId, export_.id)
 
-                            const deleteCallback = useCallback(() => {
-                                exports.pop(index)
-                            })
-
-                            const { deleteExport, deleting, _ } = useDeleteExport(
-                                currentTeamId,
-                                export_.id,
-                                deleteCallback
-                            )
+                            const {
+                                deleteExport,
+                                deleting,
+                                error: deleteError,
+                            } = useDeleteExport(currentTeamId, export_.id)
 
                             return (
                                 <div className={clsx('flex flex-wrap gap-2')}>
