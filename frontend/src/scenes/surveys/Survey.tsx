@@ -93,7 +93,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             htmlType="submit"
                             loading={surveyLoading}
                         >
-                            Save
+                            {id === 'new' ? 'Save as draft' : 'Save'}
                         </LemonButton>
                     </div>
                 }
@@ -248,7 +248,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     Cancel
                 </LemonButton>
                 <LemonButton type="primary" data-attr="save-feature-flag" htmlType="submit" loading={surveyLoading}>
-                    Save
+                    {id === 'new' ? 'Save as draft' : 'Save'}
                 </LemonButton>
             </div>
         </Form>
