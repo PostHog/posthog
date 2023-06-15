@@ -100,6 +100,7 @@ class _KafkaProducer:
         kafka_hosts=None,
         kafka_security_protocol=None,
         max_message_bytes=None,
+        compression_type=None,
     ):
         if kafka_security_protocol is None:
             kafka_security_protocol = settings.KAFKA_SECURITY_PROTOCOL
@@ -117,6 +118,7 @@ class _KafkaProducer:
                 retries=KAFKA_PRODUCER_RETRIES,
                 bootstrap_servers=kafka_hosts,
                 security_protocol=kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+                compression_type=compression_type,
                 **{"max.message.bytes": max_message_bytes} if max_message_bytes else {},
                 **_sasl_params(),
             )

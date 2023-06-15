@@ -168,6 +168,9 @@ KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
 SESSION_RECORDING_KAFKA_URL = os.getenv("SESSION_RECORDING_KAFKA_URL", "")
 SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(SESSION_RECORDING_KAFKA_URL)
 
+# can set ('gzip', 'snappy', 'lz4', None)
+SESSION_RECORDING_KAFKA_COMPRESSION = os.getenv("SESSION_RECORDING_KAFKA_COMPRESSION", None)
+
 # To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
 # Kafka Topics. See
 # https://devcenter.heroku.com/articles/multi-tenant-kafka-on-heroku#differences-to-dedicated-kafka-plans

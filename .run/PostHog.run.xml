@@ -15,8 +15,8 @@
       <env name="PRINT_SQL" value="1" />
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO" value="1" />
-      <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
       <env name="SESSION_RECORDING_KAFKA_URL" value="kafka://localhost" />
+      <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="SDK_NAME" value="Python 3.10 (posthog)" />
