@@ -99,7 +99,6 @@ export async function eachBatchParallelIngestion(
                     if (result.promises) {
                         processingPromises.push(...result.promises)
                     }
-                    await eachMessage(message, queue)
                 }
 
                 processedBatches++
