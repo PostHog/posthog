@@ -274,11 +274,15 @@ class _Printer(Visitor):
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
-        elif isinstance(node.type, ast.LazyTableType) and self.dialect == "hogql":
-            join_strings.append(self._print_identifier(node.type.table.hogql_table()))
-
+        elif isinstance(node.type, ast.LazyTableType):
+            if self.dialect == "hogql":
+                join_strings.append(self._print_identifier(node.type.table.hogql_table()))
+            else:
+                raise HogQLException(f"Unexpected LazyTableType for: {node.type.table.hogql_table()}")
         else:
-            raise HogQLException("Only selecting from a table or a subquery is supported")
+            raise HogQLException(
+                f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
+            )
 
         if node.table_final:
             join_strings.append("FINAL")
