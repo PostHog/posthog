@@ -4,7 +4,13 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, EarlyAccessFeatureStage, EarlyAccessFeatureType, NewEarlyAccessFeatureType } from '~/types'
+import {
+    Breadcrumb,
+    EarlyAccessFeatureStage,
+    EarlyAccessFeatureTabs,
+    EarlyAccessFeatureType,
+    NewEarlyAccessFeatureType,
+} from '~/types'
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -35,8 +41,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
-        releaseBeta: true,
+        updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
+        setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
     }),
     loaders(({ props }) => ({
         earlyAccessFeature: {
@@ -88,6 +95,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 toggleImplementOptInInstructionsModal: (state) => !state,
             },
         ],
+        activeTab: [
+            EarlyAccessFeatureTabs.OptedIn as EarlyAccessFeatureTabs,
+            {
+                setActiveTab: (_, { activeTab }) => activeTab,
+            },
+        ],
     }),
     selectors({
         mode: [(_, p) => [p.id], (id): 'view' | 'edit' => (id === 'new' ? 'edit' : 'view')],
@@ -110,11 +123,11 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             }
             actions.editFeature(false)
         },
-        releaseBeta: async () => {
+        updateStage: async ({ stage }) => {
             'id' in values.earlyAccessFeature &&
                 (await api.earlyAccessFeatures.update(props.id, {
                     ...values.earlyAccessFeature,
-                    stage: EarlyAccessFeatureStage.Beta,
+                    stage: stage,
                 }))
             actions.loadEarlyAccessFeature()
             actions.loadEarlyAccessFeatures()

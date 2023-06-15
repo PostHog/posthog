@@ -259,7 +259,14 @@ const eachMessage =
 
         if (team.session_recording_opt_in) {
             try {
-                if (event.event === '$snapshot') {
+                if (event.event === '$snapshot_items') {
+                    eventDroppedCounter
+                        .labels({
+                            event_type: 'session_recordings',
+                            drop_cause: 'recordings-consumer-does-not-handle-snapshot-items',
+                        })
+                        .inc()
+                } else if (event.event === '$snapshot') {
                     const clickHouseRecord = createSessionRecordingEvent(
                         messagePayload.uuid,
                         team.id,
