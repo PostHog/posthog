@@ -5,12 +5,7 @@ import { offset } from '@floating-ui/react'
 
 import './TableCellSparkline.scss'
 
-export interface SparklineDataset {
-    dates?: string[]
-    data: number[]
-}
-
-export function TableCellSparkline({ dataset }: { dataset: SparklineDataset }): JSX.Element {
+export function TableCellSparkline({ labels, data }: { labels?: string[]; data: number[] }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -18,7 +13,9 @@ export function TableCellSparkline({ dataset }: { dataset: SparklineDataset }): 
     const [popoverOffset, setPopoverOffset] = useState(0)
 
     useEffect(() => {
-        if (!dataset) {
+        // data should always be provided but React can render this without it,
+        // so, fall back to an empty array for safety
+        if (data === undefined) {
             return
         }
 
@@ -27,10 +24,10 @@ export function TableCellSparkline({ dataset }: { dataset: SparklineDataset }): 
             chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
                 type: 'bar',
                 data: {
-                    labels: dataset.dates || dataset.data.map(() => ''),
+                    labels: labels || data.map(() => ''),
                     datasets: [
                         {
-                            data: dataset.data,
+                            data: data,
                             minBarLength: 3,
                             hoverBackgroundColor: 'brand-blue',
                         },
@@ -79,7 +76,7 @@ export function TableCellSparkline({ dataset }: { dataset: SparklineDataset }): 
         return () => {
             chart?.destroy()
         }
-    }, [dataset])
+    }, [labels, data])
 
     return (
         <div className="TableCellSparkline">

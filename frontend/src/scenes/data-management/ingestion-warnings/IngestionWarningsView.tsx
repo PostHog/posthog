@@ -156,14 +156,7 @@ export function IngestionWarningsView(): JSX.Element {
                             {
                                 title: 'Graph',
                                 render: function Render(_, summary: IngestionWarningSummary) {
-                                    return (
-                                        <TableCellSparkline
-                                            dataset={{
-                                                dates,
-                                                data: summaryDatasets[summary.type],
-                                            }}
-                                        />
-                                    )
+                                    return <TableCellSparkline labels={dates} data={summaryDatasets[summary.type]} />
                                 },
                             },
                             {

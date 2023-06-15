@@ -65,7 +65,7 @@ export function renderColumn(
                         object[value[i]] = value[i + 1]
                     }
                     if ('results' in object && Array.isArray(object.results)) {
-                        return <TableCellSparkline dataset={{ data: object.results }} />
+                        return <TableCellSparkline data={object.results} />
                     }
                 }
 
