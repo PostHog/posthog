@@ -49,10 +49,10 @@ class RawPersonDistinctIdTable(Table):
     is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person_distinct_id2"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "raw_person_distinct_ids"
 
 
@@ -67,8 +67,8 @@ class PersonDistinctIdTable(LazyTable):
     def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_person_distinct_ids_table(requested_fields)
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person_distinct_id2"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "person_distinct_ids"

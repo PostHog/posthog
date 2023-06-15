@@ -1,5 +1,4 @@
 # Web app specific settings/middleware/apps setup
-# :NOTE: posthog-cloud modifies some of these values
 import os
 from datetime import timedelta
 from typing import List
@@ -92,7 +91,9 @@ MIDDLEWARE = [
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
     "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
+    "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
+
 
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")

@@ -154,6 +154,14 @@ class TestLazyJoins(BaseTest):
         )
         self.assertEqual(printed, expected)
 
+    def test_select_count_from_lazy_table(self):
+        printed = self._print_select("select count() from persons")
+        expected = (
+            f"SELECT count() FROM (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) "
+            f"GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons LIMIT 10000"
+        )
+        self.assertEqual(printed, expected)
+
     def _print_select(self, select: str):
         expr = parse_select(select)
         return print_ast(expr, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse")

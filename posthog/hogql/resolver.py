@@ -5,7 +5,7 @@ from uuid import UUID
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import StringJSONDatabaseField
+from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -198,15 +198,17 @@ class Resolver(CloningVisitor):
 
             if self.database.has_table(table_name):
                 database_table = self.database.get_table(table_name)
-                if isinstance(database_table, ast.LazyTable):
+                if isinstance(database_table, LazyTable):
                     node_table_type = ast.LazyTableType(table=database_table)
                 else:
                     node_table_type = ast.TableType(table=database_table)
 
-                if table_alias == table_name:
-                    node_type = node_table_type
-                else:
+                # Always add an alias for function call tables. This way `select table.* from table` is replaced with
+                # `select table.* from something() as table`, and not with `select something().* from something()`.
+                if table_alias != table_name or isinstance(database_table, FunctionCallTable):
                     node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
+                else:
+                    node_type = node_table_type
                 scope.tables[table_alias] = node_type
 
                 # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
@@ -217,6 +219,11 @@ class Resolver(CloningVisitor):
                 node.next_join = self.visit(node.next_join)
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
+
+                # In case we had a function call table, and had to add an alias where none was present, mark it here
+                if isinstance(node_type, ast.TableAliasType) and node.alias is None:
+                    node.alias = node_type.alias
+
                 return node
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
@@ -279,7 +286,8 @@ class Resolver(CloningVisitor):
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
-        node_type = ast.SelectQueryType()
+        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None)
+
         for arg in node.args:
             node_type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
 
@@ -440,6 +448,10 @@ def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.
             raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
         elif len(tables_with_field) == 1:
             return tables_with_field[0].get_child(name)
+
+        if scope.parent:
+            return lookup_field_by_name(scope.parent, name)
+
         return None
 
 

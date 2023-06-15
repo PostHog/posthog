@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Any
 
 from posthog.hogql.database.database import Database
 from posthog.utils import PersonOnEventsMode
@@ -31,3 +31,8 @@ class HogQLContext:
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
+
+    def add_value(self, value: Any) -> str:
+        key = f"hogql_val_{len(self.values)}"
+        self.values[key] = value
+        return f"%({key})s"
