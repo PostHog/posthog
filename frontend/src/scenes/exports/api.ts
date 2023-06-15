@@ -23,7 +23,12 @@ type UseExportsReturnType = {
     exports?: BatchExport[]
 }
 
-export const useExports = (teamId: number): UseExportsReturnType => {
+export const useExports = (
+    teamId: number
+): {
+    exportsState: UseExportsReturnType
+    updateCallback: () => Promise<void>
+} => {
     // Returns a list of exports for the given team. While we are fetching the
     // list, we return a loading: true as part of the state. On component
     // unmount we ensure that we clean up the fetch request by use of the
@@ -36,24 +41,31 @@ export const useExports = (teamId: number): UseExportsReturnType => {
         error: undefined,
     })
 
+    const updateCallback = useCallback(
+        (signal) => {
+            fetch(`/api/projects/${teamId}/batch_exports/`, { signal })
+                .then((response) => response.json() as Promise<BatchExportsResponse>)
+                .then((data) => {
+                    setExports({ loading: false, exports: data.results, error: undefined })
+                })
+                .catch((error) => {
+                    setExports({ loading: false, exports: undefined, error })
+                })
+        },
+        [teamId]
+    )
+
     // Make the actual fetch request as a side effect.
     useEffect(() => {
         const controller = new AbortController()
         const signal = controller.signal
 
-        fetch(`/api/projects/${teamId}/batch_exports/`, { signal })
-            .then((response) => response.json() as Promise<BatchExportsResponse>)
-            .then((data) => {
-                setExports({ loading: false, exports: data.results, error: undefined })
-            })
-            .catch((error) => {
-                setExports({ loading: false, exports: undefined, error })
-            })
+        updateCallback(signal)
 
         return () => controller.abort()
     }, [teamId])
 
-    return state
+    return { exportsState: state, updateCallback }
 }
 
 type S3Destination = {
@@ -134,10 +146,9 @@ export const useCreateExport = (): {
 
 export const useDeleteExport = (
     teamId: number,
-    exportId: string,
-    deleteCallback: () => Promise<void>
+    exportId: string
 ): {
-    deleteExport: (teamId: number, exportData: BatchExportData) => Promise<void>
+    deleteExport: () => Promise<void>
     deleting: boolean
     error: Error | null
 } => {
@@ -153,7 +164,6 @@ export const useDeleteExport = (
         return api.delete(`/api/projects/${teamId}/batch_exports/${exportId}`).then((response) => {
             if (response.ok) {
                 setState({ deleting: false, error: null })
-                deleteCallback()
             } else {
                 // TODO: parse the error response.
                 const error = new Error(response.statusText)

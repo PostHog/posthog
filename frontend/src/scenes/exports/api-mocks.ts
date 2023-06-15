@@ -62,7 +62,7 @@ export const createExportServiceHandlers = (
             },
         },
         delete: {
-            '/api/projects/:team_id/batch_exports/:export_id': (req: any, res: any, ctx: any) => {
+            '/api/projects/:team_id/batch_exports/:export_id': (_: any, res: any, ctx: any) => {
                 return res(ctx.delay(1000))
             },
         },
