@@ -1,4 +1,4 @@
-import { Attributes, NodeViewProps, NodeViewWrapper } from '@tiptap/react'
+import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
 import { ReactNode, useCallback, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
@@ -11,7 +11,6 @@ import { useInView } from 'react-intersection-observer'
 import { posthog } from 'posthog-js'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
