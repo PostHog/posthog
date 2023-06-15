@@ -66,6 +66,7 @@
     border-collapse: collapse;
     border-spacing: 0;
     > thead {
+        position: relative;
         border-bottom: 1px solid var(--border);
         background: var(--mid);
         font-size: 0.75rem;
