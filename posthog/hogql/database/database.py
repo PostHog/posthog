@@ -25,6 +25,7 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTa
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, RawPersonOverridesTable
 from posthog.hogql.database.schema.session_recording_events import SessionRecordingEvents
+from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import HogQLException
@@ -43,9 +44,11 @@ class Database(BaseModel):
     person_overrides: PersonOverridesTable = PersonOverridesTable()
 
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
+    session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
 
+    raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdTable = RawPersonDistinctIdTable()
     raw_persons: RawPersonsTable = RawPersonsTable()
     raw_groups: RawGroupsTable = RawGroupsTable()
