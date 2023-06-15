@@ -45,6 +45,8 @@
             font-size: 20px;
             min-height: 24px;
             margin-bottom: 4px;
+            white-space: normal;
+            line-height: 1.2;
 
             svg.taxonomy-icon {
                 font-size: 1.5rem;
@@ -88,7 +90,7 @@
 
     .definition-popover-timemeta {
         display: inline;
-        margin-top: 4px;
+        margin-top: 8px;
         margin-bottom: 4px;
 
         .definition-popover-timemeta-user {
@@ -122,30 +124,10 @@
                 letter-spacing: 0.5px;
                 text-transform: uppercase;
                 color: var(--muted);
-                margin-bottom: 4px;
             }
 
             .definition-popover-grid-card-content {
-                ul {
-                    padding-inline-start: 1rem;
-                    margin-bottom: 0;
-
-                    > li {
-                        span {
-                            display: flex;
-                            flex-wrap: wrap;
-                            align-items: center;
-                        }
-
-                        pre {
-                            background-color: var(--mid);
-                            padding: 0 4px;
-                            font-size: 12px;
-                            margin: 2px 0.25rem 1px;
-                            border-radius: 4px;
-                        }
-                    }
-                }
+                margin-top: 0.25rem;
             }
         }
     }
@@ -172,20 +154,6 @@
                         color: black;
                         font-weight: normal;
                     }
-                }
-            }
-        }
-
-        .definition-popover-edit-form-buttons {
-            display: flex;
-            justify-content: space-between;
-
-            .definition-popover-edit-form-buttons-secondary {
-                color: var(--primary);
-
-                &:hover,
-                &:focus {
-                    border-color: var(--primary);
                 }
             }
         }
