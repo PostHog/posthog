@@ -819,12 +819,11 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .font-sans {
-    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
-        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    font-family: var(--font-sans);
 }
 
 .font-mono {
-    font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 .opacity-0 {
