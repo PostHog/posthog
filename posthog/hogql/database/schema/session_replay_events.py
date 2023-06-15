@@ -42,10 +42,10 @@ class RawSessionReplayEventsTable(Table):
     def avoid_asterisk_fields(self) -> List[str]:
         return ["first_url"]
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "session_replay_events"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "raw_session_replay_events"
 
 
@@ -104,8 +104,8 @@ class SessionReplayEventsTable(LazyTable):
     def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_session_replay_events_table(requested_fields)
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self):
         return "session_replay_events"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "session_replay_events"
