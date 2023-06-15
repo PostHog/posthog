@@ -1,8 +1,12 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from '../urls'
-import { Link } from '../../lib/lemon-ui/Link'
-import { useCurrentTeamId, useExports } from './api'
 import { LemonButton } from '../../lib/lemon-ui/LemonButton'
+import { LemonTag } from '../../lib/lemon-ui/LemonTag/LemonTag'
+import { IconPlay, IconPause } from 'lib/lemon-ui/icons'
+import { useCurrentTeamId, useExports, useExportAction } from './api'
+import { LemonTable } from '../../lib/lemon-ui/LemonTable'
+import { Link } from 'lib/lemon-ui/Link'
+import clsx from 'clsx'
 
 export const scene: SceneExport = {
     component: Exports,
@@ -44,29 +48,89 @@ export function Exports(): JSX.Element {
     return (
         <>
             <h1>Exports</h1>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Type</th>
-                        <th>Frequency</th>
-                        <th>Status</th>
-                        <th>Last run</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {exports.map((export_) => (
-                        <tr key={export_.id}>
-                            <td>
-                                <Link to={urls.viewExport(export_.id)}>{export_.name}</Link>
-                            </td>
-                            <td>{export_.destination.type}</td>
-                            <td>{export_.interval}</td>
-                            <td>{export_.status}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            <LemonTable
+                dataSource={exports}
+                columns={[
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        render: function RenderName(_, export_) {
+                            return <Link to={urls.viewExport(export_.id)}>{export_.name}</Link>
+                        },
+                    },
+                    {
+                        title: 'Type',
+                        key: 'type',
+                        render: function RenderType(_, export_) {
+                            return <>{export_.destination.type}</>
+                        },
+                    },
+                    {
+                        title: 'Status',
+                        key: 'status',
+                        render: function RenderStatus(_, export_) {
+                            return (
+                                <>
+                                    {export_.paused === true ? (
+                                        <LemonTag type="default" className="uppercase">
+                                            Paused
+                                        </LemonTag>
+                                    ) : (
+                                        <LemonTag type="primary" className="uppercase">
+                                            Running
+                                        </LemonTag>
+                                    )}
+                                </>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Frequency',
+                        key: 'frequency',
+                        dataIndex: 'interval',
+                    },
+                    {
+                        title: 'Actions',
+                        render: function Render(_, export_) {
+                            const {
+                                executeExportAction: pauseExport,
+                                loading: pausing,
+                                error: pauseError,
+                            } = useExportAction(currentTeamId, export_.id, 'pause')
+                            const {
+                                executeExportAction: resumeExport,
+                                loading: resuming,
+                                error: resumeError,
+                            } = useExportAction(currentTeamId, export_.id, 'unpause')
+
+                            return (
+                                <div className={clsx('flex flex-wrap')}>
+                                    <LemonButton
+                                        status="primary"
+                                        type="secondary"
+                                        onClick={() => {
+                                            export_.paused
+                                                ? resumeExport().then(() => {
+                                                      if (resumeError === null) {
+                                                          export_.paused = false
+                                                      }
+                                                  })
+                                                : pauseExport().then(() => {
+                                                      if (pauseError === null) {
+                                                          export_.paused = true
+                                                      }
+                                                  })
+                                        }}
+                                        icon={export_.paused ? <IconPlay /> : <IconPause />}
+                                        tooltip={export_.paused ? 'Resume this BatchExport' : 'Pause this BatchExport'}
+                                        loading={pausing || resuming}
+                                    />
+                                </div>
+                            )
+                        },
+                    },
+                ]}
+            />
             <LemonButton to={urls.createExport()}>Create export</LemonButton>
             {/* If we are loading, we overlay a spinner */}
             {loading && <div>Loading...</div>}

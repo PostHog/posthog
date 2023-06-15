@@ -80,22 +80,6 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
                     },
                 ]
             },
-            "start_and_end_times_by_window_id": {
-                "window_1": {
-                    "window_id": "window_1",
-                    "start_time": "2021-12-30 12:00:00+00:00",
-                    "end_time": "2021-12-30 14:00:00+00:00",
-                    "is_active": False,
-                }
-            },
-            "segments": [
-                {
-                    "start_time": "2021-12-30 12:00:00+00:00",
-                    "end_time": "2021-12-30 14:00:00+00:00",
-                    "window_id": "window_1",
-                    "is_active": False,
-                }
-            ],
         }
 
     @patch("ee.models.session_recording_extensions.report_team_action")

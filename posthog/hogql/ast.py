@@ -8,7 +8,6 @@ from pydantic import Field as PydanticField
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database.models import (
     DatabaseField,
-    ExternalTable,
     FieldTraverser,
     LazyJoin,
     StringJSONDatabaseField,
@@ -19,6 +18,8 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
     BooleanDatabaseField,
+    DateDatabaseField,
+    FloatDatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -59,7 +60,7 @@ class Type(AST):
 
 
 class Expr(AST):
-    type: Optional[Type]
+    type: Optional[Type] = None
 
 
 class CTE(Expr):
@@ -105,8 +106,6 @@ class BaseTableType(Type):
                 return FieldTraverserType(table_type=self, chain=field.chain)
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
-            if isinstance(field, ExternalTable):
-                return ExternalTableType(table_type=self, field=name)
             return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field not found: {name}")
 
@@ -152,16 +151,6 @@ class VirtualTableType(BaseTableType):
 
     def has_child(self, name: str) -> bool:
         return self.virtual_table.has_field(name)
-
-
-class ExternalTableType(BaseTableType):
-    table: ExternalTable
-
-    def resolve_database_table(self) -> Table:
-        import ipdb
-
-        ipdb.set_trace()
-        return self.table
 
 
 TableOrSelectType = Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
@@ -292,7 +281,7 @@ class AsteriskType(Type):
 
 
 class FieldTraverserType(Type):
-    chain: List[str]
+    chain: List[str | int]
     table_type: TableOrSelectType
 
 
@@ -311,15 +300,19 @@ class FieldType(Type):
         database_field = self.resolve_database_field()
         if isinstance(database_field, IntegerDatabaseField):
             return IntegerType()
+        elif isinstance(database_field, FloatDatabaseField):
+            return FloatType()
         elif isinstance(database_field, StringDatabaseField):
             return StringType()
         elif isinstance(database_field, BooleanDatabaseField):
             return BooleanType()
         elif isinstance(database_field, DateTimeDatabaseField):
             return DateTimeType()
+        elif isinstance(database_field, DateDatabaseField):
+            return DateType()
         return UnknownType()
 
-    def get_child(self, name: str) -> Type:
+    def get_child(self, name: str | int) -> Type:
         database_field = self.resolve_database_field()
         if database_field is None:
             raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
@@ -331,18 +324,22 @@ class FieldType(Type):
 
 
 class PropertyType(Type):
-    chain: List[str]
+    chain: List[str | int]
     field_type: FieldType
 
     # The property has been moved into a field we query from a joined subquery
     joined_subquery: Optional[SelectQueryAliasType]
     joined_subquery_field_name: Optional[str]
 
-    def get_child(self, name: str) -> "Type":
+    def get_child(self, name: str | int) -> "Type":
         return PropertyType(chain=self.chain + [name], field_type=self.field_type)
 
-    def has_child(self, name: str) -> bool:
+    def has_child(self, name: str | int) -> bool:
         return True
+
+    class Config:
+        # Without this, pydantic converts all integers in "chain" into strings, breaking array access
+        smart_union = True
 
 
 class LambdaArgumentType(Type):
@@ -446,7 +443,7 @@ class Constant(Expr):
 
 
 class Field(Expr):
-    chain: List[str]
+    chain: List[str | int]
 
 
 class Placeholder(Expr):

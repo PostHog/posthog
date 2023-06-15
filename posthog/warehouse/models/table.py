@@ -10,9 +10,8 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     IntegerDatabaseField,
     DateTimeDatabaseField,
-    ExternalTable,
-    LazyTable,
 )
+from posthog.hogql.database.s3_table import S3Table
 from pydantic import create_model
 
 ClickhouseHogqlMapping = {
@@ -72,7 +71,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             self._safe_expose_ch_error(err)
         return {item[0]: item[1] for item in result}
 
-    def hogql_definition(self) -> ExternalTable:
+    def hogql_definition(self) -> S3Table:
         if not self.columns:
             raise Exception("Columns must be fetched and saved to use in HogQL.")
 
@@ -91,8 +90,8 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         }
         name = self.name
 
-        class TableWithOverride(LazyTable):
-            def hogql_table(self):
+        class TableWithOverride(S3Table):
+            def print_hogql_table(self):
                 return name
 
             def clickhouse_table(self):

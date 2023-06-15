@@ -343,6 +343,8 @@ def parse_prop_clauses(
             final.append(f"{property_operator} {filter_query}")
             params.update(filter_params)
         elif prop.type == "hogql":
+            if hogql_context is None:
+                raise ValueError("HogQL is not supported here")
             from posthog.hogql.hogql import translate_hogql
 
             filter_query = translate_hogql(prop.key, hogql_context)

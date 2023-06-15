@@ -1,9 +1,17 @@
 # HogQL -> ClickHouse allowed transformations
-from typing import Optional, Dict, Tuple, Literal
+from datetime import date, datetime
+from typing import Optional, Dict, Tuple, Literal, TypeAlias
+from uuid import UUID
 
 from pydantic import BaseModel, Extra
 
-ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
+ConstantDataType: TypeAlias = Literal[
+    "int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"
+]
+ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None
+ConstantSupportedData: TypeAlias = (
+    ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
+)
 
 CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     # arithmetic
@@ -530,6 +538,7 @@ HOGQL_AGGREGATIONS = {
     "argMinIf": 3,
     "argMax": 2,
     "argMaxIf": 3,
+    "argMinMerge": 1,
     "avgWeighted": 2,
     "avgWeightedIf": 3,
     # "topK": 1,
@@ -681,5 +690,5 @@ class HogQLSettings(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    readonly: Optional[int] = 1
+    readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60

@@ -15,11 +15,12 @@
          "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -59,6 +60,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",

@@ -41,6 +41,7 @@ import {
     NewEarlyAccessFeatureType,
     Survey,
     NotebookType,
+    DashboardTemplateListParams,
     PropertyDefinitionType,
     DataWarehouseTable,
 } from '~/types'
@@ -710,7 +711,8 @@ const api = {
             offset?: number
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
-        }): Promise<PaginatedResponse<EventDefinition>> {
+            search?: string
+        }): Promise<CountedPaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
@@ -725,6 +727,7 @@ const api = {
             offset?: number
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
+            search?: string
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -767,8 +770,9 @@ const api = {
             type?: PropertyDefinitionType
             limit?: number
             offset?: number
+            search?: string
             teamId?: TeamType['id']
-        }): Promise<PaginatedResponse<PropertyDefinition>> {
+        }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
             return new ApiRequest()
                 .propertyDefinitions(teamId)
                 .withQueryString(
@@ -791,6 +795,7 @@ const api = {
             is_feature_flag?: boolean
             limit?: number
             offset?: number
+            search?: string
             teamId?: TeamType['id']
             type?: PropertyDefinitionType
             group_type_index?: number
@@ -860,8 +865,8 @@ const api = {
     },
 
     dashboardTemplates: {
-        async list(): Promise<PaginatedResponse<DashboardTemplateType>> {
-            return await new ApiRequest().dashboardTemplates().get()
+        async list(params: DashboardTemplateListParams = {}): Promise<PaginatedResponse<DashboardTemplateType>> {
+            return await new ApiRequest().dashboardTemplates().withQueryString(toParams(params)).get()
         },
 
         async get(dashboardTemplateId: DashboardTemplateType['id']): Promise<DashboardTemplateType> {
@@ -1218,10 +1223,7 @@ const api = {
         async delete(surveyId: Survey['id']): Promise<void> {
             await new ApiRequest().survey(surveyId).delete()
         },
-        async update(
-            surveyId: Survey['id'],
-            data: Pick<Survey, 'name' | 'description' | 'linked_flag' | 'start_date' | 'end_date'>
-        ): Promise<Survey> {
+        async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
         },
     },

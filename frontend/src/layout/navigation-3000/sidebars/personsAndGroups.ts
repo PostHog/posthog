@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import type { personsAndGroupsSidebarLogicType } from './personsAndGroupsType'
@@ -49,27 +49,26 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
         contents: [
             (s) => [s.persons, s.infinitePersons, s.personsLoading, s.groupTypes, s.groups, s.groupsLoading],
             (persons, infinitePersons, personsLoading, groupTypes, groups, groupsLoading): SidebarCategory[] => {
-                const items = infinitePersons.map((person) => {
-                    if (!person) {
-                        return person
-                    }
-                    const name = asDisplay(person)
-                    // It is not typical to use `values` in a selector instead of a selector dependency,
-                    // but this is intentional: we only want to take the new search term into account AFTER
-                    // person results using it have been loaded.
-                    const { searchTerm } = values
-                    return {
-                        key: person.distinct_ids,
-                        name: asDisplay(person),
-                        url: asLink(person),
-                        searchMatch: findSearchTermInItemName(name, searchTerm),
-                    } as BasicListItem
-                })
                 return [
                     {
                         key: 'persons',
                         title: 'Persons',
-                        items,
+                        items: infinitePersons.map((person) => {
+                            if (!person) {
+                                return person
+                            }
+                            const name = asDisplay(person)
+                            // It is not typical to use `values` in a selector instead of a selector dependency,
+                            // but this is intentional: we only want to take the new search term into account AFTER
+                            // person results using it have been loaded.
+                            const { searchTerm } = values
+                            return {
+                                key: person.distinct_ids,
+                                name: asDisplay(person),
+                                url: asLink(person),
+                                searchMatch: findSearchTermInItemName(name, searchTerm),
+                            } as BasicListItem
+                        }),
                         loading: personsLoading,
                         remote: {
                             isItemLoaded: (index) => !!(cache.requestedPersons[index] || infinitePersons[index]),
@@ -170,6 +169,14 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
         // kea-typegen doesn't like selectors without deps, so searchTerm is just for appearances
         debounceSearch: [(s) => [s.searchTerm], () => true],
     })),
+    listeners(({ cache }) => ({
+        loadPersons: async ({ url }) => {
+            const offset = url ? parseInt(new URL(url).searchParams.get('offset') || '0') : 0
+            if (offset === 0) {
+                cache.requestedPersons.length = 0 // Clear cache
+            }
+        },
+    })),
     subscriptions(({ actions, values }) => ({
         searchTerm: (searchTerm) => {
             actions.setPersonsListFilters({ search: searchTerm })
@@ -179,7 +186,8 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
             }
         },
     })),
-    afterMount(({ cache }) => {
+    afterMount(({ actions, cache }) => {
         cache.requestedPersons = []
+        actions.loadPersons()
     }),
 ])

@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
+from posthog.constants import FlagRequestType
 from posthog.redis import redis, get_client
 import time
 from sentry_sdk import capture_exception
@@ -11,47 +12,83 @@ REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
 
 
-def get_team_request_key(team_id: int) -> str:
-    return f"posthog:decide_requests:{team_id}"
+def get_team_request_key(team_id: int, request_type: FlagRequestType) -> str:
+    if request_type == FlagRequestType.DECIDE:
+        return f"posthog:decide_requests:{team_id}"
+    elif request_type == FlagRequestType.LOCAL_EVALUATION:
+        return f"posthog:local_evaluation_requests:{team_id}"
+    else:
+        raise ValueError(f"Unknown request type: {request_type}")
 
 
-def increment_request_count(team_id: int, count: int = 1) -> None:
+def increment_request_count(
+    team_id: int, count: int = 1, request_type: FlagRequestType = FlagRequestType.DECIDE
+) -> None:
     try:
         client = get_client()
         time_bucket = str(int(time.time() / CACHE_BUCKET_SIZE))
-        key_name = get_team_request_key(team_id)
+        key_name = get_team_request_key(team_id, request_type)
         client.hincrby(key_name, time_bucket, count)
     except Exception as error:
         capture_exception(error)
 
 
+def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) -> Tuple[int, int, int]:
+    total_count = 0
+    existing_values = client.hgetall(key)
+    time_buckets = existing_values.keys()
+    min_time = int(time.time())
+    max_time = 0
+    # The latest bucket is still being filled, so we don't want to delete it nor count it.
+    # It will be counted in a later iteration, when it's not being filled anymore.
+    if time_buckets and len(time_buckets) > 1:
+        # redis returns encoded bytes, so we need to convert them into unix epoch for sorting
+        for time_bucket in sorted(time_buckets, key=lambda bucket: int(bucket))[:-1]:
+            min_time = min(min_time, int(time_bucket) * CACHE_BUCKET_SIZE)
+            max_time = max(max_time, int(time_bucket) * CACHE_BUCKET_SIZE)
+            total_count += int(existing_values[time_bucket])
+            client.hdel(key, time_bucket)
+
+    return total_count, min_time, max_time
+
+
 def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str) -> None:
     try:
         client = get_client()
-        total_request_count = 0
+        total_decide_request_count = 0
+        total_local_evaluation_request_count = 0
 
         with client.lock(f"{REDIS_LOCK_TOKEN}:{team_id}", timeout=60, blocking=False):
-            key_name = get_team_request_key(team_id)
-            existing_values = client.hgetall(key_name)
-            time_buckets = existing_values.keys()
-            min_time = time.time()
-            max_time = 0
-            # The latest bucket is still being filled, so we don't want to delete it nor count it.
-            # It will be counted in a later iteration, when it's not being filled anymore.
-            if time_buckets and len(time_buckets) > 1:
-                # redis returns encoded bytes, so we need to convert them into unix epoch for sorting
-                for time_bucket in sorted(time_buckets, key=lambda bucket: int(bucket))[:-1]:
-                    min_time = min(min_time, int(time_bucket) * CACHE_BUCKET_SIZE)
-                    max_time = max(max_time, int(time_bucket) * CACHE_BUCKET_SIZE)
-                    total_request_count += int(existing_values[time_bucket])
-                    client.hdel(key_name, time_bucket)
+            decide_key_name = get_team_request_key(team_id, FlagRequestType.DECIDE)
+            total_decide_request_count, min_time, max_time = _extract_total_count_for_key_from_redis_hash(
+                client, decide_key_name
+            )
 
-            if total_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
+            if total_decide_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
                 ph_client.capture(
                     team_id,
                     "decide usage",
                     {
-                        "count": total_request_count,
+                        "count": total_decide_request_count,
+                        "team_id": team_id,
+                        "team_uuid": team_uuid,
+                        "min_time": min_time,
+                        "max_time": max_time,
+                        "token": settings.DECIDE_BILLING_ANALYTICS_TOKEN,
+                    },
+                )
+
+            local_evaluation_key_name = get_team_request_key(team_id, FlagRequestType.LOCAL_EVALUATION)
+            total_local_evaluation_request_count, min_time, max_time = _extract_total_count_for_key_from_redis_hash(
+                client, local_evaluation_key_name
+            )
+
+            if total_local_evaluation_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
+                ph_client.capture(
+                    team_id,
+                    "local evaluation usage",
+                    {
+                        "count": total_local_evaluation_request_count,
                         "team_id": team_id,
                         "team_uuid": team_uuid,
                         "min_time": min_time,
