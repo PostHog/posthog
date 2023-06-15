@@ -207,4 +207,33 @@ describe('parseEventTimestamp()', () => {
 
         expect(timestamp.toISO()).toEqual('2021-10-29T01:00:00.000Z')
     })
+
+    it('reports event_timestamp_in_past with sent_at', () => {
+        const event = {
+            timestamp: '2014-10-29T02:30:00.000Z',
+            sent_at: '2021-10-28T01:00:00.000Z',
+            now: '2021-10-29T01:00:00.000Z',
+            event: 'test event name',
+            uuid: '12345678-1234-1234-1234-123456789abc',
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls).toEqual([
+            [
+                'event_timestamp_in_past',
+                {
+                    now: '2021-10-29T01:00:00.000Z',
+                    offset: '',
+                    result: '2014-10-30T02:30:00.000Z',
+                    sentAt: '2021-10-28T01:00:00.000Z',
+                    timestamp: '2014-10-29T02:30:00.000Z',
+                    eventUuid: '12345678-1234-1234-1234-123456789abc',
+                    eventName: 'test event name',
+                },
+            ],
+        ])
+
+        expect(timestamp.toISO()).toEqual('2021-10-29T01:00:00.000Z')
+    })
 })
