@@ -81,7 +81,7 @@ export const NotebookNodePlaylist = Node.create({
                 default: HEIGHT,
             },
             filters: {
-                default: '{}',
+                default: undefined,
             },
         }
     },
