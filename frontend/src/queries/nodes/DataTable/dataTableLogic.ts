@@ -169,7 +169,6 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                 ? context.showOpenEditorButton
                                 : query.showOpenEditorButton ?? true,
                     }),
-                    columnFormats: query.columnFormats ?? {},
                 }
             },
         ],
