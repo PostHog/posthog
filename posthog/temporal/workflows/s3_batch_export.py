@@ -35,8 +35,6 @@ class S3InsertInputs:
     # to keep track of where credentials are being stored and increases the
     # attach surface for credential leaks.
 
-    # Adding a pointless comment to trigger CI tests.
-
     bucket_name: str
     region: str
     prefix: str
