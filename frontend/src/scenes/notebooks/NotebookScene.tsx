@@ -70,6 +70,8 @@ export function NotebookScene(): JSX.Element {
                 </div>
 
                 <div className="flex gap-2 items-center">
+                    <NotebookSyncInfo shortId={notebookId} />
+
                     <LemonMenu
                         items={[
                             {
@@ -108,7 +110,6 @@ export function NotebookScene(): JSX.Element {
                     >
                         Guide
                     </LemonButton>
-                    <NotebookSyncInfo shortId={notebookId} />
                     <NotebookExpandButton type="secondary" />
                     <LemonButton
                         type="secondary"
