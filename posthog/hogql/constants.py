@@ -673,6 +673,7 @@ HOGQL_AGGREGATIONS = {
     "maxIntersectionsPosition": 2,
     "maxIntersectionsPositionIf": 3,
 }
+CHART_FUNCTIONS = {"sparkline": 1}
 ADD_TIMEZONE_TO_FUNCTIONS = ("now", "NOW", "toDateTime", "parseDateTime", "parseDateTimeBestEffort")
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]

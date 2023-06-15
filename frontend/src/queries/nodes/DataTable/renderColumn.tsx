@@ -32,11 +32,6 @@ export function renderColumn(
     } else if (value === null) {
         return <span className="italic text-muted">NULL</span>
     } else if (isHogQLQuery(query.source)) {
-        let format = query.columnFormats?.[key]
-        // a bare hogql query has no way to specify the format, so we take the last part of the column alias as a guide
-        if (!format && key.endsWith('_sparkline')) {
-            format = 'sparkline'
-        }
         if (typeof value === 'string') {
             try {
                 if (value.startsWith('{') && value.endsWith('}')) {
@@ -49,9 +44,6 @@ export function renderColumn(
                     )
                 }
                 if (value.startsWith('[') && value.endsWith(']')) {
-                    if (format === 'sparkline') {
-                        return <TableCellSparkline dataset={{ data: JSON.parse(value) }} />
-                    }
                     return (
                         <ReactJson
                             src={JSON.parse(value)}
@@ -67,9 +59,16 @@ export function renderColumn(
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
-                if (format === 'sparkline') {
-                    return <TableCellSparkline dataset={{ data: value }} />
+                if (value[0] === '__hogql_chart_type' && value[1] === 'sparkline') {
+                    const object: Record<string, any> = {}
+                    for (let i = 0; i < value.length; i += 2) {
+                        object[value[i]] = value[i + 1]
+                    }
+                    if ('results' in object && Array.isArray(object.results)) {
+                        return <TableCellSparkline dataset={{ data: object.results }} />
+                    }
                 }
+
                 return <ReactJson src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
             return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

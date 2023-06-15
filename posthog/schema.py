@@ -423,11 +423,6 @@ class StickinessFilter(BaseModel):
     stickiness_days: Optional[float] = None
 
 
-class SupportedColumnFormat(Enum):
-    sparkline = "sparkline"
-    NoneType_None = None
-
-
 class TimeToSeeDataSessionsQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -861,9 +856,6 @@ class DataTableNode(BaseModel):
 
     allowSorting: Optional[bool] = Field(
         None, description="Can the user click on column headers to sort the table? (default: true)"
-    )
-    columnFormats: Optional[Dict[str, SupportedColumnFormat]] = Field(
-        None, description="Format to be applied to column if supplied"
     )
     columns: Optional[List[str]] = Field(
         None, description="Columns shown in the table, unless the `source` provides them."
