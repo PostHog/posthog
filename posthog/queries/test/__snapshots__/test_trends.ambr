@@ -4143,7 +4143,7 @@
             quantile(0.50)(session_duration) as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id AS $session_id,
+       (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE $session_id != ''
@@ -4175,7 +4175,7 @@
                         replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
         FROM events e
         INNER JOIN
-          (SELECT $session_id AS $session_id,
+          (SELECT $session_id,
                   dateDiff('second', min(timestamp), max(timestamp)) as session_duration
            FROM events
            WHERE $session_id != ''
@@ -4203,7 +4203,7 @@
             quantile(0.50)(session_duration) as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id AS $session_id,
+       (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE $session_id != ''
@@ -4235,7 +4235,7 @@
                         replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
         FROM events e
         INNER JOIN
-          (SELECT $session_id AS $session_id,
+          (SELECT $session_id,
                   dateDiff('second', min(timestamp), max(timestamp)) as session_duration
            FROM events
            WHERE $session_id != ''
@@ -4570,7 +4570,7 @@
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      INNER JOIN
-       (SELECT $session_id AS $session_id,
+       (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE $session_id != ''
@@ -4616,7 +4616,7 @@
            GROUP BY id
            HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
         INNER JOIN
-          (SELECT $session_id AS $session_id,
+          (SELECT $session_id,
                   dateDiff('second', min(timestamp), max(timestamp)) as session_duration
            FROM events
            WHERE $session_id != ''
@@ -4669,7 +4669,7 @@
     (SELECT any(session_duration) as session_duration
      FROM events e
      INNER JOIN
-       (SELECT $session_id AS $session_id,
+       (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE $session_id != ''
@@ -4692,7 +4692,7 @@
     (SELECT any(session_duration) as session_duration
      FROM events e
      INNER JOIN
-       (SELECT $session_id AS $session_id,
+       (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE $session_id != ''
@@ -4727,7 +4727,7 @@
                   any(sessions.session_duration) as session_duration
            FROM events e
            INNER JOIN
-             (SELECT $session_id AS $session_id,
+             (SELECT $session_id,
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
               WHERE $session_id != ''
@@ -4765,7 +4765,7 @@
                   any(sessions.session_duration) as session_duration
            FROM events e
            INNER JOIN
-             (SELECT $session_id AS $session_id,
+             (SELECT $session_id,
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
               WHERE $session_id != ''
@@ -4792,7 +4792,7 @@
             quantile(0.50)(session_duration) as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id AS $session_id,
+       (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE $session_id != ''
@@ -4851,7 +4851,7 @@
                                  replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
                  FROM events AS e
                  INNER JOIN
-                   (SELECT $session_id AS $session_id,
+                   (SELECT $session_id,
                            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
                     FROM events
                     WHERE $session_id != ''
@@ -4886,7 +4886,7 @@
             quantile(0.50)(session_duration) as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id AS $session_id,
+       (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE $session_id != ''
@@ -4945,7 +4945,7 @@
                                  replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
                  FROM events AS e
                  INNER JOIN
-                   (SELECT $session_id AS $session_id,
+                   (SELECT $session_id,
                            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
                     FROM events
                     WHERE $session_id != ''
