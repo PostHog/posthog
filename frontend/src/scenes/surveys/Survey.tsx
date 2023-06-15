@@ -112,7 +112,12 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 <Field
                     name="linked_flag_id"
                     label="Link feature flag (optional)"
-                    info={<>Feature you want to connect this survey to.</>}
+                    info={
+                        <>
+                            Connecting to a feature flag will automatically enable this survey for everyone in the
+                            feature flag.
+                        </>
+                    }
                 >
                     {({ value, onChange }) => (
                         <div className="flex">
@@ -235,6 +240,93 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         Add condition set
                     </LemonButton>
                 </PureField>
+            </div>
+            <LemonDivider />
+            <div className="flex flex-col mt-2">
+                <h4 className="text-md">Release summary</h4>
+                <div className="mb-2">
+                    {survey.linked_flag_id ||
+                    survey.conditions?.url ||
+                    survey.conditions?.selector ||
+                    targetingFlagFilters
+                        ? 'This survey will be released to all users who match the following criteria:'
+                        : 'This survey will be released to everyone'}
+                </div>
+                {survey.linked_flag_id && (
+                    <div className="flex flex-row font-medium gap-1">
+                        <span>Are part of the feature flag:</span>{' '}
+                        <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
+                    </div>
+                )}
+                {survey.conditions?.url && (
+                    <div className="flex flex-row font-medium gap-1">
+                        <span>Are on a page with a url that contains:</span> <code>{survey.conditions.url}</code>
+                    </div>
+                )}
+                {survey.conditions?.selector && (
+                    <div className="flex flex-row font-medium gap-1">
+                        <span>Are on a page with a selector that matches:</span>{' '}
+                        <code>{survey.conditions.selector}</code>
+                    </div>
+                )}
+                {(targetingFlagFilters?.groups?.[0].properties?.length || 0) > 0 && (
+                    <div className="flex flex-row font-medium gap-1">
+                        <span>Belong to the following user properties:</span>{' '}
+                    </div>
+                )}
+                {targetingFlagFilters?.groups?.map((group, index) => (
+                    <>
+                        {index > 0 && <div className="text-primary-alt font-semibold text-xs ml-2 py-1">OR</div>}
+                        {group.properties.map((property, idx) => (
+                            <>
+                                <div className="feature-flag-property-display" key={idx}>
+                                    {idx === 0 ? (
+                                        <LemonButton
+                                            icon={<IconSubArrowRight className="arrow-right" />}
+                                            status="muted"
+                                            size="small"
+                                        />
+                                    ) : (
+                                        <LemonButton
+                                            icon={<span className="text-sm">&</span>}
+                                            status="muted"
+                                            size="small"
+                                        />
+                                    )}
+                                    <span className="simple-tag tag-light-blue text-primary-alt">
+                                        {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
+                                    </span>
+                                    {isPropertyFilterWithOperator(property) ? (
+                                        <span>{allOperatorsToHumanName(property.operator)} </span>
+                                    ) : null}
+
+                                    {property.type === 'cohort' ? (
+                                        <a
+                                            href={urls.cohort(property.value)}
+                                            target="_blank"
+                                            rel="noopener"
+                                            className="simple-tag tag-light-blue text-primary-alt display-value"
+                                        >
+                                            {(property.value && cohortsById[property.value]?.name) ||
+                                                `ID ${property.value}`}
+                                        </a>
+                                    ) : (
+                                        [...(Array.isArray(property.value) ? property.value : [property.value])].map(
+                                            (val, idx) => (
+                                                <span
+                                                    key={idx}
+                                                    className="simple-tag tag-light-blue text-primary-alt display-value"
+                                                >
+                                                    {val}
+                                                </span>
+                                            )
+                                        )
+                                    )}
+                                </div>
+                            </>
+                        ))}
+                    </>
+                ))}
             </div>
             <LemonDivider />
             <div className="flex items-center gap-2 justify-end">
