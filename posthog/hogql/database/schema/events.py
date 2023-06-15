@@ -19,10 +19,10 @@ class EventsPersonSubTable(VirtualTable):
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="person_created_at")
     properties: StringJSONDatabaseField = StringJSONDatabaseField(name="person_properties")
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "events"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "events"
 
 
@@ -41,10 +41,10 @@ class EventsGroupSubTable(VirtualTable):
     def avoid_asterisk_fields(self):
         return []
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "events"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "events"
 
 
@@ -85,8 +85,8 @@ class EventsTable(Table):
     person: BaseModel = FieldTraverser(chain=["pdi", "person"])
     person_id: BaseModel = FieldTraverser(chain=["pdi", "person_id"])
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "events"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "events"
