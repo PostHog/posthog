@@ -99,6 +99,7 @@ export type BatchExport = {
     status: 'RUNNING' | 'FAILED' | 'COMPLETED' | 'PAUSED'
     created_at: string
     last_updated_at: string
+    paused: boolean
 } & BatchExportData
 
 export type BatchExportsResponse = {
@@ -129,6 +130,37 @@ export const useCreateExport = (): {
     }, [])
 
     return { createExport, ...state }
+}
+
+export const useExportAction = (
+    teamId: number,
+    exportId: string,
+    action: 'pause' | 'unpause'
+): {
+    executeExportAction: () => Promise<void>
+    loading: boolean
+    error: Error | null
+} => {
+    // Returns a callback to execute an action for the given team and export ID.
+    const [state, setState] = useState<{ loading: boolean; error: Error | null }>({ loading: false, error: null })
+
+    const executeExportAction = useCallback(() => {
+        setState({ loading: true, error: null })
+        return api
+            .createResponse(`/api/projects/${teamId}/batch_exports/${exportId}/${action}`, {})
+            .then((response) => {
+                if (response.ok) {
+                    setState({ loading: false, error: null })
+                } else {
+                    // TODO: parse the error response.
+                    const error = new Error(response.statusText)
+                    setState({ loading: false, error: error })
+                    throw error
+                }
+            })
+    }, [teamId, exportId, action])
+
+    return { executeExportAction, ...state }
 }
 
 export const useExport = (
