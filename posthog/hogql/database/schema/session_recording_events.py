@@ -38,8 +38,8 @@ class SessionRecordingEvents(Table):
     person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
     person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "session_recording_events"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "session_recording_events"

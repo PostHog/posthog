@@ -90,10 +90,6 @@ HOOK_EVENTS: Dict[str, str] = {}
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)
 
-# DEPRECATED - replaced by cloud license
-# Overriden by posthog-cloud
-MULTI_TENANCY = False
-
 BILLING_V2_ENABLED = get_from_env("BILLING_V2_ENABLED", False, type_cast=str_to_bool)
 
 AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
@@ -105,6 +101,3 @@ PROM_PUSHGATEWAY_ADDRESS = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
-
-# Lastly, cloud settings override and modify all
-from posthog.settings.cloud import *  # noqa: F401, E402

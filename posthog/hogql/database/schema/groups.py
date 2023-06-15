@@ -29,10 +29,10 @@ class RawGroupsTable(Table):
     updated_at: DateTimeDatabaseField = DateTimeDatabaseField(name="_timestamp")
     properties: StringJSONDatabaseField = StringJSONDatabaseField(name="group_properties")
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "groups"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "groups"
 
 
@@ -48,8 +48,8 @@ class GroupsTable(LazyTable):
     def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_groups_table(requested_fields)
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "groups"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "groups"
