@@ -1,5 +1,5 @@
 from datetime import timezone, datetime, date
-from typing import Optional, Dict
+from typing import Optional, Dict, cast
 
 from django.test import override_settings
 from uuid import UUID
@@ -17,8 +17,12 @@ from posthog.test.base import BaseTest
 
 
 class TestResolver(BaseTest):
-    def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
-        return clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True)
+    def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.SelectQuery:
+        return cast(ast.SelectQuery, clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True))
+
+    def _print_hogql(self, select: str):
+        expr = self._select(select)
+        return print_ast(expr, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
 
     def setUp(self):
         self.database = create_hogql_database(self.team.pk)
@@ -918,6 +922,13 @@ class TestResolver(BaseTest):
             ],
         )
 
-    def _print_hogql(self, select: str):
-        expr = self._select(select)
-        return print_ast(expr, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
+    def test_lambda_parent_scope(self):
+        # does not raise
+        node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.database))
+
+        # found a type
+        lambda_type: ast.SelectQueryType = cast(ast.SelectQueryType, cast(ast.Call, node.select[1]).args[0].type)
+        self.assertEqual(lambda_type.parent, node.type)
+        self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
+        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])
