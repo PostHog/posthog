@@ -110,6 +110,10 @@ export const billingLogic = kea<billingLogicType>([
     })),
     selectors({
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
+        isUnlicensedDebug: [
+            (s) => [s.preflight, s.billing],
+            (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
+        ],
         billingAlert: [
             (s) => [s.billing, s.preflight],
             (billing, preflight): BillingAlertConfig | undefined => {
@@ -171,7 +175,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         activateLicense: {
             defaults: { license: '' } as { license: string },
             errors: ({ license }) => ({
@@ -185,7 +189,9 @@ export const billingLogic = kea<billingLogicType>([
                     })
 
                     // Reset the URL so we don't trigger the license submission again
-                    router.actions.replace('/organization/billing?success=true')
+                    router.actions.replace(
+                        `/${values.isOnboarding ? 'ingestion' : 'organization'}/billing?success=true`
+                    )
                     setTimeout(() => {
                         window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
                     }, 100)
@@ -258,7 +264,7 @@ export const billingLogic = kea<billingLogicType>([
     }),
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
-        '/organization/billing': (_params, _search, hash) => {
+        '/*/billing': (_params, _search, hash) => {
             if (hash.license) {
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })

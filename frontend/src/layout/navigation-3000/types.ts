@@ -28,10 +28,10 @@ interface NavbarItemBase {
     icon: JSX.Element
 }
 export interface SceneNavbarItem extends NavbarItemBase {
-    pointer: string
+    to: string
 }
 export interface SidebarNavbarItem extends NavbarItemBase {
-    pointer: LogicWrapper<SidebarLogic>
+    logic: LogicWrapper<SidebarLogic>
 }
 /** A navbar item either points to a sidebar (via a sidebar logic) or directly to a scene (via a URL). */
 // TODO: Remove NavbarItemBase from NavbarItem once all 3000 navbar items are interactive

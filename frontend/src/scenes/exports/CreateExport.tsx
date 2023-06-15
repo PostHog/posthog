@@ -30,10 +30,13 @@ export function CreateExport(): JSX.Element {
     const [exportType, setExportType] = useState<'S3' | 'Snowflake'>('S3')
 
     return (
-        <div>
+        // a form for inputting the config for an export, using aria labels to
+        // make it accessible.
+        <form aria-label="Create Export">
             <h1>Create Export</h1>
-            <PureField label="Type">
+            <PureField htmlFor="type" label="Type">
                 <LemonSelect
+                    id="type"
                     options={[
                         { value: 'S3', label: 'S3' },
                         { value: 'Snowflake', label: 'Snowflake' },
@@ -44,18 +47,24 @@ export function CreateExport(): JSX.Element {
             </PureField>
             {exportType === 'S3' && <CreateS3Export />}
             {exportType === 'Snowflake' && <CreateSnowflakeExport />}
-        </div>
+        </form>
     )
 }
 
 export function CreateS3Export(): JSX.Element {
     const { currentTeamId } = useCurrentTeamId()
 
+    // We use references to elements rather than maintaining state for each
+    // field. This is a bit more verbose but it means we avoids risks of
+    // re-rendering the component.
+    // TODO: use kea-forms instead.
     const nameRef = useRef<HTMLInputElement>(null)
     const bucketRef = useRef<HTMLInputElement>(null)
     const prefixRef = useRef<HTMLInputElement>(null)
+    const regionRef = useRef<string | null>(null)
     const accessKeyIdRef = useRef<HTMLInputElement>(null)
     const secretAccessKeyRef = useRef<HTMLInputElement>(null)
+    const intervalRef = useRef<'hour' | 'day' | null>(null)
 
     const { createExport, loading, error } = useCreateExport()
 
@@ -64,8 +73,10 @@ export function CreateS3Export(): JSX.Element {
             !nameRef.current ||
             !bucketRef.current ||
             !prefixRef.current ||
+            !regionRef.current ||
             !accessKeyIdRef.current ||
-            !secretAccessKeyRef.current
+            !secretAccessKeyRef.current ||
+            !intervalRef.current
         ) {
             console.warn('Missing ref')
         }
@@ -74,8 +85,10 @@ export function CreateS3Export(): JSX.Element {
         const name = nameRef.current?.value ?? ''
         const bucket = bucketRef.current?.value ?? ''
         const prefix = prefixRef.current?.value ?? ''
+        const region = regionRef.current ?? ''
         const accessKeyId = accessKeyIdRef.current?.value ?? ''
         const secretAccessKey = secretAccessKeyRef.current?.value ?? ''
+        const interval = intervalRef.current ?? ''
 
         const exportData = {
             name,
@@ -83,14 +96,14 @@ export function CreateS3Export(): JSX.Element {
                 type: 'S3',
                 config: {
                     bucket_name: bucket,
-                    region: 'us-east-1', // TODO: pull this from the form
+                    region: region,
                     prefix: prefix,
                     batch_window_size: 3600,
                     aws_access_key_id: accessKeyId,
                     aws_secret_access_key: secretAccessKey,
                 },
             },
-            interval: 'hour', // TODO: pull this from the form
+            interval: interval || 'hour',
         } as const
 
         // Create the export.
@@ -102,16 +115,20 @@ export function CreateS3Export(): JSX.Element {
 
     return (
         <div>
-            <PureField label="Name">
-                <LemonInput placeholder="My export" ref={nameRef} />
+            <PureField label="Name" htmlFor="name">
+                <LemonInput id="name" placeholder="My export" ref={nameRef} />
             </PureField>
 
-            <PureField label="Bucket">
-                <LemonInput placeholder="my-bucket" ref={bucketRef} />
+            <PureField label="Bucket" htmlFor="bucket">
+                <LemonInput id="bucket" placeholder="my-bucket" ref={bucketRef} />
             </PureField>
 
-            <PureField label="Region">
+            <PureField label="Region" htmlFor="region">
                 <LemonSelect
+                    id="region"
+                    onSelect={(value) => {
+                        regionRef.current = value
+                    }}
                     options={[
                         { value: 'us-east-1', label: 'US East (N. Virginia)' },
                         { value: 'us-east-2', label: 'US East (Ohio)' },
@@ -140,20 +157,29 @@ export function CreateS3Export(): JSX.Element {
                 />
             </PureField>
 
-            <PureField label="Key prefix">
-                <LemonInput placeholder="posthog-events/" ref={prefixRef} />
+            <PureField htmlFor="prefix" label="Key prefix">
+                <LemonInput id="prefix" placeholder="posthog-events/" ref={prefixRef} />
             </PureField>
 
-            <PureField label="AWS Access Key ID">
-                <LemonInput placeholder="my-access-key-id" ref={accessKeyIdRef} />
+            <PureField htmlFor="aws-access-key-id" label="AWS Access Key ID">
+                <LemonInput id="aws-access-key-id" placeholder="my-access-key-id" ref={accessKeyIdRef} />
             </PureField>
 
-            <PureField label="AWS Secret Access Key">
-                <LemonInput placeholder="my-secret-access-key" type="password" ref={secretAccessKeyRef} />
+            <PureField htmlFor="aws-secret-access-key" label="AWS Secret Access Key">
+                <LemonInput
+                    id="aws-secret-access-key"
+                    placeholder="my-secret-access-key"
+                    type="password"
+                    ref={secretAccessKeyRef}
+                />
             </PureField>
 
-            <PureField label="Frequency">
+            <PureField htmlFor="frequency" label="Frequency">
                 <LemonSelect
+                    id="frequency"
+                    onSelect={(value: 'hour' | 'day') => {
+                        intervalRef.current = value
+                    }}
                     options={[
                         { value: 'hour', label: 'Hourly' },
                         { value: 'day', label: 'Daily' },
@@ -191,6 +217,7 @@ export function CreateSnowflakeExport(): JSX.Element {
     const warehouseRef = useRef<HTMLInputElement>(null)
     const schemaRef = useRef<HTMLInputElement>(null)
     const tableNameRef = useRef<HTMLInputElement>(null)
+    const intervalRef = useRef<'hour' | 'day' | null>(null)
 
     const { createExport, loading, error } = useCreateExport()
 
@@ -217,6 +244,7 @@ export function CreateSnowflakeExport(): JSX.Element {
         const warehouse = warehouseRef.current?.value ?? ''
         const schema = schemaRef.current?.value ?? ''
         const tableName = tableNameRef.current?.value ?? ''
+        const interval = intervalRef.current
 
         const exportData = {
             name,
@@ -232,7 +260,7 @@ export function CreateSnowflakeExport(): JSX.Element {
                     table_name: tableName,
                 },
             },
-            interval: 'hour', // TODO: pull this from the form
+            interval: interval || 'hour',
         } as const
 
         // Create the export.
@@ -274,6 +302,18 @@ export function CreateSnowflakeExport(): JSX.Element {
 
             <PureField label="Table name">
                 <LemonInput placeholder="events" ref={tableNameRef} />
+            </PureField>
+
+            <PureField label="Frequency">
+                <LemonSelect
+                    onSelect={(value: 'hour' | 'day') => {
+                        intervalRef.current = value
+                    }}
+                    options={[
+                        { value: 'hour', label: 'Hourly' },
+                        { value: 'day', label: 'Daily' },
+                    ]}
+                />
             </PureField>
 
             <LemonButton onClick={handleCreateExport}>Create Export</LemonButton>

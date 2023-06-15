@@ -4,12 +4,21 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { EntityTypes, FilterType, LocalRecordingFilters, RecordingDurationFilter, RecordingFilters } from '~/types'
+import {
+    EntityTypes,
+    FilterableLogLevel,
+    FilterType,
+    LocalRecordingFilters,
+    RecordingDurationFilter,
+    RecordingFilters,
+} from '~/types'
 import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -39,6 +48,67 @@ const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters
             },
         ],
     }
+}
+
+function ConsoleFilters({
+    filters,
+    setConsoleFilters,
+}: {
+    filters: RecordingFilters
+    setConsoleFilters: (selection: FilterableLogLevel[]) => void
+}): JSX.Element {
+    function updateChoice(checked: boolean, level: FilterableLogLevel): void {
+        const newChoice = filters.console_logs?.filter((c) => c !== level) || []
+        if (checked) {
+            setConsoleFilters([...newChoice, level])
+        } else {
+            setConsoleFilters(newChoice)
+        }
+    }
+
+    return (
+        <LemonButtonWithDropdown
+            status="stealth"
+            type="secondary"
+            data-attr={'console-filters'}
+            dropdown={{
+                sameWidth: true,
+                closeOnClickInside: false,
+                overlay: [
+                    <>
+                        <LemonCheckbox
+                            size="small"
+                            fullWidth
+                            checked={!!filters.console_logs?.includes('log')}
+                            onChange={(checked) => {
+                                updateChoice(checked, 'log')
+                            }}
+                            label={'log'}
+                        />
+                        <LemonCheckbox
+                            size="small"
+                            fullWidth
+                            checked={!!filters.console_logs?.includes('warn')}
+                            onChange={(checked) => updateChoice(checked, 'warn')}
+                            label={'warn'}
+                        />
+                        <LemonCheckbox
+                            size="small"
+                            fullWidth
+                            checked={!!filters.console_logs?.includes('error')}
+                            onChange={(checked) => updateChoice(checked, 'error')}
+                            label={'error'}
+                        />
+                    </>,
+                ],
+                actionable: true,
+            }}
+        >
+            {filters.console_logs?.map((x) => `console.${x}`).join(' or ') || (
+                <span className={'text-muted'}>Console types to filter for...</span>
+            )}
+        </LemonButtonWithDropdown>
+    )
 }
 
 export function SessionRecordingsFilters({
@@ -155,6 +225,20 @@ export function SessionRecordingsFilters({
                     }}
                 />
             )}
+
+            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SHOW_CONSOLE_LOGS_FILTER} match={true}>
+                <LemonLabel info="Show recordings that have captured console log messages">
+                    Filter by console logs
+                </LemonLabel>
+                <ConsoleFilters
+                    filters={filters}
+                    setConsoleFilters={(x) =>
+                        setFilters({
+                            console_logs: x,
+                        })
+                    }
+                />
+            </FlaggedFeature>
         </div>
     )
 }

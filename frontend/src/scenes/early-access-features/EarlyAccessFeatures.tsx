@@ -17,6 +17,7 @@ const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
     alpha: 2,
     beta: 3,
     'general-availability': 4,
+    archived: 5,
 }
 
 export function EarlyAccessFeatures(): JSX.Element {
