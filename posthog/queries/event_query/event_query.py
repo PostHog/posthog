@@ -21,7 +21,6 @@ from posthog.queries.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import PersonOnEventsMode
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
-import random
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -78,12 +77,12 @@ class EventQuery(metaclass=ABCMeta):
         self._extra_fields = extra_fields
         self._person_on_events_mode = person_on_events_mode
 
-        # Guards against a ClickHouse bug involving multiple joins against the same table
-        # with the same column name. This issue manifests for us with formulas, where on queries A and B we join events against itself
-        # and both tables end up having $session_id. Without a formula this is not a problem.
+        # Guards against a ClickHouse bug involving multiple joins against the same table with the same column name.
+        # This issue manifests for us with formulas, where on queries A and B we join events against itself
+        # and both tables end up having $session_id. Without a formula this is not a problem.]
         self._session_id_alias = (
-            f"session_id_{random.randint(0, 10000000000000000000)}"
-            if hasattr(self._filter, "formula") and self._filter.formula is not None # type: ignore
+            f"session_id_{self._entity.index}"
+            if hasattr(self, "_entity") and getattr(self._filter, "formula", None)
             else "$session_id"
         )
 
