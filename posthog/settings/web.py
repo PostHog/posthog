@@ -92,7 +92,9 @@ MIDDLEWARE = [
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
     "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
+    "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
+
 
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
