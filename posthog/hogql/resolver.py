@@ -5,6 +5,7 @@ from uuid import UUID
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -199,15 +200,17 @@ class Resolver(CloningVisitor):
 
             if self.database.has_table(table_name):
                 database_table = self.database.get_table(table_name)
-                if isinstance(database_table, ast.LazyTable):
+                if isinstance(database_table, LazyTable):
                     node_table_type = ast.LazyTableType(table=database_table)
                 else:
                     node_table_type = ast.TableType(table=database_table)
 
-                if table_alias == table_name:
-                    node_type = node_table_type
-                else:
+                # Always add an alias for function call tables. This way `select table.* from table` is replaced with
+                # `select table.* from something() as table`, and not with `select something().* from something()`.
+                if table_alias != table_name or isinstance(database_table, FunctionCallTable):
                     node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
+                else:
+                    node_type = node_table_type
                 scope.tables[table_alias] = node_type
 
                 # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
@@ -218,6 +221,11 @@ class Resolver(CloningVisitor):
                 node.next_join = self.visit(node.next_join)
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
+
+                # In case we had a function call table, and had to add an alias where none was present, mark it here
+                if isinstance(node_type, ast.TableAliasType) and node.alias is None:
+                    node.alias = node_type.alias
+
                 return node
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
@@ -363,6 +371,43 @@ class Resolver(CloningVisitor):
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
+        return node
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        node = super().visit_array_access(node)
+
+        if (
+            isinstance(node.array, ast.Field)
+            and isinstance(node.property, ast.Constant)
+            and (isinstance(node.property.value, str) or isinstance(node.property.value, int))
+            and (
+                (isinstance(node.array.type, ast.PropertyType))
+                or (
+                    isinstance(node.array.type, ast.FieldType)
+                    and isinstance(node.array.type.resolve_database_field(), StringJSONDatabaseField)
+                )
+            )
+        ):
+            node.array.chain.append(node.property.value)
+            node.array.type = node.array.type.get_child(node.property.value)
+            return node.array
+
+        return node
+
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        node = super().visit_tuple_access(node)
+
+        if isinstance(node.tuple, ast.Field) and (
+            (isinstance(node.tuple.type, ast.PropertyType))
+            or (
+                isinstance(node.tuple.type, ast.FieldType)
+                and isinstance(node.tuple.type.resolve_database_field(), StringJSONDatabaseField)
+            )
+        ):
+            node.tuple.chain.append(node.index)
+            node.tuple.type = node.tuple.type.get_child(node.index)
+            return node.tuple
+
         return node
 
     def visit_constant(self, node: ast.Constant):

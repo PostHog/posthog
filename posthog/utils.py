@@ -936,10 +936,10 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
     return output
 
 
-def flatten(i: Union[List, Tuple]) -> Generator:
+def flatten(i: Union[List, Tuple], max_depth=10) -> Generator:
     for el in i:
-        if isinstance(el, list):
-            yield from flatten(el)
+        if isinstance(el, list) and max_depth > 0:
+            yield from flatten(el, max_depth=max_depth - 1)
         else:
             yield el
 

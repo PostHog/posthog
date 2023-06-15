@@ -1,18 +1,15 @@
 import datetime as dt
 import json
-from dataclasses import dataclass
-from string import Template
 import tempfile
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
-from aiochclient import ChClient
 
-from django.conf import settings
 import boto3
-from aiohttp import ClientSession
+from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.batch_exports.service import S3BatchExportInputs
 
+from posthog.batch_exports.service import S3BatchExportInputs
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -20,21 +17,11 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
+from posthog.temporal.workflows.batch_exports import get_results_iterator, get_rows_count
+from posthog.temporal.workflows.clickhouse import get_client
 
 if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import CompletedPartTypeDef
-
-
-SELECT_QUERY_TEMPLATE = Template(
-    """
-    SELECT $fields
-    FROM events
-    WHERE
-        timestamp >= toDateTime({data_interval_start}, 'UTC')
-        AND timestamp < toDateTime({data_interval_end}, 'UTC')
-        AND team_id = {team_id}
-    """
-)
 
 
 @dataclass
@@ -76,33 +63,16 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     """
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
-    async with ClientSession() as s:
-        client = ChClient(
-            s,
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-        )
-
+    async with get_client() as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        data_interval_start_ch = dt.datetime.fromisoformat(inputs.data_interval_start).strftime("%Y-%m-%d %H:%M:%S")
-        data_interval_end_ch = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d %H:%M:%S")
-        row = await client.fetchrow(
-            SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count"),
-            params={
-                "team_id": inputs.team_id,
-                "data_interval_start": data_interval_start_ch,
-                "data_interval_end": data_interval_end_ch,
-            },
+        count = await get_rows_count(
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=inputs.data_interval_start,
+            interval_end=inputs.data_interval_end,
         )
-
-        if row is None:
-            raise ValueError(f"Unexpected result from ClickHouse: {row}")
-
-        count = row["count"]
 
         if count == 0:
             activity.logger.info(
@@ -115,10 +85,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
-        query_template = Template(SELECT_QUERY_TEMPLATE.template)
-
-        activity.logger.debug(query_template.template)
-
         # Create a multipart upload to S3
         key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
         s3_client = boto3.client(
@@ -126,7 +92,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             region_name=inputs.region,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
         )
         multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
         upload_id = multipart_response["UploadId"]
@@ -138,16 +103,11 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         # when it reaches 50MB in size.
         parts: List[CompletedPartTypeDef] = []
         part_number = 1
-        results_iterator = client.iterate(
-            query_template.safe_substitute(fields="*"),
-            json=True,
-            params={
-                "aws_access_key_id": inputs.aws_access_key_id,
-                "aws_secret_access_key": inputs.aws_secret_access_key,
-                "team_id": inputs.team_id,
-                "data_interval_start": data_interval_start_ch,
-                "data_interval_end": data_interval_end_ch,
-            },
+        results_iterator = get_results_iterator(
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=inputs.data_interval_start,
+            interval_end=inputs.data_interval_end,
         )
 
         with tempfile.NamedTemporaryFile() as local_results_file:
