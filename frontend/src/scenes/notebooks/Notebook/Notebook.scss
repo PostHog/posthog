@@ -67,6 +67,12 @@
         margin-left: auto;
         margin-right: auto;
     }
+
+    .LemonTable__content > table > thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
 }
 
 .NotebookFloatingButton {
