@@ -52,12 +52,8 @@ describe('ingester rebalancing tests', () => {
 
         await ingesterOne.start()
 
-        await ingesterOne.consume(
-            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 })
-        )
-        await ingesterOne.consume(
-            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 })
-        )
+        await ingesterOne.consume(createIncomingRecordingMessage({ session_id: new UUIDT().toString() }))
+        await ingesterOne.consume(createIncomingRecordingMessage({ session_id: new UUIDT().toString() }))
 
         await waitForExpect(() => {
             assertIngesterHasExpectedPartitions(ingesterOne, [1])

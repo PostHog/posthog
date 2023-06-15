@@ -46,10 +46,10 @@ class RawPersonOverridesTable(Table):
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person_overrides"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "person_overrides"
 
 
@@ -64,8 +64,8 @@ class PersonOverridesTable(Table):
     def lazy_select(self, requested_fields: Dict[str, Any]):
         return select_from_person_overrides_table(requested_fields)
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person_overrides"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "person_overrides"

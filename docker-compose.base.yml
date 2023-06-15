@@ -71,6 +71,7 @@ services:
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
             KAFKA_URL: 'kafka://kafka'
+            SESSION_RECORDING_KAFKA_URL: 'kafka://kafka'
             REDIS_URL: 'redis://redis:6379/'
             PGHOST: db
             PGUSER: posthog
