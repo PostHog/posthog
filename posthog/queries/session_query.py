@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -17,13 +17,13 @@ class SessionQuery:
 
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
-    _session_id_alias: str
+    _session_id_alias: Optional[str]
 
     def __init__(
         self,
         filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
         team: Team,
-        session_id_alias="$session_id",
+        session_id_alias=None,
     ) -> None:
         self._filter = filter
         self._team = team
@@ -41,16 +41,16 @@ class SessionQuery:
         return (
             f"""
                 SELECT
-                    $session_id AS {self._session_id_alias},
+                    $session_id{f" AS {self._session_id_alias}" if self._session_id_alias else ""},
                     dateDiff('second',min(timestamp), max(timestamp)) as session_duration
                 FROM
                     events
                 WHERE
-                    {self._session_id_alias} != ''
+                    {self._session_id_alias or "$session_id"} != ''
                     AND team_id = %(team_id)s
                     {parsed_date_from} - INTERVAL 24 HOUR
                     {parsed_date_to} + INTERVAL 24 HOUR
-                GROUP BY {self._session_id_alias}
+                GROUP BY {self._session_id_alias or "$session_id"}
             """,
             params,
         )

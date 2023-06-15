@@ -43,7 +43,7 @@ class EventQuery(metaclass=ABCMeta):
     _extra_event_properties: List[PropertyName]
     _extra_person_fields: List[ColumnName]
     _person_id_alias: str
-    _session_id_alias: str
+    _session_id_alias: Optional[str]
 
     def __init__(
         self,
@@ -83,7 +83,7 @@ class EventQuery(metaclass=ABCMeta):
         self._session_id_alias = (
             f"session_id_{self._entity.index}"
             if hasattr(self, "_entity") and getattr(self._filter, "formula", None)  # type: ignore
-            else "$session_id"
+            else None
         )
 
         if override_aggregate_users_by_distinct_id is not None:
@@ -217,7 +217,7 @@ class EventQuery(metaclass=ABCMeta):
                     INNER JOIN (
                         {session_query}
                     ) as {SessionQuery.SESSION_TABLE_ALIAS}
-                    ON {SessionQuery.SESSION_TABLE_ALIAS}.{self._session_id_alias} = {self.EVENT_TABLE_ALIAS}.$session_id
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}.{self._session_id_alias or "$session_id"} = {self.EVENT_TABLE_ALIAS}.$session_id
                 """,
                 session_params,
             )
