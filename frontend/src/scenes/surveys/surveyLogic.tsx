@@ -122,11 +122,13 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await api.surveys.get(props.id)
+                    const survey = await api.surveys.get(props.id)
+                    actions.reportSurveyViewed(survey)
+                    return survey
                 }
                 return { ...NEW_SURVEY }
             },
@@ -153,7 +155,6 @@ export const surveyLogic = kea<surveyLogicType>([
             if (survey.targeting_flag?.filters?.groups) {
                 actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
             }
-            actions.reportSurveyViewed(survey)
         },
         createSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
