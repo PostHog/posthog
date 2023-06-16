@@ -87,6 +87,8 @@ export function SlashCommands(): JSX.Element | null {
         items.flatMap((item) => (item && isLemonMenuSection(item) ? item.items : item)).length
     )
 
+    console.log('JERE?!')
+
     return (
         <div ref={referenceRef}>
             <LemonMenuOverlay items={items} tooltipPlacement={'right'} itemsRef={itemsRef} />
@@ -133,25 +135,19 @@ export function FloatingControls(): JSX.Element | null {
 export const SlashCommandsExtension = Extension.create({
     name: 'commands',
 
-    addOptions() {
-        const suggestion: Partial<SuggestionOptions> = {
-            char: '/',
-            startOfLine: true,
-            command: ({ editor, range, props }) => {
-                console.log(props, props.command)
-                props.command({ editor, range })
-            },
-        }
-        return {
-            suggestion,
-        }
-    },
-
     addProseMirrorPlugins() {
         return [
             Suggestion({
                 editor: this.editor,
+                char: '/',
+                startOfLine: true,
+                command: ({ editor, range, props }) => {
+                    console.log('COMMAND', props, props.command)
+                    props.command({ editor, range })
+                },
                 items: ({ query }) => {
+                    console.log('ITEMS')
+
                     return [
                         {
                             title: 'H1',
@@ -183,11 +179,13 @@ export const SlashCommandsExtension = Extension.create({
                 },
 
                 render: () => {
-                    let component: ReactRenderer
+                    console.log('RENDER')
+                    let renderer: ReactRenderer
 
                     return {
                         onStart: (props) => {
-                            component = new ReactRenderer(SlashCommands, {
+                            console.log('START', props)
+                            renderer = new ReactRenderer(SlashCommands, {
                                 props,
                                 editor: props.editor,
                             })
@@ -208,7 +206,7 @@ export const SlashCommandsExtension = Extension.create({
                         },
 
                         onUpdate(props) {
-                            component.updateProps(props)
+                            renderer.updateProps(props)
 
                             if (!props.clientRect) {
                                 return
@@ -225,11 +223,13 @@ export const SlashCommandsExtension = Extension.create({
                             //     return true
                             // }
                             // return component.ref?.onKeyDown(props)
+
+                            return false
                         },
 
                         onExit() {
                             // popup[0].destroy()
-                            // component.destroy()
+                            renderer.destroy()
                         },
                     }
                 },
