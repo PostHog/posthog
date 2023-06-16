@@ -23,6 +23,7 @@ import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
 import { supportLogic } from '../Support/supportLogic'
 import { SupportModal } from '../Support/SupportModal'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -88,6 +89,9 @@ export function HelpButton({
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    const showSupportOptions: boolean = preflight?.cloud || false
 
     return (
         <>
@@ -107,7 +111,7 @@ export function HelpButton({
                             },
                         ],
                     },
-                    {
+                    showSupportOptions && {
                         items: [
                             {
                                 label: 'Ask on the forum',

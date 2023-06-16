@@ -21,6 +21,7 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -58,6 +59,7 @@ export function InsightTimeoutState({
     const { setSamplingPercentage } = useActions(_samplingFilterLogic)
     const { suggestedSamplingPercentage, samplingAvailable } = useValues(_samplingFilterLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { preflight } = useValues(preflightLogic)
 
     const speedUpBySamplingAvailable = samplingAvailable && suggestedSamplingPercentage
     return (
@@ -95,15 +97,20 @@ export function InsightTimeoutState({
                 ) : null}
                 <p className="m-auto text-center">
                     In order to improve the performance of the query, you can {speedUpBySamplingAvailable ? 'also' : ''}{' '}
-                    try to reduce the date range of your query, remove breakdowns, or get in touch with us by{' '}
-                    <Link
-                        data-attr="insight-timeout-bug-report"
-                        onClick={() => {
-                            openSupportForm('bug', 'analytics')
-                        }}
-                    >
-                        submitting a bug report
-                    </Link>
+                    try to reduce the date range of your query, remove breakdowns
+                    {preflight?.cloud
+                        ? ', or get in touch with us by' +
+                          (
+                              <Link
+                                  data-attr="insight-timeout-bug-report"
+                                  onClick={() => {
+                                      openSupportForm('bug', 'analytics')
+                                  }}
+                              >
+                                  submitting a bug report
+                              </Link>
+                          )
+                        : ''}
                     .
                 </p>
                 {!!queryId ? <div className="text-muted text-xs m-auto text-center">Query ID: {queryId}</div> : null}
