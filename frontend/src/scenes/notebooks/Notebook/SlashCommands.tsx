@@ -1,9 +1,9 @@
-import { Editor, Extension } from '@tiptap/core'
+import { ChainedCommands, Editor, Extension, Range } from '@tiptap/core'
 import Suggestion, { SuggestionKeyDownProps } from '@tiptap/suggestion'
 
 import { FloatingMenu, ReactRenderer } from '@tiptap/react'
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { IconCohort, IconPlus, IconQueryEditor, IconRecording, IconTableChart } from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useImperativeHandle, useState } from 'react'
@@ -11,12 +11,12 @@ import { isCurrentNodeEmpty } from './utils'
 import { NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 type SlashCommandsProps = {
-    editor?: any
-    range?: any
-    command?: any
-    onKeyDown?: () => void
+    editor: Editor
+    mode: 'slash' | 'add'
+    range?: Range
     decorationNode?: any
 }
 
@@ -27,29 +27,29 @@ type SlashCommandsRef = {
 type SlashCommandsItem = {
     title: string
     icon?: JSX.Element
-    command: (props: { editor: Editor; insertPostHogNode: (node: NotebookNodeType, properties?: any) => void }) => void
+    command: (chain: ChainedCommands) => ChainedCommands
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
     {
         title: 'H1',
-        command: ({ editor }) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+        command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
         title: 'H2',
-        command: ({ editor }) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+        command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
         title: 'H3',
-        command: ({ editor }) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+        command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
         title: 'B',
-        command: ({ editor }) => editor.chain().focus().toggleBold().run(),
+        command: (chain) => chain.toggleBold(),
     },
     {
         title: 'I',
-        command: ({ editor }) => editor.chain().focus().toggleBold().run(),
+        command: (chain) => chain.toggleBold(),
     },
 ]
 
@@ -57,81 +57,65 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
         title: 'HoqQL',
         icon: <IconQueryEditor />,
-        command: ({ editor }) =>
-            editor
-                .chain()
-                .focus()
-                .insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['HogQLTable'] } })
-                .run(),
+        command: (chain) =>
+            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['HogQLTable'] } }),
     },
     {
         title: 'Events',
         icon: <IconTableChart />,
-        command: ({ editor }) =>
-            editor
-                .chain()
-                .focus()
-                .insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['EventsTableFull'] } })
-                .run(),
+        command: (chain) =>
+            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['EventsTableFull'] } }),
     },
     {
         title: 'Persons',
         icon: <IconCohort />,
-        command: ({ editor }) =>
-            editor
-                .chain()
-                .focus()
-                .insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['PersonsTableFull'] } })
-                .run(),
+        command: (chain) =>
+            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['PersonsTableFull'] } }),
     },
     {
         title: 'Session Replays',
         icon: <IconRecording />,
-        command: ({ editor }) =>
-            editor.chain().focus().insertContent({ type: NotebookNodeType.RecordingPlaylist, attrs: {} }).run(),
+        command: (chain) => chain.insertContent({ type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
 ]
 
 const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    props,
+    { mode, editor, range = { from: 0, to: 0 } },
     ref
 ): JSX.Element | null {
-    const { editor } = useValues(notebookLogic)
-    const { insertPostHogNode } = useActions(notebookLogic)
-
+    // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
+    const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
-    // const selectItem = (index) => {
-    //     const item = props.items[index]
+    const onPressEnter = (): void => {
+        const command =
+            selectedIndex === -1
+                ? TEXT_CONTROLS[selectedHorizontalIndex].command
+                : SLASH_COMMANDS[selectedIndex].command
 
-    //     if (item) {
-    //         props.command({ id: item })
-    //     }
-    // }
+        command(editor.chain().focus().deleteRange(range)).run()
+    }
+    const onPressUp = (): void => {
+        setSelectedIndex(Math.max(selectedIndex - 1, -1))
+    }
+    const onPressDown = (): void => {
+        setSelectedIndex(Math.min(selectedIndex + 1, SLASH_COMMANDS.length - 1))
+    }
 
-    // const upHandler = () => {
-    //     setSelectedIndex((selectedIndex + props.items.length - 1) % props.items.length)
-    // }
-
-    // const downHandler = () => {
-    //     setSelectedIndex((selectedIndex + 1) % props.items.length)
-    // }
-
-    // const enterHandler = () => {
-    //     selectItem(selectedIndex)
-    // }
-
-    // useEffect(() => setSelectedIndex(0), [props.items])
-
-    const onPressEnter = () => {}
-    const onPressUp = () => {}
-    const onPressDown = () => {}
+    const onPressLeft = (): void => {
+        setSelectedHorizontalIndex(Math.max(selectedHorizontalIndex - 1, 0))
+    }
+    const onPressRight = (): void => {
+        setSelectedHorizontalIndex(Math.min(selectedHorizontalIndex + 1, TEXT_CONTROLS.length - 1))
+    }
 
     useImperativeHandle(ref, () => ({
         onKeyDown: ({ event }) => {
             const keyMappings = {
                 ArrowUp: onPressUp,
                 ArrowDown: onPressDown,
+                ArrowLeft: onPressLeft,
+                ArrowRight: onPressRight,
                 Enter: onPressEnter,
             }
 
@@ -149,31 +133,44 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
     }
 
     return (
-        <div className="SlashCommands">
-            <div className="flex items-center gap-1 border-b pb-1">
-                {TEXT_CONTROLS.map((item) => (
+        <div className="SlashCommands space-y-px">
+            <div className="flex items-center gap-1">
+                {TEXT_CONTROLS.map((item, index) => (
                     <LemonButton
                         key={item.title}
                         status="primary-alt"
                         size="small"
-                        onClick={() => item.command({ editor, insertPostHogNode })}
+                        active={selectedIndex === -1 && selectedHorizontalIndex === index}
+                        onClick={() => item.command(editor.chain().focus().deleteRange(range)).run()}
                     >
                         {item.title}
                     </LemonButton>
                 ))}
             </div>
 
-            {SLASH_COMMANDS.map((item) => (
+            <LemonDivider className="my-0" />
+
+            {SLASH_COMMANDS.map((item, index) => (
                 <LemonButton
                     key={item.title}
                     fullWidth
                     status="stealth"
                     icon={item.icon}
-                    onClick={() => item.command({ editor, insertPostHogNode })}
+                    active={index === selectedIndex}
+                    onClick={() => item.command(editor.chain().focus().deleteRange(range)).run()}
                 >
                     {item.title}
                 </LemonButton>
             ))}
+
+            {mode === 'add' && (
+                <>
+                    <LemonDivider className="my-0" />
+                    <div className="text-xs text-muted-alt p-1">
+                        You can trigger this menu by typing <KeyboardShortcut forwardslash />
+                    </div>
+                </>
+            )}
         </div>
     )
 })
@@ -182,7 +179,13 @@ const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     props: SlashCommandsProps,
     ref
 ): JSX.Element | null {
-    return <Popover overlay={<SlashCommands ref={ref} />} visible referenceElement={props.decorationNode} />
+    return (
+        <Popover
+            overlay={<SlashCommands ref={ref} {...props} mode="slash" />}
+            visible
+            referenceElement={props.decorationNode}
+        />
+    )
 })
 
 export function FloatingSlashCommands(): JSX.Element | null {
@@ -210,7 +213,7 @@ export function FloatingSlashCommands(): JSX.Element | null {
                 size="small"
                 icon={<IconPlus />}
                 dropdown={{
-                    overlay: <SlashCommands />,
+                    overlay: <SlashCommands mode="add" editor={editor} range={undefined} />,
                     placement: 'right-start',
                     fallbackPlacements: ['left-start'],
                     actionable: true,
@@ -230,10 +233,10 @@ export const SlashCommandsExtension = Extension.create({
                 editor: this.editor,
                 char: '/',
                 startOfLine: true,
-                command: ({ editor, range, props }) => {
-                    console.log('COMMAND', props, props.command)
-                    props.command({ editor, range })
-                },
+                // command: ({ editor, range, props }) => {
+                //     console.log('COMMAND', props, props.command)
+                //     props.command({ editor, range })
+                // },
                 items: ({ query }) => {
                     return SLASH_COMMANDS.filter((item) => item.title.toLowerCase().startsWith(query.toLowerCase()))
                 },
@@ -266,7 +269,6 @@ export const SlashCommandsExtension = Extension.create({
                         },
 
                         onExit() {
-                            // popup[0].destroy()
                             renderer.destroy()
                         },
                     }
