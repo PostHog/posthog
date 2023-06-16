@@ -72,7 +72,11 @@ export function Query(props: QueryProps): JSX.Element | null {
 
         return (
             <ErrorBoundary>
-                <DraggableToNotebook node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }}>
+                <DraggableToNotebook
+                    node={NotebookNodeType.Query}
+                    properties={{ query: queryWithoutFull }}
+                    className="flex flex-1 overflow-hidden"
+                >
                     {!!props.context?.showQueryEditor ? (
                         <>
                             <QueryEditor

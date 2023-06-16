@@ -545,17 +545,16 @@ export function EventsTable({
                               }
                             : undefined
                     }
+                    footer={
+                        hasNext || isLoadingNext ? (
+                            <div className="m-2 flex items-center">
+                                <LemonButton onClick={fetchNextEvents} loading={isLoadingNext} fullWidth center>
+                                    Load more events
+                                </LemonButton>
+                            </div>
+                        ) : null
+                    }
                 />
-                {hasNext || isLoadingNext ? (
-                    <LemonButton
-                        type="primary"
-                        onClick={fetchNextEvents}
-                        loading={isLoadingNext}
-                        className="my-8 mx-auto"
-                    >
-                        Load more events
-                    </LemonButton>
-                ) : null}
             </div>
             <SessionPlayerModal />
         </>
