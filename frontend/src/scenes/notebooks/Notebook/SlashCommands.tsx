@@ -1,12 +1,12 @@
 import { ChainedCommands, Editor, Extension, Range } from '@tiptap/core'
-import Suggestion, { SuggestionKeyDownProps } from '@tiptap/suggestion'
+import Suggestion from '@tiptap/suggestion'
 
 import { FloatingMenu, ReactRenderer } from '@tiptap/react'
 import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { IconCohort, IconPlus, IconQueryEditor, IconRecording, IconTableChart } from 'lib/lemon-ui/icons'
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { isCurrentNodeEmpty } from './utils'
 import { NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
@@ -23,7 +23,7 @@ type SlashCommandsProps = {
 }
 
 type SlashCommandsRef = {
-    onKeyDown: (props: SuggestionKeyDownProps) => boolean | undefined
+    onKeyDown: (event: KeyboardEvent) => boolean
 }
 
 type SlashCommandsItem = {
@@ -131,8 +131,8 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
         setSelectedHorizontalIndex(Math.min(selectedHorizontalIndex + 1, TEXT_CONTROLS.length - 1))
     }
 
-    useImperativeHandle(ref, () => ({
-        onKeyDown: ({ event }) => {
+    const onKeyDown = useCallback(
+        (event: KeyboardEvent): boolean => {
             const keyMappings = {
                 ArrowUp: onPressUp,
                 ArrowDown: onPressDown,
@@ -148,7 +148,31 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
 
             return false
         },
-    }))
+        [selectedIndex, selectedHorizontalIndex]
+    )
+
+    // Expose the keydown handler to the tiptap extension
+    useImperativeHandle(ref, () => ({ onKeyDown }))
+
+    useEffect(() => {
+        if (mode !== 'add') {
+            return
+        }
+
+        console.log('Listening')
+        // If not opened from a slash command, we want to add our own keyboard listeners
+        const keyDownListener = (event: KeyboardEvent): void => {
+            console.log('keydown', event)
+            const preventDefault = onKeyDown(event)
+            if (preventDefault) {
+                event.preventDefault()
+            }
+        }
+
+        window.addEventListener('keydown', keyDownListener, true)
+
+        return () => window.removeEventListener('keydown', keyDownListener, true)
+    }, [onKeyDown, mode])
 
     if (!editor) {
         return null
@@ -176,7 +200,7 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
                 <LemonButton
                     key={item.title}
                     fullWidth
-                    status="stealth"
+                    status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
                     onClick={() => item.command(editor.chain().focus().deleteRange(range)).run()}
@@ -247,7 +271,7 @@ export function FloatingSlashCommands(): JSX.Element | null {
 }
 
 export const SlashCommandsExtension = Extension.create({
-    name: 'commands',
+    name: 'slash-commands',
 
     addProseMirrorPlugins() {
         return [
@@ -279,7 +303,7 @@ export const SlashCommandsExtension = Extension.create({
                                 renderer.destroy()
                                 return true
                             }
-                            return renderer.ref?.onKeyDown(props) ?? false
+                            return renderer.ref?.onKeyDown(props.event) ?? false
                         },
 
                         onExit() {
