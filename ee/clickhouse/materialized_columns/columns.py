@@ -73,6 +73,9 @@ def materialize(
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
+    # prevent schema from getting out of sync on new parts coming in while the column is added
+    sync_execute(f"DETACH VIEW IF EXISTS {table}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
+
     if table == "events":
         sync_execute(
             f"""
@@ -110,6 +113,8 @@ def materialize(
         {"comment": f"column_materializer::{table_column}::{property}"},
         settings={"alter_sync": 1},
     )
+
+    sync_execute(f"ATTACH TABLE IF NOT EXISTS {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
 
     if create_minmax_index:
         add_minmax_index(table, column_name)
