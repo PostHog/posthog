@@ -6,16 +6,18 @@ import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lem
 import { useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { IconCohort, IconPlus, IconQueryEditor, IconRecording, IconTableChart } from 'lib/lemon-ui/icons'
-import { forwardRef, useCallback, useImperativeHandle, useState } from 'react'
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useState } from 'react'
 import { isCurrentNodeEmpty } from './utils'
 import { NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import Fuse from 'fuse.js'
 
 type SlashCommandsProps = {
     editor: Editor
     mode: 'slash' | 'add'
+    query?: string
     range?: Range
     decorationNode?: any
 }
@@ -80,12 +82,32 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
 ]
 
 const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { mode, editor, range = { from: 0, to: 0 } },
+    { mode, editor, range = { from: 0, to: 0 }, query },
     ref
 ): JSX.Element | null {
     // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
+
+    const allCommmands = [...TEXT_CONTROLS, ...SLASH_COMMANDS]
+
+    const fuse = useMemo(() => {
+        return new Fuse(allCommmands, {
+            keys: ['title'],
+            threshold: 0.3,
+        })
+    }, [allCommmands])
+
+    const filteredCommands = useMemo(() => {
+        if (!query) {
+            return allCommmands
+        }
+        return fuse.search(query).map((result) => result.item)
+    }, [query, fuse])
+
+    const filteredSlashCommands = useMemo(() => {
+        return filteredCommands.filter((item) => SLASH_COMMANDS.includes(item))
+    }, [filteredCommands])
 
     const onPressEnter = (): void => {
         const command =
@@ -150,7 +172,7 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
 
             <LemonDivider className="my-0" />
 
-            {SLASH_COMMANDS.map((item, index) => (
+            {filteredSlashCommands.map((item, index) => (
                 <LemonButton
                     key={item.title}
                     fullWidth
@@ -233,14 +255,6 @@ export const SlashCommandsExtension = Extension.create({
                 editor: this.editor,
                 char: '/',
                 startOfLine: true,
-                // command: ({ editor, range, props }) => {
-                //     console.log('COMMAND', props, props.command)
-                //     props.command({ editor, range })
-                // },
-                items: ({ query }) => {
-                    return SLASH_COMMANDS.filter((item) => item.title.toLowerCase().startsWith(query.toLowerCase()))
-                },
-
                 render: () => {
                     let renderer: ReactRenderer<SlashCommandsRef>
 
