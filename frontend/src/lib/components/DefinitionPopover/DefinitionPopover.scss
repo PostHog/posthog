@@ -74,7 +74,7 @@
 
     .definition-popover-description {
         font-weight: 400;
-        margin-bottom: 4px;
+        margin: 4px 0;
         overflow-wrap: break-word;
 
         &.empty {
@@ -89,7 +89,6 @@
     }
 
     .definition-popover-timemeta {
-        display: inline;
         margin-top: 8px;
         margin-bottom: 4px;
 
