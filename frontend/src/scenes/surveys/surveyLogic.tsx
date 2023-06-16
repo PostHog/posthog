@@ -176,9 +176,7 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         installSurveyPlugin: async (_, breakpoint) => {
             actions.setInstallingPlugin(true)
-            const installPl = async (): Promise<void> =>
-                actions.installPlugin('https://github.com/PostHog/feature-surveys', PluginInstallationType.Repository)
-            await installPl()
+            actions.installPlugin('https://github.com/PostHog/feature-surveys', PluginInstallationType.Repository)
             await breakpoint(600)
             actions.setInstallingPlugin(false)
         },
