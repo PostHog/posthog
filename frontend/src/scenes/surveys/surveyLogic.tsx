@@ -21,6 +21,7 @@ import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginInstallationType } from 'scenes/plugins/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface NewSurvey
     extends Pick<
@@ -91,7 +92,21 @@ export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        actions: [surveysLogic, ['loadSurveys'], pluginsLogic, ['installPlugin']],
+        actions: [
+            surveysLogic,
+            ['loadSurveys'],
+            pluginsLogic,
+            ['installPlugin'],
+            eventUsageLogic,
+            [
+                'reportSurveyCreated',
+                'reportSurveyLaunched',
+                'reportSurveyEdited',
+                'reportSurveyArchived',
+                'reportSurveyStopped',
+                'reportSurveyViewed',
+            ],
+        ],
         values: [pluginsLogic, ['installedPlugins']],
     })),
     actions({
@@ -107,11 +122,13 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await api.surveys.get(props.id)
+                    const survey = await api.surveys.get(props.id)
+                    actions.reportSurveyViewed(survey)
+                    return survey
                 }
                 return { ...NEW_SURVEY }
             },
@@ -124,6 +141,9 @@ export const surveyLogic = kea<surveyLogicType>([
             launchSurvey: async () => {
                 const startDate = dayjs()
                 return await api.surveys.update(props.id, { start_date: startDate.toISOString() })
+            },
+            stopSurvey: async () => {
+                return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
             },
         },
     })),
@@ -140,16 +160,19 @@ export const surveyLogic = kea<surveyLogicType>([
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
             router.actions.replace(urls.survey(survey.id))
+            actions.reportSurveyCreated(survey)
         },
         updateSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} updated</>)
             actions.editingSurvey(false)
+            actions.reportSurveyEdited(survey)
             actions.loadSurveys()
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
             actions.setDataTableQuery(getSurveyDataQuery(survey.name))
             actions.loadSurveys()
+            actions.reportSurveyLaunched(survey)
         },
         installSurveyPlugin: async (_, breakpoint) => {
             actions.setInstallingPlugin(true)
@@ -159,9 +182,9 @@ export const surveyLogic = kea<surveyLogicType>([
             await breakpoint(600)
             actions.setInstallingPlugin(false)
         },
-        stopSurvey: async () => {
-            const endDate = dayjs()
-            actions.updateSurvey({ end_date: endDate.toISOString() })
+        stopSurveySuccess: ({ survey }) => {
+            actions.loadSurveys()
+            actions.reportSurveyStopped(survey)
         },
         archiveSurvey: async () => {
             actions.updateSurvey({ archived: true })
