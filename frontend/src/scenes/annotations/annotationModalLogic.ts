@@ -118,6 +118,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                     return // If the annotation isn't there by now, then we're lost
                 }
                 actions.openModalToEditAnnotation(deserializeAnnotation(annotation, teamLogic.values.timezone))
+                delete cache.annotationToShowId
             }
         },
     })),
