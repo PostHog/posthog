@@ -35,6 +35,7 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IngestionInfo } from './IngestionInfo'
+import { ExtraTeamSettings } from './ExtraTeamSettings'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -230,6 +231,7 @@ export function ProjectSettings(): JSX.Element {
                 <SessionRecording />
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
+                <ExtraTeamSettings />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (

@@ -1,23 +1,23 @@
 import { NotebookType, UserBasicType } from '~/types'
 
 const TEMPLATE_USERS: Record<string, UserBasicType> = {
-    ben: {
+    posthog: {
         id: 1,
-        uuid: 'ben@posthog.com',
+        uuid: 'posthog@posthog.com',
         distinct_id: '1',
-        first_name: 'Ben',
-        email: 'ben@posthog.com',
+        first_name: 'PostHog',
+        email: 'posthog@posthog.com',
     },
 }
 
 export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
     {
         short_id: 'template-introduction',
-        title: 'Introducing Notebooks',
+        title: 'Introducing Notebooks! 🥳',
         created_at: '2023-06-02T00:00:00Z',
         last_modified_at: '2023-06-02T00:00:00Z',
-        created_by: TEMPLATE_USERS['ben'],
-        last_modified_by: TEMPLATE_USERS['ben'],
+        created_by: TEMPLATE_USERS.posthog,
+        last_modified_by: TEMPLATE_USERS.posthog,
         version: 1,
         content: {
             type: 'doc',
@@ -250,4 +250,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
             ],
         },
     },
-]
+].map((template) => ({
+    ...template,
+    is_template: true,
+}))

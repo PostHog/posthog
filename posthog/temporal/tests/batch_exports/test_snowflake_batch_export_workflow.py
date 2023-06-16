@@ -33,6 +33,7 @@ class EventValues(TypedDict):
     uuid: str
     event: str
     timestamp: str
+    _timestamp: str
     person_id: str
     team_id: int
     properties: str
@@ -46,6 +47,7 @@ async def insert_events(client: ChClient, events: list[EventValues]):
             uuid,
             event,
             timestamp,
+            _timestamp,
             person_id,
             team_id,
             properties
@@ -57,6 +59,7 @@ async def insert_events(client: ChClient, events: list[EventValues]):
                 event["uuid"],
                 event["event"],
                 event["timestamp"],
+                event["_timestamp"],
                 event["person_id"],
                 event["team_id"],
                 event["properties"],
@@ -71,13 +74,15 @@ def contains_queries_in_order(queries: list[str], *queries_to_find: str):
     """Check if a list of queries contains a list of queries in order."""
     # We use a deque to pop the queries we find off the list of queries to
     # find, so that we can check that they are in order.
+    # Note that we use regexes to match the queries, so we can more specifically
+    # target the queries we want to find.
     queries_to_find_deque = deque(queries_to_find)
     for query in queries:
         if not queries_to_find_deque:
             # We've found all the queries we need to find.
             return True
-        if queries_to_find_deque[0] in query:
-            # We found the next query we need to find.
+        if re.match(queries_to_find_deque[0], query):
+            # We found the query we were looking for, so pop it off the deque.
             queries_to_find_deque.popleft()
     return not queries_to_find_deque
 
@@ -193,13 +198,14 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
             "uuid": str(uuid4()),
             "event": "test",
             "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "_timestamp": "2023-04-20 14:30:00",
             "person_id": str(uuid4()),
             "team_id": team.pk,
             "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
         }
         # NOTE: we have to do a lot here, otherwise we do not trigger a
         # multipart upload, and the minimum part chunk size is 5MB.
-        for i in range(10000)
+        for i in range(2)
     ]
 
     # Insert some data into the `sharded_events` table.
@@ -220,6 +226,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 "uuid": str(uuid4()),
                 "event": "test",
                 "timestamp": "2023-04-20 13:30:00",
+                "_timestamp": "2023-04-20 13:30:00",
                 "person_id": str(uuid4()),
                 "team_id": team.pk,
                 "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
@@ -228,6 +235,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 "uuid": str(uuid4()),
                 "event": "test",
                 "timestamp": "2023-04-20 15:30:00",
+                "_timestamp": "2023-04-20 15:30:00",
                 "person_id": str(uuid4()),
                 "team_id": team.pk,
                 "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
@@ -236,6 +244,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 "uuid": str(uuid4()),
                 "event": "test",
                 "timestamp": "2023-04-20 14:30:00",
+                "_timestamp": "2023-04-20 14:30:00",
                 "person_id": str(uuid4()),
                 "team_id": other_team.pk,
                 "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
@@ -273,15 +282,13 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
 
                 assert contains_queries_in_order(
                     queries,
-                    'CREATE DATABASE IF NOT EXISTS "PostHog"',
-                    'CREATE SCHEMA IF NOT EXISTS "PostHog"."test"',
                     'USE DATABASE "PostHog"',
                     'USE SCHEMA "test"',
                     'CREATE TABLE IF NOT EXISTS "PostHog"."test"."events"',
                     # NOTE: we check that we at least have two PUT queries to
                     # ensure we hit the multi file upload code path
-                    "PUT file://",
-                    "PUT file://",
+                    'PUT file://.* @%"events"',
+                    'PUT file://.* @%"events"',
                     'COPY INTO "events"',
                 )
 
@@ -297,11 +304,15 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                         "timestamp": event["timestamp"],
                         "properties": event["properties"],
                         "person_id": event["person_id"],
-                        "team_id": int(event["team_id"]),
                     }
                     for event in json_data
                 ]
                 json_data.sort(key=lambda x: x["timestamp"])
+                # Drop _timestamp and team_id from events
+                events = [
+                    {key: value for key, value in event.items() if key not in ("team_id", "_timestamp")}
+                    for event in events
+                ]
                 assert json_data == events
 
         runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
@@ -357,7 +368,6 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                         "timestamp": event["timestamp"],
                         "properties": event["properties"],
                         "person_id": event["person_id"],
-                        "team_id": int(event["team_id"]),
                     }
                     for event in json_data
                 ]

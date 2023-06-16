@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from posthog.async_migrations.status import async_migrations_ok
 from posthog.clickhouse.system_status import dead_letter_queue_ratio_ok_cached
+from posthog.cloud_utils import is_cloud
 from posthog.gitsha import GIT_SHA
 from posthog.permissions import SingleTenancyOrAdmin
 from posthog.storage import object_storage
@@ -147,7 +148,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             {
                 "system_status_ok": (
                     # :TRICKY: Cloud alerts of services down via pagerduty
-                    settings.MULTI_TENANCY
+                    is_cloud()
                     or (
                         is_redis_alive()
                         and is_postgres_alive()

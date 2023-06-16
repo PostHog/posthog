@@ -12,6 +12,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { pluralize } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { api } from '@posthog/apps-common'
+import { FuseSearchMatch } from './utils'
 
 const fuse = new Fuse<CohortType>([], {
     keys: [{ name: 'name', weight: 2 }],
@@ -19,11 +20,6 @@ const fuse = new Fuse<CohortType>([], {
     ignoreLocation: true,
     includeMatches: true,
 })
-
-export interface SearchMatch {
-    indices: readonly [number, number][]
-    key: string
-}
 
 export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'cohortsSidebarLogic']),
@@ -89,9 +85,9 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
         ],
         relevantCohorts: [
             (s) => [s.cohorts, navigation3000Logic.selectors.searchTerm],
-            (cohorts, searchTerm): [CohortType, SearchMatch[] | null][] => {
+            (cohorts, searchTerm): [CohortType, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
-                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as SearchMatch[]])
+                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return cohorts.map((cohort) => [cohort, null])
             },

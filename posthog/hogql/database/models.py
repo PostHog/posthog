@@ -1,11 +1,17 @@
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Extra
 
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
 
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
+
+
 class DatabaseField(BaseModel):
-    """Base class for a field in a database table."""
+    """
+    Base class for a field in a database table.
+    """
 
     class Config:
         extra = Extra.forbid
@@ -18,11 +24,19 @@ class IntegerDatabaseField(DatabaseField):
     pass
 
 
+class FloatDatabaseField(DatabaseField):
+    pass
+
+
 class StringDatabaseField(DatabaseField):
     pass
 
 
 class StringJSONDatabaseField(DatabaseField):
+    pass
+
+
+class DateDatabaseField(DatabaseField):
     pass
 
 
@@ -32,6 +46,13 @@ class DateTimeDatabaseField(DatabaseField):
 
 class BooleanDatabaseField(DatabaseField):
     pass
+
+
+class FieldTraverser(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    chain: List[str]
 
 
 class Table(BaseModel):
@@ -46,11 +67,11 @@ class Table(BaseModel):
             return getattr(self, name)
         raise HogQLException(f'Field "{name}" not found on table {self.__class__.__name__}')
 
-    def clickhouse_table(self):
-        raise NotImplementedException("Table.clickhouse_table not overridden")
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        raise NotImplementedException("Table.to_printed_clickhouse not overridden")
 
-    def hogql_table(self):
-        raise NotImplementedException("Table.hogql_table not overridden")
+    def to_printed_hogql(self) -> str:
+        raise NotImplementedException("Table.to_printed_hogql not overridden")
 
     def avoid_asterisk_fields(self) -> List[str]:
         return []
@@ -85,6 +106,10 @@ class LazyJoin(BaseModel):
 
 
 class LazyTable(Table):
+    """
+    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain])`
+    """
+
     class Config:
         extra = Extra.forbid
 
@@ -93,12 +118,17 @@ class LazyTable(Table):
 
 
 class VirtualTable(Table):
+    """
+    A nested table that reuses the parent for storage. E.g. events.person.* fields with PoE enabled.
+    """
+
     class Config:
         extra = Extra.forbid
 
 
-class FieldTraverser(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class FunctionCallTable(Table):
+    """
+    A table that returns a function call, e.g. numbers(...) or s3(...). The team_id guard is NOT added for these.
+    """
 
-    chain: List[str]
+    name: str

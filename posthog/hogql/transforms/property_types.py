@@ -58,7 +58,7 @@ class PropertyFinder(TraversingVisitor):
     def visit_property_type(self, node: ast.PropertyType):
         if node.field_type.name == "properties" and len(node.chain) == 1:
             if isinstance(node.field_type.table_type, ast.BaseTableType):
-                table = node.field_type.table_type.resolve_database_table().hogql_table()
+                table = node.field_type.table_type.resolve_database_table().to_printed_hogql()
                 if table == "persons" or table == "raw_persons":
                     self.person_properties.add(node.chain[0])
                 if table == "events":
@@ -87,7 +87,7 @@ class PropertySwapper(CloningVisitor):
         type = node.type
         if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
             if isinstance(type.field_type.table_type, ast.BaseTableType):
-                table = type.field_type.table_type.resolve_database_table().hogql_table()
+                table = type.field_type.table_type.resolve_database_table().to_printed_hogql()
                 if table == "persons" or table == "raw_persons":
                     if type.chain[0] in self.person_properties:
                         return self._add_type_to_string_field(node, self.person_properties[type.chain[0]])

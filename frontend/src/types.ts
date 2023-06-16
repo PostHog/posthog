@@ -343,6 +343,7 @@ export interface TeamType extends TeamBasicType {
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
     groups_on_events_querying_enabled: boolean
+    extra_settings?: Record<string, string | number | boolean | undefined>
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
@@ -484,7 +485,6 @@ export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
-    All = 'all',
 }
 
 export enum PropertyFilterType {
@@ -625,14 +625,6 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
-export interface SessionRecordingMeta {
-    pinnedCount: number
-    segments: RecordingSegment[]
-    recordingDurationMs: number
-    startTimestamp: Dayjs
-    endTimestamp: Dayjs
-}
-
 export type RecordingSnapshot = eventWithTime & {
     windowId: string
 }
@@ -695,6 +687,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
 
 export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
 
+export type FilterableLogLevel = 'log' | 'warn' | 'error'
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
@@ -704,6 +697,7 @@ export interface RecordingFilters {
     offset?: number
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationTypeFilter
+    console_logs?: FilterableLogLevel[]
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -980,13 +974,8 @@ export interface SessionRecordingType {
     start_url?: string
     /** Count of number of playlists this recording is pinned to. **/
     pinned_count?: number
-    /** Where this recording information was loaded from (S3 or Clickhouse) */
-    storage?: string
-
-    // These values are only present when loaded as a full recording
-    segments?: SessionRecordingSegmentType[]
-    start_and_end_times_by_window_id?: Record<string, Record<string, string>>
-    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
+    /** Where this recording information was loaded from  */
+    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {
@@ -2017,7 +2006,7 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
-    conditions: { url: string; selector: string } | null
+    conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
     questions: SurveyQuestion[]
     created_at: string
@@ -2129,6 +2118,12 @@ export enum EarlyAccessFeatureStage {
     Alpha = 'alpha',
     Beta = 'beta',
     GeneralAvailability = 'general-availability',
+    Archived = 'archived',
+}
+
+export enum EarlyAccessFeatureTabs {
+    OptedIn = 'opted-in',
+    OptedOut = 'opted-out',
 }
 
 export interface EarlyAccessFeatureType {
@@ -2919,6 +2914,7 @@ export type NotebookListItemType = {
     // id: string
     short_id: string
     title?: string
+    is_template?: boolean
     created_at: string
     created_by: UserBasicType | null
     last_modified_at?: string
@@ -2926,7 +2922,6 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    is_template?: boolean
     content: JSONContent // TODO: Type this better
     version: number
 }

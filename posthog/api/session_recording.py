@@ -58,9 +58,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "matching_events",
             "person",
-            "segments",
-            "start_and_end_times_by_window_id",
-            "snapshot_data_by_window_id",
             "storage",
             "pinned_count",
         ]
@@ -76,7 +73,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "keypress_count",
             "start_url",
             "matching_events",
-            "snapshot_data_by_window_id",
             "storage",
             "pinned_count",
         ]
@@ -244,7 +240,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         else:
             next_url = None
 
-        res = {"next": next_url, "snapshot_data_by_window_id": recording.snapshot_data_by_window_id}
+        res = {
+            "storage": recording.storage,
+            "next": next_url,
+            "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
+        }
 
         # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
         # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error

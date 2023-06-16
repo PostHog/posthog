@@ -4,21 +4,23 @@ import { NotebookListItemType } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { notebooksListLogic } from '../Notebook/notebooksListLogic'
 import { useEffect, useMemo, useState } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { router } from 'kea-router'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
+import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
 
 export function NotebooksTable(): JSX.Element {
-    const { notebooks, notebooksLoading, fuse } = useValues(notebooksListLogic)
+    const { notebooks, notebooksLoading, fuse, notebookTemplates } = useValues(notebooksListLogic)
     const { loadNotebooks } = useActions(notebooksListLogic)
     const [searchTerm, setSearchTerm] = useState('')
 
+    const { setNotebookSideBarShown, selectNotebook } = useActions(notebookSidebarLogic)
+
     const filteredNotebooks = useMemo(
-        () => (searchTerm ? fuse.search(searchTerm).map(({ item }) => item) : notebooks),
+        () => (searchTerm ? fuse.search(searchTerm).map(({ item }) => item) : [...notebooks, ...notebookTemplates]),
         [searchTerm, notebooks, fuse]
     )
 
@@ -31,10 +33,15 @@ export function NotebooksTable(): JSX.Element {
             title: 'Title',
             dataIndex: 'title',
             width: '100%',
-            render: function Render(title, { short_id }) {
+            render: function Render(title, { short_id, is_template }) {
                 return (
-                    <Link data-attr="notebook-title" to={urls.notebook(short_id)} className="font-semibold">
+                    <Link
+                        data-attr="notebook-title"
+                        to={urls.notebook(short_id)}
+                        className="font-semibold flex items-center gap-2"
+                    >
                         {title || 'Untitled'}
+                        {is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     </Link>
                 )
             },
@@ -84,7 +91,10 @@ export function NotebooksTable(): JSX.Element {
             <LemonBanner
                 type="info"
                 action={{
-                    onClick: () => router.actions.push(urls.notebook('template-introduction')),
+                    onClick: () => {
+                        selectNotebook(notebookTemplates[0].short_id)
+                        setNotebookSideBarShown(true)
+                    },
                     children: 'Get started',
                 }}
             >
@@ -106,7 +116,7 @@ export function NotebooksTable(): JSX.Element {
                 rowKey="short_id"
                 columns={columns}
                 loading={notebooksLoading}
-                defaultSorting={{ columnKey: 'title', order: 1 }}
+                defaultSorting={{ columnKey: '-created_at', order: 1 }}
                 emptyState={`No notebooks matching your filters!`}
                 nouns={['notebook', 'notebooks']}
             />

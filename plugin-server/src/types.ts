@@ -29,7 +29,6 @@ import { AppMetrics } from './worker/ingestion/app-metrics'
 import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
-import { PersonManager } from './worker/ingestion/person-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -104,6 +103,7 @@ export interface PluginsServerConfig {
     KAFKA_SASL_MECHANISM: KafkaSaslMechanism | null
     KAFKA_SASL_USER: string | null
     KAFKA_SASL_PASSWORD: string | null
+    KAFKA_CLIENT_RACK: string | null
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -230,7 +230,6 @@ export interface Hub extends PluginsServerConfig {
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
-    personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
     // geoip database, setup in workers

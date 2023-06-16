@@ -74,8 +74,6 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         "version": "2022-12-22",
         "distinct_id": recording.distinct_id,
         "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
-        "start_and_end_times_by_window_id": recording.start_and_end_times_by_window_id,
-        "segments": recording.segments,
     }
 
     # TODO: This is a hack workaround for datetime conversion
