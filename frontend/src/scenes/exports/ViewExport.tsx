@@ -153,7 +153,7 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
                     value={numberOfRuns}
                     disabled={loading}
                     onChange={(newValue) => {
-                        setNumberOfRuns(newValue)
+                        setNumberOfRuns(newValue ? newValue : numberOfRuns)
                     }}
                 />
                 <LemonButton
