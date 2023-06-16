@@ -261,7 +261,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
 interface FlagSelectorProps {
     value: number | undefined
     onChange: (value: any) => void
-    readonly?: boolean
+    readOnly?: boolean
 }
 
 export function FlagSelector({ value, onChange, readOnly }: FlagSelectorProps): JSX.Element {
