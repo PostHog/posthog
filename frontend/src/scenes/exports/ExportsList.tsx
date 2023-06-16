@@ -94,18 +94,18 @@ export function Exports(): JSX.Element {
                     {
                         title: 'Actions',
                         render: function Render(_, export_) {
-                            const {
-                                executeExportAction: pauseExport,
-                                _,
-                                error: pauseError,
-                            } = useExportAction(currentTeamId, export_.id, 'pause')
-                            const {
-                                executeExportAction: resumeExport,
-                                _,
-                                error: resumeError,
-                            } = useExportAction(currentTeamId, export_.id, 'unpause')
+                            const { executeExportAction: pauseExport, error: pauseError } = useExportAction(
+                                currentTeamId,
+                                export_.id,
+                                'pause'
+                            )
+                            const { executeExportAction: resumeExport, error: resumeError } = useExportAction(
+                                currentTeamId,
+                                export_.id,
+                                'unpause'
+                            )
 
-                            const { deleteExport, _, error: deleteError } = useDeleteExport(currentTeamId, export_.id)
+                            const { deleteExport, error: deleteError } = useDeleteExport(currentTeamId, export_.id)
 
                             return (
                                 <div className={clsx('flex flex-wrap gap-2')}>
