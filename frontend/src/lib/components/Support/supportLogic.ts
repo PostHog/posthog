@@ -30,15 +30,15 @@ function getDjangoAdminLink(
     if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/admin${cloudRegion}/?q=${user.email}`
-    return `Admin: ${link} (project ID ${currentTeamId})`
+    const link = `http://go/admin${cloudRegion}/${user.email}`
+    return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
 }
 
 function getSentryLink(user: UserType | null, cloudRegion: Region | undefined): string {
     if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/sentry${cloudRegion}/?q=${user.team?.id}`
+    const link = `http://go/sentry${cloudRegion}/${user.team?.id}`
     return `Sentry: ${link}`
 }
 
