@@ -2123,6 +2123,11 @@ export enum EarlyAccessFeatureStage {
     Archived = 'archived',
 }
 
+export enum EarlyAccessFeatureTabs {
+    OptedIn = 'opted-in',
+    OptedOut = 'opted-out',
+}
+
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string

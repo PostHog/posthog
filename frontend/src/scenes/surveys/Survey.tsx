@@ -93,7 +93,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             htmlType="submit"
                             loading={surveyLoading}
                         >
-                            Save
+                            {id === 'new' ? 'Save as draft' : 'Save'}
                         </LemonButton>
                     </div>
                 }
@@ -140,6 +140,12 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 <PureField label="Targeting (optional)" className="mt-4">
                     <span className="text-muted">
                         Choose when the survey appears based on url, selector, and user properties.
+                    </span>
+                    <span>
+                        <b>
+                            Warning: If there are no targeting options set, the survey will display on all domains to
+                            everyone.
+                        </b>
                     </span>
                     <LemonDivider />
                     <Field name="conditions">
@@ -248,7 +254,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     Cancel
                 </LemonButton>
                 <LemonButton type="primary" data-attr="save-feature-flag" htmlType="submit" loading={surveyLoading}>
-                    Save
+                    {id === 'new' ? 'Save as draft' : 'Save'}
                 </LemonButton>
             </div>
         </Form>
@@ -548,7 +554,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                                         Option 2: Create your own custom survey UI with
                                                                         our headless API
                                                                     </span>
-                                                                    <Link to="/docs/features/surveys">
+                                                                    <Link
+                                                                        to="https://posthog.com/docs/surveys/manual"
+                                                                        target="_blank"
+                                                                    >
                                                                         See documentation
                                                                     </Link>
                                                                 </div>

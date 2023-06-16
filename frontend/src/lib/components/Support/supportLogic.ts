@@ -3,13 +3,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
-import { Region, UserType } from '~/types'
+import { Region, TeamType, UserType } from '~/types'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { captureException } from '@sentry/react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -18,15 +19,19 @@ function getSessionReplayLink(): string {
         0
     )
     const link = `http://go/session/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
-    return `Session: ${link}`
+    return `Session: ${link} (at ${window.location.href})`
 }
 
-function getDjangoAdminLink(user: UserType | null, cloudRegion: Region | undefined): string {
+function getDjangoAdminLink(
+    user: UserType | null,
+    cloudRegion: Region | undefined,
+    currentTeamId: TeamType['id'] | null
+): string {
     if (!user || !cloudRegion) {
         return ''
     }
     const link = `http://go/admin${cloudRegion}/?q=${user.email}`
-    return `Admin: ${link}`
+    return `Admin: ${link} (project ID ${currentTeamId})`
 }
 
 function getSentryLink(user: UserType | null, cloudRegion: Region | undefined): string {
@@ -214,7 +219,7 @@ export const supportLogic = kea<supportLogicType>([
                             '\n' +
                             getSessionReplayLink() +
                             '\n' +
-                            getDjangoAdminLink(userLogic.values.user, cloudRegion) +
+                            getDjangoAdminLink(userLogic.values.user, cloudRegion, teamLogic.values.currentTeamId) +
                             '\n' +
                             getSentryLink(userLogic.values.user, cloudRegion)
                         ).trim(),

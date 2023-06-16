@@ -14,8 +14,8 @@ class StaticCohortPeople(Table):
     def avoid_asterisk_fields(self):
         return ["_timestamp", "_offset"]
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person_static_cohort"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "static_cohort_people"

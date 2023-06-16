@@ -10,8 +10,6 @@ from django.utils.translation import gettext_lazy as _
 
 from posthog.models import (
     Action,
-    ActionStep,
-    Element,
     FeatureFlag,
     GroupTypeMapping,
     Insight,
@@ -19,6 +17,7 @@ from posthog.models import (
     Organization,
     OrganizationMembership,
     Person,
+    PersonDistinctId,
     Plugin,
     PluginAttachment,
     PluginConfig,
@@ -26,12 +25,7 @@ from posthog.models import (
     User,
 )
 
-admin.site.register(Person)
-admin.site.register(Element)
 admin.site.register(FeatureFlag)
-admin.site.register(Action)
-admin.site.register(ActionStep)
-admin.site.register(InstanceSetting)
 
 
 @admin.register(Insight)
@@ -60,6 +54,12 @@ class PluginAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
 
+class ActionInline(admin.TabularInline):
+    extra = 0
+    model = Action
+    classes = ("collapse",)
+
+
 class GroupTypeMappingInline(admin.TabularInline):
     extra = 0
     model = GroupTypeMapping
@@ -72,19 +72,69 @@ class GroupTypeMappingInline(admin.TabularInline):
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "organization_link", "organization_id")
+    list_display = ("id", "name_link", "organization_link", "organization_id", "created_at", "updated_at")
     search_fields = ("id", "name", "organization__id", "organization__name", "api_token")
-    readonly_fields = ["primary_dashboard", "test_account_filters"]
-    exclude = [
-        "event_names",
-        "event_names_with_usage",
-        "plugins_opt_in",
-        "event_properties",
-        "event_properties_with_usage",
-        "event_properties_numerical",
-        "session_recording_retention_period_days",
+    readonly_fields = ["organization", "primary_dashboard", "test_account_filters"]
+    inlines = [GroupTypeMappingInline, ActionInline]
+    fieldsets = [
+        (
+            None,
+            {
+                "fields": [
+                    "name",
+                    "organization",
+                ],
+            },
+        ),
+        (
+            "General",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "api_token",
+                    "timezone",
+                    "slack_incoming_webhook",
+                    "primary_dashboard",
+                ],
+            },
+        ),
+        (
+            "Onboarding",
+            {
+                "classes": ["collapse"],
+                "fields": ["is_demo", "completed_snippet_onboarding", "ingested_event", "signup_token"],
+            },
+        ),
+        (
+            "Settings",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "anonymize_ips",
+                    "autocapture_opt_out",
+                    "autocapture_exceptions_opt_in",
+                    "session_recording_opt_in",
+                    "capture_console_log_opt_in",
+                    "capture_performance_opt_in",
+                    "data_attributes",
+                    "session_recording_version",
+                    "access_control",
+                    "inject_web_apps",
+                    "extra_settings",
+                ],
+            },
+        ),
+        (
+            "Filters",
+            {
+                "classes": ["collapse"],
+                "fields": ["test_account_filters", "test_account_filters_default_checked", "path_cleaning_filters"],
+            },
+        ),
     ]
-    inlines = [GroupTypeMappingInline]
+
+    def name_link(self, team: Team):
+        return format_html('<a href="/admin/posthog/team/{}/change/"><b>{}</b></a>', team.pk, team.name)
 
     def organization_link(self, team: Team):
         return format_html(
@@ -191,13 +241,13 @@ class UserAdmin(DjangoUserAdmin):
         (_("Toolbar authentication"), {"fields": ("temporary_token",)}),
     )
     add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),)
-    list_display = ("email", "first_name", "last_name", "current_organization", "is_staff")
+    list_display = ("email", "first_name", "last_name", "organization_link", "is_staff")
     list_filter = ("is_staff", "is_active", "groups")
     search_fields = ("email", "first_name", "last_name")
     readonly_fields = ["current_organization"]
     ordering = ("email",)
 
-    def current_organization(self, user: User):
+    def organization_link(self, user: User):
         if not user.organization:
             return "None"
 
@@ -242,13 +292,12 @@ class OrganizationTeamInline(admin.TabularInline):
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
+    date_hierarchy = "created_at"
     fields = [
         "name",
         "created_at",
         "updated_at",
         "plugins_access_level",
-        "billing_plan",
-        "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
         "usage",
@@ -257,8 +306,6 @@ class OrganizationAdmin(admin.ModelAdmin):
     readonly_fields = [
         "created_at",
         "updated_at",
-        "billing_plan",
-        "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
         "usage",
@@ -270,7 +317,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         "plugins_access_level",
         "members_count",
         "first_member",
-        "organization_billing_link",
         "billing_link_v2",
     )
 
@@ -281,14 +327,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         user = organization.members.order_by("id").first()
         return format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
 
-    def organization_billing_link(self, organization: Organization) -> str:
-        return format_html(
-            '<a href="/admin/multi_tenancy/organizationbilling/{}/change/">Billing →</a>', organization.pk
-        )
-
     def billing_link_v2(self, organization: Organization) -> str:
-        if not organization.has_billing_v2_setup:
-            return ""
         url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
         return format_html(f'<a href="{url}">Billing V2 →</a>')
 
@@ -301,3 +340,26 @@ class OrganizationAdmin(admin.ModelAdmin):
 
 class OrganizationBillingAdmin(admin.ModelAdmin):
     search_fields = ("name", "members__email")
+
+
+@admin.register(InstanceSetting)
+class InstanceSettingAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "key",
+        "value",
+    )
+
+
+@admin.register(Person)
+class PersonAdmin(admin.ModelAdmin):
+    list_display = ("id", "distinct_ids", "created_at", "team", "is_user", "is_identified", "version")
+    list_filter = ("created_at", "is_identified", "version")
+    search_fields = ("id",)
+
+
+@admin.register(PersonDistinctId)
+class PersonDistinctIdAdmin(admin.ModelAdmin):
+    list_display = ("id", "team", "distinct_id", "version")
+    list_filter = ("version",)
+    search_fields = ("id", "distinct_id")
