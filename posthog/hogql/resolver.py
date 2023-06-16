@@ -7,8 +7,9 @@ from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.constants import HOGQL_FUNCTIONS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable
-from posthog.hogql.errors import ResolverException, HogQLException
+from posthog.hogql.errors import ResolverException
 from posthog.hogql.functions.cohort import cohort
+from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
 
@@ -277,23 +278,8 @@ class Resolver(CloningVisitor):
         """Visit function calls."""
 
         if node.name in HOGQL_FUNCTIONS:
-            arg_count = HOGQL_FUNCTIONS[node.name]
-            if len(node.args) != arg_count:
-                raise HogQLException(
-                    f"Chart function '{node.name}' expects exactly {arg_count} argument{'s' if arg_count != 1 else ''}. Passed {len(node.args)}"
-                )
-
             if node.name == "sparkline":
-                return self.visit(
-                    ast.Tuple(
-                        exprs=[
-                            ast.Constant(value="__hogql_chart_type"),
-                            ast.Constant(value="sparkline"),
-                            ast.Constant(value="results"),
-                            node.args[0],
-                        ]
-                    )
-                )
+                return self.visit(sparkline(node=node, args=node.args))
 
             elif node.name == "cohort":
                 return self.visit(cohort(node=node, args=node.args, context=self.context))
