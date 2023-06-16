@@ -224,11 +224,11 @@ export const keyMapping: KeyMappingInterface = {
         },
         $feature_view: {
             label: 'Feature View',
-            description: 'When a user views a feature flag.',
+            description: 'When a user views a feature.',
         },
         $feature_interaction: {
             label: 'Feature Interaction',
-            description: 'When a user interacts with a feature flag.',
+            description: 'When a user interacts with a feature.',
         },
         $capture_metrics: {
             label: 'Capture Metrics',
