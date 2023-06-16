@@ -44,7 +44,7 @@ export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBudd
             {!isUnlocked && <IconLock className=" absolute right-0 top-0 rounded" />}
             <div className="relative w-8 h-8 overflow-hidden">
                 <img
-                    src={`${baseSpriteAccessoriesPath}/${accessory.img}.${imgExt}`}
+                    src={`${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt}`}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         position: 'absolute',
