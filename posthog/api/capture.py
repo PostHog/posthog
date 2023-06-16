@@ -379,10 +379,7 @@ def get_event(request):
                 # Legacy solution stays in place
                 processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
 
-                if (
-                    random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO
-                    and settings.SESSION_RECORDING_KAFKA_HOSTS
-                ):
+                if random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
                     # The new flow we only enable if the dedicated kafka is enabled
                     processed_replay_events += preprocess_replay_events_for_blob_ingestion(replay_events)
 
